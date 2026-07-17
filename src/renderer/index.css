@@ -508,7 +508,7 @@ body.ultron-app {
 /* Suggestions Bento Grid */
 .suggestions-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
   max-width: 520px;
   margin: auto;
@@ -517,13 +517,18 @@ body.ultron-app {
 
 .suggestion-card {
   border-radius: 14px;
-  padding: 16px 14px;
+  padding: 18px 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   cursor: pointer;
   transition: transform 0.2s, box-shadow 0.2s;
   border: 1px solid rgba(255,255,255,0.06);
+  grid-column: span 1;
+}
+
+.sg-wide {
+  grid-column: span 2;
 }
 
 .suggestion-card:hover {
@@ -531,8 +536,8 @@ body.ultron-app {
   box-shadow: 0 6px 20px rgba(0,0,0,0.4);
 }
 
-.sg-icon { font-size: 18px; }
-.sg-text { font-size: 11px; font-weight: 500; color: rgba(255,255,255,0.85); line-height: 1.3; }
+.sg-icon { color: rgba(255,255,255,0.7); flex-shrink: 0; }
+.sg-text { font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.8); line-height: 1.3; }
 
 .sg-blue   { background: linear-gradient(135deg, #1a3a5c 0%, #0d1f33 100%); }
 .sg-purple { background: linear-gradient(135deg, #3b2667 0%, #1a1333 100%); }
@@ -1289,7 +1294,7 @@ body.ultron-app {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 18px 24px;
+  padding: 12px 24px;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -1385,10 +1390,16 @@ body.ultron-app {
 }
 
 .tab-pane h4 {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--accent-white);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+}
+
+.tab-pane .text-xs {
+  font-size: 11px;
+  color: #6b7280;
+  line-height: 1.5;
 }
 
 .profile-details-card {
