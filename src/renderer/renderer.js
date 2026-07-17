@@ -105,6 +105,10 @@ function renderChecklist(tasks) {
 
 // Append Message to Chat Container and save in conversationsStore
 function appendChatMessage(sender, text, isAi = false) {
+  const chatMain = document.querySelector('.chat-main');
+  if (chatMain && chatMain.classList.contains('empty-state')) {
+    chatMain.classList.remove('empty-state');
+  }
 
   const messageDiv = document.createElement('div');
   messageDiv.className = `chat-message flex gap-4 max-w-3xl ${isAi ? 'ai' : 'user'}`;
