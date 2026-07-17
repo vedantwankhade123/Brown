@@ -114,13 +114,11 @@ function appendChatMessage(sender, text, isAi = false) {
   const messageDiv = document.createElement('div');
   messageDiv.className = `chat-message flex gap-4 max-w-3xl ${isAi ? 'ai' : 'user'}`;
   
-  const avatar = document.createElement('div');
-  avatar.className = `avatar ${isAi ? 'ai' : 'user'}`;
-  
   if (isAi) {
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar ai';
     avatar.innerHTML = `<img src="../Assets/ultron-logo.png" alt="Ultron" />`;
-  } else {
-    avatar.textContent = 'H';
+    messageDiv.appendChild(avatar);
   }
   
   const content = document.createElement('div');
@@ -129,13 +127,7 @@ function appendChatMessage(sender, text, isAi = false) {
   // Parse markdown securely via ContextBridge
   content.innerHTML = window.ultronAPI.parseMarkdown(text);
   
-  if (isAi) {
-    messageDiv.appendChild(avatar);
-    messageDiv.appendChild(content);
-  } else {
-    messageDiv.appendChild(content);
-    messageDiv.appendChild(avatar); // User avatar on right
-  }
+  messageDiv.appendChild(content);
   
   chatMessagesContainer.appendChild(messageDiv);
   chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
