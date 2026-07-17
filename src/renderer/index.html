@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ultron: Windows Offline AI Agent</title>
+  <link rel="stylesheet" href="index.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body class="ultron-app">
+
+  <!-- LEFT SIDEBAR: GEMINI SYSTEM MATRIX -->
+  <aside id="left-sidebar" class="sidebar">
+    <div class="sidebar-top">
+      <!-- Title Header -->
+      <div class="brand-header">
+        <div class="brand-left">
+          <img src="../../Assets/ultron-logo.png" class="brand-logo" alt="Ultron Logo">
+          <span class="brand-name">Ultron</span>
+        </div>
+        <button id="btn-toggle-left-sidebar" class="btn-toggle-left-sidebar" title="Collapse navigation">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+          </svg>
+        </button>
+      </div>
+      
+      <!-- Navigation Menu -->
+      <nav class="nav-menu">
+        <div class="nav-item active" id="nav-new-chat">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+            <path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+          </svg>
+          <span class="nav-text">New chat</span>
+        </div>
+        <div class="nav-item" id="nav-search-chats">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <span class="nav-text">Search chats</span>
+        </div>
+      </nav>
+
+      <!-- Recent Section -->
+      <div class="sidebar-section">
+        <span class="section-title">Recent</span>
+        <div id="session-history-list" class="section-list">
+          <!-- populated dynamically, no dummy data -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Gear Footer -->
+    <div class="sidebar-footer">
+      <div class="profile-block">
+        <div class="avatar-circle">VW</div>
+        <div class="profile-info">
+          <span class="profile-name">Vedant Wankhade</span>
+        </div>
+      </div>
+      <div class="settings-trigger" id="btn-settings" title="Toggle settings">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CENTER COLUMN: CHAT CANVAS & PROMPTS -->
+  <main class="chat-main">
+    <!-- Chat Header -->
+    <header class="chat-header">
+      <span id="active-chat-title" class="chat-title">New chat</span>
+      <div class="chat-header-actions">
+        <select id="chat-model-select" class="model-select-dropdown header-model-select">
+          <!-- populated dynamically -->
+        </select>
+        <button id="btn-toggle-right-sidebar-open" class="btn-toggle-right-sidebar hidden" title="Expand metrics panel">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="15" y1="3" x2="15" y2="21"></line>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+
+    <!-- Chat Area -->
+    <div id="chat-messages-container" class="chat-container">
+      <!-- AI Welcome Message (Transparent styling) -->
+      <div class="chat-message ai">
+        <div class="avatar ai">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M12 2a1 1 0 0 1 1 1v3a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1z"></path>
+            <path d="M4 11V9a4 4 0 0 1 8 0v2M20 11V9a4 4 0 0 0-8 0v2"></path>
+          </svg>
+        </div>
+        <div class="message-content">
+          Welcome to **Ultron**. I am your 100% offline local Windows AI Agent, operating within verified security bounds. 
+          Hardware configurations have been profiled successfully. Let me know how I can assist with local tasks today.
+        </div>
+      </div>
+    </div>
+
+    <!-- UI Overlay Permission Dialog (Floats above input pill) -->
+    <div id="permission-dialog" class="permission-modal hidden">
+      <div class="permission-content">
+        <div class="permission-header">
+          <div class="alert-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+          </div>
+          <div class="permission-title-area">
+            <h4 class="permission-title">Review Mode Authorization Required</h4>
+            <p id="perm-reason-text" class="permission-subtitle">The agent requested execution of a local subsystem modification.</p>
+          </div>
+        </div>
+        
+        <div class="code-block-container">
+          <span class="code-title">Target Action</span>
+          <div id="perm-action-code" class="code-content"></div>
+        </div>
+        
+        <!-- Modification Field -->
+        <div class="override-field">
+          <label for="perm-override-input" class="override-label">Authorization Constraints / Overrides</label>
+          <input type="text" id="perm-override-input" placeholder="Supply optional custom parameters or execution filters..." class="override-input">
+        </div>
+
+        <div class="permission-actions">
+          <button id="btn-perm-deny" class="btn-deny">Deny Action</button>
+          <button id="btn-perm-accept" class="btn-accept">Accept & Run</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FLOATING INPUT PILL -->
+    <div class="input-wrapper">
+      <div class="input-pill input-pill-stacked">
+        <!-- Main Prompt Input -->
+        <textarea id="chat-input" placeholder="Ask Ultron to execute local tasks..." class="chat-input-field" rows="1"></textarea>
+
+        <!-- Actions Row at Bottom -->
+        <div class="input-pill-actions">
+          <div class="input-actions-left">
+            <button id="btn-attach" class="input-action-btn btn-attach-text">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+              </svg>
+              <span>Attach</span>
+            </button>
+          </div>
+          <div class="input-actions-right">
+            <button id="btn-mic" class="input-action-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
+              </svg>
+            </button>
+            <button id="btn-send" class="btn-send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                <line x1="12" y1="19" x2="12" y2="5"></line>
+                <polyline points="5 12 12 5 19 12"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- DRAGGABLE SPLITTER RESIZER -->
+  <div id="right-sidebar-resizer" class="sidebar-resizer"></div>
+
+  <!-- RIGHT SIDEBAR: TASK & ENGINE ANALYTICS -->
+  <aside id="analytics-sidebar" class="analytics-sidebar">
+    <!-- Top header for analytics sidebar -->
+    <div class="analytics-header">
+      <span class="header-title">System Metrics</span>
+      <button id="btn-toggle-right-sidebar-close" class="btn-toggle-right-sidebar" title="Collapse metrics panel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="15" y1="3" x2="15" y2="21"></line>
+        </svg>
+      </button>
+    </div>
+    
+    <!-- Hardware Interface Card (Collapsible) -->
+    <div id="section-hardware" class="right-section collapsible collapsed">
+      <div class="section-header-clickable">
+        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
+          <rect x="9" y="9" width="6" height="6"></rect>
+          <line x1="9" y1="1" x2="9" y2="4"></line>
+          <line x1="15" y1="1" x2="15" y2="4"></line>
+          <line x1="9" y1="20" x2="9" y2="23"></line>
+          <line x1="15" y1="20" x2="15" y2="23"></line>
+          <line x1="20" y1="9" x2="23" y2="9"></line>
+          <line x1="20" y1="15" x2="23" y2="15"></line>
+          <line x1="1" y1="9" x2="4" y2="9"></line>
+          <line x1="1" y1="15" x2="4" y2="15"></line>
+        </svg>
+        <span class="section-title">Engine</span>
+        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
+      <div class="section-body">
+        <div class="hardware-card">
+          <div class="card-body">
+            <div class="info-row">
+              <span class="info-label">Active Profile:</span>
+              <span id="stat-recommendation" class="info-value value-mono">Detecting...</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">System Memory:</span>
+              <span id="stat-ram" class="info-value value-mono">-- GB</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Core Threads:</span>
+              <span id="stat-cpu" class="info-value value-mono">-- Cores</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">GPU Adapter:</span>
+              <span id="stat-gpu" class="info-value value-mono value-truncate">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Security Mode Picker (Collapsible) -->
+    <div id="section-security" class="right-section collapsible collapsed">
+      <div class="section-header-clickable">
+        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+        </svg>
+        <span class="section-title">Security</span>
+        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
+      <div class="section-body">
+        <select id="select-security-mode" class="security-dropdown">
+          <option value="Review">Review Mode (Human Validation)</option>
+          <option value="Containment">Containment Mode (Sandbox)</option>
+          <option value="Adaptive">Adaptive Auto Mode (Smart)</option>
+          <option value="Trusted">Full Trusted Automation Mode</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Task List Tracker (Collapsible) -->
+    <div id="section-checklist" class="right-section collapsible collapsed">
+      <div class="section-header-clickable">
+        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="9 11 12 14 22 4"></polyline>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+        </svg>
+        <span class="section-title">Tasks</span>
+        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
+      <div class="section-body">
+        <div id="task-checklist-container" class="checklist-container">
+          <!-- populated dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Real-Time Trace Log (Collapsible) -->
+    <div id="section-trace" class="right-section collapsible collapsed">
+      <div class="section-header-clickable">
+        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="8" y1="6" x2="21" y2="6"></line>
+          <line x1="8" y1="12" x2="21" y2="12"></line>
+          <line x1="8" y1="18" x2="21" y2="18"></line>
+          <line x1="3" y1="6" x2="3.01" y2="6"></line>
+          <line x1="3" y1="12" x2="3.01" y2="12"></line>
+          <line x1="3" y1="18" x2="3.01" y2="18"></line>
+        </svg>
+        <span class="section-title">Logs</span>
+        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </div>
+      <div class="section-body">
+        <div id="trace-logs-stream" class="trace-container">
+          <!-- populated dynamically -->
+        </div>
+      </div>
+    </div>
+    
+  </aside>
+
+  <!-- Settings Page Overlay Modal -->
+  <div id="settings-modal" class="settings-modal hidden">
+    <div class="settings-modal-content">
+      <div class="settings-modal-header">
+        <div class="settings-header-title-wrapper" style="display: flex; align-items: center; gap: 8px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" style="color: var(--accent-white);">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <h3 class="settings-title" style="margin: 0; font-size: 15px; font-weight: 600; color: var(--accent-white);">Settings</h3>
+        </div>
+        <button id="btn-close-settings" class="btn-close-settings">&times;</button>
+      </div>
+      <div class="settings-modal-body-layout">
+        <!-- Settings Sidebar (Left side of modal) -->
+        <aside class="settings-sidebar">
+          <div class="settings-tab-btn active" data-tab="account">Account</div>
+          <div class="settings-tab-btn" data-tab="models">Models</div>
+          <div class="settings-tab-btn" data-tab="permissions">Permissions</div>
+          <div class="settings-tab-btn" data-tab="apps">Apps</div>
+        </aside>
+        
+        <!-- Settings Tab Contents (Right side of modal) -->
+        <main class="settings-tab-content">
+          <!-- Account Tab -->
+          <div id="tab-account" class="tab-pane">
+            <h4>User Account</h4>
+            <div class="profile-details-card">
+              <div class="avatar-large">VW</div>
+              <div class="profile-text">
+                <span class="profile-detail-name">Vedant Wankhade</span>
+                <span class="profile-detail-email">vedant@example.com</span>
+                <span class="profile-badge">Developer Sandbox Mode</span>
+              </div>
+            </div>
+            <p class="text-xs text-muted">Google OAuth authentication will be connected here for secure loopbacks.</p>
+          </div>
+          
+          <!-- Models Tab -->
+          <div id="tab-models" class="tab-pane hidden">
+            <h4>Connectors & Weights</h4>
+            <div class="connector-row">
+              <div class="connector-header">
+                <span class="connector-title">Ollama Integration</span>
+                <span id="ollama-status-badge" class="badge-active">Detecting...</span>
+              </div>
+              <p class="text-xs text-muted">Endpoint: http://127.0.0.1:11434</p>
+              <button id="btn-install-ollama" class="btn-primary-sm hidden">Download & Install Ollama</button>
+            </div>
+            
+            <div class="models-section">
+              <h5>Available Models</h5>
+              <div id="settings-models-list" class="models-list-container">
+                <!-- dynamically populated -->
+              </div>
+            </div>
+            
+            <div class="download-section">
+              <h5>Direct Download</h5>
+              <div class="download-row">
+                <input type="text" id="input-download-model" class="override-input" placeholder="e.g. gemma2:2b, mistral...">
+                <button id="btn-download-model" class="btn-accept">Download</button>
+              </div>
+              <div id="download-progress-text" class="text-xs text-muted hidden">Installing weights...</div>
+            </div>
+          </div>
+          
+          <!-- Permissions Tab -->
+          <div id="tab-permissions" class="tab-pane hidden">
+            <h4>Conversation Boundaries</h4>
+            <div class="setting-item">
+              <label>Default Security Mode</label>
+              <select id="settings-default-security" class="security-dropdown">
+                <option value="Review">Review Mode (Human Validation)</option>
+                <option value="Containment">Containment Mode (Sandbox)</option>
+                <option value="Adaptive">Adaptive Auto Mode (Smart)</option>
+                <option value="Trusted">Full Trusted Automation Mode</option>
+              </select>
+            </div>
+            <p class="text-xs text-muted">This establishes the validation container mode when initiating new chat threads.</p>
+          </div>
+          
+          <!-- Apps Tab -->
+          <div id="tab-apps" class="tab-pane hidden">
+            <h4>Installed Applications Checklist</h4>
+            <p class="text-xs text-muted">Select which local applications Ultron is authorized to interact with, launch, or read configurations from.</p>
+            <div id="settings-apps-list" class="apps-list-container">
+              <!-- dynamically populated -->
+            </div>
+          </div>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <!-- Natural Language Spotlight Command Search Overlay -->
+  <div id="chat-search-overlay" class="chat-search-overlay hidden">
+    <div class="spotlight-search-container">
+      <div class="search-box-container">
+        <svg class="search-box-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="chat-search-input" class="chat-search-input" placeholder="Search conversations using natural language...">
+        
+        <!-- Indexing Spinner -->
+        <svg id="search-spinner" class="search-spinner hidden animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="16" height="16" style="color: #4285f4; margin-right: 8px;">
+          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.2" fill="none"></circle>
+          <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" fill="none"></path>
+        </svg>
+        
+        <button id="btn-close-search" class="btn-close-search">&times;</button>
+      </div>
+      <div id="chat-search-results" class="search-results-container hidden">
+        <!-- Search results list populated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

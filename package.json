@@ -1,0 +1,19 @@
+{
+  "name": "ultron",
+  "version": "1.0.0",
+  "description": "Local offline privacy-focused Windows AI Agent framework",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node tests/run.js"
+  },
+  "dependencies": {
+    "marked": "^18.0.6",
+    "systeminformation": "^5.23.5",
+    "ws": "^8.21.1"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0"
+  },
+  "private": true
+}

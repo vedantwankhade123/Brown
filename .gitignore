@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+.system_generated/
+.gemini/
+.agents/
+.git/
+CVS/
+.DS_Store
