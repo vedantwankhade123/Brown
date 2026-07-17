@@ -29,8 +29,12 @@ const btnSettings = document.getElementById('btn-settings');
 const btnCloseSettings = document.getElementById('btn-close-settings');
 const settingDataDir = document.getElementById('setting-data-dir');
 
-// Model selection dropdowns
-const chatModelSelect = document.getElementById('chat-model-select');
+// Custom model dropdown elements
+const modelSelectorBtn = document.getElementById('model-selector-btn');
+const modelSelectorLabel = document.getElementById('model-selector-label');
+const modelDropdown = document.getElementById('model-dropdown');
+const modelDropdownList = document.getElementById('model-dropdown-list');
+const modelSelectorWrapper = document.getElementById('model-selector-wrapper');
 
 // Settings internal references
 const settingsDefaultSecurity = document.getElementById('settings-default-security');
@@ -101,6 +105,12 @@ function renderChecklist(tasks) {
 
 // Append Message to Chat Container and save in conversationsStore
 function appendChatMessage(sender, text, isAi = false) {
+  // Hide suggestions grid when first message is sent
+  const suggestionsGrid = document.getElementById('suggestions-grid');
+  if (suggestionsGrid) {
+    suggestionsGrid.style.display = 'none';
+  }
+
   const messageDiv = document.createElement('div');
   messageDiv.className = `chat-message flex gap-4 max-w-3xl ${isAi ? 'ai' : 'user'}`;
   
@@ -108,13 +118,7 @@ function appendChatMessage(sender, text, isAi = false) {
   avatar.className = `avatar ${isAi ? 'ai' : 'user'}`;
   
   if (isAi) {
-    avatar.innerHTML = `
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-        <path d="M12 2a1 1 0 0 1 1 1v3a1 1 0 0 1-2 0V3a1 1 0 0 1 1-1z"></path>
-        <path d="M4 11V9a4 4 0 0 1 8 0v2M20 11V9a4 4 0 0 0-8 0v2"></path>
-      </svg>
-    `;
+    avatar.innerHTML = `<img src="../Assets/ultron-logo.png" alt="Ultron" />`;
   } else {
     avatar.textContent = 'H';
   }
@@ -181,26 +185,48 @@ async function queryOfflineLLM(prompt) {
   }
 }
 
-// Populate model dropdown select elements (simplified plain display name style)
+// Populate custom model dropdown
 function populateModelSelectors(models, recommendation) {
-  chatModelSelect.innerHTML = '';
+  modelDropdownList.innerHTML = '';
   
   if (models.length === 0) {
-    const opt = document.createElement('option');
-    opt.value = recommendation;
-    opt.textContent = recommendation;
-    chatModelSelect.appendChild(opt);
+    const emptyDiv = document.createElement('div');
+    emptyDiv.className = 'model-dropdown-empty';
+    emptyDiv.innerHTML = 'No models found.<br><a id="add-models-link">Add models in Settings</a>';
+    modelDropdownList.appendChild(emptyDiv);
+    modelSelectorLabel.textContent = recommendation || 'No model';
+    
+    // Bind settings link
+    setTimeout(() => {
+      const link = document.getElementById('add-models-link');
+      if (link) link.addEventListener('click', () => {
+        modelDropdown.classList.add('hidden');
+        modelSelectorWrapper.classList.remove('open');
+        settingsModal.classList.remove('hidden');
+      });
+    }, 0);
     return;
   }
   
   models.forEach(model => {
-    const opt = document.createElement('option');
-    opt.value = model.name;
-    opt.textContent = model.name;
-    chatModelSelect.appendChild(opt);
+    const item = document.createElement('div');
+    item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
+    item.textContent = model.name;
+    item.addEventListener('click', () => {
+      activeModel = model.name;
+      modelSelectorLabel.textContent = model.name;
+      // Update active state
+      modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
+      item.classList.add('active');
+      // Close dropdown
+      modelDropdown.classList.add('hidden');
+      modelSelectorWrapper.classList.remove('open');
+      logTrace(`Chat context model shifted to: "${activeModel}"`, 'local');
+    });
+    modelDropdownList.appendChild(item);
   });
   
-  chatModelSelect.value = activeModel;
+  modelSelectorLabel.textContent = activeModel;
 }
 
 // Onboarding Hardware Profiler
@@ -272,10 +298,24 @@ settingsDefaultSecurity.addEventListener('change', async (e) => {
   }
 });
 
-// Model select dropdown listener
-chatModelSelect.addEventListener('change', (e) => {
-  activeModel = e.target.value;
-  logTrace(`Chat context model shifted to: "${activeModel}"`, 'local');
+// Custom model dropdown toggle and click-outside close
+modelSelectorBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const isOpen = !modelDropdown.classList.contains('hidden');
+  if (isOpen) {
+    modelDropdown.classList.add('hidden');
+    modelSelectorWrapper.classList.remove('open');
+  } else {
+    modelDropdown.classList.remove('hidden');
+    modelSelectorWrapper.classList.add('open');
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (modelSelectorWrapper && !modelSelectorWrapper.contains(e.target)) {
+    modelDropdown.classList.add('hidden');
+    modelSelectorWrapper.classList.remove('open');
+  }
 });
 
 // Human-in-the-loop validation overlay hooks
@@ -806,6 +846,19 @@ const triggerNewChat = () => {
 
 if (btnNewChat) btnNewChat.addEventListener('click', triggerNewChat);
 if (btnNewSession) btnNewSession.addEventListener('click', triggerNewChat);
+
+// Suggestion card click handlers
+document.querySelectorAll('.suggestion-card').forEach(card => {
+  card.addEventListener('click', () => {
+    const prompt = card.getAttribute('data-prompt');
+    if (prompt && chatInput) {
+      chatInput.value = prompt;
+      chatInput.dispatchEvent(new Event('input'));
+      // Auto-send the suggestion
+      btnSend.click();
+    }
+  });
+});
 
 // Initialize setup immediately on script load (removes DOMContentLoaded race condition)
 runOnboardingProfiler();
