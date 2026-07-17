@@ -105,11 +105,6 @@ function renderChecklist(tasks) {
 
 // Append Message to Chat Container and save in conversationsStore
 function appendChatMessage(sender, text, isAi = false) {
-  // Hide suggestions grid when first message is sent
-  const suggestionsGrid = document.getElementById('suggestions-grid');
-  if (suggestionsGrid) {
-    suggestionsGrid.style.display = 'none';
-  }
 
   const messageDiv = document.createElement('div');
   messageDiv.className = `chat-message flex gap-4 max-w-3xl ${isAi ? 'ai' : 'user'}`;
@@ -117,7 +112,7 @@ function appendChatMessage(sender, text, isAi = false) {
   if (isAi) {
     const avatar = document.createElement('div');
     avatar.className = 'avatar ai';
-    avatar.innerHTML = `<img src="../Assets/ultron-logo.png" alt="Ultron" />`;
+    avatar.innerHTML = `<img src="../../Assets/ultron-logo.png" alt="Ultron" />`;
     messageDiv.appendChild(avatar);
   }
   
@@ -838,19 +833,6 @@ const triggerNewChat = () => {
 
 if (btnNewChat) btnNewChat.addEventListener('click', triggerNewChat);
 if (btnNewSession) btnNewSession.addEventListener('click', triggerNewChat);
-
-// Suggestion card click handlers
-document.querySelectorAll('.suggestion-card').forEach(card => {
-  card.addEventListener('click', () => {
-    const prompt = card.getAttribute('data-prompt');
-    if (prompt && chatInput) {
-      chatInput.value = prompt;
-      chatInput.dispatchEvent(new Event('input'));
-      // Auto-send the suggestion
-      btnSend.click();
-    }
-  });
-});
 
 // Initialize setup immediately on script load (removes DOMContentLoaded race condition)
 runOnboardingProfiler();
