@@ -1,13 +1,32 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { setupIpcHandlers, setMainWindow } = require('./ipc');
 
 function initializeDataDirectories() {
   const appDataPath = process.env.APPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Roaming');
-  const localAgentDir = path.join(appDataPath, 'LocalAgent');
+  const systemConfigDir = path.join(appDataPath, 'LocalAgent');
+  const configFile = path.join(systemConfigDir, 'config.json');
+  
+  let localAgentDir = path.join(app.getAppPath(), 'memory');
+  
+  if (!fs.existsSync(systemConfigDir)) {
+    fs.mkdirSync(systemConfigDir, { recursive: true });
+  }
+  
+  // Read custom path from config.json if it exists
+  if (fs.existsSync(configFile)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+      if (config.customDataDir && fs.existsSync(config.customDataDir)) {
+        localAgentDir = config.customDataDir;
+      }
+    } catch (e) {
+      console.error('Failed to read config.json:', e);
+    }
+  }
+  
   const tempDir = path.join(localAgentDir, 'temp');
-
   if (!fs.existsSync(localAgentDir)) {
     fs.mkdirSync(localAgentDir, { recursive: true });
   }
@@ -32,6 +51,22 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false
     }
+  });
+
+  // Intercept in-page external link clicks to open in default system browser
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== mainWindow.webContents.getURL() && (url.startsWith('http://') || url.startsWith('https://'))) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
+  // Handle external link clicks in new windows/tabs
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
   });
 
   // Strip native menus to maintain clean Obsidian UX

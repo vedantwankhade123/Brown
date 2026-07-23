@@ -48,7 +48,7 @@ function launchWindowsSandbox(hostFolder, tempDir) {
       // wsb.exe C:\path\to\generated.wsb
       const command = `wsb.exe "${wsbPath}"`;
       
-      exec(command, (execErr, stdout, stderr) => {
+      exec(command, { windowsHide: true }, (execErr, stdout, stderr) => {
         if (execErr) {
           return reject(new Error(`Failed to execute Windows Sandbox: ${execErr.message}. Ensure Hyper-V and Windows Sandbox features are enabled on this system.`));
         }

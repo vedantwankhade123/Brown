@@ -646,6 +646,146 @@ This file tracks the engineering sprints, codebase additions, and mitigations du
 *   *Challenge:* Electron's `app.getFileIcon` on a `.lnk` file yields the generic Windows shortcut file icon instead of target executable logos.
 *   *Mitigation:* Resolved links using `shell.readShortcutLink(resolvePath).target` beforehand, querying target executable icons directly.
 
+---
+
+## 2026-07-19 - Engineering Entry #25
+
+### 1. Daily Sprint Matrix
+*   **Completed Today:**
+    *   Integrated Electron main process link handlers to redirect external web calls (`ollama.com`) to default browsers.
+    *   Coded backend path check routines to detect if Ollama is installed in the system PATH or local application data directories.
+    *   Programmed a background process launcher to boot the local Ollama service detached without blocking the Electron shell.
+    *   Exposed new backend utilities through context bridge preload bindings.
+    *   Added visual warning/success notification banners at the top of the chat area to display real-time connection alerts.
+    *   Embedded the official Ollama logo and download URLs inside the Settings Models panel.
+    *   Coded active network connectivity tests to prevent offline hangs during setup commands.
+    *   Coded startup checks that verify loopback connections on launch, auto-starting services if installed, or offering onboarding guides if missing.
+    *   Programmed a unified installer flow coordinating checks, winget downloads, and connection polling.
+    *   Added a refresh button icon in the Settings Models section, allowing manual checks of installation status.
+    *   Configured status badge and button labels dynamically: if Ollama is installed but not connected, badge updates to "Installed (Not Connected)" and button text shifts to "Connect".
+    *   Added a white background container to the black Ollama logo inside the settings panel to make it pop beautifully on the dark workspace background.
+*   **Carried Over from Yesterday:** None.
+*   **Pending for Tomorrow:** None (onboarding flow connection and installer fully functional).
+
+### 2. Codebase Additions & Modifications
+*   **Files Created/Modified:**
+    *   [src/main/index.js](file:///d:/Ultron/src/main/index.js) [MODIFIED]
+    *   [src/main/ipc.js](file:///d:/Ultron/src/main/ipc.js) [MODIFIED]
+    *   [src/preload/preload.js](file:///d:/Ultron/src/preload/preload.js) [MODIFIED]
+    *   [src/renderer/index.html](file:///d:/Ultron/src/renderer/index.html) [MODIFIED]
+    *   [src/renderer/index.css](file:///d:/Ultron/src/renderer/index.css) [MODIFIED]
+    *   [src/renderer/renderer.js](file:///d:/Ultron/src/renderer/renderer.js) [MODIFIED]
+*   **Algorithmic/Logic Adjustments:**
+    *   Created an asynchronous multi-phase initialization sequence that resolves loopback availability, searches local directories, auto-launches background processes, and tracks status.
+    *   Bound active internet verification loops to download/winget triggers to gracefully display connection alerts when offline.
+    *   Decoupled settings badge and action button management from general models list compilation, routing updates to a unified `refreshOllamaStatus` handler instead.
+    *   Designed and built native storage location selector UI utilizing Electron's `dialog.showOpenDialog` folder picker.
+    *   Programmed config.json readers and writers in main processes to persist user custom memory locations across boot sessions.
+    *   Rebuilt Direct Download UI layout to use standard input/button rows with 6px rounded corners, utilizing custom faint white styles (`btn-faint`) for download and browse buttons.
+    *   Programmed a subprocess tracker spawning `ollama pull` and parsing stdout/stderr in real-time, piping speed, remaining bytes, and progress percentages to UI progress bar elements.
+    *   Created a separate "Storage & Memory" settings sidebar tab, moving all memory configuration options under a single title, "Agent Memory & Storage".
+    *   Refactored the default security dropdown list inside Permissions: custom-styling options with dark themes and overriding browser arrow indicator styles with premium chevron background SVGs.
+    *   Updated the permissions dropdown field label to "Agent Mode".
+    *   Programmed model deletion utilities on the backend executing `ollama rm` subprocesses, hooked to a "Delete" button inside the Available Models settings panel with instructions showing the raw shell command.
+    *   Added a "+ Download / Search Models..." navigation button to the bottom of the chat model select dropdown to route users straight to the settings panel.
+    *   Refactored Settings Models headings to use standard title capitalization instead of uppercase transforms.
+    *   Implemented a dropdown fallback matching logic: if the RAM recommendation model footprint is not yet pulled/installed, the app automatically selects the first downloaded local model.
+    *   Reduced vertical padding on user chat message bubbles to 8px top/bottom for a tighter, cleaner layout footprint.
+    *   Replaced the static "Thinking..." placeholder text with a beautiful, three-dot bounce animation loop inside an custom HTML container.
+
+### 3. Engineering Challenges & Mitigations
+*   *Challenge:* Launching background processes inside Node processes normally blocks standard execution threads if stream pipes remain open.
+*   *Mitigation:* Configured child process spawns to run detached with ignored stdio channels and unreferenced the process (`child.unref()`) to achieve clean separation.
+
+---
+
+## 2026-07-19 - Engineering Entry #26
+
+### 1. Daily Sprint Matrix
+*   **Completed Today:**
+    *   Fixed chat list loading issue by ensuring that the `empty-state` styling class is removed from the main panel DOM container whenever a session is requested.
+    *   Expanded sidebar timestamp formatting to display both date and time (e.g. `Today at 8:08 PM`) for older and recent conversation threads.
+    *   Prevented double-sending/submission bugs by disabling the message input field textarea and send button immediately upon prompt submission, blocking double Enter keys.
+    *   Implemented settings "Reset Path" and "Clear All Chats" buttons in the Storage & Memory tab, updating local storage, directory config parameters, and clearing chat UI.
+    *   Programmed automatic background migration (database copy) of `conversations.json` from the old path to the new path whenever the agent memory storage folder location changes.
+    *   Reinforced Ultron name recognition by explicitly updating the local LLM system prompt instructions and adding regular expression post-processing on generated replies to replace name placeholders like `[your_name]`.
+    *   Dynamically bound the user profile name ("Vedant Wankhade") from the settings account area straight into the LLM system prompt so that the local model can correctly identify the active user name.
+*   **Carried Over from Yesterday:** None.
+*   **Pending for Tomorrow:** None (UI Bugfixes and Client Controls fully functional).
+
+### 2. Codebase Additions & Modifications
+*   **Files Created/Modified:**
+    *   [src/main/ipc.js](file:///d:/Ultron/src/main/ipc.js) [MODIFIED]
+    *   [src/renderer/index.html](file:///d:/Ultron/src/renderer/index.html) [MODIFIED]
+    *   [src/renderer/index.css](file:///d:/Ultron/src/renderer/index.css) [MODIFIED]
+    *   [src/renderer/renderer.js](file:///d:/Ultron/src/renderer/renderer.js) [MODIFIED]
+    *   [RESEARCH_PROGRESS.md](file:///d:/Ultron/RESEARCH_PROGRESS.md) [MODIFIED]
+*   **Algorithmic/Logic Adjustments:**
+    *   Refactored the path config writer to run atomic file copying checks migrating historical databanks across custom folder relocations.
+    *   Coded regular expression filters replacing common placeholder tokens in causal outputs with the hard-coded brand entity "Ultron".
+    *   Configured DOM element selectors fetching the profile name to bind dynamic properties directly to LLM system instructions.
+
+### 3. Engineering Challenges & Mitigations
+*   *Challenge:* Local causal models like `phi4` sometimes hallucinate generic placeholder templates (such as `[your_name]`) or fail to align with the system character identity on boot.
+*   *Mitigation:* Combined explicit system role commands with a frontend regex post-processor that intercepts and sanitizes the output before rendering it to the user.
+
+---
+
+## 2026-07-19 - Engineering Entry #27
+
+### 1. Daily Sprint Matrix
+*   **Completed Today:**
+    *   Designed and built a beautiful, Obsidian-themed welcome screen layout displaying the Ultron logo and time-based salutations (e.g. `Good evening, Vedant`) in empty workspaces.
+    *   Allowed manual local account registration/editing directly in Settings under the Account tab, updating DOM elements dynamically and persisting properties in `localStorage`.
+    *   Wrote dynamic initials computation logic updating profile badges, sidebar circles, and user message bubbles.
+    *   Refactored user conversation bubbles to show a custom circular gradient avatar with initials on the right-side layout bounds.
+    *   Optimized user chat bubble size profile by resetting paragraph top/bottom margins to zero, preventing oversized empty margins from bloating bubbles.
+    *   Added a modern "Copy" action link underneath each response generated by Ultron, incorporating a micro-animation with immediate feedback.
+    *   Refactored the "New Chat" creation flow to clear active contexts, reset states, and display the greeting welcome screen without system initialization logging bubbles.
+*   **Carried Over from Yesterday:** None.
+*   **Pending for Tomorrow:** None (UI Sprints and account persistence fully resolved).
+
+### 2. Codebase Additions & Modifications
+*   **Files Created/Modified:**
+    *   [src/renderer/index.html](file:///d:/Ultron/src/renderer/index.html) [MODIFIED]
+    *   [src/renderer/index.css](file:///d:/Ultron/src/renderer/index.css) [MODIFIED]
+    *   [src/renderer/renderer.js](file:///d:/Ultron/src/renderer/renderer.js) [MODIFIED]
+    *   [RESEARCH_PROGRESS.md](file:///d:/Ultron/RESEARCH_PROGRESS.md) [MODIFIED]
+*   **Algorithmic/Logic Adjustments:**
+    *   Calculated current timestamps to parse hours, rendering conditional greetings (`morning`, `afternoon`, `evening`) mapped to user first names.
+    *   Overrode default browser styles targeting paragraph spacing inside markdown-rendered elements to collapse spacing bounds in chat.
+    *   Integrated navigator copy hooks directly into click event bindings of assistant message wrappers.
+
+### 3. Engineering Challenges & Mitigations
+*   *Challenge:* When a new chat is started, displaying a raw system statement bubble like "New container initialized" feels clinical and violates human-centered AI design guidelines.
+*   *Mitigation:* Replaced the system initialization message with an interactive empty-state welcome dashboard centered vertically in the viewport, which automatically transitions to a scrollable thread on the first prompt submission.
+
+---
+
+## 2026-07-19 - Engineering Entry #28
+
+### 1. Daily Sprint Matrix
+*   **Completed Today:**
+    *   Refined the system prompt to explicitly command the local LLM to reply directly to the user as Ultron, never write user dialogues, never repeat the prompt, and never simulate multi-turn conversations itself.
+    *   Lowered model query temperature parameters from `0.7` to `0.2` for both `/api/chat` and `/api/generate` query pipelines, reducing hallucinations and improving strict system instruction compliance for smaller local models (e.g. `tinyllama`).
+    *   Added debug log tracing showing the exact count of history messages included in Ollama payloads to simplify audit and troubleshooting checks.
+*   **Carried Over from Yesterday:** None.
+*   **Pending for Tomorrow:** None (Model Alignment Sprints Complete).
+
+### 2. Codebase Additions & Modifications
+*   **Files Created/Modified:**
+    *   [src/renderer/renderer.js](file:///d:/Ultron/src/renderer/renderer.js) [MODIFIED]
+    *   [RESEARCH_PROGRESS.md](file:///d:/Ultron/RESEARCH_PROGRESS.md) [MODIFIED]
+*   **Algorithmic/Logic Adjustments:**
+    *   Lowered temperature coefficients in generation config objects to constrain sampling probabilities and force deterministic token selections.
+
+### 3. Engineering Challenges & Mitigations
+*   *Challenge:* Small parameters models (under 3B parameters) are highly sensitive to creative sampling settings and often copy the prompt formatting style or converse with themselves if the temperature is set to default (0.7).
+*   *Mitigation:* Clamped the sampling temperature to `0.2` and updated the prompt text to explicitly outline strict formatting directives.
+
+
+
+
 
 
 

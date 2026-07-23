@@ -7,7 +7,12 @@ CONTEXT_LIMIT_WORDS = 3000  # Limit for offline token approximation
 class LocalInferenceEngine:
   def __init__(self, model_name: str = "phi4"):
     self.model_name = model_name
-    self.chat_history = []  # List of dicts: {"role": "user"/"assistant", "content": "..."}
+    self.chat_history = [
+      {
+        "role": "system",
+        "content": "You are Ultron, a powerful autonomous local AI agent running on the user's computer. Your name is always Ultron. You can execute terminal commands, manage files, and automate tasks. Always respond in English. If you do not know the answer or need real-time info, respond with exactly: SEARCH: <query>"
+      }
+    ]
 
   def estimate_word_count(self) -> int:
     """Approximates context size using token/word count heuristic."""

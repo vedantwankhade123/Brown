@@ -11,6 +11,27 @@
 </head>
 <body class="ultron-app">
 
+  <!-- APP BOOT SKELETON OVERLAY -->
+  <div id="app-skeleton-overlay" class="app-skeleton-overlay hidden">
+    <div class="skeleton-sidebar">
+      <div class="skeleton-shimmer skeleton-logo"></div>
+      <div class="skeleton-shimmer skeleton-btn"></div>
+      <div class="skeleton-shimmer skeleton-search"></div>
+      <div class="skeleton-list">
+        <div class="skeleton-shimmer skeleton-item"></div>
+        <div class="skeleton-shimmer skeleton-item"></div>
+        <div class="skeleton-shimmer skeleton-item"></div>
+      </div>
+      <div class="skeleton-shimmer skeleton-user"></div>
+    </div>
+    <div class="skeleton-main">
+      <div class="skeleton-shimmer skeleton-center-logo"></div>
+      <div class="skeleton-shimmer skeleton-title"></div>
+      <div class="skeleton-shimmer skeleton-subtitle"></div>
+      <div class="skeleton-shimmer skeleton-input-bar"></div>
+    </div>
+  </div>
+
   <!-- LEFT SIDEBAR: GEMINI SYSTEM MATRIX -->
   <aside id="left-sidebar" class="sidebar">
     <div class="sidebar-top">
@@ -87,6 +108,29 @@
       </div>
     </header>
 
+    <!-- In-App Notification Banner -->
+    <div id="ollama-warning-banner" class="notification-banner hidden">
+      <div class="notification-content">
+        <svg class="notification-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <span class="notification-message">Ollama is not connected. Connect it or download it to run offline AI models.</span>
+      </div>
+      <div class="notification-actions">
+        <button id="btn-banner-download-install" class="btn-banner-action hidden">Install Ollama</button>
+        <button id="btn-banner-close" class="btn-banner-close">✕</button>
+      </div>
+    </div>
+
+
+    <!-- WELCOME SCREEN -->
+    <div id="welcome-screen" class="welcome-screen">
+      <img src="../../Assets/ultron-logo.png" class="welcome-logo" alt="Ultron Logo">
+      <h1 id="welcome-title" class="welcome-title">Good evening, User</h1>
+      <p class="welcome-subtitle">How can Ultron assist you today?</p>
+    </div>
 
     <!-- Chat Area -->
     <div id="chat-messages-container" class="chat-container">
@@ -129,9 +173,21 @@
 
     <!-- FLOATING INPUT PILL -->
     <div class="input-wrapper">
+      <!-- Attachment Carousel Preview Bar (Top of Prompt Pill) -->
+      <div id="attachment-preview-bar" class="attachment-preview-bar hidden"></div>
+
       <div class="input-pill input-pill-stacked">
+        <!-- Hidden Native File Input -->
+        <input type="file" id="hidden-file-input" multiple style="display: none;" />
+
         <!-- Main Prompt Input -->
         <textarea id="chat-input" placeholder="Ask Ultron to execute local tasks..." class="chat-input-field" rows="1"></textarea>
+
+        <!-- Voice Waveform Visualizer (Shown when recording) -->
+        <div id="voice-waveform-container" class="voice-waveform-container hidden">
+          <canvas id="voice-waveform-canvas" class="voice-waveform-canvas" width="420" height="36"></canvas>
+          <span id="voice-recording-status" class="voice-recording-status">Listening to your voice...</span>
+        </div>
 
         <!-- Actions Row at Bottom -->
         <div class="input-pill-actions">
@@ -151,8 +207,28 @@
                 </svg>
               </button>
               <div id="model-dropdown" class="model-dropdown hidden">
+                <div class="model-dropdown-header">
+                  <span class="model-dropdown-header-title">Models</span>
+                  <button id="btn-toggle-model-search" class="btn-toggle-model-search" title="Search models">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                      <circle cx="11" cy="11" r="8"></circle>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                  </button>
+                </div>
+                <div id="model-dropdown-search-wrapper" class="model-dropdown-search-wrapper hidden">
+                  <input type="text" id="model-dropdown-search" placeholder="Search models..." />
+                </div>
                 <div id="model-dropdown-list" class="model-dropdown-list">
                   <!-- populated dynamically -->
+                </div>
+                <div id="btn-dropdown-download-models" class="model-dropdown-download-item" style="padding: 8px 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); color: #ffffff; cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: 500; font-size: 12px; transition: background 0.2s;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="8" x2="12" y2="16"></line>
+                    <line x1="8" y1="12" x2="16" y2="12"></line>
+                  </svg>
+                  <span>Download Models...</span>
                 </div>
               </div>
             </div>
@@ -317,37 +393,98 @@
       <div class="settings-modal-body-layout">
         <!-- Settings Sidebar (Left side of modal) -->
         <aside class="settings-sidebar">
-          <div class="settings-tab-btn active" data-tab="account">Account</div>
-          <div class="settings-tab-btn" data-tab="models">Models</div>
-          <div class="settings-tab-btn" data-tab="permissions">Permissions</div>
-          <div class="settings-tab-btn" data-tab="apps">Apps</div>
+          <div class="settings-tab-btn active" data-tab="account">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+            Account
+          </div>
+          <div class="settings-tab-btn" data-tab="models">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+            Models
+          </div>
+          <div class="settings-tab-btn" data-tab="storage">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path></svg>
+            Storage & Memory
+          </div>
+          <div class="settings-tab-btn" data-tab="permissions">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            Permissions
+          </div>
+          <div class="settings-tab-btn" data-tab="apps">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+            Apps
+          </div>
         </aside>
         
         <!-- Settings Tab Contents (Right side of modal) -->
         <main class="settings-tab-content">
           <!-- Account Tab -->
           <div id="tab-account" class="tab-pane">
-            <h4>User Account</h4>
-            <div class="profile-details-card">
-              <div class="avatar-large">VW</div>
-              <div class="profile-text">
-                <span class="profile-detail-name">Vedant Wankhade</span>
-                <span class="profile-detail-email">vedant@example.com</span>
-                <span class="profile-badge">Developer Sandbox Mode</span>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+              <h4 style="margin: 0;">User Account</h4>
+              <button id="btn-toggle-edit-account" style="background: transparent !important; border: none !important; color: #a1a1aa; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 4px; transition: color 0.2s;" title="Edit account details">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+                Edit
+              </button>
+            </div>
+            
+            <div class="profile-details-card" style="margin-bottom: 20px;">
+              <div style="display: flex; align-items: center; gap: 20px;">
+                <div class="avatar-large" id="account-avatar">VW</div>
+                <div class="profile-text">
+                  <span class="profile-detail-name" id="account-name">Vedant Wankhade</span>
+                  <span class="profile-detail-email" id="account-email">vedant@example.com</span>
+                  <span class="profile-badge">Developer Sandbox Mode</span>
+                </div>
               </div>
             </div>
-            <p class="text-xs text-muted">Google OAuth authentication will be connected here for secure loopbacks.</p>
+            
+            <div id="account-edit-form" class="hidden" style="border: 1px solid var(--border-color); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+              <h5 style="margin-top: 0; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: var(--accent-white);">Edit Account Details</h5>
+              <div class="setting-item" style="margin-top: 8px;">
+                <label style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Full Name</label>
+                <input type="text" id="input-account-name" class="override-input" style="width: 100%; box-sizing: border-box; padding: 6px 12px; border-radius: 6px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: var(--text-primary); font-size: 12px; margin-bottom: 12px;" placeholder="e.g. Vedant Wankhade" />
+                
+                <label style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Email Address</label>
+                <input type="email" id="input-account-email" class="override-input" style="width: 100%; box-sizing: border-box; padding: 6px 12px; border-radius: 6px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: var(--text-primary); font-size: 12px; margin-bottom: 14px;" placeholder="e.g. name@example.com" />
+                
+                <div style="display: flex; gap: 10px;">
+                  <button id="btn-save-account" class="btn-accept" style="padding: 6px 16px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer;">Save Account Changes</button>
+                  <button id="btn-cancel-edit-account" class="btn-faint" style="padding: 6px 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer;">Cancel</button>
+                </div>
+              </div>
+            </div>
+            
+            <p class="text-xs text-muted" style="margin-top: 20px; margin-bottom: 20px;">Google OAuth authentication will be connected here for secure loopbacks.</p>
           </div>
           
           <!-- Models Tab -->
           <div id="tab-models" class="tab-pane hidden">
             <h4>Connectors & Weights</h4>
             <div class="connector-row">
-              <div class="connector-header">
-                <span class="connector-title">Ollama Integration</span>
-                <span id="ollama-status-badge" class="badge-active">Detecting...</span>
+              <div class="connector-info-wrapper" style="display: flex; align-items: center; gap: 14px; margin-bottom: 12px;">
+                <img src="../../Assets/ollama-logo.png" alt="Ollama Logo" style="width: 32px; height: 32px; object-fit: contain; background-color: #ffffff; border-radius: 6px; padding: 4px; box-sizing: border-box; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />
+                <div style="display: flex; flex-direction: column;">
+                  <div class="connector-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 0;">
+                    <span id="ollama-connector-title" class="connector-title" style="font-weight: 600; font-size: 14px;">Connect Ollama</span>
+                    <span id="ollama-status-badge" class="badge-active">Detecting...</span>
+                    <button id="btn-refresh-ollama" class="btn-icon" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: #a1a1aa; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" title="Refresh Ollama status">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                        <path d="M23 4v6h-6"></path>
+                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                      </svg>
+                    </button>
+                  </div>
+                  <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: http://127.0.0.1:11434</p>
+                </div>
               </div>
-              <p class="text-xs text-muted">Endpoint: http://127.0.0.1:11434</p>
+              <p class="text-xs text-muted" style="margin-bottom: 14px; line-height: 1.4;">
+                Ollama runs large language models locally on your machine. You can visit the official website at 
+                <a href="https://ollama.com" target="_blank" class="ollama-link" style="color: #60a5fa; text-decoration: underline; font-weight: 500;">ollama.com</a> 
+                to download it manually or inspect the project documentation.
+              </p>
               <button id="btn-install-ollama" class="btn-primary-sm hidden">Download & Install Ollama</button>
             </div>
             
@@ -360,11 +497,64 @@
             
             <div class="download-section">
               <h5>Direct Download</h5>
-              <div class="download-row">
-                <input type="text" id="input-download-model" class="override-input" placeholder="e.g. gemma2:2b, mistral...">
-                <button id="btn-download-model" class="btn-accept">Download</button>
+              <!-- Initial trigger button to open the input field -->
+              <button id="btn-show-download-fields" class="btn-primary-sm" style="padding: 6px 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="12" y1="8" x2="12" y2="16"></line>
+                  <line x1="8" y1="12" x2="16" y2="12"></line>
+                </svg>
+                Add Models
+              </button>
+              
+              <div id="download-inputs-row" class="download-row hidden" style="display: flex; gap: 8px; align-items: center; width: 100%;">
+                <input type="text" id="input-download-model" class="override-input" style="flex-grow: 1;" placeholder="e.g. gemma2:2b, mistral...">
+                <button id="btn-download-model" class="btn-accept" style="padding: 6px 16px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none;">Download</button>
               </div>
-              <div id="download-progress-text" class="text-xs text-muted hidden">Installing weights...</div>
+              
+              <!-- Real-time Download Progress Container -->
+              <div id="download-progress-container" class="hidden" style="margin-top: 8px; width: 100%;">
+                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--accent-white); margin-bottom: 6px;">
+                  <span id="download-progress-status">Downloading...</span>
+                  <span id="download-progress-stats">0% (0 MB / 0 MB)</span>
+                </div>
+                <div style="width: 100%; height: 6px; background: rgba(255, 255, 255, 0.06); border-radius: 99px; overflow: hidden; border: 1px solid rgba(255,255,255,0.04);">
+                  <div id="download-progress-bar" style="width: 0%; height: 100%; background: var(--accent-white, #ffffff); transition: width 0.2s; border-radius: 99px;"></div>
+                </div>
+                <div id="download-progress-speed" style="font-size: 10px; color: var(--text-muted); margin-top: 4px; text-align: right;">Speed: --</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Storage & Memory Tab -->
+          <div id="tab-storage" class="tab-pane hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+              <h4 style="margin: 0;">Agent Memory & Storage</h4>
+              <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0;">
+                <input type="checkbox" id="setting-memory-toggle" style="opacity: 0; width: 0; height: 0;">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <div class="setting-item" style="margin-top: 8px;">
+
+              
+              <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Agent Storage & Memory Location</label>
+              <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; padding: 6px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px;" placeholder="e.g. C:\Users\username\AppData\Roaming\LocalAgent">
+                <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 6px 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none;">Browse</button>
+                <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 6px 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none;">Reset Path</button>
+              </div>
+              <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
+                This folder stores all persistent agent memories, conversation logs, and session vectors. If turned off, memory features are disabled and nothing will be saved.
+              </p>
+            </div>
+            
+            <div class="setting-item" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+              <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Clear Data</label>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <span class="text-xs text-muted" style="line-height: 1.4; max-width: 70%;">Permanently delete all conversations, chat history, and message logs from storage.</span>
+                <button id="btn-clear-chats" class="btn-primary-sm" style="padding: 6px 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ef4444 !important; color: #ffffff !important;">Clear All Chats</button>
+              </div>
             </div>
           </div>
           
@@ -372,7 +562,7 @@
           <div id="tab-permissions" class="tab-pane hidden">
             <h4>Permissions</h4>
             <div class="setting-item">
-              <label>Default Security Mode</label>
+              <label>Agent Mode</label>
               <select id="settings-default-security" class="security-dropdown">
                 <option value="Review">Review Mode (Human Validation)</option>
                 <option value="Containment">Containment Mode (Sandbox)</option>
@@ -387,6 +577,9 @@
           <div id="tab-apps" class="tab-pane hidden">
             <h4>Applications</h4>
             <p class="text-xs text-muted">Select which local applications Ultron is authorized to interact with, launch, or read configurations from.</p>
+            <div class="apps-search-wrapper" style="margin-bottom: 12px; width: 100%;">
+              <input type="text" id="apps-search" class="override-input" style="width: 100%; box-sizing: border-box; padding: 6px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px;" placeholder="Search authorized apps..." />
+            </div>
             <div id="settings-apps-list" class="apps-list-container">
               <!-- dynamically populated -->
             </div>
@@ -416,6 +609,18 @@
       </div>
       <div id="chat-search-results" class="search-results-container hidden">
         <!-- Search results list populated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Delete Confirmation Dialog Popup Modal -->
+  <div id="delete-confirm-modal" class="settings-modal hidden" style="background-color: rgba(0,0,0,0.6); z-index: 10001; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; right: 0; bottom: 0;">
+    <div class="settings-modal-content" style="width: 320px; max-width: 90%; padding: 20px; border-radius: 12px; background-color: #202124; border: 1px solid var(--border-color); box-shadow: 0 10px 30px rgba(0,0,0,0.5); transform: none; display: flex; flex-direction: column; height: auto;">
+      <h4 style="margin-top: 0; color: var(--accent-white); font-size: 14px; font-weight: 600;">Confirm Delete</h4>
+      <p id="delete-confirm-text" style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin-bottom: 20px;">Are you sure you want to delete this model?</p>
+      <div style="display: flex; gap: 8px; justify-content: flex-end;">
+        <button id="btn-delete-cancel" class="btn-primary-sm btn-faint" style="padding: 6px 14px; font-size: 12px; height: 30px; border-radius: 6px; cursor: pointer;">Cancel</button>
+        <button id="btn-delete-confirm" class="btn-accept" style="padding: 6px 16px; font-size: 12px; height: 30px; border-radius: 6px; cursor: pointer; background-color: #ef4444 !important; color: #ffffff !important;">Delete</button>
       </div>
     </div>
   </div>

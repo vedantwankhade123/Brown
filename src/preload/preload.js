@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   parseMarkdown: (text) => marked.parse(text),
   // Profiling & setup queries
   profileSystem: () => ipcRenderer.invoke('profile-system'),
+  getSystemEnvironment: () => ipcRenderer.invoke('system-environment'),
   
   // Security state operations
   getSecurityMode: () => ipcRenderer.invoke('get-security-mode'),
@@ -22,11 +23,29 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   // Action execution loops
   executeAction: (payload) => ipcRenderer.invoke('execute-action', payload),
   launchSandbox: (hostPath) => ipcRenderer.invoke('launch-sandbox', hostPath),
+  readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+  writeFile: (filePath, content) => ipcRenderer.invoke('write-file', { filePath, content }),
+  listDir: (dirPath) => ipcRenderer.invoke('list-dir', dirPath),
+  openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  searchWeb: (query) => ipcRenderer.invoke('search-web', query),
   
   // Apps & connector installs
   getInstalledApps: () => ipcRenderer.invoke('get-installed-apps'),
   downloadModel: (modelName) => ipcRenderer.invoke('download-model', modelName),
   installOllama: () => ipcRenderer.invoke('install-ollama'),
+  checkOllamaInstalled: () => ipcRenderer.invoke('check-ollama-installed'),
+  startOllamaService: (exePath) => ipcRenderer.invoke('start-ollama-service', exePath),
+  selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  updateDataDir: (customPath) => ipcRenderer.invoke('update-data-dir', customPath),
+  getDefaultDataDir: () => ipcRenderer.invoke('get-default-data-dir'),
+  saveConversations: (dataStr) => ipcRenderer.invoke('save-conversations', dataStr),
+  loadConversations: () => ipcRenderer.invoke('load-conversations'),
+  deleteModel: (modelName) => ipcRenderer.invoke('delete-model', modelName),
+  searchWeb: (query) => ipcRenderer.invoke('search-web', query),
+  onDownloadProgress: (callback) => {
+    ipcRenderer.on('download-progress', (event, data) => callback(data));
+    return () => ipcRenderer.removeAllListeners('download-progress');
+  },
   
   // Human-in-the-loop triggers
   onPermissionRequest: (callback) => {

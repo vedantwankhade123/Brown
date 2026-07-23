@@ -8,7 +8,7 @@ const si = require('systeminformation');
  */
 function runPowerShell(command) {
   return new Promise((resolve, reject) => {
-    exec(`powershell -NoProfile -Command "${command}"`, (error, stdout, stderr) => {
+    exec(`powershell -NoProfile -Command "${command}"`, { windowsHide: true }, (error, stdout, stderr) => {
       if (error) reject(error);
       else resolve(stdout.trim());
     });
