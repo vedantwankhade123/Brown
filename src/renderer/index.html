@@ -176,18 +176,12 @@
       <!-- Attachment Carousel Preview Bar (Top of Prompt Pill) -->
       <div id="attachment-preview-bar" class="attachment-preview-bar hidden"></div>
 
-      <div class="input-pill input-pill-stacked">
+      <div id="main-input-pill" class="input-pill input-pill-stacked">
         <!-- Hidden Native File Input -->
         <input type="file" id="hidden-file-input" multiple style="display: none;" />
 
         <!-- Main Prompt Input -->
         <textarea id="chat-input" placeholder="Ask Ultron to execute local tasks..." class="chat-input-field" rows="1"></textarea>
-
-        <!-- Voice Waveform Visualizer (Shown when recording) -->
-        <div id="voice-waveform-container" class="voice-waveform-container hidden">
-          <canvas id="voice-waveform-canvas" class="voice-waveform-canvas" width="420" height="36"></canvas>
-          <span id="voice-recording-status" class="voice-recording-status">Listening to your voice...</span>
-        </div>
 
         <!-- Actions Row at Bottom -->
         <div class="input-pill-actions">
@@ -234,7 +228,7 @@
             </div>
           </div>
           <div class="input-actions-right">
-            <button id="btn-mic" class="input-action-btn">
+            <button id="btn-mic" class="input-action-btn" title="Voice Input">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
                 <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
@@ -247,6 +241,42 @@
               </svg>
             </button>
           </div>
+        </div>
+      </div>
+
+      <!-- Voice Recording Capsule Pill (Shown when mic is active, matching image reference) -->
+      <div id="voice-recording-pill" class="voice-recording-pill hidden">
+        <!-- Left Plus Button -->
+        <button id="voice-btn-add" class="voice-pill-btn voice-btn-circle" title="Add attachment">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+
+        <!-- Center Audio Waveform Visualizer Canvas -->
+        <div class="voice-visualizer-wrapper">
+          <canvas id="voice-waveform-canvas" class="voice-waveform-canvas" width="600" height="32"></canvas>
+        </div>
+
+        <!-- Right Controls & Timer -->
+        <div class="voice-pill-right">
+          <span id="voice-recording-timer" class="voice-timer">0:00</span>
+          
+          <!-- Cancel Button (X) -->
+          <button id="voice-btn-cancel" class="voice-pill-btn voice-btn-icon" title="Cancel recording">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+
+          <!-- Done Button (Checkmark) -->
+          <button id="voice-btn-done" class="voice-pill-btn voice-btn-icon voice-btn-check" title="Done & convert audio to text">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
         </div>
       </div>
     </div>
@@ -507,16 +537,29 @@
                 Add Models
               </button>
               
-              <div id="download-inputs-row" class="download-row hidden" style="display: flex; gap: 8px; align-items: center; width: 100%;">
-                <input type="text" id="input-download-model" class="override-input" style="flex-grow: 1;" placeholder="e.g. gemma2:2b, mistral...">
-                <button id="btn-download-model" class="btn-accept" style="padding: 6px 16px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none;">Download</button>
+              <div id="download-inputs-row" class="download-row hidden" style="display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 10px;">
+                <div style="position: relative; width: 100%; display: flex; align-items: center;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="position: absolute; left: 10px; color: rgba(255, 255, 255, 0.4); pointer-events: none;">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <input type="text" id="input-download-model" class="override-input" style="width: 100%; box-sizing: border-box; padding-left: 32px;" placeholder="Search catalog or type custom model tag (e.g. llama3)...">
+                  <button id="btn-download-model" class="hidden" style="display: none;"></button>
+                </div>
+                
+                <!-- Popular Models Catalog Grid -->
+                <div id="ollama-catalog-list" class="ollama-catalog-list"></div>
+                <button id="btn-load-more-models" class="btn-load-more-models">Load More</button>
               </div>
               
               <!-- Real-time Download Progress Container -->
               <div id="download-progress-container" class="hidden" style="margin-top: 8px; width: 100%;">
-                <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--accent-white); margin-bottom: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--accent-white); margin-bottom: 6px;">
                   <span id="download-progress-status">Downloading...</span>
-                  <span id="download-progress-stats">0% (0 MB / 0 MB)</span>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span id="download-progress-stats">0% (0 MB / 0 MB)</span>
+                    <button id="btn-cancel-download" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; cursor: pointer; transition: all 0.2s;">Cancel</button>
+                  </div>
                 </div>
                 <div style="width: 100%; height: 6px; background: rgba(255, 255, 255, 0.06); border-radius: 99px; overflow: hidden; border: 1px solid rgba(255,255,255,0.04);">
                   <div id="download-progress-bar" style="width: 0%; height: 100%; background: var(--accent-white, #ffffff); transition: width 0.2s; border-radius: 99px;"></div>
@@ -577,8 +620,18 @@
           <div id="tab-apps" class="tab-pane hidden">
             <h4>Applications</h4>
             <p class="text-xs text-muted">Select which local applications Ultron is authorized to interact with, launch, or read configurations from.</p>
-            <div class="apps-search-wrapper" style="margin-bottom: 12px; width: 100%;">
-              <input type="text" id="apps-search" class="override-input" style="width: 100%; box-sizing: border-box; padding: 6px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px;" placeholder="Search authorized apps..." />
+            <div class="apps-header-row" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px;">
+              <div class="apps-search-wrapper" style="flex: 1; position: relative; display: flex; align-items: center;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="position: absolute; left: 10px; color: rgba(255, 255, 255, 0.4); pointer-events: none;">
+                  <circle cx="11" cy="11" r="8"></circle>
+                  <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="apps-search" class="override-input" style="width: 100%; box-sizing: border-box; padding: 6px 12px 6px 32px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px;" placeholder="Search authorized apps..." />
+              </div>
+              <label id="btn-mark-all-apps-label" style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: rgba(255, 255, 255, 0.85); cursor: pointer; user-select: none; flex-shrink: 0; background: rgba(255, 255, 255, 0.06); padding: 6px 10px; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.1); transition: background 0.2s;">
+                <input type="checkbox" id="chk-mark-all-apps" style="cursor: pointer; accent-color: #ffffff;" />
+                <span>Mark All</span>
+              </label>
             </div>
             <div id="settings-apps-list" class="apps-list-container">
               <!-- dynamically populated -->

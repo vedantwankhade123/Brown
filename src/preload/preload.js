@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   // Apps & connector installs
   getInstalledApps: () => ipcRenderer.invoke('get-installed-apps'),
   downloadModel: (modelName) => ipcRenderer.invoke('download-model', modelName),
+  cancelDownloadModel: (modelName) => ipcRenderer.invoke('cancel-download-model', modelName),
   installOllama: () => ipcRenderer.invoke('install-ollama'),
   checkOllamaInstalled: () => ipcRenderer.invoke('check-ollama-installed'),
   startOllamaService: (exePath) => ipcRenderer.invoke('start-ollama-service', exePath),

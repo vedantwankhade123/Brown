@@ -14,6 +14,69 @@ let pendingPermissions = new Map(); // Store pending human-in-the-loop validatio
 // Keep reference to the main window
 let mainWindow = null;
 
+let cachedGeoLocation = null;
+let cachedGeoLocationAt = 0;
+const GEO_LOCATION_TTL_MS = 30 * 60 * 1000;
+
+async function resolveGeoLocation() {
+  if (cachedGeoLocation && Date.now() - cachedGeoLocationAt < GEO_LOCATION_TTL_MS) {
+    return cachedGeoLocation;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const geoRes = await fetch(
+      'http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,timezone,lat,lon',
+      { signal: controller.signal }
+    );
+    clearTimeout(timeout);
+    if (geoRes.ok) {
+      const geo = await geoRes.json();
+      if (geo.status === 'success') {
+        cachedGeoLocation = {
+          city: geo.city || '',
+          region: geo.regionName || '',
+          country: geo.country || '',
+          countryCode: geo.countryCode || '',
+          timezone: geo.timezone || '',
+          latitude: geo.lat,
+          longitude: geo.lon
+        };
+        cachedGeoLocationAt = Date.now();
+        return cachedGeoLocation;
+      }
+    }
+  } catch (e) {
+    // Offline or geo lookup unavailable — fall back to cached or empty values.
+  }
+
+  return cachedGeoLocation || null;
+}
+
+function buildDateTimeSnapshot(now = new Date()) {
+  const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+  const weekStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+  const dayNum = weekStart.getUTCDay() || 7;
+  weekStart.setUTCDate(weekStart.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(weekStart.getUTCFullYear(), 0, 1));
+  const isoWeek = Math.ceil((((weekStart - yearStart) / 86400000) + 1) / 7);
+
+  return {
+    iso: now.toISOString(),
+    localDate: now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+    localTime: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }),
+    utcTime: now.toUTCString(),
+    dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
+    month: now.toLocaleDateString('en-US', { month: 'long' }),
+    year: now.getFullYear(),
+    dayOfMonth: now.getDate(),
+    dayOfYear,
+    isoWeek,
+    unixTimestamp: Math.floor(now.getTime() / 1000)
+  };
+}
+
 function setMainWindow(win) {
   mainWindow = win;
 }
@@ -76,6 +139,7 @@ function setupIpcHandlers() {
   // System Environment Scanner — provides the AI agent full context about the user's computer
   ipcMain.handle('system-environment', async () => {
     const os = require('os');
+    const now = new Date();
     const info = {
       platform: os.platform(),
       osVersion: os.release(),
@@ -84,13 +148,42 @@ function setupIpcHandlers() {
       username: os.userInfo().username,
       homeDir: os.homedir(),
       tempDir: os.tmpdir(),
+      locale: Intl.DateTimeFormat().resolvedOptions().locale || 'en-US',
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local',
+      utcOffsetMinutes: -now.getTimezoneOffset(),
+      dateTime: buildDateTimeSnapshot(now),
       totalMemoryGB: (os.totalmem() / (1024 ** 3)).toFixed(1),
       freeMemoryGB: (os.freemem() / (1024 ** 3)).toFixed(1),
       cpuCores: os.cpus().length,
       cpuModel: os.cpus()[0] ? os.cpus()[0].model : 'Unknown',
       drives: [],
-      keyDirectories: {}
+      keyDirectories: {},
+      region: {},
+      geoLocation: null
     };
+
+    try {
+      const regionRaw = await new Promise((resolve, reject) => {
+        cpExec(
+          'powershell -NoProfile -Command "[System.Globalization.RegionInfo]::CurrentRegion | ConvertTo-Json -Compress"',
+          { windowsHide: true },
+          (err, stdout) => {
+            if (err) reject(err);
+            else resolve(stdout);
+          }
+        );
+      });
+      const region = JSON.parse(String(regionRaw || '').trim());
+      info.region = {
+        country: region.EnglishName || region.NativeName || '',
+        countryCode: region.TwoLetterISORegionName || region.Name || '',
+        currency: region.ISOCurrencySymbol || ''
+      };
+    } catch (e) {
+      info.region = { country: '', countryCode: '', currency: '' };
+    }
+
+    info.geoLocation = await resolveGeoLocation();
 
     // Discover drives (Windows)
     try {
@@ -274,12 +367,16 @@ function setupIpcHandlers() {
     }
   });
 
+  // Active pull process registry
+  const activePullProcesses = new Map();
+
   // Trigger direct download of Ollama weights with real-time progress events
   ipcMain.handle('download-model', async (event, modelName) => {
     return new Promise((resolve) => {
       const { spawn } = require('child_process');
       const child = spawn('ollama', ['pull', modelName], { windowsHide: true });
       
+      activePullProcesses.set(modelName.toLowerCase(), child);
       let lastPercent = 0;
       let errorOutput = '';
 
@@ -320,13 +417,32 @@ function setupIpcHandlers() {
       }
 
       child.on('close', (code) => {
+        activePullProcesses.delete(modelName.toLowerCase());
         if (code === 0) {
           resolve({ success: true });
+        } else if (child.killed) {
+          resolve({ success: false, error: 'Download cancelled by user', cancelled: true });
         } else {
           resolve({ success: false, error: errorOutput.trim() || `Process exited with code ${code}` });
         }
       });
     });
+  });
+
+  // Cancel an ongoing model weight download
+  ipcMain.handle('cancel-download-model', async (event, modelName) => {
+    const key = (modelName || '').toLowerCase();
+    const child = activePullProcesses.get(key) || Array.from(activePullProcesses.values())[0];
+    if (child) {
+      try {
+        child.kill('SIGKILL');
+        const { exec } = require('child_process');
+        exec(`taskkill /F /PID ${child.pid} /T`, { windowsHide: true }, () => {});
+      } catch (e) {}
+      activePullProcesses.delete(key);
+      return { success: true, cancelled: true };
+    }
+    return { success: false, error: 'No active pull process found' };
   });
 
   // Delete local model weights
@@ -659,6 +775,11 @@ function setupIpcHandlers() {
   ipcMain.handle('open-external', async (event, url) => {
     try {
       if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+        const parsed = new URL(url);
+        const host = parsed.hostname.toLowerCase();
+        if (!host || host === 'localhost' || host.endsWith('.local') || host.includes('duckduckgo.com')) {
+          return { success: false, error: 'Blocked URL host.' };
+        }
         await shell.openExternal(url);
         return { success: true };
       }
@@ -682,14 +803,199 @@ function setupIpcHandlers() {
       .replace(/&#x2F;/g, '/');
   }
 
+  function stripTags(html) {
+    return decodeHTMLEntities((html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim());
+  }
+
+  function buildWikipediaUrl(title) {
+    if (!title) return '';
+    const slug = String(title).trim().replace(/ /g, '_');
+    const wikiUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(slug).replace(/%20/g, '_')}`;
+    return isValidResultUrl(wikiUrl) ? wikiUrl : '';
+  }
+
+  function normalizeDdgUrl(rawUrl) {
+    if (!rawUrl) return '';
+    const decoded = decodeHTMLEntities(String(rawUrl).trim());
+    try {
+      const url = new URL(decoded, 'https://duckduckgo.com');
+      const uddg = url.searchParams.get('uddg');
+      if (uddg) {
+        const target = decodeURIComponent(uddg);
+        return isValidResultUrl(target) ? target : '';
+      }
+      if (/duckduckgo\.com$/i.test(url.hostname) || url.hostname.endsWith('.duckduckgo.com')) {
+        return '';
+      }
+      return isValidResultUrl(url.href) ? url.href : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function getHostname(url) {
+    try {
+      return new URL(url).hostname.replace(/^www\./i, '');
+    } catch (e) {
+      return 'web';
+    }
+  }
+
+  function normalizeAbsoluteUrl(rawUrl, baseUrl = '') {
+    if (!rawUrl) return '';
+    const decoded = decodeHTMLEntities(String(rawUrl).trim());
+    if (/^(javascript|data|mailto|tel):/i.test(decoded)) return '';
+    try {
+      return new URL(decoded, baseUrl || undefined).href;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function isValidResultUrl(url) {
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+
+      const host = parsed.hostname.toLowerCase();
+      if (!host || !host.includes('.') || host === 'localhost' || host.endsWith('.local')) return false;
+      if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) return false;
+
+      const blockedHosts = new Set([
+        'duckduckgo.com',
+        'www.duckduckgo.com',
+        'google.com',
+        'www.google.com',
+        'bing.com',
+        'www.bing.com',
+        'search.yahoo.com',
+        'search.brave.com',
+        'example.com',
+        'www.example.com',
+        'example.org',
+        'www.example.org',
+        'example.net',
+        'www.example.net',
+        'localhost',
+        '127.0.0.1'
+      ]);
+      if (blockedHosts.has(host)) return false;
+      if (host.includes('duckduckgo.com')) return false;
+
+      if ((host === 'google.com' || host === 'www.google.com') && parsed.pathname === '/search') return false;
+      if ((host === 'bing.com' || host === 'www.bing.com') && parsed.pathname === '/search') return false;
+
+      if (parsed.pathname === '/' && parsed.searchParams.has('q')) return false;
+
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async function verifyUrl(url) {
+    if (!isValidResultUrl(url)) return { ok: false, status: 0, finalUrl: '' };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    };
+
+    try {
+      let res = await fetch(url, { method: 'HEAD', headers, redirect: 'follow', signal: controller.signal });
+      if (!res.ok || [401, 403, 405, 404, 501].includes(res.status)) {
+        res = await fetch(url, {
+          method: 'GET',
+          headers: { ...headers, Range: 'bytes=0-4096' },
+          redirect: 'follow',
+          signal: controller.signal
+        });
+      }
+
+      clearTimeout(timeout);
+      const finalUrl = res.url || url;
+      if (!isValidResultUrl(finalUrl)) {
+        return { ok: false, status: res.status, finalUrl: '' };
+      }
+
+      const ok = res.status >= 200 && res.status < 400;
+      return {
+        ok,
+        status: res.status,
+        finalUrl
+      };
+    } catch (e) {
+      clearTimeout(timeout);
+      return { ok: false, status: 0, finalUrl: '' };
+    }
+  }
+
+  function isShoppingQuery(query) {
+    return /\b(best|top|buy|price|under|cheap|deal|deals|sale|shop|shopping|product|products|shoes|sneakers|phone|laptop|headphones|earbuds|watch|camera|bag)\b/i.test(query || '');
+  }
+
+  function extractPrice(text) {
+    const match = (text || '').match(/(?:₹|Rs\.?|INR|\$|USD|€|£)\s?[0-9][0-9,]*(?:\.[0-9]{1,2})?/i);
+    return match ? match[0] : '';
+  }
+
+  function uniqueResults(results) {
+    const seen = new Set();
+    return results.filter((item) => {
+      if (!item || !item.url) return false;
+      if (!isValidResultUrl(item.url)) return false;
+      const key = item.url.replace(/[#?].*$/, '').toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  async function fetchPagePreview(url) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36'
+        },
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      if (!res.ok) return null;
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('text/html')) return null;
+      const html = await res.text();
+      const title = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1]
+        || html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+      const description = html.match(/<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']([^"']+)["']/i)?.[1];
+      const image = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1] || '';
+      return {
+        title: stripTags(title || ''),
+        description: stripTags(description || ''),
+        image: normalizeAbsoluteUrl(image, url)
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
   // Robust multi-source Web Search handler (DuckDuckGo API + Wiki API + DDG Organic POST)
   ipcMain.handle('search-web', async (event, query) => {
     let cleanQuery = query ? query.replace(/["']/g, '').trim() : '';
     // Strip common prompt prefixes
-    cleanQuery = cleanQuery.replace(/^(search\s+(web\s+for|online\s+for|for)?|look\s+up|google|find\s+out|find)\s+/i, '').trim();
-    if (!cleanQuery) return "Please provide a valid web search query.";
+    cleanQuery = cleanQuery
+      .replace(/\bwbe\b/gi, 'web')
+      .replace(/\bspiderman\b/gi, 'Spider-Man')
+      .replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+)?(search\s+(web\s+for|online\s+for|for)?|look\s+up|google|find\s+out|find)\s+/i, '')
+      .replace(/^(tell\s+me|show\s+me|give\s+me)\s+(about\s+)?/i, '')
+      .trim();
+    if (!cleanQuery) {
+      return { success: false, query: '', results: [], products: [], answerContext: '', needsClarification: true, clarification: 'Please provide a valid web search query.' };
+    }
 
-    const results = [];
+    const resultBlocks = [];
 
     // 1. Query DuckDuckGo Instant Answer JSON API
     try {
@@ -697,13 +1003,26 @@ function setupIpcHandlers() {
       const res = await fetch(ddgApiUrl);
       if (res.ok) {
         const data = await res.json();
-        if (data.AbstractText) {
-          results.push(`**${data.Heading || cleanQuery}**\n${decodeHTMLEntities(data.AbstractText)}\nSource: ${data.AbstractURL || 'DuckDuckGo Knowledge Graph'}`);
+        if (data.AbstractText && data.AbstractURL && isValidResultUrl(data.AbstractURL)) {
+          resultBlocks.push({
+            title: data.Heading || cleanQuery,
+            url: data.AbstractURL,
+            snippet: decodeHTMLEntities(data.AbstractText),
+            source: getHostname(data.AbstractURL)
+          });
         } else if (data.RelatedTopics && data.RelatedTopics.length > 0) {
-          const snippets = data.RelatedTopics.slice(0, 3).filter(t => t.Text).map(t => `- ${decodeHTMLEntities(t.Text)}`);
-          if (snippets.length > 0) {
-            results.push(`**Overview for "${cleanQuery}":**\n${snippets.join('\n')}`);
-          }
+          data.RelatedTopics
+            .flatMap(t => t.Topics || [t])
+            .filter(t => t.Text && t.FirstURL && isValidResultUrl(t.FirstURL))
+            .slice(0, 4)
+            .forEach((topic) => {
+              resultBlocks.push({
+                title: topic.Text.split(' - ')[0] || cleanQuery,
+                url: topic.FirstURL,
+                snippet: decodeHTMLEntities(topic.Text),
+                source: getHostname(topic.FirstURL)
+              });
+            });
         }
       }
     } catch (e) {
@@ -720,8 +1039,16 @@ function setupIpcHandlers() {
         if (pages) {
           const pageId = Object.keys(pages)[0];
           if (pageId !== '-1' && pages[pageId].extract) {
-            const wikiText = pages[pageId].extract.substring(0, 400);
-            results.push(`**Wikipedia (${pages[pageId].title}):**\n${decodeHTMLEntities(wikiText)}...\n[Read more on Wikipedia](https://en.wikipedia.org/wiki/${encodeURIComponent(pages[pageId].title)})`);
+            const wikiText = pages[pageId].extract.substring(0, 450);
+            const wikiUrl = buildWikipediaUrl(pages[pageId].title);
+            if (wikiUrl) {
+              resultBlocks.push({
+                title: `Wikipedia: ${pages[pageId].title}`,
+                url: wikiUrl,
+                snippet: `${decodeHTMLEntities(wikiText)}...`,
+                source: 'wikipedia.org'
+              });
+            }
           }
         }
       }
@@ -730,7 +1057,7 @@ function setupIpcHandlers() {
     }
 
     // 3. Fallback / Organic: DuckDuckGo HTML Search POST
-    if (results.length < 2) {
+    if (resultBlocks.length < 6) {
       try {
         const ddgHtmlUrl = `https://html.duckduckgo.com/html/`;
         const res = await fetch(ddgHtmlUrl, {
@@ -743,17 +1070,42 @@ function setupIpcHandlers() {
         });
         if (res.ok) {
           const html = await res.text();
-          const matches = html.matchAll(/<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g);
-          const snippets = [];
+          const beforeOrganicCount = resultBlocks.length;
+          const matches = html.matchAll(/<div class="result[\s\S]*?<\/div>\s*<\/div>/g);
           for (const match of matches) {
-            let snippetText = decodeHTMLEntities(match[1].replace(/<[^>]*>/g, '').trim());
+            const block = match[0];
+            const titleMatch = block.match(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+            const snippetMatch = block.match(/<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i) || block.match(/<div class="result__snippet"[^>]*>([\s\S]*?)<\/div>/i);
+            if (!titleMatch) continue;
+            const url = normalizeDdgUrl(titleMatch[1]);
+            const title = stripTags(titleMatch[2]);
+            const snippetText = stripTags(snippetMatch ? snippetMatch[1] : '');
             // Filter out junk/SEO aggregator boilerplates
-            if (snippetText && snippets.length < 4 && !snippetText.toLowerCase().includes('stopwatch timer countdown') && !snippetText.toLowerCase().includes('calculator')) {
-              snippets.push(`- ${snippetText}`);
+            if (title && url && isValidResultUrl(url) && resultBlocks.length < 10 && !snippetText.toLowerCase().includes('stopwatch timer countdown') && !snippetText.toLowerCase().includes('calculator')) {
+              resultBlocks.push({
+                title,
+                url,
+                snippet: snippetText,
+                source: getHostname(url)
+              });
             }
           }
-          if (snippets.length > 0) {
-            results.push(`**Web Search Snippets:**\n${snippets.join('\n\n')}`);
+          if (resultBlocks.length === beforeOrganicCount) {
+            const titleMatches = [...html.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
+            const snippetMatches = [...html.matchAll(/<(?:a|div)[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|div)>/gi)];
+            titleMatches.slice(0, 8).forEach((titleMatch, index) => {
+              const url = normalizeDdgUrl(titleMatch[1]);
+              const title = stripTags(titleMatch[2]);
+              const snippetText = stripTags(snippetMatches[index] ? snippetMatches[index][1] : '');
+              if (title && url && isValidResultUrl(url) && resultBlocks.length < 10) {
+                resultBlocks.push({
+                  title,
+                  url,
+                  snippet: snippetText,
+                  source: getHostname(url)
+                });
+              }
+            });
           }
         }
       } catch (e) {
@@ -761,11 +1113,72 @@ function setupIpcHandlers() {
       }
     }
 
+    const candidateResults = uniqueResults(resultBlocks).slice(0, 10);
+    const verifiedResults = [];
+    const verifications = await Promise.all(candidateResults.map(item => verifyUrl(item.url)));
+    candidateResults.forEach((item, index) => {
+      const verification = verifications[index];
+      if (!verification.ok) return;
+      verifiedResults.push({
+        ...item,
+        url: verification.finalUrl || item.url,
+        source: getHostname(verification.finalUrl || item.url),
+        status: verification.status,
+        verified: true
+      });
+    });
+
+    const results = verifiedResults.slice(0, 8);
+
+    const previewTargets = results.slice(0, 4);
+    const previews = await Promise.all(previewTargets.map(item => fetchPagePreview(item.url)));
+    previews.forEach((preview, index) => {
+      if (!preview) return;
+      if (preview.title && preview.title.length > results[index].title.length) results[index].title = preview.title;
+      if (preview.description && preview.description.length > results[index].snippet.length) results[index].snippet = preview.description;
+      if (preview.image) results[index].image = preview.image;
+    });
+
+    const shopping = isShoppingQuery(cleanQuery);
+    const products = shopping
+      ? results
+          .filter(item => item.title && item.url)
+          .slice(0, 6)
+          .map((item) => ({
+            title: item.title,
+            url: item.url,
+            source: item.source,
+            snippet: item.snippet,
+            price: extractPrice(`${item.title} ${item.snippet}`),
+            image: item.image || ''
+          }))
+      : [];
+
+    const answerContext = results.map((item, index) => {
+      return `[${index + 1}] ${item.title}\nURL: ${item.url}\nSource: ${item.source}\nSnippet: ${item.snippet || 'No snippet available.'}`;
+    }).join('\n\n');
+
     if (results.length === 0) {
-      return `No web results found for "${cleanQuery}". Try rephrasing your search query.`;
+      return {
+        success: true,
+        query: cleanQuery,
+        results: [],
+        products: [],
+        answerContext: '',
+        needsClarification: true,
+        clarification: `I could not find reliable web results for "${cleanQuery}". Try adding a brand, location, budget, or date range.`
+      };
     }
 
-    return results.join('\n\n---\n\n');
+    return {
+      success: true,
+      query: cleanQuery,
+      results,
+      products,
+      answerContext,
+      needsClarification: results.length < 2,
+      clarification: results.length < 2 ? `I only found one useful result for "${cleanQuery}". A little more detail would help me search better.` : ''
+    };
   });
 }
 

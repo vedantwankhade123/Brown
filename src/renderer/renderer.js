@@ -87,6 +87,19 @@ function isThinkingMarkup(text) {
   return typeof text === 'string' && (text.includes('thinking-container') || text.includes('thinking-dot') || text.includes('web-search-status-wrapper') || text.includes('web-search-shimmer-text') || text.includes('step-exec-card'));
 }
 
+function isRichResultMarkup(text) {
+  return typeof text === 'string' && text.includes('ultron-search-experience');
+}
+
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function getWebSearchCardHtml(query) {
   const cleanQ = (query || '').replace(/["']/g, '').trim();
   const truncated = cleanQ.length > 55 ? cleanQ.substring(0, 52) + '...' : cleanQ;
@@ -197,6 +210,8 @@ function setSendingState(isSending) {
 
 function renderMessageContent(content, text) {
   if (isThinkingMarkup(text)) {
+    content.innerHTML = text;
+  } else if (isRichResultMarkup(text)) {
     content.innerHTML = text;
   } else {
     content.innerHTML = window.ultronAPI.parseMarkdown(text || '');
@@ -878,37 +893,122 @@ function appendChatMessage(sender, text, isAi = false, options = {}) {
   return content;
 }
 
-// Cached system environment context (populated once at first prompt)
+// Cached system environment context (refreshed periodically)
 let _cachedSystemEnv = null;
+let _cachedSystemEnvAt = 0;
+const SYSTEM_ENV_TTL_MS = 30 * 60 * 1000;
 let _learnedTaskMemory = []; // Self-learning: stores task outcome summaries
 
-async function getSystemContext() {
-  if (_cachedSystemEnv) return _cachedSystemEnv;
+async function getSystemContext(forceRefresh = false) {
+  if (!forceRefresh && _cachedSystemEnv && Date.now() - _cachedSystemEnvAt < SYSTEM_ENV_TTL_MS) {
+    return _cachedSystemEnv;
+  }
   try {
     _cachedSystemEnv = await window.ultronAPI.getSystemEnvironment();
+    _cachedSystemEnvAt = Date.now();
   } catch (e) {
     _cachedSystemEnv = {
       platform: 'win32', username: 'vedan', homeDir: 'C:\\Users\\vedan',
       drives: [{ letter: 'C:' }],
-      keyDirectories: { desktop: 'C:\\Users\\vedan\\Desktop', documents: 'C:\\Users\\vedan\\Documents', downloads: 'C:\\Users\\vedan\\Downloads' }
+      keyDirectories: { desktop: 'C:\\Users\\vedan\\Desktop', documents: 'C:\\Users\\vedan\\Documents', downloads: 'C:\\Users\\vedan\\Downloads' },
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local',
+      locale: 'en-US',
+      region: {},
+      geoLocation: null
     };
+    _cachedSystemEnvAt = Date.now();
   }
   return _cachedSystemEnv;
 }
-function sanitizeResponseText(text, userPrompt = '') {
+
+function buildRealtimeContext(sysEnv = {}) {
+  const now = new Date();
+  const tz = sysEnv.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+  const utcOffsetMinutes = -now.getTimezoneOffset();
+  const utcOffsetLabel = `${utcOffsetMinutes >= 0 ? '+' : '-'}${String(Math.floor(Math.abs(utcOffsetMinutes) / 60)).padStart(2, '0')}:${String(Math.abs(utcOffsetMinutes) % 60).padStart(2, '0')}`;
+  const geo = sysEnv.geoLocation || {};
+  const region = sysEnv.region || {};
+  const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+  const locationParts = [geo.city, geo.region, geo.country || region.country].filter(Boolean);
+  const locationLabel = locationParts.length > 0 ? locationParts.join(', ') : (region.country || 'Unknown location');
+
+  return {
+    dateLabel: now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+    timeLabel: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }),
+    timeZone: tz,
+    utcOffsetLabel,
+    utcTimeLabel: now.toUTCString(),
+    year: now.getFullYear(),
+    month: now.toLocaleDateString('en-US', { month: 'long' }),
+    dayOfWeek: now.toLocaleDateString('en-US', { weekday: 'long' }),
+    dayOfMonth: now.getDate(),
+    dayOfYear,
+    isoTimestamp: now.toISOString(),
+    unixTimestamp: Math.floor(now.getTime() / 1000),
+    locationLabel,
+    countryCode: geo.countryCode || region.countryCode || '',
+    locale: sysEnv.locale || 'en-US'
+  };
+}
+
+function normalizeUrlForCompare(url) {
+  try {
+    const parsed = new URL(String(url).trim());
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    const path = parsed.pathname.replace(/\/+$/, '') || '/';
+    return `${parsed.protocol}//${host}${path}`.toLowerCase();
+  } catch (e) {
+    return String(url || '').trim().replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function stripUnverifiedLinks(text, allowedUrls = []) {
+  if (!text || typeof text !== 'string') return '';
+  const allowed = new Set(allowedUrls.map(normalizeUrlForCompare).filter(Boolean));
+  if (allowed.size === 0) {
+    return text
+      .replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/gi, '$1')
+      .replace(/(?<![(\[])(https?:\/\/[^\s<>)\]"']+)/gi, '');
+  }
+
+  const isAllowedUrl = (rawUrl) => {
+    const normalized = normalizeUrlForCompare(rawUrl.replace(/[.,;:!?)]+$/g, ''));
+    if (allowed.has(normalized)) return true;
+    return [...allowed].some((candidate) => normalized.startsWith(candidate) || candidate.startsWith(normalized));
+  };
+
+  let cleaned = text.replace(/\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/gi, (match, label, url) => (
+    isAllowedUrl(url) ? match : label
+  ));
+
+  cleaned = cleaned.replace(/(?<![(\[])(https?:\/\/[^\s<>)\]"']+)/gi, (url) => (
+    isAllowedUrl(url) ? url : ''
+  ));
+
+  return cleaned.replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim();
+}
+
+function sanitizeResponseText(text, userPrompt = '', options = {}) {
   if (!text || typeof text !== 'string') return '';
 
   let cleaned = text.trim();
 
   // 1. Remove third-person meta-preambles (e.g. "Sure! Here's a revised version...", "The user asked...", "Based on web search...")
+  cleaned = cleaned.replace(/^(certainly!?|sure!?|of course!?)\s*(here\s+(are|is)\s+(some\s+)?examples?\s+of\s+how\s+(the\s+)?ai\s*(agent\s*)?(can|will)\s+[^:\n]+[:\n]\s*)/gi, '');
+  cleaned = cleaned.replace(/^here\s+(are|is)\s+(some\s+)?examples?\s+of\s+how\s+(the\s+)?ai\s*(agent\s*)?(can|will)\s+[^:\n]+[:\n]\s*/gi, '');
   cleaned = cleaned.replace(/^(sure!?|of course!?|certainly!?)\s*(here's|here is|this is)\s*(a revised|an updated|a summary|the summary)?\s*(version of\s*)?(the\s+)?(live\s+)?web\s*sea?r?ch?e?t?\s*(information|results)?\s*(with\s+[^:\n]+?\s+as\s+the\s+main\s+topic)?:?\s*/gi, '');
   cleaned = cleaned.replace(/^(the user's? (question|request|prompt) is|the user asked|based on (the )?(live )?web search( results)?|according to (the )?search results)[^:\n]*[:\n,]\s*/gi, '');
   cleaned = cleaned.replace(/^and the live web sea?r?ch?e?t? results provided are:?\s*/gi, '');
   cleaned = cleaned.replace(/^(web\s+sea?r?ch?e?t?\s+(information|results)):?\s*/gi, '');
+  cleaned = cleaned.replace(/^to\s+answer\s+the\s+user'?s?\s+(question|request|prompt)[^:\n]*[:\n]\s*/gi, '');
+  cleaned = cleaned.replace(/^to\s+answer\s+your\s+(question|request|prompt)[^:\n]*[:\n]\s*/gi, '');
+  cleaned = cleaned.replace(/^here\s+is\s+a\s+(direct|clear|concise|polished)?\s*response\s+[^:\n]*[:\n]\s*/gi, '');
+  cleaned = cleaned.replace(/^using\s+standard\s+markdown\s+formatting\s+and\s+polished\s+language:?\s*/gi, '');
 
   // 2. Aggressive quotes & meta-intro clause cleanup
   const metaPattern = /^\s*(sure!?|here is|here's)?\s*The user's? (question|request) is ["'][^"']+["'],?\s*(and|with)?\s*(the\s+)?(live\s+)?(web\s+)?sea?r?ch?e?t?\s*results?\s*provided\s*are:?\s*/gi;
   cleaned = cleaned.replace(metaPattern, '').trim();
+  cleaned = cleaned.replace(/^\s*(sure!?|here is|here's)?\s*to\s+answer\s+[^:\n]+?:\s*/gi, '').trim();
 
   // 3. Common typo correction in generated web summaries
   cleaned = cleaned.replace(/\bsearcet\b/gi, 'search')
@@ -927,12 +1027,245 @@ function sanitizeResponseText(text, userPrompt = '') {
   cleaned = cleaned.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
   cleaned = cleaned.replace(/\[user_name\]|\[User Name\]|<user name>/gi, currentUserName);
 
-  // 6. Capitalize first letter if valid text remains
+  // 6. Strip invented or unverified hyperlinks from web summaries
+  if (options.allowedUrls && options.allowedUrls.length > 0) {
+    cleaned = stripUnverifiedLinks(cleaned, options.allowedUrls);
+  } else if (options.stripAllLinks) {
+    cleaned = stripUnverifiedLinks(cleaned, []);
+  }
+
+  // 7. Capitalize first letter if valid text remains
   if (cleaned.length > 0) {
     cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
   }
 
   return cleaned;
+}
+
+function extractPlainTextFromMessage(text) {
+  if (!text || typeof text !== 'string') return '';
+  let cleaned = text;
+
+  // Extract answer text from search experience markup if present
+  const answerMatch = cleaned.match(/<div class="search-answer">([\s\S]*?)<\/div>/i);
+  if (answerMatch) {
+    cleaned = answerMatch[1];
+  }
+
+  // Strip HTML tags and entities to recover pure conversational text
+  cleaned = cleaned
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return cleaned;
+}
+
+function fallbackSearchQueryFromPrompt(prompt) {
+  let query = (prompt || '').replace(/["'`]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!query) return 'latest updates news';
+
+  // Strip conversational lead-ins
+  let cleaned = query
+    .replace(/\bwbe\b/gi, 'web')
+    .replace(/\bspiderman\b/gi, 'Spider-Man')
+    .replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+)?(search|google|look\s+up|find\s+out|find|check)\s+(the\s+)?(web\s+)?(online\s+)?(for\s+)?/i, '')
+    .replace(/^(who|what|where|when|why|how)\s+(is|are|was|were|do|does|did|can|should|would)\s+(the\s+)?/i, '')
+    .replace(/^(tell\s+me|show\s+me|give\s+me|search\s+for|info\s+on|details\s+on)\s+(about\s+)?/i, '')
+    .trim();
+
+  // Smart keyword enrichment for common query formats
+  if (/^who\s+(is|was|are)\b/i.test(prompt) && cleaned.split(' ').length <= 4) {
+    cleaned = `${cleaned} biography profile background`;
+  } else if (/^what\s+(is|are)\b/i.test(prompt) && cleaned.split(' ').length <= 4) {
+    cleaned = `${cleaned} overview definition details`;
+  }
+
+  return cleaned || query;
+}
+
+async function buildWebSearchQuery(userPrompt) {
+  const fallback = fallbackSearchQueryFromPrompt(userPrompt);
+
+  const sysEnv = await getSystemContext();
+  const realtime = buildRealtimeContext(sysEnv);
+  const locationHint = realtime.locationLabel && realtime.locationLabel !== 'Unknown location' ? realtime.locationLabel : '';
+  const temporalHint = `${realtime.month} ${realtime.year}`;
+
+  const queryPlannerSystemPrompt = `You are a Search Engine Query Keyword Generator.
+Given a user prompt, output ONLY 2 to 5 search engine keywords.
+STRICT RULES:
+- Output NOTHING EXCEPT the query keywords.
+- DO NOT write intro words like "Sure", "Here is", "Below is", "1.", "Query:".
+- DO NOT echo instructions or rules.
+- DO NOT use conversational phrases like "who is", "tell me about".`;
+
+  const queryPlannerUserPrompt = `User Prompt: "${userPrompt}"\nKeywords:`;
+
+  try {
+    const rawAiOutput = await queryOfflineLLM(queryPlannerUserPrompt, [], 'search', queryPlannerSystemPrompt);
+    if (rawAiOutput) {
+      let planned = rawAiOutput
+        .replace(/```[^`]*```/g, '')
+        .replace(/^sure,?\s*(here'?s?\s*(an?\s*)?(optimized\s*)?(search\s*)?(engine\s*)?query\s*(for|keywords)?:?)?/gi, '')
+        .replace(/^here'?s?\s*(an?\s*)?(optimized\s*)?(search\s*)?(engine\s*)?query\s*(for|keywords)?:?/gi, '')
+        .replace(/^(1\.|2\.|3\.|step\s*\d+:?|\*|\-)\s*/gi, '')
+        .replace(/^(reconstructed\s+)?search\s+query\s*:?\s*/gi, '')
+        .replace(/^(keywords|query|result)\s*:?\s*/gi, '')
+        .replace(/^(to\s+convert|the\s+query\s+is)\s*:?\s*/gi, '')
+        .replace(/^["'`]|["'`]$/g, '')
+        .trim();
+
+      if (planned.includes('\n')) {
+        const lines = planned.split('\n').map(l => l.trim()).filter(Boolean);
+        planned = lines.find(l => !/^(rules|instructions|1\.|2\.|sure|here|strip|output)/i.test(l)) || lines[lines.length - 1] || '';
+        planned = planned.replace(/^["'`]|["'`]$/g, '').replace(/^(keywords|query):?\s*/gi, '').trim();
+      }
+
+      if (
+        planned &&
+        planned.length >= 3 &&
+        planned.length <= 100 &&
+        !/\b(strip out|conversational words|reconstruction agent|rules:|output only|markdown|explanation)\b/i.test(planned)
+      ) {
+        logTrace(`AI Search Query Reconstructed: "${planned}" (from prompt: "${userPrompt}")`, 'system');
+        return planned;
+      }
+    }
+  } catch (e) {
+    logTrace(`Search query AI reconstruction fallback: ${e.message}`, 'system');
+  }
+
+  return fallback;
+}
+
+function normalizeSearchPayload(payload, query) {
+  if (payload && typeof payload === 'object' && Array.isArray(payload.results)) {
+    return payload;
+  }
+
+  const text = typeof payload === 'string' ? payload : '';
+  return {
+    success: Boolean(text),
+    query,
+    results: text ? [{ title: `Results for ${query}`, url: `https://duckduckgo.com/?q=${encodeURIComponent(query)}`, source: 'DuckDuckGo', snippet: text }] : [],
+    products: [],
+    answerContext: text,
+    needsClarification: !text,
+    clarification: text ? '' : `I could not find reliable web results for "${query}".`
+  };
+}
+
+function searchContextForLLM(searchPayload) {
+  if (!searchPayload) return '';
+  if (searchPayload.answerContext) return searchPayload.answerContext;
+  return (searchPayload.results || []).map((item, index) => {
+    return `[${index + 1}] ${item.title}\nURL: ${item.url}\nSource: ${item.source}\nSnippet: ${item.snippet || 'No snippet available.'}`;
+  }).join('\n\n');
+}
+
+function shouldAskForSearchClarification(searchPayload) {
+  const results = searchPayload && Array.isArray(searchPayload.results) ? searchPayload.results : [];
+  const usefulSnippets = results.filter(item => (item.snippet || '').trim().length > 40).length;
+  return Boolean(searchPayload && searchPayload.needsClarification) || results.length === 0 || usefulSnippets === 0;
+}
+
+function renderSearchExperience(answer, searchPayload) {
+  const results = Array.isArray(searchPayload.results) ? searchPayload.results.slice(0, 6) : [];
+  const products = Array.isArray(searchPayload.products) ? searchPayload.products.slice(0, 6) : [];
+  const answerHtml = window.ultronAPI.parseMarkdown(
+    sanitizeResponseText(answer || '', searchPayload.query || '', {
+      allowedUrls: results.map(item => item.url).filter(Boolean)
+    })
+  );
+
+  const productHtml = products.length > 0 ? `
+    <div class="search-section">
+      <div class="search-section-title">Product Matches</div>
+      <div class="product-card-grid">
+        ${products.map((item) => {
+          let domain = '';
+          try {
+            const urlObj = new URL(item.url);
+            domain = urlObj.hostname.replace(/^www\./, '');
+          } catch (e) {
+            domain = item.source || 'web';
+          }
+          const faviconUrl = domain && domain !== 'web' 
+            ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
+            : '';
+
+          return `
+            <a class="product-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
+              ${item.image ? `<img class="product-result-image" src="${escapeHtml(item.image)}" alt="" onerror="this.style.display='none';" />` : ''}
+              <div class="product-result-body">
+                <div class="product-source-header">
+                  ${faviconUrl 
+                    ? `<img class="product-source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none';" />` 
+                    : `<span class="product-source-icon">🛍️</span>`
+                  }
+                  <span class="product-source-domain">${escapeHtml(domain || item.source || 'web')}</span>
+                </div>
+                <div class="product-result-title">${escapeHtml(item.title || 'Product result')}</div>
+                ${item.price ? `<div class="product-result-price">${escapeHtml(item.price)}</div>` : ''}
+                ${item.snippet ? `<div class="product-result-snippet">${escapeHtml(item.snippet)}</div>` : ''}
+              </div>
+            </a>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  const sourcesHtml = results.length > 0 ? `
+    <div class="search-section">
+      <div class="search-section-title">Sources</div>
+      <div class="source-card-list">
+        ${results.map((item) => {
+          let domain = '';
+          try {
+            const urlObj = new URL(item.url);
+            domain = urlObj.hostname.replace(/^www\./, '');
+          } catch (e) {
+            domain = item.source || 'web';
+          }
+          const faviconUrl = domain && domain !== 'web' 
+            ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
+            : '';
+
+          return `
+            <a class="source-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
+              <div class="source-header">
+                ${faviconUrl 
+                  ? `<img class="source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" /><span class="source-favicon-fallback" style="display:none;">🌐</span>` 
+                  : `<span class="source-favicon-fallback">🌐</span>`
+                }
+                <span class="source-domain">${escapeHtml(domain)}</span>
+              </div>
+              <div class="source-result-title">${escapeHtml(item.title || item.source || 'Web result')}</div>
+              <div class="source-meta">Today</div>
+            </a>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  return `
+    <div class="ultron-search-experience">
+      <div class="search-answer">${answerHtml}</div>
+      ${productHtml}
+      ${sourcesHtml}
+    </div>
+  `;
 }
 
 /**
@@ -953,7 +1286,7 @@ function classifyIntent(prompt) {
   }
 
   // 2. Explicit Host Local Time / Date / Calendar / Clock queries ONLY
-  const isExplicitClockQuery = /\b(what time is it|what is the time|current time|tell me the time|what'?s the date|what date is it|what is today'?s date|what year is it|what month is it|current date|show time|show clock|what day of the week is it)\b/i.test(p) || p === 'time' || p === 'date' || p === 'clock';
+  const isExplicitClockQuery = /\b(what time is it|what is the time|current time|tell me the time|what'?s the date|what date is it|what is today'?s date|what year is it|what month is it|current date|show time|show clock|what day of the week is it|where am i|my location|what city am i in|what country am i in)\b/i.test(p) || p === 'time' || p === 'date' || p === 'clock';
 
   if (isExplicitClockQuery && !/\b(file|folder|create|write|delete|code|script|build|run|execute|commit|branch|iphone|movie|search)\b/i.test(p)) {
     return 'time';
@@ -991,15 +1324,7 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
     const userNameEl = document.querySelector('.profile-detail-name');
     const userName = userNameEl ? userNameEl.textContent.trim() : 'Vedant Wankhade';
     const sysEnv = await getSystemContext();
-    const now = new Date();
-    const fullDateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const fullTimeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
-    const timeZoneStr = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const year = now.getFullYear();
-    const month = now.toLocaleString('en-US', { month: 'long' });
-    const day = now.getDate();
-    const dayOfWeek = now.toLocaleString('en-US', { weekday: 'long' });
-    const unixTimestamp = Math.floor(now.getTime() / 1000);
+    const realtime = buildRealtimeContext(sysEnv);
     const intent = intentOverride || classifyIntent(prompt);
     const isShortQuery = prompt.length < 60 && !/\b(explain|detail|step by step|comprehensive|essay|code|script|list all)\b/i.test(prompt);
 
@@ -1012,41 +1337,35 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
       ? `\n\nSELF-LEARNING MEMORY (your past task outcomes for reference):\n${_learnedTaskMemory.slice(-5).map((m, i) => `${i + 1}. ${m}`).join('\n')}`
       : '';
 
-    const systemPrompt = customSystemPromptOverride || `You are Ultron, an intelligent, fully autonomous local AI desktop agent running on the user's personal Windows PC.
-You are in a DIRECT, 1-on-1 personal conversation with the user (${userName}).
+    const systemPrompt = customSystemPromptOverride || `You are Ultron, a warm, highly intelligent, articulate, and engaging AI assistant in a direct 1-on-1 personal conversation with ${userName} (just like Gemini and ChatGPT).
 
-REAL-TIME CONTEXT & IDENTITY:
-- Date & Time: ${fullDateStr}, ${fullTimeStr} (${timeZoneStr})
-- User Identity: ${userName} (Windows User: ${sysEnv.username}, PC: ${sysEnv.hostname})
+CONVERSATIONAL PERSONA & DIRECT VOICE RULES:
+1. ALWAYS speak directly to ${userName} in the first person ("I", "me", "my") addressing ${userName} as "you".
+2. STRICTLY FORBIDDEN:
+   - NEVER speak in the third person.
+   - NEVER refer to yourself as "the AI", "the AI agent", "the assistant", or "this AI".
+   - NEVER refer to ${userName} as "the user" or "the user's prompt".
+   - NEVER output meta-narrative preambles or lists of hypothetical scenarios (e.g. NEVER write "Here are examples of how the AI agent can make you laugh...", "When the user asks X, the AI will Y...", or "As an AI language model").
+3. DIRECT FULFILLMENT:
+   - Perform the requested conversational task directly! If ${userName} asks to "make me laugh", "tell a joke", "write a poem", or chat, fulfill it immediately in first person with genuine humor, wit, warmth, and intelligence.
+4. SILENT GRAMMAR & TRANSCRIPTION AUTO-CORRECTION:
+   - Gracefully interpret and silently auto-correct any grammatical errors, spelling typos, or speech-to-text transcription mistakes in ${userName}'s input without mentioning them.
+
+REAL-TIME CONTEXT:
+- Local Date & Time: ${realtime.dateLabel}, ${realtime.timeLabel} (${realtime.timeZone})
 - Target Answer Style: ${isShortQuery ? 'Crisp & Concise (2-3 sentences max)' : 'Structured & Comprehensive'}
 
-HOST SYSTEM ENVIRONMENT:
+${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
 - Operating System: Windows ${sysEnv.osVersion || '10/11'} (${sysEnv.arch || 'x64'})
-- Hostname: ${sysEnv.hostname || 'Unknown'}
 - Home Directory: ${sysEnv.homeDir || 'C:\\Users\\vedan'}
 - Available Drives: ${drivesDesc}
-- Key Directories: Desktop: ${dirs.desktop || ''}, Documents: ${dirs.documents || ''}, Downloads: ${dirs.downloads || ''}
-
-CRITICAL CONVERSATIONAL RULES:
-1. ALWAYS talk DIRECTLY to the user as "you" in the first person ("I am Ultron", "Here is what I found for you...").
-2. NEVER refer to "the user", "the user's question", or "the search results". Address ${userName} directly!
-3. NEVER start your response with "The user's question is", "The user asked", "Based on live search", or "Here are the search results".
-4. RESPONSE DECISION FRAMEWORK (When to output what):
-   - MARKDOWN TABLES: Use Markdown tables (| Column 1 | Column 2 |) for comparisons ("JS vs React", "X vs Y"), specs, feature breakdowns, price comparisons, or structured data. NEVER output raw HTML code (e.g. <table>, <!DOCTYPE html>).
-   - CODE BLOCKS: Output code blocks ONLY when the user explicitly asks for code, scripts, functions, snippets, or implementation ("write code", "how to write a function in JS", "create script"). Do NOT output code blocks for definitions or comparisons.
-   - FLOWCHARTS / MERMAID DIAGRAMS: Use \`\`\`mermaid syntax when asked for flowcharts, architecture diagrams, workflows, or graphs ("show graph", "flowchart", "diagram").
-   - CLARIFYING QUESTIONS: If a request is ambiguous or missing key parameters, ask 1 concise clarifying question before executing.
-5. ADAPTIVE ANSWER LENGTH: If the user asks a quick question, give a crisp, 2-3 sentence answer right away. Do NOT write unnecessary essays unless requested ("explain in detail", "step by step").
-6. You have full capability and permissions on this host computer.
 
 AVAILABLE TOOLS (use ONLY when performing actions):
 - EXECUTE: <command>  — Runs a PowerShell/CMD command
 - WRITE_FILE: <filepath> | <content>  — Creates/writes a file
 - READ_FILE: <filepath>  — Reads file contents
 - LIST_DIR: <dirpath>  — Lists directory contents
-- SEARCH: <query>  — Searches the web for live information
-
-CURRENT INTENT: "${intent}".${memorySnippet}`;
+- SEARCH: <query>  — Searches the web for live information` : ''}${memorySnippet}`;
 
     let finalUserPrompt = prompt;
     if (/\b(table|tabular|difference between|vs|comparison)\b/i.test(prompt) && !/\b(html\s+code|css\s+code|write\s+code)\b/i.test(prompt)) {
@@ -1055,6 +1374,7 @@ CURRENT INTENT: "${intent}".${memorySnippet}`;
     
     let bodyData;
     let endpoint = '/api/generate';
+    const activeTemp = intent === 'conversation' ? 0.7 : 0.2;
     
     if (memoryEnabled && currentSessionId && conversationsStore[currentSessionId]) {
       // Sliding window memory (last 10 messages for rich context)
@@ -1070,10 +1390,13 @@ CURRENT INTENT: "${intent}".${memorySnippet}`;
       ];
       
       recentMsgs.forEach(m => {
-        chatMessages.push({
-          role: m.isAi ? 'assistant' : 'user',
-          content: sanitizeResponseText(m.text)
-        });
+        const textContent = extractPlainTextFromMessage(m.text);
+        if (textContent) {
+          chatMessages.push({
+            role: m.isAi ? 'assistant' : 'user',
+            content: textContent
+          });
+        }
       });
       
       // Append extra observation messages from agent loop
@@ -1095,7 +1418,7 @@ CURRENT INTENT: "${intent}".${memorySnippet}`;
         options: {
           num_ctx: 4096,      // Context length
           num_predict: 512,   // Prediction length limit
-          temperature: 0.3
+          temperature: activeTemp
         }
       };
       endpoint = '/api/chat';
@@ -1109,7 +1432,7 @@ CURRENT INTENT: "${intent}".${memorySnippet}`;
         options: {
           num_ctx: 2048,
           num_predict: 512,
-          temperature: 0.3
+          temperature: activeTemp
         }
       };
     }
@@ -1294,6 +1617,7 @@ async function runOnboardingProfiler() {
     
     // Populate dropdown
     populateModelSelectors(installedModels, recommendation);
+    renderOllamaCatalog();
     
     activeSubgoals = [
       { text: 'Profile host CPU, GPU, and RAM parameters', completed: true },
@@ -1628,25 +1952,25 @@ async function submitPrompt() {
 
       } else if (intent === 'time') {
         // Direct real-time date/clock/calendar response — no LLM needed
-        const now = new Date();
-        const fullDateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-        const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
-        const timeZoneStr = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const sysEnv = await getSystemContext();
+        const realtime = buildRealtimeContext(sysEnv);
         const p = prompt.toLowerCase();
         
         let response = '';
         if (/\b(year)\b/i.test(p)) {
-          response = `The current year is **${now.getFullYear()}**.`;
+          response = `The current year is **${realtime.year}**.`;
         } else if (/\b(month)\b/i.test(p)) {
-          response = `The current month is **${now.toLocaleString('en-US', { month: 'long' })} ${now.getFullYear()}**.`;
+          response = `The current month is **${realtime.month} ${realtime.year}**.`;
         } else if (/\b(day of (the )?week|what day)\b/i.test(p)) {
-          response = `Today is **${now.toLocaleString('en-US', { weekday: 'long' })}**.`;
+          response = `Today is **${realtime.dayOfWeek}**.`;
         } else if (/\b(time|clock)\b/i.test(p) && !/\b(date)\b/i.test(p)) {
-          response = `The current time is **${timeStr}** (${timeZoneStr}).`;
+          response = `The current time is **${realtime.timeLabel}** (${realtime.timeZone}, UTC${realtime.utcOffsetLabel}).`;
         } else if (/\b(date)\b/i.test(p) && !/\b(time)\b/i.test(p)) {
-          response = `Today's date is **${fullDateStr}**.`;
+          response = `Today's date is **${realtime.dateLabel}**.`;
+        } else if (/\b(where am i|my location|what city|what country)\b/i.test(p)) {
+          response = `Your approximate location is **${realtime.locationLabel}**${realtime.countryCode ? ` (${realtime.countryCode})` : ''}, timezone **${realtime.timeZone}**.`;
         } else {
-          response = `📅 **Date:** ${fullDateStr}\n🕒 **Time:** ${timeStr} (${timeZoneStr})`;
+          response = `📅 **Date:** ${realtime.dateLabel}\n🕒 **Time:** ${realtime.timeLabel} (${realtime.timeZone}, UTC${realtime.utcOffsetLabel})\n📍 **Location:** ${realtime.locationLabel}`;
         }
 
         renderMessageContent(aiBubble, response);
@@ -1662,26 +1986,17 @@ async function submitPrompt() {
         appendChatMessage('Ultron', response, true, { skipRender: true });
 
       } else if (intent === 'conversation') {
-        const p = prompt.toLowerCase().trim();
         const userNameEl = document.querySelector('.profile-detail-name');
         const userName = userNameEl ? userNameEl.textContent.trim() : 'Vedant';
         
-        // Instant response for simple greetings — prevents small LLM system prompt echoing
-        if (/^(hi|hello|hey|hello bro|hey bro|hi bro|good morning|good evening|good afternoon|whats up|what's up|howdy|greetings)\b/i.test(p)) {
-          const greetingResponse = `Hello ${userName}! I'm Ultron, your AI assistant. How can I help you today?`;
-          renderMessageContent(aiBubble, greetingResponse);
-          formatCodeBlocks(aiBubble);
-          appendChatMessage('Ultron', greetingResponse, true, { skipRender: true });
-        } else {
-          // Pure conversational response — query LLM
-          let response = await queryOfflineLLM(prompt, [], 'conversation');
-          if (!response || response.trim() === '' || response.includes('REAL-TIME CONTEXT')) {
-            response = `Hello ${userName}! I'm Ultron, your AI assistant. How can I help you today?`;
-          }
-          response = response.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
-          await typeMessageResponse(aiBubble, response);
-          appendChatMessage('Ultron', response, true, { skipRender: true });
+        // Pure conversational response — query local AI model dynamically on the spot
+        let response = await queryOfflineLLM(prompt, [], 'conversation');
+        if (!response || response.trim() === '' || response.includes('REAL-TIME CONTEXT')) {
+          response = `Hello ${userName}! How can I assist you today?`;
         }
+        response = response.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
+        await typeMessageResponse(aiBubble, response);
+        appendChatMessage('Ultron', response, true, { skipRender: true });
 
       } else {
         // Action or Search intent — run the full agentic loop
@@ -1807,7 +2122,7 @@ function detectFallbackToolCall(userPrompt) {
 
   // 4. Web Search
   if (p.includes('search web') || p.includes('search online') || p.startsWith('search ')) {
-    const query = userPrompt.replace(/^search\s+(web\s+for|online\s+for|for)?/i, '').trim();
+    const query = fallbackSearchQueryFromPrompt(userPrompt);
     return { type: 'SEARCH', target: query || userPrompt };
   }
 
@@ -1872,49 +2187,60 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action') {
 
   // If intent is 'search', immediately do a web search first
   if (intent === 'search') {
-    renderMessageContent(aiBubble, getWebSearchCardHtml(userPrompt));
+    renderMessageContent(aiBubble, getWebSearchCardHtml('Refining search query with AI...'));
     chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
 
-    activeSubgoals.push({ text: `Web Search: "${userPrompt.substring(0, 25)}"`, completed: false });
+    const searchQuery = await buildWebSearchQuery(userPrompt);
+
+    renderMessageContent(aiBubble, getWebSearchCardHtml(searchQuery));
+    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+
+    activeSubgoals.push({ text: `Web Search: "${searchQuery.substring(0, 25)}"`, completed: false });
     renderChecklist(activeSubgoals);
     
+    let searchResult = null;
     try {
-      const searchResult = await window.ultronAPI.searchWeb(userPrompt);
+      const rawSearchResult = await window.ultronAPI.searchWeb(searchQuery);
+      searchResult = normalizeSearchPayload(rawSearchResult, searchQuery);
       activeSubgoals[activeSubgoals.length - 1].completed = true;
       renderChecklist(activeSubgoals);
 
-      if (searchResult && typeof searchResult === 'string' && searchResult.trim() !== '') {
-        const summarySystemPrompt = `You are Ultron, an intelligent, helpful AI assistant. Answer the user's question directly, clearly, and accurately using the provided web search information.
+      if (shouldAskForSearchClarification(searchResult)) {
+        finalResponse = searchResult.clarification || `I searched for "${searchQuery}", but the results were too thin to answer confidently. Can you add a brand, budget, location, or what kind of result you want?`;
+      } else {
+        const liveContext = searchContextForLLM(searchResult);
+        const summarySystemPrompt = `You are Ultron, an intelligent, helpful AI assistant in a direct 1-on-1 conversation.
+Use the provided live web information to answer clearly and accurately.
 
 CRITICAL INSTRUCTIONS:
-- Directly answer the question in a confident, polished, friendly tone.
-- NEVER start with "The user's question is...", "The user asked...", "Based on the live web search...", or "The search results show...".
-- Speak directly to the user as Ultron ("I found that...").
-- Keep formatting clean with standard Markdown.`;
+- Start with the answer itself. Do not describe what you are about to do.
+- Never say "the user", "the user's question", "to answer", "based on the search results", or similar meta narration.
+- Speak directly to the person chatting with you using "you" and "I".
+- Synthesize the sources instead of dumping snippets.
+- Only use facts present in the provided live information. If the live information is weak or incomplete, say what is missing and ask one concise follow-up question.
+- Do NOT include hyperlinks or raw URLs in your answer. Verified source links are shown separately below your answer.
+- Keep formatting clean with standard Markdown.
+- Silently interpret and auto-correct any grammatical errors, spelling typos, or speech transcription mistakes in the user prompt without mentioning them.`;
 
-        const summaryPrompt = `User Question: "${userPrompt}"
+        const summaryPrompt = `Original request:
+${userPrompt}
 
-Live Web Search Information:
-${searchResult}
+Search query used:
+${searchQuery}
 
-Answer the user's question directly:`;
+Live information:
+${liveContext}
+
+Write the final answer now.`;
 
         let summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt);
         if (!summary || summary.trim() === '' || summary.includes('offline model loop failed')) {
-          summary = searchResult; // Fallback: show live search results directly if local LLM fails
+          summary = `I found ${searchResult.results.length} live result${searchResult.results.length === 1 ? '' : 's'} for "${searchQuery}". Open the sources below to inspect the original pages.`;
         }
 
-        // Clean up any remaining parroted meta-prefixes
-        summary = summary.replace(/^(the user's question is|the user asked|based on the live web search results|according to the search results)[^:\n]*[:\n]?\s*/gi, '').trim();
-        summary = summary.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
-        
-        if (summary.length > 0) {
-          summary = summary.charAt(0).toUpperCase() + summary.slice(1);
-        }
-
-        finalResponse = summary;
-      } else {
-        finalResponse = `I searched the web for "${userPrompt}" but couldn't find relevant results. Could you try rephrasing your question?`;
+        finalResponse = sanitizeResponseText(summary, userPrompt, {
+          allowedUrls: (searchResult.results || []).map(item => item.url).filter(Boolean)
+        });
       }
     } catch (e) {
       finalResponse = `Web search failed: ${e.message}. Please try again.`;
@@ -1922,11 +2248,14 @@ Answer the user's question directly:`;
 
     activeSubgoals.push({ text: 'Task completed successfully', completed: true });
     renderChecklist(activeSubgoals);
-    await typeMessageResponse(aiBubble, finalResponse);
-    appendChatMessage('Ultron', finalResponse, true, { skipRender: true });
+    const richResponse = typeof searchResult !== 'undefined' && searchResult.results && searchResult.results.length > 0
+      ? renderSearchExperience(finalResponse, searchResult)
+      : finalResponse;
+    await typeMessageResponse(aiBubble, richResponse, { instant: Boolean(isRichResultMarkup(richResponse)) });
+    appendChatMessage('Ultron', richResponse, true, { skipRender: true });
 
     // Self-learning: record task outcome
-    _learnedTaskMemory.push(`[SEARCH] Query: "${userPrompt.substring(0, 40)}" → ${finalResponse.substring(0, 60)}...`);
+    _learnedTaskMemory.push(`[SEARCH] Query: "${searchQuery.substring(0, 40)}" -> ${finalResponse.substring(0, 60)}...`);
     if (_learnedTaskMemory.length > 20) _learnedTaskMemory.shift();
     return;
   }
@@ -2029,9 +2358,39 @@ Answer the user's question directly:`;
         isDone = true;
       }
     } else if (toolCall.type === 'SEARCH') {
-      const searchRes = await withTimeout(window.ultronAPI.searchWeb(toolCall.target), 20000);
-      toolResult = typeof searchRes === 'string' ? searchRes : `Web search failed.`;
-      finalResponse = `**Web Search Results for "${toolCall.target}":**\n\n${toolResult}`;
+      const searchTarget = await buildWebSearchQuery(toolCall.target || userPrompt);
+      renderMessageContent(aiBubble, getWebSearchCardHtml(searchTarget));
+      chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+
+      const searchRes = await withTimeout(window.ultronAPI.searchWeb(searchTarget), 20000);
+      const searchPayload = normalizeSearchPayload(searchRes, searchTarget);
+      toolResult = searchContextForLLM(searchPayload) || `Web search failed.`;
+      if (!shouldAskForSearchClarification(searchPayload)) {
+        const summarySystemPrompt = `You are Ultron in a direct 1-on-1 conversation.
+Use the live information to answer the request naturally.
+Never say "the user", "the user's question", "to answer", "based on the search results", or similar meta narration.
+Only use facts present in the live information. If details are missing, say what is missing and ask one concise follow-up question.
+Do NOT include hyperlinks or raw URLs in your answer. Verified source links are shown separately below your answer.
+Start with the answer itself and keep the tone clear, useful, and concise.`;
+        const summaryPrompt = `Original request:
+${userPrompt}
+
+Search query used:
+${searchTarget}
+
+Live information:
+${toolResult}
+
+Write the final answer now.`;
+
+        const summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt);
+        const answer = sanitizeResponseText(summary || `I found ${searchPayload.results.length} live results for "${searchTarget}".`, userPrompt, {
+          allowedUrls: (searchPayload.results || []).map(item => item.url).filter(Boolean)
+        });
+        finalResponse = renderSearchExperience(answer, searchPayload);
+      } else {
+        finalResponse = searchPayload.clarification || `I searched for "${searchTarget}", but the results were too thin to answer confidently. Can you add a brand, budget, location, or what kind of result you want?`;
+      }
       isDone = true;
     }
 
@@ -2045,7 +2404,7 @@ Answer the user's question directly:`;
   activeSubgoals.push({ text: 'Task completed successfully', completed: true });
   renderChecklist(activeSubgoals);
 
-  await typeMessageResponse(aiBubble, finalResponse);
+  await typeMessageResponse(aiBubble, finalResponse, { instant: isRichResultMarkup(finalResponse) });
   appendChatMessage('Ultron', finalResponse, true, { skipRender: true });
 
   // Self-learning: record task outcome
@@ -2321,15 +2680,34 @@ async function renderSettingsApps() {
         : getAppIconSvg(app.name);
       
       item.innerHTML = `
-        <input type="checkbox" id="chk-app-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}" ${isSelected ? 'checked' : ''}>
+        <input type="checkbox" class="app-item-checkbox" id="chk-app-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}" ${isSelected ? 'checked' : ''}>
         ${iconMarkup}
-        <label for="chk-app-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}">${app.name}</label>
+        <label for="chk-app-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}">${escapeHtml(app.name)}</label>
       `;
+
+      const chk = item.querySelector('.app-item-checkbox');
+      if (chk) {
+        chk.addEventListener('change', () => {
+          updateMarkAllCheckboxState();
+        });
+      }
+
       settingsAppsList.appendChild(item);
     });
+
+    updateMarkAllCheckboxState();
   } else {
     settingsAppsList.innerHTML = `<div class="text-xs text-muted p-4" style="text-align: center;">No local application shortcuts found.</div>`;
   }
+}
+
+function updateMarkAllCheckboxState() {
+  const chkMarkAllApps = document.getElementById('chk-mark-all-apps');
+  if (!chkMarkAllApps || !settingsAppsList) return;
+  const allBoxes = settingsAppsList.querySelectorAll('.app-item-checkbox');
+  if (allBoxes.length === 0) return;
+  const checkedCount = Array.from(allBoxes).filter(b => b.checked).length;
+  chkMarkAllApps.checked = checkedCount === allBoxes.length;
 }
 
 // Bind Settings Tab Switch Actions
@@ -2402,30 +2780,48 @@ if (btnBannerClose) {
   });
 }
 
+let activeDownloadingModel = null;
+
 // Bind model downloader
 btnDownloadModel.addEventListener('click', async () => {
   const modelName = inputDownloadModel.value.trim();
   if (!modelName) return;
   
+  activeDownloadingModel = modelName;
   const inputsRow = document.getElementById('download-inputs-row');
   const progressContainer = document.getElementById('download-progress-container');
   const progressStatus = document.getElementById('download-progress-status');
   const progressStats = document.getElementById('download-progress-stats');
   const progressBar = document.getElementById('download-progress-bar');
   const progressSpeed = document.getElementById('download-progress-speed');
+  const btnCancelDownload = document.getElementById('btn-cancel-download');
   
+  if (btnCancelDownload) {
+    btnCancelDownload.disabled = false;
+    btnCancelDownload.textContent = 'Cancel';
+  }
+
   const online = await checkOnlineStatus();
   if (!online) {
     logTrace('Model download aborted: User is offline.', 'system');
     showOllamaBanner('warning', 'Offline: Connection required to download model weights.', true);
+    activeDownloadingModel = null;
     return;
   }
   
   logTrace(`Triggering background weight pull: "ollama pull ${modelName}"`, 'system');
   
-  // Hide input controls and show progress bar container
-  if (inputsRow) inputsRow.classList.add('hidden');
+  const btnShowDownload = document.getElementById('btn-show-download-fields');
+  if (btnShowDownload) {
+    btnShowDownload.style.setProperty('display', 'none', 'important');
+    btnShowDownload.classList.add('hidden');
+  }
+  if (inputsRow) {
+    inputsRow.style.setProperty('display', 'none', 'important');
+    inputsRow.classList.add('hidden');
+  }
   if (progressContainer) {
+    progressContainer.style.setProperty('display', 'block', 'important');
     progressContainer.classList.remove('hidden');
     progressStatus.textContent = `Initiating pull for ${modelName}...`;
     progressStats.textContent = `0% (0 MB / 0 MB)`;
@@ -2457,6 +2853,8 @@ btnDownloadModel.addEventListener('click', async () => {
       // Refresh profiling and settings list
       await runOnboardingProfiler();
       renderSettingsModels();
+    } else if (result.cancelled) {
+      logTrace(`Model pull for "${modelName}" was cancelled by user.`, 'system');
     } else {
       logTrace(`Failed to download weights: ${result.error}`, 'system');
       alert(`Failed to download weights: ${result.error}`);
@@ -2465,16 +2863,153 @@ btnDownloadModel.addEventListener('click', async () => {
     logTrace(`Download error: ${err.message}`, 'system');
     alert(`Download error: ${err.message}`);
   } finally {
+    activeDownloadingModel = null;
     // Unsubscribe from real-time events
     cleanProgressEvent();
     
     // Hide progress bar container and restore initial trigger button
-    if (progressContainer) progressContainer.classList.add('hidden');
-    const btnShowDownload = document.getElementById('btn-show-download-fields');
-    if (btnShowDownload) btnShowDownload.style.display = 'flex';
-    if (inputsRow) inputsRow.classList.add('hidden');
+    if (progressContainer) {
+      progressContainer.style.setProperty('display', 'none', 'important');
+      progressContainer.classList.add('hidden');
+    }
+    if (btnShowDownload) {
+      btnShowDownload.style.setProperty('display', 'flex', 'important');
+      btnShowDownload.classList.remove('hidden');
+    }
+    if (inputsRow) {
+      inputsRow.style.setProperty('display', 'none', 'important');
+      inputsRow.classList.add('hidden');
+    }
   }
 });
+
+// Bind cancel download button
+const btnCancelDownload = document.getElementById('btn-cancel-download');
+if (btnCancelDownload) {
+  btnCancelDownload.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!activeDownloadingModel) return;
+    logTrace(`Cancelling model download process for "${activeDownloadingModel}"...`, 'system');
+    btnCancelDownload.disabled = true;
+    btnCancelDownload.textContent = 'Cancelling...';
+    try {
+      await window.ultronAPI.cancelDownloadModel(activeDownloadingModel);
+    } catch (err) {
+      console.warn('Cancel download error:', err);
+    }
+  });
+}
+
+// ==========================================
+// POPULAR OLLAMA MODELS CATALOG DATA & CONTROLLER
+// ==========================================
+// ==========================================
+// POPULAR OLLAMA MODELS CATALOG DATA & CONTROLLER
+// ==========================================
+const OLLAMA_POPULAR_MODELS = [
+  { name: 'llama3:latest', size: '8B', downloadSize: '4.7 GB', desc: 'Meta flagship open model for general AI tasks' },
+  { name: 'mistral:latest', size: '7B', downloadSize: '4.1 GB', desc: 'Fast, high-accuracy general AI model by Mistral AI' },
+  { name: 'phi3:latest', size: '3.8B', downloadSize: '2.2 GB', desc: 'Microsoft high-efficiency reasoning & logic model' },
+  { name: 'gemma2:latest', size: '9B', downloadSize: '5.4 GB', desc: 'Google state-of-the-art open model with high precision' },
+  { name: 'qwen2.5:latest', size: '7B', downloadSize: '4.7 GB', desc: 'Alibaba top-tier reasoning, math, and code model' },
+  { name: 'deepseek-r1:latest', size: '7B', downloadSize: '4.7 GB', desc: 'DeepSeek advanced reasoning & chain-of-thought model' },
+  { name: 'llava:latest', size: '7B', downloadSize: '4.5 GB', desc: 'Multimodal vision + text model for analyzing images' },
+  { name: 'nomic-embed-text:latest', size: '137M', downloadSize: '274 MB', desc: 'High performance text embedding & retrieval model' },
+  { name: 'codellama:latest', size: '7B', downloadSize: '3.8 GB', desc: 'Meta specialized model for code generation & debugging' },
+  { name: 'tinyllama:latest', size: '1.1B', downloadSize: '637 MB', desc: 'Ultra lightweight model for low resource PCs' },
+  { name: 'llama3.2:1b', size: '1B', downloadSize: '1.3 GB', desc: 'Meta ultra-fast 1B model for rapid responses' },
+  { name: 'llama3.2:3b', size: '3B', downloadSize: '2.0 GB', desc: 'Meta balanced 3B compact model' },
+  { name: 'qwen2:7b', size: '7B', downloadSize: '4.4 GB', desc: 'Alibaba Qwen2 general intelligence model' },
+  { name: 'starcoder2:latest', size: '3B', downloadSize: '1.7 GB', desc: 'BigCode high-speed code assistant' },
+  { name: 'vicuna:latest', size: '7B', downloadSize: '3.8 GB', desc: 'LMSYS chat & conversation fine-tuned model' },
+  { name: 'wizardlm2:latest', size: '7B', downloadSize: '4.1 GB', desc: 'Microsoft WizardLM2 complex reasoning model' },
+  { name: 'orca-mini:latest', size: '3B', downloadSize: '1.9 GB', desc: 'Compact reasoning model for lightweight hardware' },
+  { name: 'zephyr:latest', size: '7B', downloadSize: '4.1 GB', desc: 'HuggingFace direct preference optimized chat model' },
+  { name: 'dolphin-mixtral:latest', size: '8x7B', downloadSize: '26 GB', desc: 'Dolphin uncensored conversational model' }
+];
+
+let catalogLimit = 10;
+
+function renderOllamaCatalog(filterQuery = '') {
+  const catalogListEl = document.getElementById('ollama-catalog-list');
+  const btnLoadMore = document.getElementById('btn-load-more-models');
+  if (!catalogListEl) return;
+
+  catalogListEl.innerHTML = '';
+  const query = filterQuery.toLowerCase().trim();
+
+  // Filter models if user is typing search query
+  let filtered = OLLAMA_POPULAR_MODELS.filter(m => 
+    !query || m.name.toLowerCase().includes(query) || m.desc.toLowerCase().includes(query)
+  );
+
+  // If user searched for a custom model tag not in standard catalog, add a custom pull card!
+  if (query && filtered.length === 0 && !query.includes(' ')) {
+    filtered = [{
+      name: query,
+      size: 'Custom Tag',
+      downloadSize: 'Ollama Library',
+      desc: `Pull custom model "${query}" directly from Ollama repository`
+    }];
+  }
+
+  const visible = query ? filtered : filtered.slice(0, catalogLimit);
+
+  if (visible.length === 0) {
+    catalogListEl.innerHTML = `
+      <div style="font-size: 12px; color: var(--text-muted); padding: 8px 0; text-align: center;">
+        No catalog match for "${escapeHtml(query)}". Type a valid model tag (e.g. <b>gemma:2b</b>) and click <b>Pull Tag</b>.
+      </div>
+    `;
+    if (btnLoadMore) btnLoadMore.style.display = 'none';
+    return;
+  }
+
+  // Check installed model names
+  const installedNames = new Set((installedModelsList || []).map(m => (typeof m === 'string' ? m : m.name).toLowerCase()));
+
+  visible.forEach(model => {
+    const isInstalled = installedNames.has(model.name.toLowerCase());
+
+    const card = document.createElement('div');
+    card.className = 'catalog-model-card';
+    card.innerHTML = `
+      <div class="catalog-model-info">
+        <div class="catalog-model-title-row">
+          <span class="catalog-model-name">${escapeHtml(model.name)}</span>
+          <span class="catalog-model-badge">${escapeHtml(model.size)}</span>
+          <span class="catalog-model-size-badge">📦 ${escapeHtml(model.downloadSize || 'Est. ~4 GB')}</span>
+        </div>
+        <div class="catalog-model-desc">${escapeHtml(model.desc)}</div>
+      </div>
+      ${isInstalled 
+        ? `<span class="badge-installed">INSTALLED</span>` 
+        : `<button class="btn-catalog-pull" data-model="${escapeHtml(model.name)}">Download</button>`
+      }
+    `;
+
+    const pullBtn = card.querySelector('.btn-catalog-pull');
+    if (pullBtn) {
+      pullBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (inputDownloadModel) {
+          inputDownloadModel.value = model.name;
+          btnDownloadModel.click();
+        }
+      });
+    }
+
+    catalogListEl.appendChild(card);
+  });
+
+  if (btnLoadMore) {
+    if (!query && catalogLimit < OLLAMA_POPULAR_MODELS.length) {
+      btnLoadMore.style.display = 'block';
+    } else {
+      btnLoadMore.style.display = 'none';
+    }
+  }
+}
 
 // Bind show download fields trigger
 const btnShowDownloadFields = document.getElementById('btn-show-download-fields');
@@ -2484,8 +3019,27 @@ if (btnShowDownloadFields) {
     const inputsRow = document.getElementById('download-inputs-row');
     if (inputsRow) {
       inputsRow.classList.remove('hidden');
+      catalogLimit = 10;
+      renderOllamaCatalog();
       inputDownloadModel.focus();
     }
+  });
+}
+
+// Bind catalog Load More button
+const btnLoadMoreModels = document.getElementById('btn-load-more-models');
+if (btnLoadMoreModels) {
+  btnLoadMoreModels.addEventListener('click', (e) => {
+    e.preventDefault();
+    catalogLimit += 10;
+    renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+  });
+}
+
+// Bind catalog search input filter
+if (inputDownloadModel) {
+  inputDownloadModel.addEventListener('input', () => {
+    renderOllamaCatalog(inputDownloadModel.value);
   });
 }
 
@@ -2505,6 +3059,38 @@ if (appsSearchInput) {
         }
       }
     });
+  });
+}
+
+// Bind Mark All Apps checkbox
+const chkMarkAllApps = document.getElementById('chk-mark-all-apps');
+const btnMarkAllLabel = document.getElementById('btn-mark-all-apps-label');
+
+function toggleAllAppsSelection(targetState) {
+  if (!settingsAppsList) return;
+  const appCheckboxes = settingsAppsList.querySelectorAll('.app-item-checkbox');
+  appCheckboxes.forEach(chk => {
+    chk.checked = targetState;
+  });
+  if (chkMarkAllApps) chkMarkAllApps.checked = targetState;
+}
+
+if (chkMarkAllApps) {
+  chkMarkAllApps.addEventListener('change', (e) => {
+    e.stopPropagation();
+    toggleAllAppsSelection(chkMarkAllApps.checked);
+  });
+}
+
+if (btnMarkAllLabel) {
+  btnMarkAllLabel.addEventListener('click', (e) => {
+    if (e.target !== chkMarkAllApps) {
+      e.preventDefault();
+      if (chkMarkAllApps) {
+        chkMarkAllApps.checked = !chkMarkAllApps.checked;
+        toggleAllAppsSelection(chkMarkAllApps.checked);
+      }
+    }
   });
 }
 
@@ -2739,7 +3325,7 @@ function renderAttachmentPreviews() {
 }
 
 // ==========================================
-// VOICE WAVEFORM VISUALIZER & SPEECH-TO-TEXT
+// VOICE CAPSULE PILL & SPEECH-TO-TEXT CONTROLLER
 // ==========================================
 let isRecordingVoice = false;
 let mediaStream = null;
@@ -2748,52 +3334,86 @@ let analyserNode = null;
 let animFrameId = null;
 let speechRecognition = null;
 let accumulatedTranscript = '';
+let voiceTimerInterval = null;
+let voiceStartTime = 0;
+let _prevHeights = [];
 
 const btnMic = document.getElementById('btn-mic');
-const voiceWaveformContainer = document.getElementById('voice-waveform-container');
+const mainInputPill = document.getElementById('main-input-pill') || document.querySelector('.input-pill');
+const voiceRecordingPill = document.getElementById('voice-recording-pill');
 const voiceWaveformCanvas = document.getElementById('voice-waveform-canvas');
-const voiceRecordingStatus = document.getElementById('voice-recording-status');
+const voiceRecordingTimer = document.getElementById('voice-recording-timer');
+const voiceBtnAdd = document.getElementById('voice-btn-add');
+const voiceBtnCancel = document.getElementById('voice-btn-cancel');
+const voiceBtnDone = document.getElementById('voice-btn-done');
 
 if (btnMic) {
   btnMic.addEventListener('click', (e) => {
     e.preventDefault();
     if (isRecordingVoice) {
-      stopVoiceRecording();
+      stopVoiceRecording(true);
     } else {
       startVoiceRecording();
     }
   });
 }
 
+if (voiceBtnAdd) {
+  voiceBtnAdd.addEventListener('click', (e) => {
+    e.preventDefault();
+    const hiddenFileInput = document.getElementById('hidden-file-input');
+    if (hiddenFileInput) hiddenFileInput.click();
+  });
+}
+
+if (voiceBtnCancel) {
+  voiceBtnCancel.addEventListener('click', (e) => {
+    e.preventDefault();
+    stopVoiceRecording(false);
+  });
+}
+
+if (voiceBtnDone) {
+  voiceBtnDone.addEventListener('click', (e) => {
+    e.preventDefault();
+    stopVoiceRecording(true);
+  });
+}
+
+function updateVoiceTimer() {
+  if (!isRecordingVoice || !voiceStartTime) return;
+  const elapsedSeconds = Math.floor((Date.now() - voiceStartTime) / 1000);
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = String(elapsedSeconds % 60).padStart(2, '0');
+  if (voiceRecordingTimer) {
+    voiceRecordingTimer.textContent = `${minutes}:${seconds}`;
+  }
+}
+
 async function startVoiceRecording() {
   try {
     accumulatedTranscript = '';
+    isRecordingVoice = true;
+
+    // Hide main prompt pill, show voice capsule pill
+    if (mainInputPill) mainInputPill.classList.add('hidden');
+    if (voiceRecordingPill) voiceRecordingPill.classList.remove('hidden');
+
+    // Reset and start timer
+    voiceStartTime = Date.now();
+    if (voiceRecordingTimer) voiceRecordingTimer.textContent = '0:00';
+    if (voiceTimerInterval) clearInterval(voiceTimerInterval);
+    voiceTimerInterval = setInterval(updateVoiceTimer, 200);
+
+    // Initialize microphone audio stream
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     analyserNode = audioContext.createAnalyser();
-    analyserNode.fftSize = 64;
+    analyserNode.fftSize = 128;
     const source = audioContext.createMediaStreamSource(mediaStream);
     source.connect(analyserNode);
 
-    isRecordingVoice = true;
-    btnMic.classList.add('recording');
-    btnMic.title = 'Click to stop voice recording';
-    btnMic.innerHTML = `
-      <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" style="color: #ffffff; position: relative; z-index: 2;">
-        <rect x="6" y="6" width="12" height="12" rx="2"></rect>
-      </svg>
-    `;
-    
-    // Disable send button while speaking / mic is active
-    if (btnSend) {
-      btnSend.disabled = true;
-      btnSend.style.opacity = '0.5';
-      btnSend.style.cursor = 'not-allowed';
-    }
-
-    if (chatInput) chatInput.style.display = 'none';
-    if (voiceWaveformContainer) voiceWaveformContainer.classList.remove('hidden');
-
+    // Draw animated audio level waveform
     drawWaveform();
 
     // Web Speech API
@@ -2802,21 +3422,25 @@ async function startVoiceRecording() {
       speechRecognition = new SpeechRec();
       speechRecognition.continuous = true;
       speechRecognition.interimResults = true;
-      speechRecognition.lang = 'en-US';
+      speechRecognition.lang = navigator.language || 'en-US';
 
       speechRecognition.onresult = (event) => {
         let currentTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
+        for (let i = 0; i < event.results.length; i++) {
           currentTranscript += event.results[i][0].transcript;
         }
         accumulatedTranscript = currentTranscript;
-        if (voiceRecordingStatus) {
-          voiceRecordingStatus.textContent = accumulatedTranscript || 'Listening to your voice...';
-        }
       };
 
       speechRecognition.onerror = (err) => {
-        console.warn('Speech recognition status:', err.error);
+        console.warn('Speech recognition notice:', err.error);
+      };
+
+      // Restart automatically if interrupted while user is still recording
+      speechRecognition.onend = () => {
+        if (isRecordingVoice && speechRecognition) {
+          try { speechRecognition.start(); } catch (e) {}
+        }
       };
 
       speechRecognition.start();
@@ -2824,88 +3448,75 @@ async function startVoiceRecording() {
   } catch (err) {
     console.error('Microphone access error:', err);
     alert('Unable to access microphone. Please check system recording permissions.');
-    stopVoiceRecording();
+    stopVoiceRecording(false);
   }
 }
 
-function stopVoiceRecording() {
+function stopVoiceRecording(saveTranscript = true) {
   isRecordingVoice = false;
 
-  // Re-enable send button
-  if (btnSend) {
-    btnSend.disabled = false;
-    btnSend.style.opacity = '1';
-    btnSend.style.cursor = 'pointer';
+  if (voiceTimerInterval) {
+    clearInterval(voiceTimerInterval);
+    voiceTimerInterval = null;
+  }
+  if (animFrameId) {
+    cancelAnimationFrame(animFrameId);
+    animFrameId = null;
   }
 
-  if (btnMic) {
-    btnMic.classList.remove('recording');
-    btnMic.classList.add('converting');
-    btnMic.title = 'Converting speech to text...';
-    btnMic.innerHTML = `
-      <svg class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="14" height="14" style="color: #ffffff; position: relative; z-index: 2;">
-        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.3" fill="none"></circle>
-        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" fill="none"></path>
-      </svg>
-    `;
-  }
-
-  const hasSpeech = accumulatedTranscript && accumulatedTranscript.trim() !== '';
-  if (voiceRecordingStatus) {
-    voiceRecordingStatus.textContent = hasSpeech ? 'Speech converted successfully!' : 'No speech detected.';
-  }
-
-  if (animFrameId) cancelAnimationFrame(animFrameId);
   if (mediaStream) {
     mediaStream.getTracks().forEach(track => track.stop());
     mediaStream = null;
   }
+
   if (audioContext) {
     try { audioContext.close(); } catch (e) {}
     audioContext = null;
   }
+
   if (speechRecognition) {
+    speechRecognition.onend = null;
     try { speechRecognition.stop(); } catch (e) {}
     speechRecognition = null;
   }
 
-  // Smoothly insert transcript into chatInput and restore normal mic icon
-  setTimeout(() => {
-    if (chatInput) {
-      chatInput.style.display = 'block';
-      if (hasSpeech) {
-        const textToInsert = accumulatedTranscript.trim();
-        chatInput.value = (chatInput.value ? chatInput.value + ' ' : '') + textToInsert;
-        chatInput.focus();
-        chatInput.style.height = 'auto';
-        chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
-      }
-    }
-    if (voiceWaveformContainer) voiceWaveformContainer.classList.add('hidden');
-    
-    if (btnMic) {
-      btnMic.classList.remove('converting');
-      btnMic.title = 'Voice Input';
-      btnMic.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-          <line x1="12" y1="19" x2="12" y2="23"></line>
-          <line x1="8" y1="23" x2="16" y2="23"></line>
-        </svg>
-      `;
-    }
-  }, 600);
-}
+  // Restore UI state
+  if (voiceRecordingPill) voiceRecordingPill.classList.add('hidden');
+  if (mainInputPill) mainInputPill.classList.remove('hidden');
 
-let _prevHeights = []; // Smooth height interpolation buffer for voice visualizer
+  if (saveTranscript) {
+    const textToInsert = (accumulatedTranscript || '').trim();
+    if (chatInput) {
+      if (textToInsert) {
+        const currentVal = chatInput.value ? chatInput.value.trim() : '';
+        chatInput.value = currentVal ? `${currentVal} ${textToInsert}` : textToInsert;
+      }
+      chatInput.focus();
+      // Auto expand input height for user review/editing
+      chatInput.style.height = 'auto';
+      chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
+    }
+  }
+
+  accumulatedTranscript = '';
+}
 
 function drawWaveform() {
   if (!isRecordingVoice || !voiceWaveformCanvas || !analyserNode) return;
 
-  const canvasCtx = voiceWaveformCanvas.getContext('2d');
-  const width = voiceWaveformCanvas.width;
-  const height = voiceWaveformCanvas.height;
+  const canvas = voiceWaveformCanvas;
+  const canvasCtx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const width = rect.width || canvas.width;
+  const height = rect.height || canvas.height;
+
+  if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+  }
+  canvasCtx.scale(dpr, dpr);
+
   const bufferLength = analyserNode.frequencyBinCount;
   const dataArray = new Uint8Array(bufferLength);
 
@@ -2917,42 +3528,26 @@ function drawWaveform() {
 
     canvasCtx.clearRect(0, 0, width, height);
 
-    const pillWidth = 8;
-    const pillGap = 4;
-    const totalPills = Math.floor((width - 40) / (pillWidth + pillGap));
-    let x = 4;
+    const pillWidth = 3;
+    const pillGap = 3;
+    const totalPills = Math.floor(width / (pillWidth + pillGap));
+    let x = (width % (pillWidth + pillGap)) / 2;
 
     if (_prevHeights.length !== totalPills) {
-      _prevHeights = new Array(totalPills).fill(6);
+      _prevHeights = new Array(totalPills).fill(3);
     }
 
     for (let i = 0; i < totalPills; i++) {
       const dataIdx = Math.floor((i / totalPills) * bufferLength);
       const rawAmp = (dataArray[dataIdx] || 0) / 255;
       
-      // Target height calculation based on audio frequency amplitude
-      const targetHeight = Math.max(6, Math.min(height - 4, rawAmp * height * 0.85 + 6));
-      
-      // Smooth lerp interpolation to eliminate jitter (0.22 smoothing factor)
-      _prevHeights[i] += (targetHeight - _prevHeights[i]) * 0.22;
+      const targetHeight = Math.max(3, rawAmp * (height - 6) + 3);
+      _prevHeights[i] += (targetHeight - _prevHeights[i]) * 0.25;
       const pillHeight = _prevHeights[i];
       const y = (height - pillHeight) / 2;
 
-      // Dynamic monochrome gradient (White to Slate Black)
-      const gradient = canvasCtx.createLinearGradient(0, y, 0, y + pillHeight);
-      if (rawAmp > 0.45) {
-        gradient.addColorStop(0, '#ffffff'); // Pure White Top
-        gradient.addColorStop(0.5, '#cbd5e1'); // Silver Middle
-        gradient.addColorStop(1, '#475569'); // Dark Slate Bottom
-      } else {
-        gradient.addColorStop(0, '#f8fafc'); // Soft White
-        gradient.addColorStop(0.5, '#94a3b8'); // Muted Silver
-        gradient.addColorStop(1, '#1e293b'); // Dark Slate
-      }
-
-      canvasCtx.fillStyle = gradient;
-      canvasCtx.shadowColor = rawAmp > 0.35 ? 'rgba(255, 255, 255, 0.6)' : 'transparent';
-      canvasCtx.shadowBlur = rawAmp > 0.35 ? 8 : 0;
+      const opacity = rawAmp > 0.05 ? 0.45 + rawAmp * 0.55 : 0.25;
+      canvasCtx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
 
       canvasCtx.beginPath();
       if (canvasCtx.roundRect) {
@@ -2961,16 +3556,6 @@ function drawWaveform() {
         canvasCtx.rect(x, y, pillWidth, pillHeight);
       }
       canvasCtx.fill();
-
-      // Floating white peak energy dot when speaking loudly
-      if (rawAmp > 0.5) {
-        canvasCtx.fillStyle = '#ffffff';
-        canvasCtx.shadowColor = '#ffffff';
-        canvasCtx.shadowBlur = 6;
-        canvasCtx.beginPath();
-        canvasCtx.arc(x + pillWidth / 2, Math.max(2, y - 3), 1.5, 0, Math.PI * 2);
-        canvasCtx.fill();
-      }
 
       x += pillWidth + pillGap;
     }

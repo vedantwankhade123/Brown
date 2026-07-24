@@ -7,3 +7,7 @@ dist/
 .git/
 CVS/
 .DS_Store
+memory/
+Assets/
+__pycache__/
+*.pyc
