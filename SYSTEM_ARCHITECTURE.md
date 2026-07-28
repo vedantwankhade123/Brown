@@ -4,94 +4,62 @@ Ultron is a high-fidelity, offline-first AI desktop assistant engineered specifi
 
 ---
 
-## 1. System Architecture & Diagrams
+## 1. System Architecture
 
 Ultron employs a multi-tiered, decoupled architecture that separates presentation logic, main process control, security sandboxing, local LLM execution, and microservice capabilities.
 
-### 1.1 System Architecture Topology Diagram
+### 1.1 Simple Visual System Architecture Diagram
+
+```
++---------------------------------------------------------------------------------+
+|                            ULTRON DESKTOP AGENT                                 |
++---------------------------------------------------------------------------------+
+                                      |
+         +----------------------------+----------------------------+
+         |                                                         |
+         v                                                         v
++-------------------------------+                       +-------------------------+
+|         RENDERER UI           |                       |   PRELOAD IPC BRIDGE    |
+| - Main Chat Interface         | <===================> | - Safe ContextBridge    |
+| - Spotlight Overlay (Ctrl+K)  |                       | - Isolated IPC Channels |
+| - Draggable Metrics Splitter  |                       +-------------------------+
+| - User Validation Dialog      |                                    |
++-------------------------------+                                    v
+                                                        +-------------------------+
+                                                        |   ELECTRON MAIN CORE    |
+                                                        | - App Lifecycle         |
+                                                        | - Hardware Profiler     |
+                                                        | - Security Engine       |
+                                                        | - Session Memory        |
+                                                        | - Start Menu Scanner    |
+                                                        +-------------------------+
+                                                                     |
+         +------------------------------+----------------------------+
+         |                              |                            |
+         v                              v                            v
++------------------+          +------------------+          +-------------------+
+|   LOCAL OLLAMA   |          |    GEMINI API    |          |  WINDOWS SYSTEM   |
+| Offline AI Model |          | Cloud AI Option  |          | PowerShell / Shell|
+| (localhost:11434)|          |                  |          | & Windows Sandbox |
++------------------+          +------------------+          +-------------------+
+```
+
+### 1.2 Interactive Mermaid Architecture Diagram
 
 ```mermaid
 graph TD
-    subgraph Frontend ["Renderer UI Layer (HTML5 / Vanilla CSS / Modular JS)"]
-        UI_MAIN["Main Chat View & Sidebar Feed"]
-        UI_SPOTLIGHT["Spotlight Command Overlay (Ctrl+K)"]
-        UI_SPLITTER["Draggable Resizable Metrics Splitter"]
-        UI_SECURITY["Human-in-the-Loop Permission Modal"]
-    end
+    UI["🖥️ Renderer UI (Chat, Spotlight Overlay, Splitter)"]
+    PRELOAD["🔒 Preload IPC Bridge (ContextBridge Security)"]
+    MAIN["⚙️ Electron Main Process (Hardware, Security, Memory)"]
+    OLLAMA["🤖 Local Ollama Engine (Offline LLM)"]
+    GEMINI["☁️ Gemini API (Cloud Option)"]
+    WIN["💻 Windows OS (PowerShell / WinGet / Sandbox)"]
 
-    subgraph Bridge ["Preload & Context Isolation Layer"]
-        PRELOAD["preload.js (ContextBridge API)"]
-        IPC_SEC["IPC Channel Handler & Validator"]
-    end
-
-    subgraph Core ["Electron Main Process Core"]
-        BOOT["App Lifecycle & Config Manager (%APPDATA%/LocalAgent)"]
-        IPC_HUB["Central IPC Controller (ipc.js)"]
-        HW_ENGINE["Hardware Profiler & Model Recommender (hardware.js)"]
-        SEC_ENGINE["Security Validator & Path Checker (security.js)"]
-        MEM_ENGINE["Conversation Memory Manager (conversations.json)"]
-        START_SCANNER["Start Menu Shortcut & Brand Icon Resolver"]
-    end
-
-    subgraph Services ["Backend Inference & System Runtime"]
-        OLLAMA["Local Ollama Service (http://localhost:11434)"]
-        GEMINI["Cloud Gemini API Connector"]
-        PYTHON_SRV["Local Python Microservice (server.py / scraper.py)"]
-        WIN_SHELL["Windows PowerShell / WinGet / Subprocess Exec"]
-        WIN_SANDBOX["Isolated Windows Sandbox Runtime"]
-    end
-
-    UI_MAIN <--> PRELOAD
-    UI_SPOTLIGHT <--> PRELOAD
-    UI_SPLITTER <--> PRELOAD
-    UI_SECURITY <--> PRELOAD
-    PRELOAD <--> IPC_SEC
-    IPC_SEC <--> IPC_HUB
-
-    IPC_HUB --> BOOT
-    IPC_HUB --> HW_ENGINE
-    IPC_HUB --> SEC_ENGINE
-    IPC_HUB --> MEM_ENGINE
-    IPC_HUB --> START_SCANNER
-
-    IPC_HUB <--> OLLAMA
-    IPC_HUB <--> GEMINI
-    IPC_HUB <--> PYTHON_SRV
-
-    SEC_ENGINE --> WIN_SHELL
-    SEC_ENGINE --> WIN_SANDBOX
-```
-
----
-
-### 1.2 Process Isolation & Security Boundary Diagram
-
-```mermaid
-graph LR
-    subgraph DOM ["Unprivileged Renderer (DOM)"]
-        HTML["index.html"]
-        CSS["index.css"]
-        JS["renderer.js"]
-    end
-
-    subgraph Sandbox ["Isolation Boundary (ContextBridge)"]
-        API["window.electronAPI"]
-    end
-
-    subgraph Main ["Privileged Node.js Main Process"]
-        IPC["ipcMain Handlers"]
-        FS["File System Access"]
-        EXEC["Child Process Spawner"]
-    end
-
-    subgraph OS ["Windows Operating System"]
-        PS["PowerShell / CMD"]
-        WSB["Windows Sandbox Container"]
-    end
-
-    DOM -- "No Direct Node APIs" --> Sandbox
-    Sandbox -- "Serialized IPC Channels" --> Main
-    Main -- "Path & Command Security Audit" --> OS
+    UI <-->|Safe IPC Calls| PRELOAD
+    PRELOAD <-->|Bridge| MAIN
+    MAIN <-->|REST API| OLLAMA
+    MAIN <-->|API Key| GEMINI
+    MAIN -->|Security Check| WIN
 ```
 
 ---
@@ -124,136 +92,75 @@ graph LR
 
 The system operates via a continuous, asynchronous feedback loop comprising system discovery, prompt enrichment, local/cloud routing, security verification, and output streaming.
 
-### 2.1 Master Operational Methodology Flowchart
+### 2.1 Simple Step-by-Step Workflow Diagram
+
+```
+===================================================================================
+STEP 1: APP STARTUP & HARDWARE PROFILING
+===================================================================================
+[ Launch App ] ---> [ Profile CPU / RAM / GPU ] ---> [ Recommend Local AI Model (e.g. phi4) ]
+
+===================================================================================
+STEP 2: PROMPT ENRICHMENT
+===================================================================================
+[ User Input ] ---> [ Inject Time & Geo Context ] ---> [ Route to Selected Engine ]
+
+===================================================================================
+STEP 3: AI PROCESSING
+===================================================================================
+                    +---> [ LOCAL MODE  : Run Ollama Offline Engine ] ---+
+                    |                                                     |
+[ Inference ] ------+                                                     +---> [ Stream Answer ]
+                    |                                                     |
+                    +---> [ CLOUD MODE  : Run Gemini API ] --------------+
+
+===================================================================================
+STEP 4: COMMAND SECURITY & HUMAN-IN-THE-LOOP CHECK
+===================================================================================
+[ Does Answer Contain System Execution Command? ]
+         |
+         +---> NO  ---> [ Save Chat & Auto-Summarize Topic Header ]
+         |
+         +---> YES ---> [ Check Command Blacklist & Paths ]
+                             |
+                             +---> UNSAFE ---> [ Block Command & Show Security Alert ]
+                             |
+                             +---> SAFE   ---> [ Ask User Approval (Pop-Up Modal) ]
+                                                     |
+                                                     +---> Denied   ---> [ Cancel Command ]
+                                                     +---> Approved ---> [ Run in PowerShell / Sandbox ]
+```
+
+---
+
+### 2.2 Interactive Master Workflow Flowchart
 
 ```mermaid
 flowchart TD
-    A[Boot Phase: App Initialization & Hardware Profile] --> B[Discover Installed Local Ollama Models]
-    B --> C[Scan Windows Start Menu Shortcuts & Resolve App Brand Logos]
-    C --> D[User Enters Prompt in Chat or Spotlight Overlay]
+    START([🚀 App Launch]) --> PROF[📊 Profile Hardware & Discover Models]
+    PROF --> SCAN[🔍 Scan Start Menu Shortcuts & Brand Logos]
+    SCAN --> INPUT[💬 User Types Prompt in Chat / Spotlight Overlay]
 
-    D --> E[Enrich Prompt with Local Time, Date & Geo-Location Context]
-    E --> F{Select Inference Engine}
+    INPUT --> ENRICH[🌐 Add Time, Date & Geo Context]
+    ENRICH --> ROUTE{Choose AI Engine}
 
-    F -->|Local Offline| G[Route to Local Ollama REST Endpoint]
-    F -->|Cloud Hybrid| H[Route to Gemini API Endpoint]
+    ROUTE -->|Offline| OLLAMA[🤖 Ollama Local Inference]
+    ROUTE -->|Cloud| GEMINI[☁️ Gemini Cloud API]
 
-    G --> I[Stream Response Tokens to Renderer UI]
-    H --> I
+    OLLAMA --> STREAM[⚡ Stream Response to UI]
+    GEMINI --> STREAM
 
-    I --> J{Does Response Contain System Execution Command?}
-    J -->|No| K[Persist Session & Trigger Async Auto-Summarization]
-    J -->|Yes| L[Validate Path & Command against Security Engine]
+    STREAM --> CMD_CHECK{System Command Requested?}
+    CMD_CHECK -->|No| SAVE[💾 Save Chat & Auto-Summarize Title]
+    CMD_CHECK -->|Yes| SEC_CHECK{Pass Security Blacklist?}
 
-    L --> M{Security Check Passed?}
-    M -->|No| N[Block Command & Return Security Alert to User]
-    M -->|Yes| O{Check Active Security Mode}
+    SEC_CHECK -->|No| BLOCK[⛔ Block Command & Alert User]
+    SEC_CHECK -->|Yes| MODAL{User Approved Modal?}
 
-    O -->|Strict / Adaptive| P[Display Human-in-the-Loop Modal for Approval]
-    O -->|Unrestricted| Q[Execute Command]
-
-    P -->|User Approved| Q
-    P -->|User Denied| R[Cancel Execution & Inform LLM Context]
-
-    Q --> S[Capture Output / Error & Return to LLM Context & UI]
-    S --> K
+    MODAL -->|Denied| CANCEL[❌ Cancel Command Execution]
+    MODAL -->|Approved| EXEC[💻 Run Command in PowerShell / Sandbox]
+    EXEC --> SAVE
 ```
-
----
-
-### 2.2 Application Boot & Hardware Profiling Sequence Diagram
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant App as Electron App Core
-    participant Main as Main Process (ipc.js / hardware.js)
-    participant Win as Windows OS System
-    participant Ollama as Local Ollama Service
-    participant UI as Renderer UI
-
-    App->>Main: App Ready (whenReady)
-    Main->>Main: Initialize Data Directories (%APPDATA%/LocalAgent)
-    Main->>UI: Create BrowserWindow & Load index.html
-    UI->>Main: Trigger IPC ('profile-system')
-    Main->>Win: Profile Specs (CPU threads, total RAM, GPU)
-    Main->>Ollama: Query Installed Local Models
-    Ollama-->>Main: Return installed models list
-    Main->>Main: Compute Model Footprint Recommendation (e.g. phi4)
-    Main-->>UI: Return Hardware Stats + Recommended Footprint
-    UI->>UI: Update System Metrics Panel & Model Selectors
-```
-
----
-
-### 2.3 Command Security & Human-in-the-Loop Execution Sequence Diagram
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant UI as Renderer UI
-    participant IPC as Main Process (ipc.js)
-    participant Sec as Security Engine (security.js)
-    participant Modal as Human-in-the-Loop Dialog
-    participant Sub as OS Terminal / Subprocess
-
-    UI->>IPC: Send Prompt Requiring System Command
-    IPC->>Sec: Validate Command & Target Directory Path
-    alt Command / Path Blacklisted
-        Sec-->>IPC: Security Violation Error
-        IPC-->>UI: Render Security Warning Alert
-    else Command Safe
-        Sec->>Modal: Open Verification Dialog in UI
-        Modal-->>UI: Prompt User: "Allow command execution?"
-        alt User Denies
-            UI->>IPC: User Cancelled Request
-            IPC-->>UI: Output "Operation Aborted by User"
-        else User Approves
-            UI->>IPC: Permission Granted
-            IPC->>Sub: Execute Command with Timeout (Capped 300s)
-            Sub-->>IPC: Stream Stdout & Stderr Output
-            IPC-->>UI: Render Command Results & Pass to LLM Context
-        end
-    end
-```
-
----
-
-### 2.4 Chat Session Management & Dynamic Auto-Summarization Sequence Diagram
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant UI as Renderer UI
-    participant IPC as Main Process (ipc.js)
-    participant Storage as conversations.json
-    participant LLM as Ollama Summarization Call
-
-    UI->>IPC: Send User Message & Save Session
-    IPC->>Storage: Read & Update Session History
-    IPC->>LLM: Async Prompt: Summarize conversation into 2-3 word title
-    LLM-->>IPC: Return Summarized Title (e.g., "Network Diagnostics")
-    IPC->>Storage: Persist Header in Session Index
-    IPC-->>UI: Update Sidebar Session List in Real-Time
-```
-
----
-
-### 2.5 Detailed Operational Methodology Steps
-
-1. **System Profiling & Hardware Allocation:**
-   - On boot, system hardware specifications are profiled (CPU thread count, total memory in GB, active display adapter).
-   - An allocation engine maps hardware specs to recommended model footprints (e.g., allocation of `phi4` or `llama3.2` based on available RAM/VRAM).
-2. **Start Menu Shortcut Resolution:**
-   - Ultron scans user and system Start Menu shortcut directories (`.lnk` files).
-   - Resolves underlying binary targets (`.exe`) and extracts brand colors and icons to provide an interactive program index.
-3. **Context Enrichment & Prompt Pre-Processing:**
-   - Incoming user requests are enriched with temporal metadata (ISO timestamp, week number, day of year) and location context.
-4. **Human-In-The-Loop Security Verification:**
-   - Shell command execution prompts trigger the security module (`security.js`).
-   - If the active security policy requires user validation, an interactive authorization dialog pauses execution until explicitly confirmed by the user.
-5. **Real-Time Session Auto-Summarization:**
-   - After prompt completion, an asynchronous request invokes the LLM to generate a concise 2–3 word topic summary for updating sidebar feeds.
 
 ---
 
