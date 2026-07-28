@@ -1,4 +1,4 @@
-# Ultron: Windows Offline AI Desktop Agent
+# Ultron: An Autonomous AI Agent for Operating Systems
 
 Ultron is a premium, high-fidelity offline AI desktop assistant built specifically for Windows. Utilizing local LLMs powered by Ollama, Ultron serves as an autonomous interface agent capable of scanning configurations, executing system commands inside controlled sandbox parameters, and performing natural language operations—all while keeping your data entirely local and private.
 

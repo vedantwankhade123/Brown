@@ -1,6 +1,6 @@
 # Synopsis & System Architecture Specification
 
-**Project Title:** Ultron: Offline-First Windows Autonomous AI Desktop Agent  
+**Project Title:** An Autonomous AI Agent for Operating Systems (Ultron)  
 **Institution:** G H Raisoni University, Amravati — School of Engineering & Technology  
 **Department:** Computer Science & Engineering  
 **Academic Session:** 2026–27  
@@ -10,7 +10,7 @@
 
 ## 1. Title of the Project
 
-**Ultron: Offline-First Windows Autonomous AI Desktop Agent**
+**An Autonomous AI Agent for Operating Systems** (Project Codename: *Ultron*)  
 
 ---
 
