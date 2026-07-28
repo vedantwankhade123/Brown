@@ -4,30 +4,33 @@ Ultron is a high-fidelity, offline-first AI desktop assistant engineered specifi
 
 ---
 
-## 1. System Architecture
+## 1. System Architecture & Diagrams
 
 Ultron employs a multi-tiered, decoupled architecture that separates presentation logic, main process control, security sandboxing, local LLM execution, and microservice capabilities.
 
+### 1.1 System Architecture Topology Diagram
+
 ```mermaid
 graph TD
-    subgraph Frontend ["Renderer Layer (HTML5 / Vanilla CSS / Modular JS)"]
-        UI_MAIN["Main Chat View & Conversation Sidebar"]
+    subgraph Frontend ["Renderer UI Layer (HTML5 / Vanilla CSS / Modular JS)"]
+        UI_MAIN["Main Chat View & Sidebar Feed"]
         UI_SPOTLIGHT["Spotlight Command Overlay (Ctrl+K)"]
         UI_SPLITTER["Draggable Resizable Metrics Splitter"]
-        UI_SECURITY["Human-in-the-Loop Validation Dialog"]
+        UI_SECURITY["Human-in-the-Loop Permission Modal"]
     end
 
     subgraph Bridge ["Preload & Context Isolation Layer"]
-        PRELOAD["preload.js (ContextBridge IPC API)"]
+        PRELOAD["preload.js (ContextBridge API)"]
+        IPC_SEC["IPC Channel Handler & Validator"]
     end
 
     subgraph Core ["Electron Main Process Core"]
-        BOOT["App Lifecycle & Config Manager"]
+        BOOT["App Lifecycle & Config Manager (%APPDATA%/LocalAgent)"]
         IPC_HUB["Central IPC Controller (ipc.js)"]
-        HW_ENGINE["Hardware Profiler & Recommender (hardware.js)"]
-        SEC_ENGINE["Security & Path Validator (security.js)"]
+        HW_ENGINE["Hardware Profiler & Model Recommender (hardware.js)"]
+        SEC_ENGINE["Security Validator & Path Checker (security.js)"]
         MEM_ENGINE["Conversation Memory Manager (conversations.json)"]
-        START_SCANNER["Start Menu Shortcut & Icon Resolver"]
+        START_SCANNER["Start Menu Shortcut & Brand Icon Resolver"]
     end
 
     subgraph Services ["Backend Inference & System Runtime"]
@@ -42,7 +45,8 @@ graph TD
     UI_SPOTLIGHT <--> PRELOAD
     UI_SPLITTER <--> PRELOAD
     UI_SECURITY <--> PRELOAD
-    PRELOAD <--> IPC_HUB
+    PRELOAD <--> IPC_SEC
+    IPC_SEC <--> IPC_HUB
 
     IPC_HUB --> BOOT
     IPC_HUB --> HW_ENGINE
@@ -58,7 +62,41 @@ graph TD
     SEC_ENGINE --> WIN_SANDBOX
 ```
 
-### Component Architecture Breakdown
+---
+
+### 1.2 Process Isolation & Security Boundary Diagram
+
+```mermaid
+graph LR
+    subgraph DOM ["Unprivileged Renderer (DOM)"]
+        HTML["index.html"]
+        CSS["index.css"]
+        JS["renderer.js"]
+    end
+
+    subgraph Sandbox ["Isolation Boundary (ContextBridge)"]
+        API["window.electronAPI"]
+    end
+
+    subgraph Main ["Privileged Node.js Main Process"]
+        IPC["ipcMain Handlers"]
+        FS["File System Access"]
+        EXEC["Child Process Spawner"]
+    end
+
+    subgraph OS ["Windows Operating System"]
+        PS["PowerShell / CMD"]
+        WSB["Windows Sandbox Container"]
+    end
+
+    DOM -- "No Direct Node APIs" --> Sandbox
+    Sandbox -- "Serialized IPC Channels" --> Main
+    Main -- "Path & Command Security Audit" --> OS
+```
+
+---
+
+### 1.3 Component Architecture Breakdown
 
 1. **Renderer Layer (`src/renderer/`):**
    - Implemented using HTML5, modern vanilla CSS with dark theme accents, and asynchronous JavaScript controllers.
@@ -85,6 +123,8 @@ graph TD
 ## 2. Proposed & Operational Methodology
 
 The system operates via a continuous, asynchronous feedback loop comprising system discovery, prompt enrichment, local/cloud routing, security verification, and output streaming.
+
+### 2.1 Master Operational Methodology Flowchart
 
 ```mermaid
 flowchart TD
@@ -119,7 +159,87 @@ flowchart TD
     S --> K
 ```
 
-### Detailed Operational Methodology
+---
+
+### 2.2 Application Boot & Hardware Profiling Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Electron App Core
+    participant Main as Main Process (ipc.js / hardware.js)
+    participant Win as Windows OS System
+    participant Ollama as Local Ollama Service
+    participant UI as Renderer UI
+
+    App->>Main: App Ready (whenReady)
+    Main->>Main: Initialize Data Directories (%APPDATA%/LocalAgent)
+    Main->>UI: Create BrowserWindow & Load index.html
+    UI->>Main: Trigger IPC ('profile-system')
+    Main->>Win: Profile Specs (CPU threads, total RAM, GPU)
+    Main->>Ollama: Query Installed Local Models
+    Ollama-->>Main: Return installed models list
+    Main->>Main: Compute Model Footprint Recommendation (e.g. phi4)
+    Main-->>UI: Return Hardware Stats + Recommended Footprint
+    UI->>UI: Update System Metrics Panel & Model Selectors
+```
+
+---
+
+### 2.3 Command Security & Human-in-the-Loop Execution Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as Renderer UI
+    participant IPC as Main Process (ipc.js)
+    participant Sec as Security Engine (security.js)
+    participant Modal as Human-in-the-Loop Dialog
+    participant Sub as OS Terminal / Subprocess
+
+    UI->>IPC: Send Prompt Requiring System Command
+    IPC->>Sec: Validate Command & Target Directory Path
+    alt Command / Path Blacklisted
+        Sec-->>IPC: Security Violation Error
+        IPC-->>UI: Render Security Warning Alert
+    else Command Safe
+        Sec->>Modal: Open Verification Dialog in UI
+        Modal-->>UI: Prompt User: "Allow command execution?"
+        alt User Denies
+            UI->>IPC: User Cancelled Request
+            IPC-->>UI: Output "Operation Aborted by User"
+        else User Approves
+            UI->>IPC: Permission Granted
+            IPC->>Sub: Execute Command with Timeout (Capped 300s)
+            Sub-->>IPC: Stream Stdout & Stderr Output
+            IPC-->>UI: Render Command Results & Pass to LLM Context
+        end
+    end
+```
+
+---
+
+### 2.4 Chat Session Management & Dynamic Auto-Summarization Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as Renderer UI
+    participant IPC as Main Process (ipc.js)
+    participant Storage as conversations.json
+    participant LLM as Ollama Summarization Call
+
+    UI->>IPC: Send User Message & Save Session
+    IPC->>Storage: Read & Update Session History
+    IPC->>LLM: Async Prompt: Summarize conversation into 2-3 word title
+    LLM-->>IPC: Return Summarized Title (e.g., "Network Diagnostics")
+    IPC->>Storage: Persist Header in Session Index
+    IPC-->>UI: Update Sidebar Session List in Real-Time
+```
+
+---
+
+### 2.5 Detailed Operational Methodology Steps
 
 1. **System Profiling & Hardware Allocation:**
    - On boot, system hardware specifications are profiled (CPU thread count, total memory in GB, active display adapter).
