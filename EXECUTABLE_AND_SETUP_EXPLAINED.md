@@ -1,6 +1,6 @@
-# 📁 Ultron AI Agent: Executable, Setup & Folder Structure Deep-Dive
+# 📁 Ultron AI: Executable, Setup & Folder Structure Deep-Dive
 
-This document provides a comprehensive, highly detailed breakdown of how **Ultron AI Agent** installs, runs, and manages data on a Windows machine.
+This document provides a comprehensive, highly detailed breakdown of how **Ultron AI** installs, runs, and manages data on a Windows machine.
 
 ---
 
@@ -8,16 +8,16 @@ This document provides a comprehensive, highly detailed breakdown of how **Ultro
 
 When you run `npm run dist`, `electron-builder` packages Ultron into two distinct Windows executable formats located in `d:\Ultron\dist`:
 
-### **A. Guided Windows Setup Installer (`Ultron AI Agent Setup 1.0.0.exe`)**
+### **A. Guided Windows Setup Installer (`Ultron AI Setup 1.0.0.exe`)**
 - **Type**: Standard NSIS Windows Installer Wizard.
 - **Use Case**: Recommended for end-user distribution.
 - **Features**:
   - Interactive welcome screen.
-  - Custom installation folder selection.
+  - Custom installation folder selection (`C:\Program Files\Ultron AI`).
   - Automatically creates Desktop and Start Menu shortcuts.
-  - Registers Ultron into **Windows Settings > Installed Apps** / **Control Panel > Add or Remove Programs** with a clean uninstaller script (`Uninstall Ultron AI Agent.exe`).
+  - Registers Ultron into **Windows Settings > Installed Apps** / **Control Panel > Add or Remove Programs** with a clean uninstaller script (`Uninstall Ultron AI.exe`).
 
-### **B. Standalone Portable Executable (`Ultron AI Agent 1.0.0.exe`)**
+### **B. Standalone Portable Executable (`Ultron AI 1.0.0.exe`)**
 - **Type**: Single self-contained binary.
 - **Use Case**: For USB drives or running without administrative privileges.
 - **Features**: Requires zero installation steps — double-click and run instantly.
@@ -27,19 +27,19 @@ When you run `npm run dist`, `electron-builder` packages Ultron into two distinc
 ## 📂 2. Where Installation & Application Files are Stored
 
 ### **A. Program Installation Directory (App Binaries & Assets)**
-When a user installs Ultron via `Ultron AI Agent Setup 1.0.0.exe`, the core software binaries, Electron runtime, and compiled frontend assets are placed in:
+When a user installs Ultron via `Ultron AI Setup 1.0.0.exe`, the core software binaries, Electron runtime, and compiled frontend assets are placed in:
 
 ```
-C:\Program Files\Ultron AI Agent\
-├── Ultron AI Agent.exe          # Main application executable
+C:\Program Files\Ultron AI\
+├── Ultron AI.exe                # Main application executable
 ├── chrome_100_percent.pak        # Chromium rendering engine asset
 ├── resources/
 │   └── app.asar                  # Encrypted/packaged app code (src/, Assets/, package.json)
 ├── v8_context_snapshot.bin       # V8 JavaScript JIT engine snapshot
 ├── ffmpeg.dll                    # Audio/Video codec library
-├── Uninstall Ultron AI Agent.exe # Uninstaller executable
+├── Uninstall Ultron AI.exe       # Uninstaller executable
 ```
-*(If installed for the current user only, the path is `C:\Users\<Username>\AppData\Local\Programs\Ultron AI Agent\`)*
+*(If installed for the current user only, the path is `C:\Users\<Username>\AppData\Local\Programs\Ultron AI\`)*
 
 ---
 
@@ -47,11 +47,9 @@ C:\Program Files\Ultron AI Agent\
 All persistent conversation histories, learned task memories, custom configurations, and logs created by Ultron are saved in:
 
 ```
-C:\Users\<Username>\AppData\Roaming\ultron\
-├── Local Storage/                # Saved API keys, theme settings, authorized apps list
-├── Session Storage/              # Active chat session state
-├── conversations_store.json      # Persistent conversation threads & history
-├── learned_memory.json           # Self-learning task execution memory
+C:\Users\<Username>\AppData\Local\UltronData\memory\
+├── conversations.json            # Persistent conversation threads & history
+├── temp/                         # Temporary task files & runtime artifacts
 └── logs/                         # App execution logs and trace outputs
 ```
 > 💡 *Note: Users can customize or relocate this storage folder at any time from **Settings > Storage & Memory**.*
@@ -73,30 +71,30 @@ C:\Users\<Username>\.ollama\models\
 
 ### **A. Desktop Shortcut**
 ```
-C:\Users\<Username>\Desktop\Ultron AI Agent.lnk
+C:\Users\<Username>\Desktop\Ultron AI.lnk
 ```
 
 ### **B. Start Menu Programs Folder**
 ```
-C:\Users\<Username>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Ultron AI Agent\
-├── Ultron AI Agent.lnk
-└── Uninstall Ultron AI Agent.lnk
+C:\Users\<Username>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Ultron AI\
+├── Ultron AI.lnk
+└── Uninstall Ultron AI.lnk
 ```
 
 ### **C. Windows Add/Remove Programs Registry Key**
 ```
 HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\com.ultron.desktop
 ```
-- **DisplayName**: Ultron AI Agent
+- **DisplayName**: Ultron AI
 - **DisplayVersion**: 1.0.0
 - **Publisher**: Vedant Wankhade
-- **UninstallString**: `"C:\Program Files\Ultron AI Agent\Uninstall Ultron AI Agent.exe"`
+- **UninstallString**: `"C:\Program Files\Ultron AI\Uninstall Ultron AI.exe"`
 
 ---
 
 ## ⚙️ 4. Runtime Architecture & Security
 
-When **`Ultron AI Agent.exe`** is launched:
+When **`Ultron AI.exe`** is launched:
 
 1. **Main Process (`src/main/index.js`)**:
    - Initializes the Electron window (`BrowserWindow`).
@@ -116,8 +114,8 @@ When **`Ultron AI Agent.exe`** is launched:
 ## 🧹 5. How Uninstallation Works
 
 When a user uninstalls Ultron via **Control Panel > Add or Remove Programs**:
-1. It runs `Uninstall Ultron AI Agent.exe`.
-2. Removes all binary files from `C:\Program Files\Ultron AI Agent`.
+1. It runs `Uninstall Ultron AI.exe`.
+2. Removes all binary files from `C:\Program Files\Ultron AI`.
 3. Deletes Desktop and Start Menu shortcuts.
 4. Removes the Windows Registry uninstall entries.
 5. User conversation data in `AppData\Roaming\ultron` is preserved unless manually deleted, ensuring zero accidental data loss.

@@ -53,6 +53,7 @@
       "installerIcon": "Assets/ultron-logo.ico",
       "uninstallerIcon": "Assets/ultron-logo.ico",
       "installerHeaderIcon": "Assets/ultron-logo.ico",
+      "artifactName": "${productName} Setup ${version}.${ext}",
       "runAfterFinish": true,
       "include": "build/installer.nsh"
     }
