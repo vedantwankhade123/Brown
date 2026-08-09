@@ -1,5 +1,6 @@
 # Ultron: An Autonomous AI Agent for Operating Systems
 
+[![Website](https://img.shields.io/badge/Website-ultron--brown--mu.vercel.app-7928CA?logo=vercel&logoColor=white)](https://ultron-brown-mu.vercel.app/)
 [![Release](https://img.shields.io/github/v/release/vedantwankhade123/Ultron?color=blue&label=Latest%20Release)](https://github.com/vedantwankhade123/Ultron/releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D4?logo=windows)](https://github.com/vedantwankhade123/Ultron/releases)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -10,7 +11,9 @@ Ultron is a premium, high-fidelity offline AI desktop assistant built specifical
 
 ## 💾 Downloads & Executables
 
-Download pre-built ready-to-run Windows binaries directly from the latest release:
+Download pre-built ready-to-run Windows binaries directly from the official website or GitHub release:
+
+🌐 **Official Website**: [ultron-brown-mu.vercel.app](https://ultron-brown-mu.vercel.app/)
 
 | Build Type | File Name | Description |
 | :--- | :--- | :--- |
