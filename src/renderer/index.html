@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="background-color: #0a0a0c; color: #ffffff;">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,10 +9,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
-<body class="ultron-app">
+<body class="ultron-app" style="background-color: #0a0a0c; color: #ffffff;">
 
   <!-- APP BOOT SKELETON OVERLAY -->
-  <div id="app-skeleton-overlay" class="app-skeleton-overlay hidden">
+  <div id="app-skeleton-overlay" class="app-skeleton-overlay">
     <div class="skeleton-sidebar">
       <div class="skeleton-shimmer skeleton-logo"></div>
       <div class="skeleton-shimmer skeleton-btn"></div>
@@ -21,13 +21,16 @@
         <div class="skeleton-shimmer skeleton-item"></div>
         <div class="skeleton-shimmer skeleton-item"></div>
         <div class="skeleton-shimmer skeleton-item"></div>
+        <div class="skeleton-shimmer skeleton-item"></div>
       </div>
       <div class="skeleton-shimmer skeleton-user"></div>
     </div>
     <div class="skeleton-main">
-      <div class="skeleton-shimmer skeleton-center-logo"></div>
-      <div class="skeleton-shimmer skeleton-title"></div>
-      <div class="skeleton-shimmer skeleton-subtitle"></div>
+      <div class="skeleton-center-content">
+        <div class="skeleton-shimmer skeleton-center-logo"></div>
+        <div class="skeleton-shimmer skeleton-title"></div>
+        <div class="skeleton-shimmer skeleton-subtitle"></div>
+      </div>
       <div class="skeleton-shimmer skeleton-input-bar"></div>
     </div>
   </div>
@@ -201,22 +204,10 @@
                 </svg>
               </button>
               <div id="model-dropdown" class="model-dropdown hidden">
-                <div class="model-dropdown-header">
-                  <span class="model-dropdown-header-title">Models</span>
-                  <button id="btn-toggle-model-search" class="btn-toggle-model-search" title="Search models">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-                      <circle cx="11" cy="11" r="8"></circle>
-                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    </svg>
-                  </button>
-                </div>
-                <div id="model-dropdown-search-wrapper" class="model-dropdown-search-wrapper hidden">
-                  <input type="text" id="model-dropdown-search" placeholder="Search models..." />
-                </div>
-                <div id="model-dropdown-list" class="model-dropdown-list">
+                <div id="model-dropdown-list" class="model-dropdown-list" style="padding-top: 4px;">
                   <!-- populated dynamically -->
                 </div>
-                <div id="btn-dropdown-download-models" class="model-dropdown-download-item" style="padding: 8px 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); color: #ffffff; cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: 500; font-size: 12px; transition: background 0.2s;">
+                <div id="btn-dropdown-download-models" class="model-dropdown-download-item" style="padding: 8px 12px; margin-bottom: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); color: #ffffff; cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: 500; font-size: 12px; transition: background 0.2s;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
                     <circle cx="12" cy="12" r="10"></circle>
                     <line x1="12" y1="8" x2="12" y2="16"></line>
@@ -493,6 +484,31 @@
           <!-- Models Tab -->
           <div id="tab-models" class="tab-pane hidden">
             <h4>Connectors & Weights</h4>
+
+            <!-- Google Gemini Cloud API Connector -->
+            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+              <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <img src="../../Assets/gemini-logo.png" alt="Gemini Logo" style="width: 32px; height: 32px; object-fit: contain; background-color: #ffffff; border-radius: 6px; padding: 4px; box-sizing: border-box; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />
+                  <div style="display: flex; flex-direction: column;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Google Gemini</span>
+                      <span id="gemini-status-badge" class="badge-active" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Online API</span>
+                    </div>
+                    <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: https://generativelanguage.googleapis.com</p>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
+                Enable Google Gemini API models (<b>Gemini 2.5 Flash</b>, <b>Gemini 2.5 Pro</b>, <b>Gemini 2.0</b>, and <b>Gemini 1.5</b>). Get a free API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #60a5fa; text-decoration: underline;">aistudio.google.com</a>.
+              </p>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="password" id="input-gemini-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Gemini API Key (AIzaSy...)" />
+                <button id="btn-save-gemini-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+              </div>
+              <div id="gemini-key-feedback" class="text-xs hidden" style="margin-top: 6px; color: #34d399; font-weight: 500;">✓ Gemini API key saved!</div>
+            </div>
+
             <div class="connector-row">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; gap: 14px; margin-bottom: 12px;">
                 <img src="../../Assets/ollama-logo.png" alt="Ollama Logo" style="width: 32px; height: 32px; object-fit: contain; background-color: #ffffff; border-radius: 6px; padding: 4px; box-sizing: border-box; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />
@@ -515,7 +531,7 @@
                 <a href="https://ollama.com" target="_blank" class="ollama-link" style="color: #60a5fa; text-decoration: underline; font-weight: 500;">ollama.com</a> 
                 to download it manually or inspect the project documentation.
               </p>
-              <button id="btn-install-ollama" class="btn-primary-sm hidden">Download & Install Ollama</button>
+              <button id="btn-install-ollama" class="btn-primary-sm hidden" style="height: 36px; box-sizing: border-box;">Download & Install Ollama</button>
             </div>
             
             <div class="models-section">
@@ -528,7 +544,7 @@
             <div class="download-section">
               <h5>Direct Download</h5>
               <!-- Initial trigger button to open the input field -->
-              <button id="btn-show-download-fields" class="btn-primary-sm" style="padding: 6px 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none;">
+              <button id="btn-show-download-fields" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
                   <circle cx="12" cy="12" r="10"></circle>
                   <line x1="12" y1="8" x2="12" y2="16"></line>
@@ -543,7 +559,7 @@
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>
-                  <input type="text" id="input-download-model" class="override-input" style="width: 100%; box-sizing: border-box; padding-left: 32px;" placeholder="Search catalog or type custom model tag (e.g. llama3)...">
+                  <input type="text" id="input-download-model" class="override-input" style="width: 100%; height: 36px; box-sizing: border-box; padding-left: 32px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px;" placeholder="Search catalog or type custom model tag (e.g. llama3)...">
                   <button id="btn-download-model" class="hidden" style="display: none;"></button>
                 </div>
                 
@@ -583,9 +599,9 @@
               
               <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Agent Storage & Memory Location</label>
               <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; padding: 6px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px;" placeholder="e.g. C:\Users\username\AppData\Roaming\LocalAgent">
-                <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 6px 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none;">Browse</button>
-                <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 6px 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none;">Reset Path</button>
+                <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. C:\Users\username\AppData\Roaming\LocalAgent">
+                <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
+                <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset Path</button>
               </div>
               <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
                 This folder stores all persistent agent memories, conversation logs, and session vectors. If turned off, memory features are disabled and nothing will be saved.

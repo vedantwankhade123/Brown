@@ -23,32 +23,102 @@ async function resolveGeoLocation() {
     return cachedGeoLocation;
   }
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const geoRes = await fetch(
-      'http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,timezone,lat,lon',
-      { signal: controller.signal }
-    );
-    clearTimeout(timeout);
-    if (geoRes.ok) {
-      const geo = await geoRes.json();
-      if (geo.status === 'success') {
-        cachedGeoLocation = {
-          city: geo.city || '',
-          region: geo.regionName || '',
-          country: geo.country || '',
-          countryCode: geo.countryCode || '',
-          timezone: geo.timezone || '',
-          latitude: geo.lat,
-          longitude: geo.lon
-        };
-        cachedGeoLocationAt = Date.now();
-        return cachedGeoLocation;
-      }
+  // Multi-provider fallback cascade for maximum reliability
+  const providers = [
+    {
+      url: 'https://ipwho.is/',
+      parse: (d) => (d && d.success) ? {
+        city: d.city || '',
+        region: d.region || '',
+        country: d.country || '',
+        countryCode: d.country_code || '',
+        timezone: d.timezone ? d.timezone.id : '',
+        latitude: d.latitude,
+        longitude: d.longitude
+      } : null
+    },
+    {
+      url: 'https://ipinfo.io/json',
+      parse: (d) => (d && (d.city || d.country)) ? {
+        city: d.city || '',
+        region: d.region || '',
+        country: d.country || '',
+        countryCode: d.country || '',
+        timezone: d.timezone || '',
+        latitude: d.loc ? parseFloat(d.loc.split(',')[0]) : null,
+        longitude: d.loc ? parseFloat(d.loc.split(',')[1]) : null
+      } : null
+    },
+    {
+      url: 'https://freeipapi.com/api/json',
+      parse: (d) => (d && (d.cityName || d.countryName)) ? {
+        city: d.cityName || '',
+        region: d.regionName || '',
+        country: d.countryName || '',
+        countryCode: d.countryCode || '',
+        timezone: d.timeZone || '',
+        latitude: d.latitude,
+        longitude: d.longitude
+      } : null
+    },
+    {
+      url: 'http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,timezone,lat,lon',
+      parse: (d) => (d && d.status === 'success') ? {
+        city: d.city || '',
+        region: d.regionName || '',
+        country: d.country || '',
+        countryCode: d.countryCode || '',
+        timezone: d.timezone || '',
+        latitude: d.lat,
+        longitude: d.lon
+      } : null
     }
-  } catch (e) {
-    // Offline or geo lookup unavailable — fall back to cached or empty values.
+  ];
+
+  for (const provider of providers) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3500);
+      const res = await fetch(provider.url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        const raw = await res.json();
+        const parsed = provider.parse(raw);
+        if (parsed) {
+          cachedGeoLocation = parsed;
+          cachedGeoLocationAt = Date.now();
+          return cachedGeoLocation;
+        }
+      }
+    } catch (e) {
+      // Continue to next provider
+    }
+  }
+
+  // OS System TimeZone & Locale Fallback
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const parts = tz ? tz.split('/') : [];
+    const cityFallback = parts.length > 1 ? parts[parts.length - 1].replace(/_/g, ' ') : '';
+    const regionFallback = parts.length > 0 ? parts[0].replace(/_/g, ' ') : '';
+
+    cachedGeoLocation = {
+      city: cityFallback,
+      region: regionFallback,
+      country: '',
+      countryCode: '',
+      timezone: tz,
+      latitude: null,
+      longitude: null
+    };
+    cachedGeoLocationAt = Date.now();
+    return cachedGeoLocation;
+  } catch (err) {
+    // Ignore error
   }
 
   return cachedGeoLocation || null;
@@ -118,6 +188,9 @@ function runCommandWithTimeout(command, options = {}) {
  * Setup IPC handlers for the main Electron process.
  */
 function setupIpcHandlers() {
+  // Proactively pre-fetch device location in background as soon as main process starts
+  resolveGeoLocation().catch(() => {});
+
   // System Hardware Profiling
   ipcMain.handle('profile-system', async () => {
     try {
@@ -184,6 +257,14 @@ function setupIpcHandlers() {
     }
 
     info.geoLocation = await resolveGeoLocation();
+
+    // Ensure country from Windows Region info if IP Geo is missing country
+    if (info.geoLocation && info.region) {
+      if (!info.geoLocation.country && info.region.country) {
+        info.geoLocation.country = info.region.country;
+        info.geoLocation.countryCode = info.region.countryCode;
+      }
+    }
 
     // Discover drives (Windows)
     try {
@@ -533,6 +614,35 @@ function setupIpcHandlers() {
     }
   });
 
+  // Persistent Gemini API Key Storage across app restarts
+  ipcMain.handle('save-gemini-key', async (event, key) => {
+    try {
+      const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
+      let config = {};
+      if (fs.existsSync(configPath)) {
+        try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch (e) {}
+      }
+      config.geminiApiKey = key || '';
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('load-gemini-key', async () => {
+    try {
+      const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        return config.geminiApiKey || '';
+      }
+      return '';
+    } catch (err) {
+      return '';
+    }
+  });
+
   // Install Ollama using winget package manager
   ipcMain.handle('install-ollama', async () => {
     try {
@@ -605,7 +715,7 @@ function setupIpcHandlers() {
 
   // Get default app memory data directory location
   ipcMain.handle('get-default-data-dir', () => {
-    return path.join(app.getAppPath(), 'memory');
+    return path.join(app.getPath('userData'), 'memory');
   });
 
   // Save conversation history to local data directory path

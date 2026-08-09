@@ -102,17 +102,16 @@ function escapeHtml(value) {
 
 function getWebSearchCardHtml(query) {
   const cleanQ = (query || '').replace(/["']/g, '').trim();
-  const truncated = cleanQ.length > 55 ? cleanQ.substring(0, 52) + '...' : cleanQ;
-  return `
-    <div class="web-search-status-wrapper">
-      <svg class="web-search-status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"></circle>
-        <line x1="2" y1="12" x2="22" y2="12"></line>
-        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-      </svg>
-      <span class="web-search-shimmer-text">Searching live web for "${truncated}"...</span>
-    </div>
-  `;
+  let displayText = '';
+
+  if (/^(analyzing|refining|formulating|thinking|processing|evaluating)/i.test(cleanQ)) {
+    displayText = cleanQ;
+  } else {
+    const truncated = cleanQ.length > 50 ? cleanQ.substring(0, 47) + '...' : cleanQ;
+    displayText = `Searching live web for "${truncated}"...`;
+  }
+
+  return `<div class="web-search-status-wrapper"><svg class="web-search-status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg><span class="web-search-shimmer-text">${escapeHtml(displayText)}</span></div>`;
 }
 
 function getStepExecCardHtml(step, type, target) {
@@ -592,10 +591,18 @@ async function checkOllamaConnection() {
     if (response.ok) {
       return { connected: true };
     }
-    return { connected: false, error: `Status ${response.status}` };
-  } catch (err) {
-    return { connected: false, error: err.message };
-  }
+  } catch (err) {}
+
+  // Fallback check via system profiler / installed models query
+  try {
+    const res = await window.ultronAPI.profileSystem();
+    if (res && res.success && Array.isArray(res.installedModels) && res.installedModels.length > 0) {
+      installedModelsList = res.installedModels;
+      return { connected: true };
+    }
+  } catch (e) {}
+
+  return { connected: false };
 }
 
 let bannerAutoDismissTimer = null;
@@ -669,7 +676,7 @@ async function checkOllamaStartup() {
     logTrace('Ollama connection verified on boot.', 'system');
     hideOllamaBanner();
     await runOnboardingProfiler();
-    renderSettingsModels();
+    renderModelDropdownList();
     return;
   }
 
@@ -688,7 +695,7 @@ async function checkOllamaStartup() {
           logTrace('Ollama background service connected successfully.', 'system');
           showOllamaBanner('success', 'Ollama service started and connected successfully!', true);
           await runOnboardingProfiler();
-          renderSettingsModels();
+          renderModelDropdownList();
           return;
         }
       }
@@ -796,50 +803,85 @@ async function refreshOllamaStatus() {
   }
 
   logTrace('Checking Ollama status and connectivity...', 'system');
-  const conn = await checkOllamaConnection();
+  let conn = await checkOllamaConnection();
   const connTitle = document.getElementById('ollama-connector-title');
+  const installCheck = await window.ultronAPI.checkOllamaInstalled();
+
+  // If installed on host but REST connection is not active yet, attempt silent start
+  if (!conn.connected && installCheck && installCheck.installed) {
+    logTrace('Ollama is installed on machine. Attempting background service connection...', 'system');
+    await window.ultronAPI.startOllamaService(installCheck.path);
+    await new Promise(r => setTimeout(r, 1000));
+    conn = await checkOllamaConnection();
+  }
   
-  if (conn.connected) {
+  const btnInstall = document.getElementById('btn-install-ollama');
+
+  if (conn.connected || (installedModelsList && installedModelsList.length > 0)) {
     if (connTitle) connTitle.textContent = 'Ollama';
-    ollamaStatusBadge.textContent = 'Connected';
-    ollamaStatusBadge.className = 'badge-active';
-    ollamaStatusBadge.style.backgroundColor = '';
-    ollamaStatusBadge.style.color = '';
-    ollamaStatusBadge.style.border = '';
-    
-    btnInstallOllama.classList.add('hidden');
-    hideOllamaBanner();
-    
-    // Refresh models list
-    await runOnboardingProfiler();
-    renderSettingsModels();
-  } else {
-    if (connTitle) connTitle.textContent = 'Connect Ollama';
-    // If not connected, check if installed
-    const installCheck = await window.ultronAPI.checkOllamaInstalled();
-    if (installCheck.installed) {
-      ollamaStatusBadge.textContent = 'Installed (Not Connected)';
-      ollamaStatusBadge.className = 'badge-inactive';
-      ollamaStatusBadge.style.backgroundColor = 'rgba(245, 158, 11, 0.15)';
-      ollamaStatusBadge.style.color = '#fbbf24';
-      ollamaStatusBadge.style.border = '1px solid rgba(245, 158, 11, 0.3)';
-      
-      btnInstallOllama.textContent = 'Connect';
-      btnInstallOllama.classList.remove('hidden');
-      
-      showOllamaBanner('warning', 'Ollama is installed but not running. Please click Connect or launch the Ollama app manually.', true);
-    } else {
-      ollamaStatusBadge.textContent = 'Not Detected';
-      ollamaStatusBadge.className = 'badge-inactive';
+    if (ollamaStatusBadge) {
+      ollamaStatusBadge.textContent = 'Connected';
+      ollamaStatusBadge.className = 'badge-active';
       ollamaStatusBadge.style.backgroundColor = '';
       ollamaStatusBadge.style.color = '';
       ollamaStatusBadge.style.border = '';
-      
-      btnInstallOllama.textContent = 'Download & Install Ollama';
-      btnInstallOllama.classList.remove('hidden');
     }
     
-    settingsModelsList.innerHTML = `<div class="text-xs text-muted p-2">No offline model weights found. Please make sure Ollama is connected.</div>`;
+    if (btnInstall) {
+      btnInstall.classList.add('hidden');
+      btnInstall.style.setProperty('display', 'none', 'important');
+      btnInstall.style.setProperty('visibility', 'hidden', 'important');
+      btnInstall.style.setProperty('opacity', '0', 'important');
+      btnInstall.style.setProperty('pointer-events', 'none', 'important');
+    }
+    hideOllamaBanner();
+    
+    // Refresh models list UI for both prompt dropdown & settings models list
+    await runOnboardingProfiler();
+    renderModelDropdownList();
+    renderSettingsModels();
+  } else {
+    if (installCheck && installCheck.installed) {
+      if (connTitle) connTitle.textContent = 'Connect Ollama';
+      if (ollamaStatusBadge) {
+        ollamaStatusBadge.textContent = 'Installed (Not Connected)';
+        ollamaStatusBadge.className = 'badge-inactive';
+        ollamaStatusBadge.style.backgroundColor = 'rgba(245, 158, 11, 0.15)';
+        ollamaStatusBadge.style.color = '#fbbf24';
+        ollamaStatusBadge.style.border = '1px solid rgba(245, 158, 11, 0.3)';
+      }
+      
+      if (btnInstall) {
+        btnInstall.textContent = 'Connect Ollama';
+        btnInstall.classList.remove('hidden');
+        btnInstall.style.removeProperty('display');
+        btnInstall.style.removeProperty('visibility');
+        btnInstall.style.removeProperty('opacity');
+        btnInstall.style.removeProperty('pointer-events');
+      }
+      
+      showOllamaBanner('warning', 'Ollama is installed but not running. Please click Connect or launch the Ollama app manually.', true);
+    } else {
+      if (connTitle) connTitle.textContent = 'Connect Ollama';
+      if (ollamaStatusBadge) {
+        ollamaStatusBadge.textContent = 'Not Detected';
+        ollamaStatusBadge.className = 'badge-inactive';
+        ollamaStatusBadge.style.backgroundColor = '';
+        ollamaStatusBadge.style.color = '';
+        ollamaStatusBadge.style.border = '';
+      }
+      
+      if (btnInstall) {
+        btnInstall.textContent = 'Download & Install Ollama';
+        btnInstall.classList.remove('hidden');
+        btnInstall.style.removeProperty('display');
+        btnInstall.style.removeProperty('visibility');
+        btnInstall.style.removeProperty('opacity');
+        btnInstall.style.removeProperty('pointer-events');
+      }
+    }
+    
+    renderSettingsModels();
   }
 
   if (refreshBtn) {
@@ -921,6 +963,17 @@ async function getSystemContext(forceRefresh = false) {
   return _cachedSystemEnv;
 }
 
+// Auto-detect device location & system environment on software boot
+(async function autoDetectSystemLocationOnBoot() {
+  try {
+    const env = await getSystemContext(true);
+    const realtime = buildRealtimeContext(env);
+    logTrace(`System & location auto-detected on startup: "${realtime.locationLabel}" (Timezone: ${realtime.timeZone})`, 'system');
+  } catch (err) {
+    console.warn('[STARTUP LOG] Automatic location detection on startup encountered non-fatal notice:', err.message);
+  }
+})();
+
 function buildRealtimeContext(sysEnv = {}) {
   const now = new Date();
   const tz = sysEnv.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
@@ -930,7 +983,9 @@ function buildRealtimeContext(sysEnv = {}) {
   const region = sysEnv.region || {};
   const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
   const locationParts = [geo.city, geo.region, geo.country || region.country].filter(Boolean);
-  const locationLabel = locationParts.length > 0 ? locationParts.join(', ') : (region.country || 'Unknown location');
+  const autoLocation = locationParts.length > 0 ? locationParts.join(', ') : (region.country || 'Unknown location');
+  const savedLocation = localStorage.getItem('ultron-user-location');
+  const locationLabel = savedLocation ? savedLocation : autoLocation;
 
   return {
     dateLabel: now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
@@ -1073,14 +1128,25 @@ function fallbackSearchQueryFromPrompt(prompt) {
   let query = (prompt || '').replace(/["'`]/g, ' ').replace(/\s+/g, ' ').trim();
   if (!query) return 'latest updates news';
 
-  // Strip conversational lead-ins
+  // Strip conversational lead-ins and command wrappers
   let cleaned = query
     .replace(/\bwbe\b/gi, 'web')
     .replace(/\bspiderman\b/gi, 'Spider-Man')
+    // Remove "please can you search the web online for"
     .replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+)?(search|google|look\s+up|find\s+out|find|check)\s+(the\s+)?(web\s+)?(online\s+)?(for\s+)?/i, '')
+    // Remove "search for the best", "search for", "search"
+    .replace(/^(search\s+for\s+(the\s+)?(best\s+)?|search\s+(the\s+)?web\s+for\s+(the\s+)?|search\s+)/i, '')
+    // Remove trailing conversational phrases like "for me", "for us", "please"
+    .replace(/\s+(for\s+me|for\s+us|please|thanks)\s*$/i, '')
+    // Remove question lead-ins
     .replace(/^(who|what|where|when|why|how)\s+(is|are|was|were|do|does|did|can|should|would)\s+(the\s+)?/i, '')
-    .replace(/^(tell\s+me|show\s+me|give\s+me|search\s+for|info\s+on|details\s+on)\s+(about\s+)?/i, '')
+    .replace(/^(tell\s+me|show\s+me|give\s+me|info\s+on|details\s+on)\s+(about\s+)?/i, '')
     .trim();
+
+  // Re-add "best " if prompt specifically asked for best
+  if (/\b(best|top|recommended)\b/i.test(prompt) && !/\b(best|top|recommended)\b/i.test(cleaned)) {
+    cleaned = `best ${cleaned}`;
+  }
 
   // Smart keyword enrichment for common query formats
   if (/^who\s+(is|was|are)\b/i.test(prompt) && cleaned.split(' ').length <= 4) {
@@ -1089,54 +1155,45 @@ function fallbackSearchQueryFromPrompt(prompt) {
     cleaned = `${cleaned} overview definition details`;
   }
 
+  // If prompt has price/budget without currency symbol, enrich with rupees context if under numbers in rupees
+  if (/\bunder\s+\d+\b/i.test(prompt) && !/\b(rupees|rs|inr|\$|usd|eur|pounds|gbp)\b/i.test(cleaned)) {
+    cleaned = `${cleaned} rupees`;
+  }
+
   return cleaned || query;
 }
 
 async function buildWebSearchQuery(userPrompt) {
   const fallback = fallbackSearchQueryFromPrompt(userPrompt);
 
+  const isMetaGarbage = (str) => /\b(based on|user prompt|we can generate|search query|keywords:|live information|snippet available|ai prompt|docsbot|prompt generation)\b/i.test(str);
+
+  // If fallback is already a clean topic query without meta words, return fallback directly!
+  if (fallback && fallback.split(' ').length <= 8 && !isMetaGarbage(fallback)) {
+    return fallback;
+  }
+
   const sysEnv = await getSystemContext();
   const realtime = buildRealtimeContext(sysEnv);
   const locationHint = realtime.locationLabel && realtime.locationLabel !== 'Unknown location' ? realtime.locationLabel : '';
-  const temporalHint = `${realtime.month} ${realtime.year}`;
 
   const queryPlannerSystemPrompt = `You are a Search Engine Query Keyword Generator.
-Given a user prompt, output ONLY 2 to 5 search engine keywords.
+Your job is to convert raw conversational user prompts into 2 to 5 highly relevant search keywords.
 STRICT RULES:
-- Output NOTHING EXCEPT the query keywords.
-- DO NOT write intro words like "Sure", "Here is", "Below is", "1.", "Query:".
-- DO NOT echo instructions or rules.
-- DO NOT use conversational phrases like "who is", "tell me about".`;
+- Output ONLY 2 to 5 keywords.
+- NEVER include conversational fillers, instructions, or meta-commentary.
+- Focus ONLY on the core intent and specific subject entities.`;
 
-  const queryPlannerUserPrompt = `User Prompt: "${userPrompt}"\nKeywords:`;
+  const queryPlannerUserPrompt = `Prompt: "${userPrompt}"\nKeywords:`;
 
   try {
     const rawAiOutput = await queryOfflineLLM(queryPlannerUserPrompt, [], 'search', queryPlannerSystemPrompt);
-    if (rawAiOutput) {
-      let planned = rawAiOutput
-        .replace(/```[^`]*```/g, '')
-        .replace(/^sure,?\s*(here'?s?\s*(an?\s*)?(optimized\s*)?(search\s*)?(engine\s*)?query\s*(for|keywords)?:?)?/gi, '')
-        .replace(/^here'?s?\s*(an?\s*)?(optimized\s*)?(search\s*)?(engine\s*)?query\s*(for|keywords)?:?/gi, '')
-        .replace(/^(1\.|2\.|3\.|step\s*\d+:?|\*|\-)\s*/gi, '')
-        .replace(/^(reconstructed\s+)?search\s+query\s*:?\s*/gi, '')
-        .replace(/^(keywords|query|result)\s*:?\s*/gi, '')
-        .replace(/^(to\s+convert|the\s+query\s+is)\s*:?\s*/gi, '')
-        .replace(/^["'`]|["'`]$/g, '')
-        .trim();
+    if (rawAiOutput && !isMetaGarbage(rawAiOutput)) {
+      let planned = rawAiOutput.replace(/```[^`]*```/g, '').replace(/["'`]/g, '').trim();
+      planned = fallbackSearchQueryFromPrompt(planned);
 
-      if (planned.includes('\n')) {
-        const lines = planned.split('\n').map(l => l.trim()).filter(Boolean);
-        planned = lines.find(l => !/^(rules|instructions|1\.|2\.|sure|here|strip|output)/i.test(l)) || lines[lines.length - 1] || '';
-        planned = planned.replace(/^["'`]|["'`]$/g, '').replace(/^(keywords|query):?\s*/gi, '').trim();
-      }
-
-      if (
-        planned &&
-        planned.length >= 3 &&
-        planned.length <= 100 &&
-        !/\b(strip out|conversational words|reconstruction agent|rules:|output only|markdown|explanation)\b/i.test(planned)
-      ) {
-        logTrace(`AI Search Query Reconstructed: "${planned}" (from prompt: "${userPrompt}")`, 'system');
+      if (planned && planned.length >= 3) {
+        logTrace(`AI Search Query Reconstructed: "${planned}"`, 'system');
         return planned;
       }
     }
@@ -1316,12 +1373,90 @@ function classifyIntent(prompt) {
   return 'conversation';
 }
 
-// Offline inference helper querying local servers
+// Google Gemini API Online Model Provider
+async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMessages = []) {
+  let officialModel = modelName;
+  if (!officialModel || !officialModel.startsWith('gemini')) {
+    officialModel = 'gemini-3.0-flash';
+  }
+
+  const makeCall = async (targetModel) => {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey.trim()}`;
+
+    const contents = [];
+    if (extraMessages && Array.isArray(extraMessages) && extraMessages.length > 0) {
+      extraMessages.forEach(m => {
+        if (m.text && !isThinkingMarkup(m.text)) {
+          contents.push({
+            role: m.isAi ? 'model' : 'user',
+            parts: [{ text: extractPlainTextFromMessage(m.text) }]
+          });
+        }
+      });
+    }
+
+    contents.push({
+      role: 'user',
+      parts: [{ text: prompt }]
+    });
+
+    const payload = {
+      contents,
+      systemInstruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 8192
+      }
+    };
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const msg = (errorData.error && errorData.error.message) ? errorData.error.message : `HTTP ${response.status}`;
+      throw new Error(msg);
+    }
+
+    const data = await response.json();
+    const candidate = data.candidates && data.candidates[0];
+    if (!candidate || !candidate.content || !candidate.content.parts || !candidate.content.parts[0]) {
+      throw new Error('Gemini API returned an empty response.');
+    }
+
+    return candidate.content.parts[0].text;
+  };
+
+  try {
+    return await makeCall(officialModel);
+  } catch (err) {
+    if (err.message && (err.message.includes('no longer available') || err.message.includes('404') || err.message.includes('not found'))) {
+      logTrace(`Gemini model "${officialModel}" returned availability notice. Retrying with gemini-2.0-flash...`, 'system');
+      return await makeCall('gemini-2.0-flash');
+    }
+    throw new Error(`Google Gemini API (${officialModel}): ${err.message}`);
+  }
+}
+
+// Offline inference helper querying local servers or Online Cloud APIs
 async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null, customSystemPromptOverride = null) {
-  // Direct Ollama API generate/chat loop. This keeps context scoped to the active UI session.
+  // Direct Ollama / Gemini API generate/chat loop.
   try {
     const memoryEnabled = window.localStorage.getItem('ultron-memory-enabled') !== 'false';
     const userNameEl = document.querySelector('.profile-detail-name');
+    // Auto-detect and remember user location mentioned in prompt
+    const locMatch = prompt.match(/\b(?:i am in|i live in|my location is|my address is|my city is)\s+([a-zA-Z0-9\s,]+)/i);
+    if (locMatch && locMatch[1]) {
+      const userCity = locMatch[1].trim().replace(/[.!?]+$/, '');
+      if (userCity && userCity.length < 50 && !/\b(a|the|some|any)\b/i.test(userCity)) {
+        localStorage.setItem('ultron-user-location', userCity);
+        logTrace(`User location remembered: "${userCity}"`, 'system');
+      }
+    }
+
     const userName = userNameEl ? userNameEl.textContent.trim() : 'Vedant Wankhade';
     const sysEnv = await getSystemContext();
     const realtime = buildRealtimeContext(sysEnv);
@@ -1330,9 +1465,7 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
 
     // Build drives description
     const drivesDesc = (sysEnv.drives || []).map(d => `${d.letter} (${d.description || 'Disk'}, ${d.totalGB || '?'}GB total, ${d.freeGB || '?'}GB free)`).join(', ') || 'C:';
-    const dirs = sysEnv.keyDirectories || {};
 
-    // Self-learning memory snippet (last 5 task outcomes)
     const memorySnippet = _learnedTaskMemory.length > 0
       ? `\n\nSELF-LEARNING MEMORY (your past task outcomes for reference):\n${_learnedTaskMemory.slice(-5).map((m, i) => `${i + 1}. ${m}`).join('\n')}`
       : '';
@@ -1345,31 +1478,38 @@ CONVERSATIONAL PERSONA & DIRECT VOICE RULES:
    - NEVER speak in the third person.
    - NEVER refer to yourself as "the AI", "the AI agent", "the assistant", or "this AI".
    - NEVER refer to ${userName} as "the user" or "the user's prompt".
-   - NEVER output meta-narrative preambles or lists of hypothetical scenarios (e.g. NEVER write "Here are examples of how the AI agent can make you laugh...", "When the user asks X, the AI will Y...", or "As an AI language model").
+   - NEVER output meta-narrative preambles or lists of hypothetical scenarios.
 3. DIRECT FULFILLMENT:
-   - Perform the requested conversational task directly! If ${userName} asks to "make me laugh", "tell a joke", "write a poem", or chat, fulfill it immediately in first person with genuine humor, wit, warmth, and intelligence.
-4. SILENT GRAMMAR & TRANSCRIPTION AUTO-CORRECTION:
-   - Gracefully interpret and silently auto-correct any grammatical errors, spelling typos, or speech-to-text transcription mistakes in ${userName}'s input without mentioning them.
+   - Perform the requested conversational task directly with genuine humor, wit, warmth, and intelligence.
 
 REAL-TIME CONTEXT:
 - Local Date & Time: ${realtime.dateLabel}, ${realtime.timeLabel} (${realtime.timeZone})
+- Location Context: ${realtime.locationLabel}${realtime.countryCode ? ` (${realtime.countryCode})` : ''}
 - Target Answer Style: ${isShortQuery ? 'Crisp & Concise (2-3 sentences max)' : 'Structured & Comprehensive'}
 
 ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
 - Operating System: Windows ${sysEnv.osVersion || '10/11'} (${sysEnv.arch || 'x64'})
 - Home Directory: ${sysEnv.homeDir || 'C:\\Users\\vedan'}
-- Available Drives: ${drivesDesc}
-
-AVAILABLE TOOLS (use ONLY when performing actions):
-- EXECUTE: <command>  — Runs a PowerShell/CMD command
-- WRITE_FILE: <filepath> | <content>  — Creates/writes a file
-- READ_FILE: <filepath>  — Reads file contents
-- LIST_DIR: <dirpath>  — Lists directory contents
-- SEARCH: <query>  — Searches the web for live information` : ''}${memorySnippet}`;
+- Available Drives: ${drivesDesc}` : ''}${memorySnippet}`;
 
     let finalUserPrompt = prompt;
     if (/\b(table|tabular|difference between|vs|comparison)\b/i.test(prompt) && !/\b(html\s+code|css\s+code|write\s+code)\b/i.test(prompt)) {
       finalUserPrompt = `${prompt}\n\n[Formatting Instruction: Respond using standard Markdown table syntax (| Header 1 | Header 2 |). DO NOT write HTML/CSS code.]`;
+    }
+
+    // Route Online Google Gemini models if selected
+    if (activeModel && activeModel.startsWith('gemini')) {
+      const apiKey = localStorage.getItem('ultron-gemini-api-key') || '';
+      if (!apiKey || !apiKey.trim()) {
+        return `⚠️ **Google Gemini API Key Required**\n\nYou selected **${activeModel}**, but no Gemini API key is configured.\n\n**To connect Google Gemini:**\n1. Open **Settings > Models**.\n2. Paste your free Google Gemini API Key from [Google AI Studio](https://aistudio.google.com/app/apikey).\n3. Click **Save Key**.`;
+      }
+      try {
+        const geminiOutput = await queryGeminiAPI(finalUserPrompt, systemPrompt, activeModel, apiKey, extraMessages);
+        return geminiOutput;
+      } catch (err) {
+        logTrace(`Gemini API execution error: ${err.message}`, 'system');
+        return `⚠️ **Google Gemini API Error**\n\n${err.message}\n\nPlease verify your API key in **Settings > Models** or switch models in the top dropdown selector.`;
+      }
     }
     
     let bodyData;
@@ -1416,8 +1556,8 @@ AVAILABLE TOOLS (use ONLY when performing actions):
         messages: chatMessages,
         stream: false,
         options: {
-          num_ctx: 4096,      // Context length
-          num_predict: 512,   // Prediction length limit
+          num_ctx: 8192,      // Expanded context length
+          num_predict: 4096,   // Full code generation length limit
           temperature: activeTemp
         }
       };
@@ -1430,8 +1570,8 @@ AVAILABLE TOOLS (use ONLY when performing actions):
         system: systemPrompt,
         stream: false,
         options: {
-          num_ctx: 2048,
-          num_predict: 512,
+          num_ctx: 8192,
+          num_predict: 4096,
           temperature: activeTemp
         }
       };
@@ -1462,124 +1602,110 @@ AVAILABLE TOOLS (use ONLY when performing actions):
   }
 }
 
-// Populate custom model dropdown without duplicates
-function populateModelSelectors(models, recommendation) {
-  if (modelDropdownList) {
-    modelDropdownList.innerHTML = '';
-  }
+const ONLINE_GEMINI_MODELS = [
+  { name: 'gemini-3.0-flash', tag: '3.0 FLASH', desc: 'Google Gemini 3.0 Flash (Ultra Fast & Multimodal Agent)' },
+  { name: 'gemini-3.0-pro', tag: '3.0 PRO', desc: 'Google Gemini 3.0 Pro (Autonomous Reasoning & Coding)' },
+  { name: 'gemini-3.5-pro', tag: '3.5 PRO', desc: 'Google Gemini 3.5 Pro (Frontier Agent Architecture)' }
+];
 
-  // Bind search toggle icon button
-  const btnToggleSearch = document.getElementById('btn-toggle-model-search');
-  const searchWrapper = document.getElementById('model-dropdown-search-wrapper');
-  if (btnToggleSearch && searchWrapper && !btnToggleSearch.dataset.bound) {
-    btnToggleSearch.dataset.bound = "true";
-    btnToggleSearch.addEventListener('click', (e) => {
-      e.stopPropagation();
-      searchWrapper.classList.toggle('hidden');
-      if (!searchWrapper.classList.contains('hidden')) {
-        const searchInput = document.getElementById('model-dropdown-search');
-        if (searchInput) searchInput.focus();
-      }
-    });
-  }
+function updateModelSelectorLabel() {
+  if (!modelSelectorLabel) return;
+  const name = activeModel || 'gemini-3.0-flash';
+  const isGemini = ONLINE_GEMINI_MODELS.some(m => m.name === name) || name.toLowerCase().includes('gemini');
 
-  const searchInput = document.getElementById('model-dropdown-search');
-  if (searchInput) {
-    searchInput.value = '';
-    // Ensure we stop propagation to keep the dropdown open while typing and clicking
-    if (!searchInput.dataset.bound) {
-      searchInput.dataset.bound = "true";
-      searchInput.addEventListener('click', (e) => e.stopPropagation());
-      searchInput.addEventListener('keydown', (e) => e.stopPropagation());
-      searchInput.addEventListener('input', () => {
-        const query = searchInput.value.toLowerCase().trim();
-        modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(item => {
-          if (item.classList.contains('search-more-item')) return;
-          const text = item.textContent.toLowerCase();
-          if (text.includes(query)) {
-            item.style.display = 'flex';
-          } else {
-            item.style.display = 'none';
-          }
-        });
-      });
-    }
-  }
+  const logoSrc = isGemini ? '../../Assets/gemini-logo.png' : '../../Assets/ollama-logo.png';
+  const filterStyle = isGemini ? '' : 'filter: brightness(0) invert(1);';
+
+  modelSelectorLabel.style.display = 'inline-flex';
+  modelSelectorLabel.style.alignItems = 'center';
+  modelSelectorLabel.style.gap = '6px';
+
+  modelSelectorLabel.innerHTML = `
+    <img src="${logoSrc}" alt="Logo" style="width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; display: block; margin: 0; ${filterStyle}" />
+    <span style="line-height: 1; display: inline-block; margin: 0; padding: 0;">${name}</span>
+  `;
+}
+
+function renderModelDropdownList() {
+  modelDropdownList.innerHTML = '';
   
-  // Bind bottom Download Models button
-  const btnDownloadModels = document.getElementById('btn-dropdown-download-models');
-  if (btnDownloadModels && !btnDownloadModels.dataset.bound) {
-    btnDownloadModels.dataset.bound = "true";
-    btnDownloadModels.addEventListener('click', (e) => {
-      e.stopPropagation();
-      modelDropdown.classList.add('hidden');
-      modelSelectorWrapper.classList.remove('open');
-      
-      // Open settings and go to Models tab
-      const modelsTab = document.querySelector('.settings-tab-btn[data-tab="models"]');
-      if (modelsTab) modelsTab.click();
-      settingsModal.classList.remove('hidden');
-    });
-  }
+  // Render Online Gemini Models section
+  const onlineHeader = document.createElement('div');
+  onlineHeader.className = 'model-dropdown-section-title';
+  onlineHeader.style.cssText = 'padding: 8px 12px 4px 12px; font-size: 11px; font-weight: 600; color: #60a5fa; letter-spacing: 0.02em; text-transform: none;';
+  onlineHeader.textContent = 'Online Models';
+  modelDropdownList.appendChild(onlineHeader);
 
-  // Deduplicate models by name
-  const uniqueModels = [];
-  const seenNames = new Set();
-  (models || []).forEach(m => {
-    const name = typeof m === 'string' ? m.trim() : (m && m.name ? m.name.trim() : '');
-    if (name && !seenNames.has(name)) {
-      seenNames.add(name);
-      uniqueModels.push(typeof m === 'object' ? m : { name });
-    }
-  });
-
-  if (uniqueModels.length === 0) {
-    const emptyDiv = document.createElement('div');
-    emptyDiv.className = 'model-dropdown-empty';
-    emptyDiv.innerHTML = 'No models found.<br><a id="add-models-link">Add models in Settings</a>';
-    modelDropdownList.appendChild(emptyDiv);
-    modelSelectorLabel.textContent = 'No Models';
-    
-    // Bind settings link
-    setTimeout(() => {
-      const link = document.getElementById('add-models-link');
-      if (link) link.addEventListener('click', () => {
-        modelDropdown.classList.add('hidden');
-        modelSelectorWrapper.classList.remove('open');
-        settingsModal.classList.remove('hidden');
-      });
-    }, 0);
-    return;
-  }
-  
-  uniqueModels.forEach(model => {
+  ONLINE_GEMINI_MODELS.forEach(model => {
     const item = document.createElement('div');
     item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
-    
-    let badgeText = 'LOCAL';
-    if (model.name.includes(':')) {
-      badgeText = model.name.split(':')[1].toUpperCase();
-    }
-
     item.innerHTML = `
-      <span class="model-name-text">${model.name}</span>
-      <span class="model-badge">${badgeText}</span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <img src="../../Assets/gemini-logo.png" alt="Gemini" style="width: 16px; height: 16px; object-fit: contain;" />
+        <span class="model-name-text">${model.name}</span>
+      </div>
+      <span class="model-badge" style="background: transparent !important; color: #ffffff !important; border: none !important; padding: 0; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">${model.tag}</span>
     `;
     item.addEventListener('click', () => {
       activeModel = model.name;
-      modelSelectorLabel.textContent = model.name;
-      // Update active state
+      updateModelSelectorLabel();
       modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
       item.classList.add('active');
-      // Close dropdown
       modelDropdown.classList.add('hidden');
       modelSelectorWrapper.classList.remove('open');
-      logTrace(`Chat context model shifted to: "${activeModel}"`, 'local');
+      logTrace(`Chat context model shifted to Online Model: "${activeModel}"`, 'local');
     });
     modelDropdownList.appendChild(item);
   });
+
+  // Render Local Ollama Models section
+  const localHeader = document.createElement('div');
+  localHeader.className = 'model-dropdown-section-title';
+  localHeader.style.cssText = 'padding: 10px 12px 4px 12px; font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.02em; text-transform: none; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;';
+  localHeader.textContent = 'Offline Models';
+  modelDropdownList.appendChild(localHeader);
+
+  const map = new Map();
+  (installedModelsList || []).forEach(m => map.set(m.name, m));
+  const uniqueModels = Array.from(map.values());
   
-  modelSelectorLabel.textContent = activeModel;
+  if (uniqueModels.length === 0) {
+    const emptyItem = document.createElement('div');
+    emptyItem.className = 'model-dropdown-item disabled';
+    emptyItem.style.cssText = 'padding: 8px 12px; color: var(--text-muted); font-size: 12px; font-style: italic;';
+    emptyItem.textContent = 'No local models downloaded yet.';
+    modelDropdownList.appendChild(emptyItem);
+  } else {
+    uniqueModels.forEach(model => {
+      const item = document.createElement('div');
+      item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
+      
+      let badgeText = 'LOCAL';
+      if (model.name.includes(':')) {
+        badgeText = model.name.split(':')[1].toUpperCase();
+      }
+
+      item.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="../../Assets/ollama-logo.png" alt="Ollama" style="width: 16px; height: 16px; object-fit: contain; filter: brightness(0) invert(1);" />
+          <span class="model-name-text">${model.name}</span>
+        </div>
+        <span class="model-badge" style="background: transparent !important; color: #ffffff !important; border: none !important; padding: 0; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">${badgeText}</span>
+      `;
+      item.addEventListener('click', () => {
+        activeModel = model.name;
+        updateModelSelectorLabel();
+        modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
+        item.classList.add('active');
+        modelDropdown.classList.add('hidden');
+        modelSelectorWrapper.classList.remove('open');
+        logTrace(`Chat context model shifted to Local Model: "${activeModel}"`, 'local');
+      });
+      modelDropdownList.appendChild(item);
+    });
+  }
+  
+  updateModelSelectorLabel();
 }
 
 // Onboarding Hardware Profiler
@@ -1587,36 +1713,37 @@ async function runOnboardingProfiler() {
   logTrace('Initializing hardware diagnostics...', 'system');
   
   const result = await window.ultronAPI.profileSystem();
-  if (result.success) {
+  if (result && result.success) {
     const { stats, recommendation, installedModels } = result;
     
-    installedModelsList = installedModels;
+    installedModelsList = installedModels || [];
     
     // Bind to Right Sidebar Card UI
-    statRam.textContent = `${stats.totalRamGB} GB`;
-    statCpu.textContent = `${stats.cpuThreads} Threads`;
-    statGpu.textContent = stats.gpus[0] || 'Unknown GPU';
-    statRecommendation.textContent = `${recommendation.toUpperCase()} (Quantized)`;
+    if (statRam) statRam.textContent = `${stats.totalRamGB} GB`;
+    if (statCpu) statCpu.textContent = `${stats.cpuThreads} Threads`;
+    if (statGpu) statGpu.textContent = stats.gpus[0] || 'Unknown GPU';
+    if (statRecommendation) statRecommendation.textContent = `${recommendation.toUpperCase()} (Quantized)`;
     
     // Set active model to recommended if installed, else fallback to first installed model
-    const hasRecommended = installedModels.some(m => m.name.toLowerCase().includes(recommendation.toLowerCase()) || recommendation.toLowerCase().includes(m.name.toLowerCase()));
+    const hasRecommended = installedModelsList.some(m => m.name && (m.name.toLowerCase().includes(recommendation.toLowerCase()) || recommendation.toLowerCase().includes(m.name.toLowerCase())));
     if (hasRecommended) {
       activeModel = recommendation;
-    } else if (installedModels.length > 0) {
-      activeModel = installedModels[0].name;
+    } else if (installedModelsList.length > 0) {
+      activeModel = installedModelsList[0].name;
     } else {
-      activeModel = recommendation; // Fallback if none are installed
+      activeModel = 'gemini-2.0-flash'; // High-speed cloud fallback
     }
     
     logTrace(`Onboarding Profiler: Total RAM resolved as ${stats.totalRamGB} GB`, 'system');
     logTrace(`Onboarding Profiler: Suggesting local model footprint: ${recommendation}`, 'system');
-    logTrace(`Ollama binds returned ${installedModels.length} offline model weights.`, 'system');
+    logTrace(`Ollama binds returned ${installedModelsList.length} offline model weights.`, 'system');
     
     // Set settings data directory
     window.localStorage.setItem('ultron-data-dir', `C:\\Users\\${stats.cpuThreads > 0 ? 'vedan' : 'user'}\\AppData\\Roaming\\LocalAgent`);
     
-    // Populate dropdown
-    populateModelSelectors(installedModels, recommendation);
+    // Update model dropdown UI & Settings models UI
+    renderModelDropdownList();
+    renderSettingsModels();
     renderOllamaCatalog();
     
     activeSubgoals = [
@@ -1627,8 +1754,11 @@ async function runOnboardingProfiler() {
     ];
     renderChecklist(activeSubgoals);
   } else {
-    logTrace(`Hardware profiling failed: ${result.error}`, 'system');
+    logTrace(`Hardware profiling failed: ${result ? result.error : 'Unknown error'}`, 'system');
   }
+
+  // Smoothly reveal full app interface after hardware & model diagnostics complete
+  hideSkeletonLoader();
 }
 
 // Bind security settings selector
@@ -1669,8 +1799,18 @@ modelSelectorBtn.addEventListener('click', (e) => {
     modelDropdown.classList.add('hidden');
     modelSelectorWrapper.classList.remove('open');
   } else {
+    // Open instantly with cached model list
+    renderModelDropdownList();
     modelDropdown.classList.remove('hidden');
     modelSelectorWrapper.classList.add('open');
+
+    // Refresh Ollama models in background (non-blocking)
+    window.ultronAPI.profileSystem().then(res => {
+      if (res && Array.isArray(res.installedModels)) {
+        installedModelsList = res.installedModels;
+        renderModelDropdownList(); // silently re-render with fresh data
+      }
+    }).catch(() => {});
   }
 });
 
@@ -2187,8 +2327,10 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action') {
 
   // If intent is 'search', immediately do a web search first
   if (intent === 'search') {
-    renderMessageContent(aiBubble, getWebSearchCardHtml('Refining search query with AI...'));
+    renderMessageContent(aiBubble, getWebSearchCardHtml('Analyzing prompt & formulating search strategy...'));
     chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     const searchQuery = await buildWebSearchQuery(userPrompt);
 
@@ -2205,22 +2347,22 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action') {
       activeSubgoals[activeSubgoals.length - 1].completed = true;
       renderChecklist(activeSubgoals);
 
+      renderMessageContent(aiBubble, getWebSearchCardHtml('Analyzing live web results...'));
+      chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+
       if (shouldAskForSearchClarification(searchResult)) {
         finalResponse = searchResult.clarification || `I searched for "${searchQuery}", but the results were too thin to answer confidently. Can you add a brand, budget, location, or what kind of result you want?`;
       } else {
         const liveContext = searchContextForLLM(searchResult);
-        const summarySystemPrompt = `You are Ultron, an intelligent, helpful AI assistant in a direct 1-on-1 conversation.
-Use the provided live web information to answer clearly and accurately.
+        const summarySystemPrompt = `You are Ultron, an intelligent, helpful AI assistant in a direct 1-on-1 personal conversation with Vedant Wankhade.
+Answer the request directly using the live web information provided.
 
 CRITICAL INSTRUCTIONS:
-- Start with the answer itself. Do not describe what you are about to do.
-- Never say "the user", "the user's question", "to answer", "based on the search results", or similar meta narration.
-- Speak directly to the person chatting with you using "you" and "I".
-- Synthesize the sources instead of dumping snippets.
-- Only use facts present in the provided live information. If the live information is weak or incomplete, say what is missing and ask one concise follow-up question.
-- Do NOT include hyperlinks or raw URLs in your answer. Verified source links are shown separately below your answer.
-- Keep formatting clean with standard Markdown.
-- Silently interpret and auto-correct any grammatical errors, spelling typos, or speech transcription mistakes in the user prompt without mentioning them.`;
+- Give a clear, direct, structured answer (with specific product names, recommendations, prices, features, or facts).
+- Speak directly in the first person using "I" and "you".
+- DO NOT output meta-narration or prompt generator instructions (NEVER write "Based on the given user prompt", "Search Query Generator", "Here are keywords", "Live information:").
+- DO NOT include raw URLs inside the body text. Source buttons are displayed separately below your answer.
+- Format lists cleanly with Markdown bullet points and bold titles.`;
 
         const summaryPrompt = `Original request:
 ${userPrompt}
@@ -2231,10 +2373,10 @@ ${searchQuery}
 Live information:
 ${liveContext}
 
-Write the final answer now.`;
+Write the direct final answer now.`;
 
         let summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt);
-        if (!summary || summary.trim() === '' || summary.includes('offline model loop failed')) {
+        if (!summary || summary.trim() === '' || summary.includes('offline model loop failed') || summary.includes('Search Query Generator')) {
           summary = `I found ${searchResult.results.length} live result${searchResult.results.length === 1 ? '' : 's'} for "${searchQuery}". Open the sources below to inspect the original pages.`;
         }
 
@@ -2553,15 +2695,17 @@ function renderSettingsModels() {
     if (model.name.includes(activeModel)) {
       compatLabel = 'Recommended';
       compatClass = 'recommended';
-    } else if (model.size > 8 * 1024 * 1024 * 1024) { // Larger than 8GB
+    } else if (model.size && model.size > 8 * 1024 * 1024 * 1024) { // Larger than 8GB
       compatLabel = 'High Resource (Slow)';
       compatClass = 'incompatible';
     }
     
+    const sizeText = model.size ? `${(model.size / (1024 * 1024 * 1024)).toFixed(1)} GB` : 'Installed';
+
     item.innerHTML = `
       <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span><strong>${model.name}</strong> (${(model.size / (1024*1024*1024)).toFixed(1)} GB)</span>
+          <span><strong>${model.name}</strong> (${sizeText})</span>
           <span class="model-compat-badge ${compatClass}">${compatLabel}</span>
         </div>
         <button class="btn-delete-model btn-icon" data-model="${model.name}" style="background: transparent; border: none; padding: 4px 8px; cursor: pointer; color: #ef4444; font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 4px; transition: opacity 0.2s;" title="Delete this model">
@@ -2650,8 +2794,23 @@ function getAppIconSvg(appName) {
   }
 }
 
-// Populate Apps Settings Checklist list (includes brand SVGs next to names)
+// Persistent user authorized apps manager
+function getSavedAuthorizedAppsMap() {
+  const saved = localStorage.getItem('ultron-authorized-apps-map');
+  if (saved) {
+    try { return JSON.parse(saved); } catch (e) {}
+  }
+  return null; // Null indicates default (all checked)
+}
+
+function saveAuthorizedAppsMap(map) {
+  localStorage.setItem('ultron-authorized-apps-map', JSON.stringify(map));
+}
+
+// Populate Apps Settings Checklist list (includes brand SVGs next to names and persistent state)
 async function renderSettingsApps() {
+  if (!settingsAppsList) return;
+
   settingsAppsList.innerHTML = `
     <div style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 40px; color: var(--text-muted); font-size: 13px;">
       <svg class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20" style="color: #ffffff;">
@@ -2661,39 +2820,82 @@ async function renderSettingsApps() {
       <span>Scanning local applications...</span>
     </div>
   `;
-  const appsSearchInput = document.getElementById('apps-search');
-  if (appsSearchInput) appsSearchInput.value = '';
-  logTrace('Scanning host application shortcuts...', 'system');
   
+  logTrace('Scanning host application shortcuts...', 'system');
   const result = await window.ultronAPI.getInstalledApps();
   settingsAppsList.innerHTML = '';
   
   if (result.success && Array.isArray(result.apps) && result.apps.length > 0) {
-    result.apps.forEach(app => {
+    const savedMap = getSavedAuthorizedAppsMap();
+    const appsSearchInput = document.getElementById('apps-search');
+    const filterQuery = appsSearchInput ? appsSearchInput.value.toLowerCase().trim() : '';
+
+    const appsToRender = result.apps.filter(app => {
+      if (!filterQuery) return true;
+      return app.name.toLowerCase().includes(filterQuery);
+    });
+
+    if (appsToRender.length === 0) {
+      settingsAppsList.innerHTML = `<div class="text-xs text-muted p-4" style="text-align: center;">No matching applications found.</div>`;
+      return;
+    }
+
+    const currentMap = savedMap || {};
+
+    appsToRender.forEach(app => {
       const item = document.createElement('div');
       item.className = 'app-list-item';
       
-      const isSelected = ['Google Chrome', 'Visual Studio Code', 'Obsidian', 'Git Bash'].includes(app.name);
+      // If never explicitly toggled, default to true
+      const isSelected = currentMap[app.name] !== undefined ? currentMap[app.name] : true;
+      if (currentMap[app.name] === undefined) {
+        currentMap[app.name] = true;
+      }
       
       const iconMarkup = app.icon 
         ? `<img class="app-icon" src="${app.icon}" alt="${app.name}" style="width: 18px; height: 18px; object-fit: contain;">` 
         : getAppIconSvg(app.name);
       
+      const safeId = `chk-app-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}`;
+      
       item.innerHTML = `
-        <input type="checkbox" class="app-item-checkbox" id="chk-app-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}" ${isSelected ? 'checked' : ''}>
-        ${iconMarkup}
-        <label for="chk-app-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}">${escapeHtml(app.name)}</label>
+        <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
+          <input type="checkbox" class="app-item-checkbox" id="${safeId}" data-app-name="${escapeHtml(app.name)}" ${isSelected ? 'checked' : ''}>
+          ${iconMarkup}
+          <label for="${safeId}" style="cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(app.name)}</label>
+        </div>
+        <span class="app-status-badge ${isSelected ? 'badge-authorized' : 'badge-restricted'}" style="font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px;">
+          ${isSelected ? 'Authorized' : 'Restricted'}
+        </span>
       `;
 
       const chk = item.querySelector('.app-item-checkbox');
       if (chk) {
         chk.addEventListener('change', () => {
+          const appName = app.name;
+          const activeMap = getSavedAuthorizedAppsMap() || {};
+          result.apps.forEach(a => {
+            if (activeMap[a.name] === undefined) activeMap[a.name] = true;
+          });
+          activeMap[appName] = chk.checked;
+          saveAuthorizedAppsMap(activeMap);
+          
+          const badge = item.querySelector('.app-status-badge');
+          if (badge) {
+            badge.textContent = chk.checked ? 'Authorized' : 'Restricted';
+            badge.className = `app-status-badge ${chk.checked ? 'badge-authorized' : 'badge-restricted'}`;
+          }
+          
           updateMarkAllCheckboxState();
         });
       }
 
       settingsAppsList.appendChild(item);
     });
+
+    if (!savedMap) {
+      saveAuthorizedAppsMap(currentMap);
+    }
 
     updateMarkAllCheckboxState();
   } else {
@@ -2708,6 +2910,53 @@ function updateMarkAllCheckboxState() {
   if (allBoxes.length === 0) return;
   const checkedCount = Array.from(allBoxes).filter(b => b.checked).length;
   chkMarkAllApps.checked = checkedCount === allBoxes.length;
+}
+
+// Bind live apps search filter and Mark All checkbox events
+const appsSearchInput = document.getElementById('apps-search');
+if (appsSearchInput) {
+  appsSearchInput.addEventListener('input', () => {
+    const query = appsSearchInput.value.toLowerCase().trim();
+    if (!settingsAppsList) return;
+    const items = settingsAppsList.querySelectorAll('.app-list-item');
+    items.forEach(item => {
+      const label = item.querySelector('label');
+      if (label) {
+        const text = label.textContent.toLowerCase();
+        if (text.includes(query)) {
+          item.style.display = 'flex';
+        } else {
+          item.style.display = 'none';
+        }
+      }
+    });
+  });
+}
+
+const chkMarkAllApps = document.getElementById('chk-mark-all-apps');
+if (chkMarkAllApps) {
+  chkMarkAllApps.addEventListener('change', () => {
+    if (!settingsAppsList) return;
+    const allBoxes = settingsAppsList.querySelectorAll('.app-item-checkbox');
+    const newStatus = chkMarkAllApps.checked;
+    const activeMap = getSavedAuthorizedAppsMap() || {};
+    
+    allBoxes.forEach(chk => {
+      chk.checked = newStatus;
+      const appName = chk.getAttribute('data-app-name');
+      if (appName) activeMap[appName] = newStatus;
+      const item = chk.closest('.app-list-item');
+      if (item) {
+        const badge = item.querySelector('.app-status-badge');
+        if (badge) {
+          badge.textContent = newStatus ? 'Authorized' : 'Restricted';
+          badge.className = `app-status-badge ${newStatus ? 'badge-authorized' : 'badge-restricted'}`;
+        }
+      }
+    });
+    
+    saveAuthorizedAppsMap(activeMap);
+  });
 }
 
 // Bind Settings Tab Switch Actions
@@ -2728,7 +2977,10 @@ settingsTabs.forEach(tab => {
     
     // Tab-specific loads
     if (targetTab === 'models') {
-      refreshOllamaStatus();
+      if (!hasCheckedOllamaOnBoot) {
+        refreshOllamaStatus();
+        hasCheckedOllamaOnBoot = true;
+      }
     } else if (targetTab === 'apps') {
       renderSettingsApps();
     } else if (targetTab === 'storage') {
@@ -2751,6 +3003,101 @@ settingsTabs.forEach(tab => {
     }
   });
 });
+
+let hasCheckedOllamaOnBoot = false;
+
+// Bind Google Gemini API Key Input and Save/Edit Button
+const inputGeminiKey = document.getElementById('input-gemini-api-key');
+const btnSaveGeminiKey = document.getElementById('btn-save-gemini-key');
+const feedbackGeminiKey = document.getElementById('gemini-key-feedback');
+
+let isEditingGeminiKey = false;
+
+async function initPersistentGeminiKey() {
+  let key = localStorage.getItem('ultron-gemini-api-key') || '';
+  if (!key && window.ultronAPI && window.ultronAPI.loadGeminiKey) {
+    try {
+      key = await window.ultronAPI.loadGeminiKey();
+      if (key) {
+        localStorage.setItem('ultron-gemini-api-key', key);
+      }
+    } catch (e) {}
+  }
+  updateGeminiKeyUi();
+}
+
+function updateGeminiKeyUi() {
+  if (!inputGeminiKey || !btnSaveGeminiKey) return;
+  const savedKey = localStorage.getItem('ultron-gemini-api-key') || '';
+
+  if (savedKey && !isEditingGeminiKey) {
+    inputGeminiKey.disabled = true;
+    inputGeminiKey.value = savedKey;
+    inputGeminiKey.style.opacity = '0.75';
+    inputGeminiKey.style.cursor = 'not-allowed';
+    btnSaveGeminiKey.textContent = 'Edit Key';
+    btnSaveGeminiKey.style.backgroundColor = 'rgba(255, 255, 255, 0.12)';
+    btnSaveGeminiKey.style.color = '#ffffff';
+    btnSaveGeminiKey.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+  } else {
+    inputGeminiKey.disabled = false;
+    inputGeminiKey.style.opacity = '1';
+    inputGeminiKey.style.cursor = 'text';
+    btnSaveGeminiKey.textContent = 'Save Key';
+    btnSaveGeminiKey.style.backgroundColor = '#ffffff';
+    btnSaveGeminiKey.style.color = '#000000';
+    btnSaveGeminiKey.style.border = 'none';
+  }
+}
+
+// Initial UI check on script load
+initPersistentGeminiKey();
+
+if (btnSaveGeminiKey) {
+  btnSaveGeminiKey.addEventListener('click', () => {
+    const savedKey = localStorage.getItem('ultron-gemini-api-key') || '';
+
+    // If key is saved and user clicks "Edit Key", switch to edit mode
+    if (savedKey && !isEditingGeminiKey) {
+      isEditingGeminiKey = true;
+      updateGeminiKeyUi();
+      if (inputGeminiKey) {
+        inputGeminiKey.focus();
+        inputGeminiKey.select();
+      }
+      return;
+    }
+
+    // Otherwise, perform Save operation
+    const val = inputGeminiKey ? inputGeminiKey.value.trim() : '';
+    if (val) {
+      localStorage.setItem('ultron-gemini-api-key', val);
+      if (window.ultronAPI && window.ultronAPI.saveGeminiKey) {
+        window.ultronAPI.saveGeminiKey(val).catch(() => {});
+      }
+      isEditingGeminiKey = false;
+      updateGeminiKeyUi();
+      if (feedbackGeminiKey) {
+        feedbackGeminiKey.textContent = '✓ Gemini API key saved successfully!';
+        feedbackGeminiKey.classList.remove('hidden');
+        setTimeout(() => feedbackGeminiKey.classList.add('hidden'), 3000);
+      }
+      logTrace('Google Gemini API key updated in user settings.', 'local');
+    } else {
+      localStorage.removeItem('ultron-gemini-api-key');
+      if (window.ultronAPI && window.ultronAPI.saveGeminiKey) {
+        window.ultronAPI.saveGeminiKey('').catch(() => {});
+      }
+      isEditingGeminiKey = false;
+      updateGeminiKeyUi();
+      if (feedbackGeminiKey) {
+        feedbackGeminiKey.textContent = 'Key cleared.';
+        feedbackGeminiKey.classList.remove('hidden');
+        setTimeout(() => feedbackGeminiKey.classList.add('hidden'), 3000);
+      }
+    }
+  });
+}
 
 // Bind refresh button click
 const btnRefreshOllama = document.getElementById('btn-refresh-ollama');
@@ -3043,57 +3390,6 @@ if (inputDownloadModel) {
   });
 }
 
-// Bind Apps search query input
-const appsSearchInput = document.getElementById('apps-search');
-if (appsSearchInput) {
-  appsSearchInput.addEventListener('input', () => {
-    const query = appsSearchInput.value.toLowerCase().trim();
-    settingsAppsList.querySelectorAll('.app-list-item').forEach(item => {
-      const label = item.querySelector('label');
-      if (label) {
-        const text = label.textContent.toLowerCase();
-        if (text.includes(query)) {
-          item.style.display = 'flex';
-        } else {
-          item.style.display = 'none';
-        }
-      }
-    });
-  });
-}
-
-// Bind Mark All Apps checkbox
-const chkMarkAllApps = document.getElementById('chk-mark-all-apps');
-const btnMarkAllLabel = document.getElementById('btn-mark-all-apps-label');
-
-function toggleAllAppsSelection(targetState) {
-  if (!settingsAppsList) return;
-  const appCheckboxes = settingsAppsList.querySelectorAll('.app-item-checkbox');
-  appCheckboxes.forEach(chk => {
-    chk.checked = targetState;
-  });
-  if (chkMarkAllApps) chkMarkAllApps.checked = targetState;
-}
-
-if (chkMarkAllApps) {
-  chkMarkAllApps.addEventListener('change', (e) => {
-    e.stopPropagation();
-    toggleAllAppsSelection(chkMarkAllApps.checked);
-  });
-}
-
-if (btnMarkAllLabel) {
-  btnMarkAllLabel.addEventListener('click', (e) => {
-    if (e.target !== chkMarkAllApps) {
-      e.preventDefault();
-      if (chkMarkAllApps) {
-        chkMarkAllApps.checked = !chkMarkAllApps.checked;
-        toggleAllAppsSelection(chkMarkAllApps.checked);
-      }
-    }
-  });
-}
-
 // Bind clicks & enter key to send
 btnSend.addEventListener('click', (e) => {
   e.preventDefault();
@@ -3327,13 +3623,18 @@ function renderAttachmentPreviews() {
 // ==========================================
 // VOICE CAPSULE PILL & SPEECH-TO-TEXT CONTROLLER
 // ==========================================
+// VOICE RECORDING & SPEECH-TO-TEXT ENGINE
+// ==========================================
 let isRecordingVoice = false;
 let mediaStream = null;
 let audioContext = null;
 let analyserNode = null;
 let animFrameId = null;
 let speechRecognition = null;
+let mediaRecorder = null;
+let recordedAudioChunks = [];
 let accumulatedTranscript = '';
+let initialInputValue = '';
 let voiceTimerInterval = null;
 let voiceStartTime = 0;
 let _prevHeights = [];
@@ -3392,12 +3693,32 @@ function updateVoiceTimer() {
 
 async function startVoiceRecording() {
   try {
+    const apiKey = localStorage.getItem('ultron-gemini-api-key') || '';
+    if (!apiKey) {
+      alert('Speech-to-Text requires a Gemini API Key. Please save your API key in Settings > Models first.');
+      return;
+    }
+
     accumulatedTranscript = '';
+    initialInputValue = chatInput ? chatInput.value : '';
+    recordedAudioChunks = [];
     isRecordingVoice = true;
 
-    // Hide main prompt pill, show voice capsule pill
-    if (mainInputPill) mainInputPill.classList.add('hidden');
-    if (voiceRecordingPill) voiceRecordingPill.classList.remove('hidden');
+    // Smooth animated transition from main prompt pill to voice capsule pill
+    if (mainInputPill) {
+      mainInputPill.classList.add('fading-out');
+      setTimeout(() => {
+        mainInputPill.classList.add('hidden');
+        mainInputPill.classList.remove('fading-out');
+        if (voiceRecordingPill) {
+          voiceRecordingPill.classList.remove('hidden');
+          voiceRecordingPill.classList.add('fading-out');
+          requestAnimationFrame(() => {
+            voiceRecordingPill.classList.remove('fading-out');
+          });
+        }
+      }, 120);
+    }
 
     // Reset and start timer
     voiceStartTime = Date.now();
@@ -3408,13 +3729,32 @@ async function startVoiceRecording() {
     // Initialize microphone audio stream
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
     analyserNode = audioContext.createAnalyser();
-    analyserNode.fftSize = 128;
+    analyserNode.fftSize = 256;
+    analyserNode.smoothingTimeConstant = 0.7;
+    
     const source = audioContext.createMediaStreamSource(mediaStream);
     source.connect(analyserNode);
 
-    // Draw animated audio level waveform
+    // Start animated audio level waveform synced to pitch & intensity
     drawWaveform();
+
+    // MediaRecorder Audio Data Capture for 100% reliable Multimodal Transcribe
+    try {
+      mediaRecorder = new MediaRecorder(mediaStream);
+      recordedAudioChunks = [];
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedAudioChunks.push(e.data);
+        }
+      };
+      mediaRecorder.start(100);
+    } catch (mErr) {
+      console.warn('MediaRecorder init notice:', mErr);
+    }
 
     // Web Speech API
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -3430,13 +3770,20 @@ async function startVoiceRecording() {
           currentTranscript += event.results[i][0].transcript;
         }
         accumulatedTranscript = currentTranscript;
+
+        // Live transcribe into prompt input in real time
+        if (chatInput && isRecordingVoice) {
+          const prefix = initialInputValue ? initialInputValue.trim() + ' ' : '';
+          chatInput.value = prefix + accumulatedTranscript;
+          chatInput.style.height = 'auto';
+          chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
+        }
       };
 
       speechRecognition.onerror = (err) => {
         console.warn('Speech recognition notice:', err.error);
       };
 
-      // Restart automatically if interrupted while user is still recording
       speechRecognition.onend = () => {
         if (isRecordingVoice && speechRecognition) {
           try { speechRecognition.start(); } catch (e) {}
@@ -3447,12 +3794,12 @@ async function startVoiceRecording() {
     }
   } catch (err) {
     console.error('Microphone access error:', err);
-    alert('Unable to access microphone. Please check system recording permissions.');
+    alert('Unable to access microphone. Please check Windows system recording permissions.');
     stopVoiceRecording(false);
   }
 }
 
-function stopVoiceRecording(saveTranscript = true) {
+async function stopVoiceRecording(saveTranscript = true) {
   isRecordingVoice = false;
 
   if (voiceTimerInterval) {
@@ -3462,6 +3809,31 @@ function stopVoiceRecording(saveTranscript = true) {
   if (animFrameId) {
     cancelAnimationFrame(animFrameId);
     animFrameId = null;
+  }
+
+  // Show clean white spinner on done checkmark button while processing
+  if (saveTranscript && voiceBtnDone) {
+    voiceBtnDone.innerHTML = `
+      <svg class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+      </svg>
+    `;
+    voiceBtnDone.style.pointerEvents = 'none';
+    if (voiceBtnCancel) voiceBtnCancel.style.pointerEvents = 'none';
+  }
+
+  // Stop MediaRecorder and grab audio blob
+  let finalAudioBlob = null;
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    await new Promise((resolve) => {
+      mediaRecorder.onstop = () => {
+        if (recordedAudioChunks.length > 0) {
+          finalAudioBlob = new Blob(recordedAudioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+        }
+        resolve();
+      };
+      try { mediaRecorder.stop(); } catch (e) { resolve(); }
+    });
   }
 
   if (mediaStream) {
@@ -3480,25 +3852,116 @@ function stopVoiceRecording(saveTranscript = true) {
     speechRecognition = null;
   }
 
-  // Restore UI state
-  if (voiceRecordingPill) voiceRecordingPill.classList.add('hidden');
-  if (mainInputPill) mainInputPill.classList.remove('hidden');
-
   if (saveTranscript) {
-    const textToInsert = (accumulatedTranscript || '').trim();
+    let textToInsert = (accumulatedTranscript || '').trim();
+    
+    // If Web Speech API didn't populate transcript, convert recorded WebM audio blob to text via Gemini Multimodal Audio API
+    if (!textToInsert && finalAudioBlob && finalAudioBlob.size > 0) {
+      const apiKey = localStorage.getItem('ultron-gemini-api-key') || '';
+      if (apiKey) {
+        try {
+          const base64Audio = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(finalAudioBlob);
+          });
+
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey.trim()}`;
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: 'Transcribe the following spoken voice audio recording into plain text verbatim. Return ONLY the spoken words with zero quotes, headers, or commentary.' },
+                  { inlineData: { mimeType: finalAudioBlob.type || 'audio/webm', data: base64Audio } }
+                ]
+              }]
+            })
+          });
+
+          if (res.ok) {
+            const jsonRes = await res.json();
+            const transcribed = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+            if (transcribed) {
+              textToInsert = transcribed;
+            }
+          } else {
+            const errJson = await res.json().catch(() => ({}));
+            console.warn('Gemini Audio Transcribe error:', errJson);
+          }
+        } catch (tErr) {
+          console.warn('Audio transcribe error:', tErr);
+        }
+      }
+    }
+
+    // Restore original checkmark icon
+    if (voiceBtnDone) {
+      voiceBtnDone.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      `;
+      voiceBtnDone.style.pointerEvents = '';
+    }
+    if (voiceBtnCancel) voiceBtnCancel.style.pointerEvents = '';
+
+    // Smooth animated transition back to main prompt pill once transcription is ready
+    if (voiceRecordingPill) {
+      voiceRecordingPill.classList.add('fading-out');
+      setTimeout(() => {
+        voiceRecordingPill.classList.add('hidden');
+        voiceRecordingPill.classList.remove('fading-out');
+        if (mainInputPill) {
+          mainInputPill.classList.remove('hidden');
+          mainInputPill.classList.add('fading-out');
+          requestAnimationFrame(() => {
+            mainInputPill.classList.remove('fading-out');
+          });
+        }
+      }, 120);
+    }
+
     if (chatInput) {
+      const prefix = initialInputValue ? initialInputValue.trim() + ' ' : '';
       if (textToInsert) {
-        const currentVal = chatInput.value ? chatInput.value.trim() : '';
-        chatInput.value = currentVal ? `${currentVal} ${textToInsert}` : textToInsert;
+        chatInput.value = prefix + textToInsert;
+      } else {
+        chatInput.value = initialInputValue;
       }
       chatInput.focus();
-      // Auto expand input height for user review/editing
+      chatInput.style.height = 'auto';
+      chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
+    }
+  } else {
+    // Revert to initial input if canceled
+    if (voiceRecordingPill) {
+      voiceRecordingPill.classList.add('fading-out');
+      setTimeout(() => {
+        voiceRecordingPill.classList.add('hidden');
+        voiceRecordingPill.classList.remove('fading-out');
+        if (mainInputPill) {
+          mainInputPill.classList.remove('hidden');
+          mainInputPill.classList.add('fading-out');
+          requestAnimationFrame(() => {
+            mainInputPill.classList.remove('fading-out');
+          });
+        }
+      }, 120);
+    }
+
+    if (chatInput) {
+      chatInput.value = initialInputValue;
       chatInput.style.height = 'auto';
       chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
     }
   }
 
   accumulatedTranscript = '';
+  initialInputValue = '';
+  recordedAudioChunks = [];
 }
 
 function drawWaveform() {
@@ -3506,25 +3969,42 @@ function drawWaveform() {
 
   const canvas = voiceWaveformCanvas;
   const canvasCtx = canvas.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  const width = rect.width || canvas.width;
-  const height = rect.height || canvas.height;
-
-  if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-  }
-  canvasCtx.scale(dpr, dpr);
 
   const bufferLength = analyserNode.frequencyBinCount;
-  const dataArray = new Uint8Array(bufferLength);
+  const freqArray = new Uint8Array(bufferLength);
+  const timeArray = new Uint8Array(analyserNode.fftSize);
 
   function renderFrame() {
     if (!isRecordingVoice) return;
     animFrameId = requestAnimationFrame(renderFrame);
 
-    analyserNode.getByteFrequencyData(dataArray);
+    if (audioContext && audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const width = rect.width || canvas.width || 500;
+    const height = rect.height || canvas.height || 32;
+
+    if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+    }
+    
+    canvasCtx.save();
+    canvasCtx.scale(dpr, dpr);
+
+    analyserNode.getByteFrequencyData(freqArray);
+    analyserNode.getByteTimeDomainData(timeArray);
+
+    // Calculate real-time Volume Intensity (RMS)
+    let sum = 0;
+    for (let k = 0; k < timeArray.length; k++) {
+      const v = (timeArray[k] - 128) / 128;
+      sum += v * v;
+    }
+    const rmsVolume = Math.sqrt(sum / timeArray.length); // 0.0 (silent) to ~1.0 (loud)
 
     canvasCtx.clearRect(0, 0, width, height);
 
@@ -3539,15 +4019,29 @@ function drawWaveform() {
 
     for (let i = 0; i < totalPills; i++) {
       const dataIdx = Math.floor((i / totalPills) * bufferLength);
-      const rawAmp = (dataArray[dataIdx] || 0) / 255;
+      const freqAmp = (freqArray[dataIdx] || 0) / 255;
       
-      const targetHeight = Math.max(3, rawAmp * (height - 6) + 3);
-      _prevHeights[i] += (targetHeight - _prevHeights[i]) * 0.25;
+      // Multiplier for voice pitch & sound volume intensity
+      const voiceFactor = Math.max(freqAmp * 1.8, rmsVolume * 3.2);
+      
+      let targetHeight = 3;
+      if (voiceFactor >= 0.01) {
+        targetHeight = Math.min(height - 4, Math.max(3, voiceFactor * (height - 4)));
+      }
+
+      // Smooth lerp transition for fluid 60fps movement
+      _prevHeights[i] += (targetHeight - _prevHeights[i]) * 0.4;
       const pillHeight = _prevHeights[i];
       const y = (height - pillHeight) / 2;
 
-      const opacity = rawAmp > 0.05 ? 0.45 + rawAmp * 0.55 : 0.25;
-      canvasCtx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
+      // Voice reactive dynamic glow color
+      if (voiceFactor >= 0.02) {
+        const glowOpacity = Math.min(1.0, 0.45 + voiceFactor * 0.55);
+        const blueVal = Math.floor(210 + Math.min(45, voiceFactor * 45));
+        canvasCtx.fillStyle = `rgba(96, 165, ${blueVal}, ${glowOpacity})`;
+      } else {
+        canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+      }
 
       canvasCtx.beginPath();
       if (canvasCtx.roundRect) {
@@ -3559,48 +4053,49 @@ function drawWaveform() {
 
       x += pillWidth + pillGap;
     }
+    
+    canvasCtx.restore();
   }
 
   renderFrame();
 }
 
-// Guarantee hide of skeleton loader so app NEVER freezes
+// Guarantee smooth fade-out of skeleton loader so app NEVER freezes or shows white screen
 function hideSkeletonLoader() {
   const skeletonOverlay = document.getElementById('app-skeleton-overlay');
-  if (skeletonOverlay) {
+  if (skeletonOverlay && !skeletonOverlay.classList.contains('hidden')) {
     skeletonOverlay.classList.add('hidden');
-    skeletonOverlay.style.display = 'none';
-    skeletonOverlay.style.pointerEvents = 'none';
+    setTimeout(() => {
+      skeletonOverlay.style.display = 'none';
+      skeletonOverlay.style.pointerEvents = 'none';
+    }, 450);
   }
 }
 
-// Immediate non-blocking boot sequence
+// Immediate boot sequence: Keep skeleton loader visible while background diagnostics run
 async function bootSystem() {
   loadAccountDetails();
   updateWelcomeGreeting();
   setSendingState(false);
-  hideSkeletonLoader();
 
-  // Background non-blocking conversation reload
+  // Background conversation reload
   reloadConversationsFromDisk().catch(err => {
-    console.error('Non-blocking conversation reload error:', err);
+    console.error('Conversation reload error:', err);
   });
 
-  // Non-blocking background health check
+  // Background health check & profiler — calls hideSkeletonLoader() when finished
   checkOllamaStartup().then(() => {
-    runOnboardingProfiler();
+    return runOnboardingProfiler();
   }).catch((err) => {
-    console.error('Background Ollama startup check error:', err);
+    console.error('Ollama startup check error:', err);
+    hideSkeletonLoader();
   });
+
+  // Safety fallback: reveal UI after max 3s even if diagnostics delay
+  setTimeout(hideSkeletonLoader, 3000);
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', hideSkeletonLoader);
-} else {
-  hideSkeletonLoader();
-}
 bootSystem();
-setTimeout(hideSkeletonLoader, 100);
 syncSecurityMode();
 
 // Bind left sidebar toggle directly to element
@@ -4080,3 +4575,79 @@ document.body.addEventListener('click', (e) => {
     window.ultronAPI.openExternal(link.href);
   }
 });
+
+// Dynamic prompt input typewriter placeholder animation
+const DYNAMIC_PLACEHOLDERS = [
+  "Ask Ultron to execute local tasks or create files...",
+  "Create an HTML site using Antigravity for me...",
+  "Search the web for latest research and news...",
+  "Write a Python script to automate file organization...",
+  "Analyze computer hardware, CPU, GPU, and memory...",
+  "Run terminal commands, install packages, and debug code..."
+];
+
+let typewriterPhraseIndex = 0;
+let typewriterCharIndex = 0;
+let isDeletingPlaceholder = false;
+let typewriterTimeoutId = null;
+
+function startTypewriterPlaceholder() {
+  if (!chatInput) return;
+
+  function typeStep() {
+    // If user has focused the input or entered text, wait
+    if (chatInput.value || document.activeElement === chatInput) {
+      typewriterTimeoutId = setTimeout(typeStep, 500);
+      return;
+    }
+
+    const currentPhrase = DYNAMIC_PLACEHOLDERS[typewriterPhraseIndex];
+
+    if (!isDeletingPlaceholder) {
+      // Typing phase
+      typewriterCharIndex++;
+      chatInput.setAttribute('placeholder', currentPhrase.substring(0, typewriterCharIndex));
+
+      if (typewriterCharIndex === currentPhrase.length) {
+        // Pause at end of full phrase
+        isDeletingPlaceholder = true;
+        typewriterTimeoutId = setTimeout(typeStep, 2200);
+        return;
+      }
+      typewriterTimeoutId = setTimeout(typeStep, 45); // Natural typing speed
+    } else {
+      // Deleting phase
+      typewriterCharIndex--;
+      chatInput.setAttribute('placeholder', currentPhrase.substring(0, typewriterCharIndex));
+
+      if (typewriterCharIndex === 0) {
+        // Switch to next phrase
+        isDeletingPlaceholder = false;
+        typewriterPhraseIndex = (typewriterPhraseIndex + 1) % DYNAMIC_PLACEHOLDERS.length;
+        typewriterTimeoutId = setTimeout(typeStep, 400); // Pause before next phrase
+        return;
+      }
+      typewriterTimeoutId = setTimeout(typeStep, 22); // Fast backspacing speed
+    }
+  }
+
+  // Bind focus and blur events to pause and resume seamlessly
+  chatInput.addEventListener('focus', () => {
+    if (typewriterTimeoutId) clearTimeout(typewriterTimeoutId);
+    chatInput.setAttribute('placeholder', 'Ask Ultron to execute local tasks...');
+  });
+
+  chatInput.addEventListener('blur', () => {
+    if (!chatInput.value) {
+      typewriterCharIndex = 0;
+      isDeletingPlaceholder = false;
+      if (typewriterTimeoutId) clearTimeout(typewriterTimeoutId);
+      typeStep();
+    }
+  });
+
+  typeStep();
+}
+
+// Start dynamic typewriter placeholder on load
+startTypewriterPlaceholder();

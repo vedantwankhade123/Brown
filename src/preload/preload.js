@@ -41,6 +41,8 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   getDefaultDataDir: () => ipcRenderer.invoke('get-default-data-dir'),
   saveConversations: (dataStr) => ipcRenderer.invoke('save-conversations', dataStr),
   loadConversations: () => ipcRenderer.invoke('load-conversations'),
+  saveGeminiKey: (key) => ipcRenderer.invoke('save-gemini-key', key),
+  loadGeminiKey: () => ipcRenderer.invoke('load-gemini-key'),
   deleteModel: (modelName) => ipcRenderer.invoke('delete-model', modelName),
   searchWeb: (query) => ipcRenderer.invoke('search-web', query),
   onDownloadProgress: (callback) => {

@@ -5,7 +5,57 @@
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
+    "build:win": "electron-builder --win nsis",
+    "build:portable": "electron-builder --win portable",
+    "dist": "electron-builder --win",
     "test": "node tests/run.js"
+  },
+  "build": {
+    "appId": "com.ultron.desktop",
+    "productName": "Ultron AI",
+    "copyright": "Copyright © 2026 Vedant Wankhade",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "Assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "Assets/ultron-logo.ico",
+      "certificateFile": null,
+      "cscLink": null
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Ultron AI",
+      "uninstallDisplayName": "Ultron AI",
+      "installerIcon": "Assets/ultron-logo.ico",
+      "uninstallerIcon": "Assets/ultron-logo.ico",
+      "installerHeaderIcon": "Assets/ultron-logo.ico",
+      "runAfterFinish": true,
+      "include": "build/installer.nsh"
+    }
   },
   "dependencies": {
     "marked": "^18.0.6",
@@ -13,7 +63,8 @@
     "ws": "^8.21.1"
   },
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
   },
   "private": true
 }

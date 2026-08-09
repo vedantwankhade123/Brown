@@ -86,13 +86,34 @@ async function profileHardware() {
 async function queryLocalOllamaModels() {
   try {
     const response = await fetch('http://127.0.0.1:11434/api/tags');
-    if (!response.ok) {
-      throw new Error(`Ollama responded with status: ${response.status}`);
+    if (response.ok) {
+      const data = await response.json();
+      if (data && Array.isArray(data.models) && data.models.length > 0) {
+        return data.models;
+      }
     }
-    const data = await response.json();
-    return data.models || [];
-  } catch (err) {
-    // Return empty list if local Ollama loopback is offline or uninstalled
+  } catch (err) {}
+
+  // Fallback CLI query for installed models
+  try {
+    const { exec: cpExec } = require('child_process');
+    const stdout = await new Promise((resolve) => {
+      cpExec('ollama list', { windowsHide: true }, (err, stdout) => {
+        if (err) resolve('');
+        else resolve(stdout || '');
+      });
+    });
+
+    const lines = (stdout || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const models = [];
+    for (const line of lines.slice(1)) {
+      const parts = line.split(/\s+/);
+      if (parts.length >= 1 && parts[0] && !parts[0].toLowerCase().startsWith('name')) {
+        models.push({ name: parts[0] });
+      }
+    }
+    return models;
+  } catch (e) {
     return [];
   }
 }
