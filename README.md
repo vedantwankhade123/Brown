@@ -15,10 +15,27 @@ Download pre-built ready-to-run Windows binaries directly from the official webs
 
 🌐 **Official Website**: [ultron-brown-mu.vercel.app](https://ultron-brown-mu.vercel.app/)
 
-| Build Type | File Name | Description |
-| :--- | :--- | :--- |
-| **Installer** | [`Ultron AI Setup 1.0.0.exe`](https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%20Setup%201.0.0.exe) | Windows installer with shortcuts |
-| **Portable** | [`Ultron AI 1.0.0.exe`](https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%201.0.0.exe) | Standalone executable (no install) |
+<table width="100%">
+  <thead>
+    <tr>
+      <th align="left" width="20%">Build Type</th>
+      <th align="left" width="35%">File Name</th>
+      <th align="left" width="45%">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>Installer</b></td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%20Setup%201.0.0.exe"><code>Ultron AI Setup 1.0.0.exe</code></a></td>
+      <td>Standard Windows setup installer wizard with Start Menu and Desktop shortcuts.</td>
+    </tr>
+    <tr>
+      <td><b>Portable</b></td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%201.0.0.exe"><code>Ultron AI 1.0.0.exe</code></a></td>
+      <td>Standalone executable file. Runs immediately on Windows without installation.</td>
+    </tr>
+  </tbody>
+</table>
 
 > 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.0).
 
