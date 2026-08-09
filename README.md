@@ -12,10 +12,10 @@ Ultron is a premium, high-fidelity offline AI desktop assistant built specifical
 
 Download pre-built ready-to-run Windows binaries directly from the latest release:
 
-| Build Type | File Name | Download Link | Description |
-| :--- | :--- | :--- | :--- |
-| **Installer** | `Ultron AI Setup 1.0.0.exe` | [📥 Download Setup Wizard](https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%20Setup%201.0.0.exe) | Standard Windows installer with start menu & desktop shortcuts. |
-| **Portable** | `Ultron AI 1.0.0.exe` | [📥 Download Portable EXE](https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%201.0.0.exe) | Standalone executable. Run immediately without installation. |
+| Build Type | File Name | Description |
+| :--- | :--- | :--- |
+| **Installer** | [`Ultron AI Setup 1.0.0.exe`](https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%20Setup%201.0.0.exe) | Windows installer with shortcuts |
+| **Portable** | [`Ultron AI 1.0.0.exe`](https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%201.0.0.exe) | Standalone executable (no install) |
 
 > 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.0).
 
