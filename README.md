@@ -1,6 +1,25 @@
 # Ultron: An Autonomous AI Agent for Operating Systems
 
+[![Release](https://img.shields.io/github/v/release/vedantwankhade123/Ultron?color=blue&label=Latest%20Release)](https://github.com/vedantwankhade123/Ultron/releases/latest)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D4?logo=windows)](https://github.com/vedantwankhade123/Ultron/releases)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 Ultron is a premium, high-fidelity offline AI desktop assistant built specifically for Windows. Utilizing local LLMs powered by Ollama, Ultron serves as an autonomous interface agent capable of scanning configurations, executing system commands inside controlled sandbox parameters, and performing natural language operations—all while keeping your data entirely local and private.
+
+---
+
+## 💾 Downloads & Executables
+
+Download pre-built ready-to-run Windows binaries directly from the latest release:
+
+| Build Type | File Name | Download Link | Description |
+| :--- | :--- | :--- | :--- |
+| **Installer** | `Ultron AI Setup 1.0.0.exe` | [📥 Download Setup Wizard](https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%20Setup%201.0.0.exe) | Standard Windows installer with start menu & desktop shortcuts. |
+| **Portable** | `Ultron AI 1.0.0.exe` | [📥 Download Portable EXE](https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%201.0.0.exe) | Standalone executable. Run immediately without installation. |
+
+> 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.0).
+
+---
 
 ## Key Features
 
@@ -24,7 +43,9 @@ Built on a secure **Electron + CommonJS Preload Sandbox** runtime:
 - **OS:** Windows 10/11 (Local PowerShell & WinGet enabled).
 - **Inference Runtime:** [Ollama](https://ollama.com/) (Automatically installable inside settings connectors).
 
-## Installation
+## Building from Source
+
+If you prefer building from source rather than downloading the pre-compiled `.exe` binaries:
 
 1. Clone the repository:
    ```bash
@@ -37,11 +58,14 @@ Built on a secure **Electron + CommonJS Preload Sandbox** runtime:
    npm install
    ```
 
-3. Launch the desktop application:
+3. Build Windows Executables:
+   ```bash
+   npm run build:win
+   ```
+   *The built installer and portable binaries will be generated inside the `dist/` folder.*
+
+4. Launch the desktop application locally:
    ```bash
    npm start
    ```
 
-## Development & Logs
-Detailed developmental sprint metrics, mitigations, and files created/modified can be tracked in the progress journal:
-- [RESEARCH_PROGRESS.md](file:///d:/Ultron/RESEARCH_PROGRESS.md)
