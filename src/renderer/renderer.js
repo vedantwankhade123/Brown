@@ -1551,27 +1551,33 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       
       logTrace(`Sending chat payload to local LLM with ${chatMessages.length - 1} messages...`, 'system');
       
+      const maxTokens = intent === 'conversation' ? 512 : 2048;
+      const ctxTokens = intent === 'conversation' ? 2048 : 4096;
+
       bodyData = {
         model: activeModel,
         messages: chatMessages,
         stream: false,
         options: {
-          num_ctx: 8192,      // Expanded context length
-          num_predict: 4096,   // Full code generation length limit
+          num_ctx: ctxTokens,
+          num_predict: maxTokens,
           temperature: activeTemp
         }
       };
       endpoint = '/api/chat';
     } else {
       // Memory disabled: single prompt mode
+      const maxTokens = intent === 'conversation' ? 512 : 2048;
+      const ctxTokens = intent === 'conversation' ? 2048 : 4096;
+
       bodyData = {
         model: activeModel,
         prompt: finalUserPrompt,
         system: systemPrompt,
         stream: false,
         options: {
-          num_ctx: 8192,
-          num_predict: 4096,
+          num_ctx: ctxTokens,
+          num_predict: maxTokens,
           temperature: activeTemp
         }
       };
@@ -1586,8 +1592,8 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       const data = await response.json();
       let text = endpoint === '/api/chat' ? data.message.content : data.response;
       
-      // Filter out model disclaimer responses that deny computer access capabilities
-      if (text && (text.includes("I do not have access") || text.includes("As an AI language model") || text.includes("unable to access your operating system") || text.includes("don't have access") || text.includes("I cannot access") || text.includes("I'm unable to"))) {
+      // Filter out model disclaimer responses that deny computer access capabilities during tool action execution ONLY
+      if (intent !== 'conversation' && text && (text.includes("I do not have access") || text.includes("unable to access your operating system") || text.includes("I cannot access"))) {
         logTrace("Model output disclaimer detected and suppressed.", "system");
         return ""; // Return empty string so Fallback Intent Steerer takes over
       }
@@ -2157,8 +2163,8 @@ async function submitPrompt() {
         
         // Pure conversational response — query local AI model dynamically on the spot
         let response = await queryOfflineLLM(prompt, [], 'conversation');
-        if (!response || response.trim() === '' || response.includes('REAL-TIME CONTEXT')) {
-          response = `Hello ${userName}! How can I assist you today?`;
+        if (!response || !response.trim()) {
+          response = `I am Ultron, your local AI assistant on Windows! How can I help you today?`;
         }
         response = response.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
         await typeMessageResponse(aiBubble, response);
