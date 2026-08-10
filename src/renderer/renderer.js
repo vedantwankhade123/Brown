@@ -4662,64 +4662,117 @@ function setupAutoUpdaterUI() {
   const subtitle = document.getElementById('update-status-subtitle');
   const progressLabel = document.getElementById('update-progress-label');
 
-  if (!btnCheck || !window.ultronAPI || !window.ultronAPI.onUpdateStatus) return;
+  // Top-left Chat Header update buttons
+  const topBtnCheck = document.getElementById('top-btn-check-update');
+  const topBtnDownload = document.getElementById('top-btn-download-update');
+  const topBtnRestart = document.getElementById('top-btn-restart-install');
+  const topDownloadText = document.getElementById('top-download-text');
 
-  btnCheck.addEventListener('click', async () => {
-    title.textContent = 'Checking for updates...';
-    btnCheck.disabled = true;
-    btnCheck.style.opacity = '0.6';
+  if (!window.ultronAPI || !window.ultronAPI.onUpdateStatus) return;
+
+  const handleCheckForUpdates = async () => {
+    if (title) title.textContent = 'Checking for updates...';
+    if (topBtnCheck) {
+      topBtnCheck.disabled = true;
+      topBtnCheck.style.opacity = '0.6';
+      topBtnCheck.querySelector('span').textContent = 'Checking...';
+    }
+    if (btnCheck) {
+      btnCheck.disabled = true;
+      btnCheck.style.opacity = '0.6';
+    }
+
     const res = await window.ultronAPI.checkForUpdates();
     if (res && res.status === 'dev-mode') {
-      title.textContent = 'Dev Mode Active';
-      subtitle.textContent = 'Auto-updates check remote GitHub Releases in production builds.';
+      if (title) title.textContent = 'Dev Mode Active';
+      if (subtitle) subtitle.textContent = 'Auto-updates check remote GitHub Releases in production builds.';
+      if (topBtnCheck) {
+        topBtnCheck.disabled = false;
+        topBtnCheck.style.opacity = '1';
+        topBtnCheck.querySelector('span').textContent = 'Dev Mode Active';
+        setTimeout(() => {
+          if (topBtnCheck) topBtnCheck.querySelector('span').textContent = 'Check for Updates';
+        }, 3000);
+      }
+      if (btnCheck) {
+        btnCheck.disabled = false;
+        btnCheck.style.opacity = '1';
+      }
+    }
+  };
+
+  const handleDownloadUpdate = async () => {
+    if (btnDownload) btnDownload.style.display = 'none';
+    if (topBtnDownload) topBtnDownload.classList.add('hidden');
+    if (progressLabel) progressLabel.textContent = 'Starting download...';
+    if (topDownloadText) topDownloadText.textContent = 'Starting download...';
+    await window.ultronAPI.downloadUpdate();
+  };
+
+  const handleRestartAndInstall = () => {
+    window.ultronAPI.restartAndInstall();
+  };
+
+  if (btnCheck) btnCheck.addEventListener('click', handleCheckForUpdates);
+  if (topBtnCheck) topBtnCheck.addEventListener('click', handleCheckForUpdates);
+  if (btnDownload) btnDownload.addEventListener('click', handleDownloadUpdate);
+  if (topBtnDownload) topBtnDownload.addEventListener('click', handleDownloadUpdate);
+  if (btnRestart) btnRestart.addEventListener('click', handleRestartAndInstall);
+  if (topBtnRestart) topBtnRestart.addEventListener('click', handleRestartAndInstall);
+
+  window.ultronAPI.onUpdateStatus((data) => {
+    if (btnCheck) {
       btnCheck.disabled = false;
       btnCheck.style.opacity = '1';
     }
-  });
-
-  if (btnDownload) {
-    btnDownload.addEventListener('click', async () => {
-      btnDownload.style.display = 'none';
-      if (progressLabel) progressLabel.textContent = 'Starting download...';
-      await window.ultronAPI.downloadUpdate();
-    });
-  }
-
-  if (btnRestart) {
-    btnRestart.addEventListener('click', () => {
-      window.ultronAPI.restartAndInstall();
-    });
-  }
-
-  window.ultronAPI.onUpdateStatus((data) => {
-    btnCheck.disabled = false;
-    btnCheck.style.opacity = '1';
+    if (topBtnCheck) {
+      topBtnCheck.disabled = false;
+      topBtnCheck.style.opacity = '1';
+      topBtnCheck.querySelector('span').textContent = 'Check for Updates';
+    }
 
     if (data.status === 'checking') {
-      title.textContent = 'Checking GitHub Releases...';
+      if (title) title.textContent = 'Checking GitHub Releases...';
+      if (topBtnCheck) topBtnCheck.querySelector('span').textContent = 'Checking...';
     } else if (data.status === 'available') {
-      title.textContent = `New Update Available: v${data.version}!`;
-      subtitle.textContent = `Release notes: ${data.releaseNotes || 'Bug fixes and performance improvements.'}`;
+      if (title) title.textContent = `New Update Available: v${data.version}!`;
+      if (subtitle) subtitle.textContent = `Release notes: ${data.releaseNotes || 'Bug fixes and performance improvements.'}`;
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'inline-flex';
+
+      // Top-left header button
+      if (topBtnDownload) {
+        topBtnDownload.classList.remove('hidden');
+        if (topDownloadText) topDownloadText.textContent = `Download v${data.version}`;
+      }
     } else if (data.status === 'not-available') {
-      title.textContent = 'Ultron is up to date';
-      subtitle.textContent = `Current Version: v${data.version}`;
+      if (title) title.textContent = 'Ultron is up to date';
+      if (subtitle) subtitle.textContent = `Current Version: v${data.version}`;
       if (actionContainer) actionContainer.style.display = 'none';
+      if (topBtnDownload) topBtnDownload.classList.add('hidden');
+      if (topBtnRestart) topBtnRestart.classList.add('hidden');
     } else if (data.status === 'downloading') {
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';
       if (progressLabel) progressLabel.textContent = `Downloading... ${data.percent}%`;
+
+      if (topBtnDownload) {
+        topBtnDownload.classList.remove('hidden');
+        if (topDownloadText) topDownloadText.textContent = `Downloading... ${data.percent}%`;
+      }
     } else if (data.status === 'downloaded') {
-      title.textContent = `Update v${data.version} Ready!`;
-      subtitle.textContent = 'Click restart to install the latest version.';
+      if (title) title.textContent = `Update v${data.version} Ready!`;
+      if (subtitle) subtitle.textContent = 'Click restart to install the latest version.';
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';
       if (btnRestart) btnRestart.style.display = 'inline-flex';
       if (progressLabel) progressLabel.textContent = 'Download Complete 100%';
+
+      if (topBtnDownload) topBtnDownload.classList.add('hidden');
+      if (topBtnRestart) topBtnRestart.classList.remove('hidden');
     } else if (data.status === 'error') {
-      title.textContent = 'Update Check Error';
-      subtitle.textContent = data.error || 'Failed to check for updates.';
+      if (title) title.textContent = 'Update Check Error';
+      if (subtitle) subtitle.textContent = data.error || 'Failed to check for updates.';
     }
   });
 }
