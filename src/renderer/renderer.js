@@ -1470,7 +1470,9 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
       ? `\n\nSELF-LEARNING MEMORY (your past task outcomes for reference):\n${_learnedTaskMemory.slice(-5).map((m, i) => `${i + 1}. ${m}`).join('\n')}`
       : '';
 
-    const systemPrompt = customSystemPromptOverride || `You are Ultron, a warm, highly intelligent, articulate, and engaging AI assistant in a direct 1-on-1 personal conversation with ${userName} (just like Gemini and ChatGPT).
+    const systemPrompt = customSystemPromptOverride || (intent === 'conversation'
+      ? `You are Ultron, a warm, intelligent, articulate AI assistant created to help ${userName}. Respond directly to ${userName}'s prompt naturally, concisely, and conversationally in the first person.`
+      : `You are Ultron, a warm, highly intelligent, articulate, and engaging AI assistant in a direct 1-on-1 personal conversation with ${userName}.
 
 CONVERSATIONAL PERSONA & DIRECT VOICE RULES:
 1. ALWAYS speak directly to ${userName} in the first person ("I", "me", "my") addressing ${userName} as "you".
@@ -1478,19 +1480,15 @@ CONVERSATIONAL PERSONA & DIRECT VOICE RULES:
    - NEVER speak in the third person.
    - NEVER refer to yourself as "the AI", "the AI agent", "the assistant", or "this AI".
    - NEVER refer to ${userName} as "the user" or "the user's prompt".
-   - NEVER output meta-narrative preambles or lists of hypothetical scenarios.
-3. DIRECT FULFILLMENT:
-   - Perform the requested conversational task directly with genuine humor, wit, warmth, and intelligence.
 
 REAL-TIME CONTEXT:
 - Local Date & Time: ${realtime.dateLabel}, ${realtime.timeLabel} (${realtime.timeZone})
 - Location Context: ${realtime.locationLabel}${realtime.countryCode ? ` (${realtime.countryCode})` : ''}
-- Target Answer Style: ${isShortQuery ? 'Crisp & Concise (2-3 sentences max)' : 'Structured & Comprehensive'}
 
 ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
 - Operating System: Windows ${sysEnv.osVersion || '10/11'} (${sysEnv.arch || 'x64'})
 - Home Directory: ${sysEnv.homeDir || 'C:\\Users\\vedan'}
-- Available Drives: ${drivesDesc}` : ''}${memorySnippet}`;
+- Available Drives: ${drivesDesc}` : ''}${memorySnippet}`);
 
     let finalUserPrompt = prompt;
     if (/\b(table|tabular|difference between|vs|comparison)\b/i.test(prompt) && !/\b(html\s+code|css\s+code|write\s+code)\b/i.test(prompt)) {
@@ -2164,7 +2162,12 @@ async function submitPrompt() {
         // Pure conversational response — query local AI model dynamically on the spot
         let response = await queryOfflineLLM(prompt, [], 'conversation');
         if (!response || !response.trim()) {
-          response = `I am Ultron, your local AI assistant on Windows! How can I help you today?`;
+          const isGemini = activeModel && activeModel.startsWith('gemini');
+          if (isGemini) {
+            response = `⚠️ **Google Gemini Connection Error**\n\nCould not receive a response from **${activeModel}**.\n\nPlease check your internet connection or verify your API key in **Settings > Models**.`;
+          } else {
+            response = `⚠️ **Local Ollama Model Connection Error**\n\nCould not connect to model **${activeModel || 'ollama'}** on ` + '`http://127.0.0.1:11434`' + `.\n\n**To Fix:**\n1. Make sure Ollama is running (` + '`ollama serve`' + `).\n2. Pull your model (` + '`ollama pull ' + (activeModel || 'tinyllama') + '`' + `).\n3. Or select Google Gemini from the top dropdown.`;
+          }
         }
         response = response.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
         await typeMessageResponse(aiBubble, response);
