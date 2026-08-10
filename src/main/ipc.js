@@ -1,11 +1,13 @@
-const { ipcMain, exec, app, shell, dialog } = require('electron');
+const { ipcMain, exec, app, shell, dialog, clipboard, desktopCapturer, screen } = require('electron');
 const { exec: cpExec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 
 const { verifyAndResolvePath, isPathBlacklisted, isCommandBlacklisted } = require('./security');
 const { profileHardware, queryLocalOllamaModels, getModelRecommendation } = require('./hardware');
 const { launchWindowsSandbox } = require('./sandbox');
+const { findInstalledAppSmart } = require('./app-matching');
 
 // Active security mode state
 let activeSecurityMode = 'Adaptive'; // Default to Adaptive Auto Mode for smooth computer task execution
@@ -151,6 +153,340 @@ function setMainWindow(win) {
   mainWindow = win;
 }
 
+function runPowerShellScript(script) {
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  return runCommandWithTimeout(`powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`);
+}
+
+function escapePowerShellSingleQuoted(value) {
+  return String(value || '').replace(/'/g, "''");
+}
+
+function discoverInstalledApps() {
+  const startMenuPath = 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs';
+  const userStartMenuPath = path.join(
+    process.env.APPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Roaming'),
+    'Microsoft\\Windows\\Start Menu\\Programs'
+  );
+
+  const defaultApps = [
+    { name: 'Google Chrome', path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
+    { name: 'Microsoft Edge', path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' },
+    { name: 'Visual Studio Code', path: path.join(process.env.USERPROFILE, 'AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe') },
+    { name: 'Obsidian', path: path.join(process.env.USERPROFILE, 'AppData\\Local\\Obsidian\\Obsidian.exe') },
+    { name: 'Git Bash', path: 'C:\\Program Files\\Git\\git-bash.exe' },
+    { name: 'Notepad', path: 'C:\\Windows\\System32\\notepad.exe' },
+    { name: 'Notepad++', path: 'C:\\Program Files\\Notepad++\\notepad++.exe' },
+    { name: 'Command Prompt', path: 'C:\\Windows\\System32\\cmd.exe' },
+    { name: 'PowerShell', path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    { name: 'Python', path: 'C:\\Windows\\py.exe' }
+  ];
+
+  const scanDir = (dir) => {
+    if (!fs.existsSync(dir)) return [];
+    let list = [];
+    try {
+      const items = fs.readdirSync(dir);
+      for (const item of items) {
+        const fullPath = path.join(dir, item);
+        try {
+          const stat = fs.statSync(fullPath);
+          if (stat.isDirectory()) {
+            const subItems = fs.readdirSync(fullPath);
+            for (const sub of subItems) {
+              if (sub.toLowerCase().endsWith('.lnk')) {
+                list.push({ name: sub.replace(/\.lnk$/i, ''), path: path.join(fullPath, sub) });
+              }
+            }
+          } else if (item.toLowerCase().endsWith('.lnk')) {
+            list.push({ name: item.replace(/\.lnk$/i, ''), path: fullPath });
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    return list;
+  };
+
+  const seen = new Set();
+  const mergedApps = [];
+  for (const appItem of [...defaultApps, ...scanDir(startMenuPath), ...scanDir(userStartMenuPath)]) {
+    const lowerName = appItem.name.toLowerCase();
+    if (seen.has(lowerName)) continue;
+    if (['startup', 'maintenance', 'system tools', 'administrative tools', 'desktop', 'documents', 'downloads', 'uninstall'].some(k => lowerName.includes(k))) continue;
+    if (appItem.path && fs.existsSync(appItem.path)) {
+      seen.add(lowerName);
+      mergedApps.push(appItem);
+    }
+  }
+
+  return mergedApps.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function findInstalledApp(appName) {
+  const result = findInstalledAppSmart(appName, discoverInstalledApps);
+  return result.match || null;
+}
+
+function findInstalledAppResult(appName) {
+  return findInstalledAppSmart(appName, discoverInstalledApps);
+}
+
+async function getInstalledAppIcon(appItem) {
+  if (!appItem || !appItem.path) return '';
+  try {
+    let targetPath = appItem.path;
+    if (targetPath.toLowerCase().endsWith('.lnk')) {
+      try {
+        const shortcut = shell.readShortcutLink(targetPath);
+        if (shortcut && shortcut.target && fs.existsSync(shortcut.target)) {
+          targetPath = shortcut.target;
+        }
+      } catch (e) {}
+    }
+    if (fs.existsSync(targetPath)) {
+      const nativeImg = await app.getFileIcon(targetPath, { size: 'normal' });
+      if (nativeImg && !nativeImg.isEmpty()) return nativeImg.toDataURL();
+    }
+    if (fs.existsSync(appItem.path)) {
+      const shortcutImg = await app.getFileIcon(appItem.path, { size: 'normal' });
+      if (shortcutImg && !shortcutImg.isEmpty()) return shortcutImg.toDataURL();
+    }
+  } catch (e) {}
+  return '';
+}
+
+async function runMouseScript(bodyLines) {
+  const script = [
+    'Add-Type @"',
+    'using System;',
+    'using System.Runtime.InteropServices;',
+    'public class WinMouse {',
+    '  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);',
+    '  [DllImport("user32.dll")] public static extern void mouse_event(int dwFlags, int dx, int dy, int cButtons, int dwExtraInfo);',
+    '  public const int LEFTDOWN = 0x02;',
+    '  public const int LEFTUP = 0x04;',
+    '  public const int WHEEL = 0x0800;',
+    '  public static void Click(int x, int y) { SetCursorPos(x, y); mouse_event(LEFTDOWN, 0, 0, 0, 0); mouse_event(LEFTUP, 0, 0, 0, 0); }',
+    '  public static void DoubleClick(int x, int y) { SetCursorPos(x, y); mouse_event(LEFTDOWN, 0, 0, 0, 0); mouse_event(LEFTUP, 0, 0, 0, 0); mouse_event(LEFTDOWN, 0, 0, 0, 0); mouse_event(LEFTUP, 0, 0, 0, 0); }',
+    '  public static void Scroll(int delta) { mouse_event(WHEEL, 0, 0, delta, 0); }',
+    '}',
+    '"@',
+    ...bodyLines
+  ].join('\n');
+  await runPowerShellScript(script);
+}
+
+function sendKeys(keys) {
+  const safeKeys = escapePowerShellSingleQuoted(keys);
+  return runPowerShellScript(`Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${safeKeys}')`);
+}
+
+async function pasteTextIntoApp(appName) {
+  const lookup = findInstalledAppResult(appName);
+  const match = lookup.match;
+  let processName = '';
+  if (match && match.path) {
+    let executablePath = match.path;
+    if (executablePath.toLowerCase().endsWith('.lnk')) {
+      try {
+        const shortcut = shell.readShortcutLink(executablePath);
+        if (shortcut && shortcut.target) executablePath = shortcut.target;
+      } catch (e) {}
+    }
+    processName = path.basename(executablePath, path.extname(executablePath));
+  }
+
+  const safeAppName = escapePowerShellSingleQuoted(match ? match.name : appName);
+  const safeProcessName = escapePowerShellSingleQuoted(processName);
+  const script = `
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class UltronFocus {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}
+"@
+$ws = New-Object -ComObject WScript.Shell
+$target = $null
+if ('${safeProcessName}') {
+  $target = Get-Process -Name '${safeProcessName}' -ErrorAction SilentlyContinue |
+    Where-Object { $_.MainWindowHandle -ne 0 } |
+    Sort-Object StartTime -Descending |
+    Select-Object -First 1
+}
+if ($target) {
+  $activated = $ws.AppActivate($target.Id)
+  [UltronFocus]::SetForegroundWindow($target.MainWindowHandle) | Out-Null
+} else {
+  $activated = $ws.AppActivate('${safeAppName}')
+}
+if (-not $activated) { throw 'Could not focus ${safeAppName} before typing.' }
+Start-Sleep -Milliseconds 350
+if ($target) {
+  [uint32]$foregroundPid = 0
+  [UltronFocus]::GetWindowThreadProcessId([UltronFocus]::GetForegroundWindow(), [ref]$foregroundPid) | Out-Null
+  if ($foregroundPid -ne $target.Id) { throw 'Focus verification failed for ${safeAppName}.' }
+}
+[System.Windows.Forms.SendKeys]::SendWait('^v')
+Start-Sleep -Milliseconds 250
+Write-Output 'PASTE_VERIFIED'
+`;
+  const result = await runPowerShellScript(script);
+  return {
+    appName: match ? match.name : appName,
+    verified: String(result.stdout || '').includes('PASTE_VERIFIED')
+  };
+}
+
+const SENSITIVE_CAPTURE_RE = /password|sign.?in|login|bank|paypal|stripe|auth|2fa|otp|credential|bitwarden|lastpass|1password/i;
+
+function isSensitiveCaptureLabel(label, neverCaptureApps = []) {
+  const normalized = String(label || '').toLowerCase();
+  if (SENSITIVE_CAPTURE_RE.test(normalized)) return true;
+  return (Array.isArray(neverCaptureApps) ? neverCaptureApps : [])
+    .some(appName => appName && normalized.includes(String(appName).trim().toLowerCase()));
+}
+
+async function captureDesktopImage(options = {}) {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const scaleFactor = primaryDisplay.scaleFactor || 1;
+  const { width, height } = primaryDisplay.size;
+  const maxWidth = Math.min(Math.round(width * scaleFactor), 1920);
+  const maxHeight = Math.min(Math.round(height * scaleFactor), 1080);
+
+  const sources = await desktopCapturer.getSources({
+    types: ['screen'],
+    thumbnailSize: { width: maxWidth, height: maxHeight }
+  });
+
+  if (!sources || sources.length === 0) {
+    return { success: false, error: 'No screen sources available.' };
+  }
+
+  const displayId = String(primaryDisplay.id);
+  const source = sources.find(item => item.display_id === displayId) || sources[0];
+  if (!source || !source.thumbnail || source.thumbnail.isEmpty()) {
+    return { success: false, error: 'Screen capture returned an empty image.' };
+  }
+
+  const size = source.thumbnail.getSize();
+  const pngBuffer = source.thumbnail.toPNG();
+  return {
+    success: true,
+    mimeType: 'image/png',
+    data: pngBuffer.toString('base64'),
+    width: size.width,
+    height: size.height,
+    sourceName: source.name || 'Primary Display',
+    capturedAt: new Date().toISOString(),
+    label: options.label || 'desktop'
+  };
+}
+
+async function recognizeTextFromPng(pngBuffer) {
+  const tempPath = path.join(app.getPath('temp'), `ultron-ocr-${Date.now()}-${Math.random().toString(16).slice(2)}.png`);
+  fs.writeFileSync(tempPath, pngBuffer);
+  const safePath = escapePowerShellSingleQuoted(tempPath);
+  const script = `
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
+$null = [Windows.Storage.FileAccessMode, Windows.Storage, ContentType = WindowsRuntime]
+$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType = WindowsRuntime]
+$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
+
+function Await-WinRT($operation, $resultType) {
+  $method = [System.WindowsRuntimeSystemExtensions].GetMethods() |
+    Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 } |
+    Select-Object -First 1
+  $task = $method.MakeGenericMethod($resultType).Invoke($null, @($operation))
+  $task.Wait()
+  return $task.Result
+}
+
+$file = Await-WinRT ([Windows.Storage.StorageFile]::GetFileFromPathAsync('${safePath}')) ([Windows.Storage.StorageFile])
+$stream = Await-WinRT ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+$decoder = Await-WinRT ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$bitmap = Await-WinRT ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+if ($null -eq $engine) { throw 'Windows OCR is unavailable for the current language profile.' }
+$result = Await-WinRT ($engine.RecognizeAsync($bitmap)) ([Windows.Media.Ocr.OcrResult])
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Write-Output $result.Text
+$stream.Dispose()
+$bitmap.Dispose()
+`;
+  try {
+    const result = await runPowerShellScript(script);
+    return String(result.stdout || '').trim();
+  } finally {
+    try { fs.unlinkSync(tempPath); } catch (e) {}
+  }
+}
+
+async function captureWindowImage(windowTitle = '') {
+  const query = String(windowTitle || '').trim().toLowerCase();
+  const sources = await desktopCapturer.getSources({
+    types: ['window'],
+    thumbnailSize: { width: 1280, height: 720 }
+  });
+
+  if (!sources || sources.length === 0) {
+    return { success: false, error: 'No window sources available.' };
+  }
+
+  let source = sources[0];
+  if (query) {
+    source = sources.find(item => item.name && item.name.toLowerCase().includes(query)) || source;
+  }
+
+  if (!source.thumbnail || source.thumbnail.isEmpty()) {
+    return { success: false, error: 'Window capture returned an empty image.' };
+  }
+
+  const size = source.thumbnail.getSize();
+  const pngBuffer = source.thumbnail.toPNG();
+  return {
+    success: true,
+    mimeType: 'image/png',
+    data: pngBuffer.toString('base64'),
+    width: size.width,
+    height: size.height,
+    sourceName: source.name || 'Window',
+    capturedAt: new Date().toISOString(),
+    label: query || 'window'
+  };
+}
+
+function hotkeyToSendKeys(keys) {
+  const parts = String(keys || '').toLowerCase().split(/[+\s]+/).filter(Boolean);
+  const key = parts.pop() || '';
+  const modifiers = parts.map(part => {
+    if (part === 'ctrl' || part === 'control') return '^';
+    if (part === 'alt') return '%';
+    if (part === 'shift') return '+';
+    return '';
+  }).join('');
+  const named = {
+    enter: '{ENTER}',
+    tab: '{TAB}',
+    escape: '{ESC}',
+    esc: '{ESC}',
+    backspace: '{BACKSPACE}',
+    delete: '{DELETE}',
+    del: '{DELETE}',
+    space: ' ',
+    up: '{UP}',
+    down: '{DOWN}',
+    left: '{LEFT}',
+    right: '{RIGHT}'
+  };
+  const normalizedKey = named[key] || (key.length === 1 ? key : `{${key.toUpperCase()}}`);
+  return `${modifiers}${normalizedKey}`;
+}
+
 /**
  * Helper to execute terminal commands with an AbortController timeout.
  * Capped at 300 seconds to prevent resource exhaustion.
@@ -234,6 +570,21 @@ function setupIpcHandlers() {
       region: {},
       geoLocation: null
     };
+
+    try {
+      const hardware = await profileHardware();
+      info.hardware = hardware;
+      info.gpus = hardware.gpus || [];
+      info.gpuDetails = hardware.gpuDetails || [];
+      info.hasDedicatedGpu = Boolean(hardware.hasDedicatedGpu);
+      info.dedicatedGpu = hardware.dedicatedGpu || null;
+    } catch (e) {
+      info.hardware = null;
+      info.gpus = [];
+      info.gpuDetails = [];
+      info.hasDedicatedGpu = false;
+      info.dedicatedGpu = null;
+    }
 
     try {
       const regionRaw = await new Promise((resolve, reject) => {
@@ -448,6 +799,197 @@ function setupIpcHandlers() {
       return { success: true, apps: results };
     } catch (err) {
       return { success: false, error: err.message, apps: [] };
+    }
+  });
+
+  // Resolve installed app with fuzzy matching + suggestions
+  ipcMain.handle('resolve-app-name', async (event, appName) => {
+    try {
+      const result = findInstalledAppResult(appName);
+      const icon = result.match ? await getInstalledAppIcon(result.match) : '';
+      return {
+        success: true,
+        match: result.match ? { name: result.match.name, icon } : null,
+        suggestions: result.suggestions || [],
+        ambiguous: Boolean(result.ambiguous),
+        alias: result.alias || null,
+        query: result.query || ''
+      };
+    } catch (err) {
+      return { success: false, error: err.message, suggestions: [] };
+    }
+  });
+
+  // Capture desktop or window screenshot for agent screen understanding
+  ipcMain.handle('capture-screen', async (event, payload = {}) => {
+    try {
+      const mode = String(payload.mode || payload.target || 'screen').toLowerCase();
+      const windowLabel = payload.windowTitle || payload.appName || '';
+      if (isSensitiveCaptureLabel(windowLabel, payload.neverCaptureApps)) {
+        return { success: false, error: 'Screen capture blocked for sensitive window (login/banking/auth).' };
+      }
+      if (mode === 'window' && (payload.windowTitle || payload.appName)) {
+        return await captureWindowImage(payload.windowTitle || payload.appName);
+      }
+      return await captureDesktopImage({ label: payload.label || 'desktop' });
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Windows OCR fallback lets text-only models inspect visible screen text.
+  ipcMain.handle('ocr-screen', async (event, payload = {}) => {
+    try {
+      const windowLabel = payload.windowTitle || payload.appName || '';
+      if (isSensitiveCaptureLabel(windowLabel, payload.neverCaptureApps)) {
+        return { success: false, error: 'OCR blocked for sensitive window (login/banking/auth).' };
+      }
+      const shot = payload.mode === 'window' && windowLabel
+        ? await captureWindowImage(windowLabel)
+        : await captureDesktopImage({ label: payload.label || 'ocr' });
+      if (!shot.success || !shot.data) return shot;
+      const text = await recognizeTextFromPng(Buffer.from(shot.data, 'base64'));
+      return {
+        success: true,
+        text,
+        width: shot.width,
+        height: shot.height,
+        sourceName: shot.sourceName,
+        thumbnailDataUrl: `data:${shot.mimeType || 'image/png'};base64,${shot.data}`
+      };
+    } catch (err) {
+      return { success: false, error: `Windows OCR failed: ${err.message}` };
+    }
+  });
+
+  // Desktop app control entry point for the agent loop
+  ipcMain.handle('app-action', async (event, payload = {}) => {
+    try {
+      const action = String(payload.action || '').toUpperCase();
+
+      if (action === 'LIST_APPS') {
+        return {
+          success: true,
+          apps: discoverInstalledApps().map(item => ({ name: item.name }))
+        };
+      }
+
+      if (action === 'OPEN_APP') {
+        const lookup = findInstalledAppResult(payload.appName || payload.target);
+        const match = lookup.match;
+        if (!match) {
+          const suggestionText = lookup.suggestions && lookup.suggestions.length
+            ? ` Did you mean: ${lookup.suggestions.join(', ')}?`
+            : '';
+          return {
+            success: false,
+            error: `App not found: ${payload.appName || payload.target || 'unknown'}.${suggestionText}`,
+            suggestions: lookup.suggestions || [],
+            ambiguous: lookup.ambiguous
+          };
+        }
+        const icon = await getInstalledAppIcon(match);
+        const launchError = await shell.openPath(match.path);
+        if (launchError) return { success: false, error: launchError };
+        return { success: true, message: `Opened ${match.name}`, app: match.name, resolvedApp: match.name, appIcon: icon };
+      }
+
+      if (action === 'FOCUS_APP') {
+        const lookup = findInstalledAppResult(payload.appName || payload.target);
+        const appName = lookup.match ? lookup.match.name : (payload.appName || payload.target);
+        if (!appName) return { success: false, error: 'No app name provided.' };
+        await runPowerShellScript(`$ws = New-Object -ComObject WScript.Shell; $ok = $ws.AppActivate('${escapePowerShellSingleQuoted(appName)}'); if (-not $ok) { exit 2 }`);
+        const icon = lookup.match ? await getInstalledAppIcon(lookup.match) : '';
+        return { success: true, message: `Focused ${appName}`, app: appName, resolvedApp: appName, appIcon: icon };
+      }
+
+      if (action === 'OPEN_URL') {
+        const url = String(payload.url || payload.target || '').trim();
+        if (!/^https?:\/\//i.test(url)) return { success: false, error: 'Invalid URL. Only http/https URLs are supported.' };
+        await shell.openExternal(url);
+        return { success: true, message: `Opened ${url}` };
+      }
+
+      if (action === 'OPEN_FILE') {
+        const targetPath = String(payload.path || payload.target || '').trim();
+        if (!targetPath) return { success: false, error: 'No file path provided.' };
+        const resolvedPath = path.resolve(targetPath);
+        if (isPathBlacklisted(resolvedPath)) {
+          return { success: false, error: `Access Denied: Path "${resolvedPath}" is restricted by safety policy.` };
+        }
+        if (!fs.existsSync(resolvedPath)) {
+          return { success: false, error: `File not found: ${resolvedPath}` };
+        }
+        const openError = await shell.openPath(resolvedPath);
+        if (openError) return { success: false, error: openError };
+        return { success: true, message: `Opened ${resolvedPath}` };
+      }
+
+      if (action === 'TYPE_TEXT') {
+        const text = String(payload.text || payload.target || '');
+        if (!text) return { success: false, error: 'No text provided.' };
+        if (text.length > 10000) return { success: false, error: 'Text is too long for direct app typing.' };
+        clipboard.writeText(text);
+        const targetApp = String(payload.appName || '').trim();
+        if (!targetApp) {
+          return { success: false, error: 'Cannot type safely because the target app is unknown.' };
+        }
+        const pasteResult = await pasteTextIntoApp(targetApp);
+        if (!pasteResult.verified) {
+          return { success: false, error: `Could not verify text entry in ${pasteResult.appName}.` };
+        }
+        return {
+          success: true,
+          message: `Pasted ${text.length} characters into ${pasteResult.appName} after verifying focus.`,
+          app: pasteResult.appName,
+          resolvedApp: pasteResult.appName,
+          verified: true
+        };
+      }
+
+      if (action === 'HOTKEY') {
+        const keys = String(payload.keys || payload.target || '').trim();
+        if (!keys) return { success: false, error: 'No hotkey provided.' };
+        await sendKeys(hotkeyToSendKeys(keys));
+        return { success: true, message: `Sent hotkey ${keys}` };
+      }
+
+      if (action === 'WAIT') {
+        const ms = Math.max(100, Math.min(Number(payload.ms || payload.target || 1000), 10000));
+        await new Promise(resolve => setTimeout(resolve, ms));
+        return { success: true, message: `Waited ${ms}ms` };
+      }
+
+      if (action === 'CLICK') {
+        const x = Math.round(Number(payload.x));
+        const y = Math.round(Number(payload.y));
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return { success: false, error: 'CLICK requires numeric x and y coordinates.' };
+        }
+        await runMouseScript([`[WinMouse]::Click(${x}, ${y})`]);
+        return { success: true, message: `Clicked at (${x}, ${y})` };
+      }
+
+      if (action === 'DOUBLE_CLICK') {
+        const x = Math.round(Number(payload.x));
+        const y = Math.round(Number(payload.y));
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return { success: false, error: 'DOUBLE_CLICK requires numeric x and y coordinates.' };
+        }
+        await runMouseScript([`[WinMouse]::DoubleClick(${x}, ${y})`]);
+        return { success: true, message: `Double-clicked at (${x}, ${y})` };
+      }
+
+      if (action === 'SCROLL') {
+        const delta = Math.round(Number(payload.delta || payload.amount || 120));
+        const clamped = Math.max(-1200, Math.min(1200, delta));
+        await runMouseScript([`[WinMouse]::Scroll(${clamped})`]);
+        return { success: true, message: `Scrolled ${clamped > 0 ? 'down' : 'up'} (${Math.abs(clamped)})` };
+      }
+
+      return { success: false, error: `Unsupported app action: ${action || 'none'}` };
+    } catch (err) {
+      return { success: false, error: err.message };
     }
   });
 
@@ -673,6 +1215,21 @@ function setupIpcHandlers() {
     return result;
   });
 
+  ipcMain.handle('select-sound-file', async () => {
+    if (!mainWindow) return { canceled: true };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose agent sound',
+      properties: ['openFile'],
+      filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'aac'] }]
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    return {
+      canceled: false,
+      path: result.filePaths[0],
+      fileUrl: pathToFileURL(result.filePaths[0]).href
+    };
+  });
+
 function getInstallationDefaultDataDir() {
   if (app.isPackaged) {
     const installDir = path.dirname(app.getPath('exe'));
@@ -879,8 +1436,76 @@ function getInstallationDefaultDataDir() {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
+      let undo = null;
+      const hadFile = fs.existsSync(resolvedPath);
+      if (hadFile) {
+        const previousContent = fs.readFileSync(resolvedPath, 'utf8');
+        undo = { type: 'restore_file', path: resolvedPath, previousContent };
+      } else {
+        undo = { type: 'delete_file', path: resolvedPath };
+      }
       fs.writeFileSync(resolvedPath, content, 'utf8');
-      return { success: true, filePath: resolvedPath };
+      const writtenContent = fs.readFileSync(resolvedPath, 'utf8');
+      if (writtenContent !== String(content)) {
+        throw new Error(`Write verification failed for ${resolvedPath}`);
+      }
+      return {
+        success: true,
+        filePath: resolvedPath,
+        verified: true,
+        evidence: `${resolvedPath} exists and its contents match.`,
+        undo
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('restore-file-backup', async (event, payload = {}) => {
+    try {
+      const resolvedPath = path.resolve(payload.path || payload.filePath);
+      if (isPathBlacklisted(resolvedPath)) {
+        return { success: false, error: `Access Denied: Path "${resolvedPath}" is restricted.` };
+      }
+      if (payload.type === 'delete_file') {
+        if (fs.existsSync(resolvedPath)) fs.unlinkSync(resolvedPath);
+        return { success: true, message: `Removed ${resolvedPath}` };
+      }
+      const dir = path.dirname(resolvedPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(resolvedPath, payload.previousContent ?? '', 'utf8');
+      return { success: true, message: `Restored ${resolvedPath}` };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('get-live-metrics', async () => {
+    try {
+      const os = require('os');
+      const totalMem = os.totalmem();
+      const freeMem = os.freemem();
+      const usedPct = totalMem > 0 ? Math.round(((totalMem - freeMem) / totalMem) * 100) : 0;
+      let cpuLoad = null;
+      try {
+        const raw = await new Promise((resolve, reject) => {
+          cpExec(
+            'powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average"',
+            { windowsHide: true, timeout: 5000 },
+            (err, stdout) => err ? reject(err) : resolve(stdout)
+          );
+        });
+        const parsed = parseFloat(String(raw || '').trim());
+        if (Number.isFinite(parsed)) cpuLoad = Math.round(parsed);
+      } catch (e) {}
+      return {
+        success: true,
+        freeMemoryGB: (freeMem / (1024 ** 3)).toFixed(1),
+        totalMemoryGB: (totalMem / (1024 ** 3)).toFixed(1),
+        memoryUsedPct: usedPct,
+        cpuLoadPct: cpuLoad,
+        cpuCores: os.cpus().length
+      };
     } catch (err) {
       return { success: false, error: err.message };
     }

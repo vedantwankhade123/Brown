@@ -26,18 +26,18 @@ Download pre-built ready-to-run Windows binaries directly from the official webs
   <tbody>
     <tr>
       <td><b>Installer</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.1/Ultron-AI-Setup-1.0.1.exe"><code>Ultron-AI-Setup-1.0.1.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.1.0/Ultron%20AI%20Setup%201.1.0.exe"><code>Ultron AI Setup 1.1.0.exe</code></a></td>
       <td>Standard Windows setup installer wizard with Start Menu and Desktop shortcuts.</td>
     </tr>
     <tr>
       <td><b>Portable</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.1/Ultron-AI-1.0.1.exe"><code>Ultron-AI-1.0.1.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.1.0/Ultron%20AI%201.1.0.exe"><code>Ultron AI 1.1.0.exe</code></a></td>
       <td>Standalone executable file. Runs immediately on Windows without installation.</td>
     </tr>
   </tbody>
 </table>
 
-> 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.1).
+> 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.1.0).
 
 ---
 
@@ -51,6 +51,10 @@ Download pre-built ready-to-run Windows binaries directly from the official webs
 - **Windows Start Menu Program Scan:** Scans user and system shortcut paths (`.lnk`) and automatically resolves their absolute `.exe` targets to fetch and render **real, colored program brand logos** (like Chrome, VS Code, Brave, AnyDesk, etc.) next to setting checkable options.
 - **Draggable metrics Splitter:** Real-time mouse dragging dividers to resize middle chat frames and collapse system metrics panels completely if dragged below `120px` constraints.
 - **Human-in-the-Loop Validation:** High-security adaptive authorization boundary dialogs requesting human verification prior to launching command subprocesses.
+- **Autonomous Desktop Agent:** Multi-step task execution with live progress UI, app control, screen capture, Windows OCR fallback, and vision auto-routing (Gemini / llava).
+- **Google Gemini Integration:** Live model discovery from your API key, connected-status badge, and cloud inference alongside local Ollama models.
+- **Smarter App Matching:** Fuzzy name resolution, alias table, and clarifying suggestions when an app is not found.
+- **Safety & Undo:** Apps allowlist enforcement by permission mode, sensitive-screen blocking, and rollback for file writes.
 
 ## Technical Architecture
 

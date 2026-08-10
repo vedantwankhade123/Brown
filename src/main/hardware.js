@@ -15,6 +15,27 @@ function runPowerShell(command) {
   });
 }
 
+function isDedicatedGpuController(gpu = {}) {
+  const vendor = String(gpu.vendor || '').toLowerCase();
+  const model = String(gpu.model || gpu.name || '').toLowerCase();
+  const text = `${vendor} ${model}`;
+
+  if (!text.trim()) return false;
+  if (/(microsoft basic|remote display|virtual|vmware|virtualbox|parallels)/i.test(text)) return false;
+
+  const knownDedicatedVendor = /(nvidia|advanced micro devices|amd|radeon|geforce|rtx|gtx|quadro|tesla|arc)/i.test(text);
+  const knownIntegrated = /(intel.*uhd|intel.*iris|intel.*hd graphics|integrated|apu)/i.test(text);
+
+  return knownDedicatedVendor && !knownIntegrated;
+}
+
+function parseVramGB(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  if (numeric > 1024 * 1024) return numeric / (1024 * 1024 * 1024);
+  return numeric / 1024;
+}
+
 /**
  * Profiles the host system's hardware configurations.
  * Retrieves total RAM, CPU threads, and GPU details.
@@ -26,6 +47,7 @@ async function profileHardware() {
   let totalRamGB = 0;
   let cpuThreads = 0;
   let gpus = [];
+  let gpuDetails = [];
 
   try {
     const memInfo = await si.mem();
@@ -59,23 +81,72 @@ async function profileHardware() {
   try {
     const gpuInfo = await si.graphics();
     if (gpuInfo && gpuInfo.controllers && gpuInfo.controllers.length > 0) {
-      gpus = gpuInfo.controllers.map(g => `${g.vendor} ${g.model} (${(g.vram || 0) / 1024} GB VRAM)`);
+      gpuDetails = gpuInfo.controllers.map(g => {
+        const vramGB = parseVramGB(g.vram);
+        return {
+          vendor: g.vendor || '',
+          model: g.model || '',
+          vramGB: parseFloat(vramGB.toFixed(2)),
+          dedicated: isDedicatedGpuController(g)
+        };
+      });
+      gpus = gpuDetails.map(g => `${g.vendor} ${g.model} (${g.vramGB} GB VRAM)`);
     }
   } catch (err) {
     try {
       const psGpu = await runPowerShell('(Get-CimInstance Win32_VideoController).Name');
       if (psGpu) {
         gpus = psGpu.split('\n').map(name => name.trim()).filter(Boolean);
+        gpuDetails = gpus.map(name => ({
+          vendor: '',
+          model: name,
+          vramGB: 0,
+          dedicated: isDedicatedGpuController({ model: name })
+        }));
       }
     } catch (fallbackErr) {
       gpus = ['Generic Display Adapter'];
+      gpuDetails = [{ vendor: '', model: 'Generic Display Adapter', vramGB: 0, dedicated: false }];
     }
   }
+
+  // Hybrid laptops/desktops: systeminformation can miss the discrete GPU when
+  // the integrated GPU is driving the display. Merge Win32_VideoController so
+  // an NVIDIA/AMD card is still detected and used for Ollama offload.
+  if (!gpuDetails.some(g => g.dedicated)) {
+    try {
+      const psGpuJson = await runPowerShell("Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json -Compress");
+      const parsed = JSON.parse(psGpuJson || '[]');
+      const controllers = Array.isArray(parsed) ? parsed : [parsed];
+      for (const item of controllers) {
+        const name = String(item.Name || '').trim();
+        if (!name) continue;
+        const alreadyKnown = gpuDetails.some(g =>
+          String(g.model || '').toLowerCase() === name.toLowerCase() ||
+          `${g.vendor} ${g.model}`.toLowerCase().includes(name.toLowerCase())
+        );
+        if (alreadyKnown) continue;
+        const detail = {
+          vendor: '',
+          model: name,
+          vramGB: parseFloat((Number(item.AdapterRAM || 0) / (1024 ** 3)).toFixed(2)),
+          dedicated: isDedicatedGpuController({ model: name })
+        };
+        gpuDetails.push(detail);
+        gpus.push(`${name} (${detail.vramGB} GB VRAM)`);
+      }
+    } catch (e) {}
+  }
+
+  const dedicatedGpu = gpuDetails.find(g => g.dedicated) || null;
 
   return {
     totalRamGB: parseFloat(totalRamGB.toFixed(2)),
     cpuThreads: cpuThreads || 4,
-    gpus
+    gpus,
+    gpuDetails,
+    hasDedicatedGpu: Boolean(dedicatedGpu),
+    dedicatedGpu
   };
 }
 
