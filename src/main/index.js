@@ -7,7 +7,8 @@ const { initAutoUpdater } = require('./updater');
 
 // Redirect user data & cache directory to LOCALAPPDATA to prevent Roaming permission locks (0x5)
 const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Local');
-app.setPath('userData', path.join(localAppData, 'UltronData'));
+const dataFolder = app.isPackaged ? 'UltronData' : 'UltronDataDev';
+app.setPath('userData', path.join(localAppData, dataFolder));
 
 // Disable GPU and HTTP disk cache locks on Windows
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');

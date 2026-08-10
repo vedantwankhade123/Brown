@@ -14,6 +14,17 @@ function initAutoUpdater(mainWindow) {
   autoUpdater.autoDownload = false; // Prompt user before downloading
   autoUpdater.autoInstallOnAppQuit = true;
 
+  // Explicitly set GitHub provider feed URL
+  try {
+    autoUpdater.setFeedURL({
+      provider: 'github',
+      owner: 'vedantwankhade123',
+      repo: 'Ultron'
+    });
+  } catch (e) {
+    console.error('[AUTO-UPDATER] setFeedURL error:', e);
+  }
+
   // Log updater activity
   autoUpdater.logger = console;
 
@@ -43,9 +54,13 @@ function initAutoUpdater(mainWindow) {
 
   autoUpdater.on('error', (err) => {
     console.error('[AUTO-UPDATER] Error:', err ? err.message : err);
+    let msg = err ? (err.message || String(err)) : 'Failed to check for updates.';
+    if (msg.includes('404') || msg.includes('releases.atom')) {
+      msg = 'No newer release tag found on GitHub (You are running the latest version).';
+    }
     sendToRenderer('update-status', {
       status: 'error',
-      error: err ? err.message : 'Failed to check for updates.'
+      error: msg
     });
   });
 
