@@ -6196,6 +6196,19 @@ const settingSoundTaskComplete = document.getElementById('setting-sound-task-com
 const settingSoundPermission = document.getElementById('setting-sound-permission');
 const settingSoundQuestion = document.getElementById('setting-sound-question');
 const settingSoundVolume = document.getElementById('setting-sound-volume');
+const settingSoundVolumeLabel = document.getElementById('setting-sound-volume-label');
+
+function updateSoundVolumeLabel() {
+  if (!settingSoundVolume || !settingSoundVolumeLabel) return;
+  settingSoundVolumeLabel.textContent = `${settingSoundVolume.value}%`;
+}
+
+function previewUltronSound(kind) {
+  const wasEnabled = window.localStorage.getItem('ultron-sound-enabled');
+  window.localStorage.setItem('ultron-sound-enabled', 'true');
+  playUltronSound(kind);
+  if (wasEnabled === 'false') window.localStorage.setItem('ultron-sound-enabled', 'false');
+}
 
 function initSoundSettingsUI() {
   if (settingSoundEnabled) {
@@ -6225,10 +6238,20 @@ function initSoundSettingsUI() {
   if (settingSoundVolume) {
     const vol = window.localStorage.getItem('ultron-sound-volume');
     if (vol != null) settingSoundVolume.value = vol;
+    updateSoundVolumeLabel();
     settingSoundVolume.addEventListener('input', () => {
       window.localStorage.setItem('ultron-sound-volume', settingSoundVolume.value);
+      updateSoundVolumeLabel();
     });
   }
+
+  document.querySelectorAll('.sound-preview-btn').forEach(button => {
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      previewUltronSound(button.dataset.soundKind);
+    });
+  });
 
   document.querySelectorAll('.sound-file-picker').forEach(button => {
     const kind = button.dataset.soundKind;
