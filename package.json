@@ -1,7 +1,8 @@
 {
   "name": "ultron",
-  "version": "1.1.1",
+  "version": "1.0.5",
   "description": "Local offline privacy-focused Windows AI Agent framework",
+  "author": "Vedant Wankhade",
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
@@ -31,6 +32,7 @@
       "Assets/**/*",
       "package.json"
     ],
+    "compression": "normal",
     "win": {
       "target": [
         {
@@ -74,8 +76,7 @@
       "installerHeaderIcon": "Assets/ultron-logo.ico",
       "artifactName": "${productName} Setup ${version}.${ext}",
       "runAfterFinish": true,
-      "include": "build/installer.nsh",
-      "compression": "normal"
+      "include": "build/installer.nsh"
     }
   },
   "dependencies": {
