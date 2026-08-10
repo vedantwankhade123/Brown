@@ -321,8 +321,11 @@ function setupIpcHandlers() {
   // Sandbox Launcher Hook
   ipcMain.handle('launch-sandbox', async (event, hostPath) => {
     try {
-      const appDataPath = process.env.APPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Roaming');
-      const localAgentTemp = path.join(appDataPath, 'LocalAgent', 'temp');
+      const activeDataDir = process.env.ULTRON_DATA_DIR || path.join(app.getPath('userData'), 'data');
+      const localAgentTemp = path.join(activeDataDir, 'temp');
+      if (!fs.existsSync(localAgentTemp)) {
+        fs.mkdirSync(localAgentTemp, { recursive: true });
+      }
       
       const safeHostPath = verifyAndResolvePath(hostPath, true);
       const result = await launchWindowsSandbox(safeHostPath, localAgentTemp);
@@ -670,11 +673,30 @@ function setupIpcHandlers() {
     return result;
   });
 
+function getInstallationDefaultDataDir() {
+  if (app.isPackaged) {
+    const installDir = path.dirname(app.getPath('exe'));
+    const installDataDir = path.join(installDir, 'data');
+    try {
+      if (!fs.existsSync(installDataDir)) {
+        fs.mkdirSync(installDataDir, { recursive: true });
+      }
+      return installDataDir;
+    } catch (e) {
+      console.warn('[IPC] Cannot write to install data dir, fallback to userData:', e);
+    }
+  }
+  const fallbackDir = path.join(app.getPath('userData'), 'data');
+  if (!fs.existsSync(fallbackDir)) {
+    fs.mkdirSync(fallbackDir, { recursive: true });
+  }
+  return fallbackDir;
+}
+
   // Update persistent agent memory data directory
   ipcMain.handle('update-data-dir', async (event, customPath) => {
     try {
-      const appDataPath = process.env.APPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Roaming');
-      const defaultDir = path.join(appDataPath, 'LocalAgent');
+      const defaultDir = getInstallationDefaultDataDir();
       const configFile = path.join(defaultDir, 'config.json');
       
       const oldPath = process.env.ULTRON_DATA_DIR;
@@ -691,8 +713,12 @@ function setupIpcHandlers() {
       
       // Create path directories if needed
       const tempDir = path.join(customPath, 'temp');
+      const memoryDir = path.join(customPath, 'memory');
       if (!fs.existsSync(customPath)) {
         fs.mkdirSync(customPath, { recursive: true });
+      }
+      if (!fs.existsSync(memoryDir)) {
+        fs.mkdirSync(memoryDir, { recursive: true });
       }
       if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
@@ -715,7 +741,7 @@ function setupIpcHandlers() {
 
   // Get default app memory data directory location
   ipcMain.handle('get-default-data-dir', () => {
-    return path.join(app.getPath('userData'), 'memory');
+    return getInstallationDefaultDataDir();
   });
 
   // Save conversation history to local data directory path

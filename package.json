@@ -1,6 +1,6 @@
 {
   "name": "ultron",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Local offline privacy-focused Windows AI Agent framework",
   "main": "src/main/index.js",
   "scripts": {

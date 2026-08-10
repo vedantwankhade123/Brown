@@ -1738,8 +1738,13 @@ async function runOnboardingProfiler() {
     logTrace(`Onboarding Profiler: Suggesting local model footprint: ${recommendation}`, 'system');
     logTrace(`Ollama binds returned ${installedModelsList.length} offline model weights.`, 'system');
     
-    // Set settings data directory
-    window.localStorage.setItem('ultron-data-dir', `C:\\Users\\${stats.cpuThreads > 0 ? 'vedan' : 'user'}\\AppData\\Roaming\\LocalAgent`);
+    // Set settings data directory dynamically from install location
+    if (window.ultronAPI && window.ultronAPI.getDefaultDataDir) {
+      const defaultDataDir = await window.ultronAPI.getDefaultDataDir();
+      if (!window.localStorage.getItem('ultron-data-dir')) {
+        window.localStorage.setItem('ultron-data-dir', defaultDataDir);
+      }
+    }
     
     // Update model dropdown UI & Settings models UI
     renderModelDropdownList();
@@ -2989,11 +2994,11 @@ settingsTabs.forEach(tab => {
         settingMemoryToggle.checked = isMemoryEnabled;
       }
       if (settingDataDir) {
+        const defaultPath = await window.ultronAPI.getDefaultDataDir();
         const storedPath = window.localStorage.getItem('ultron-data-dir');
-        if (storedPath) {
+        if (storedPath && !storedPath.includes('Roaming\\LocalAgent') && !storedPath.includes('AppData\\Local\\UltronData')) {
           settingDataDir.value = storedPath;
         } else {
-          const defaultPath = await window.ultronAPI.getDefaultDataDir();
           settingDataDir.value = defaultPath;
           window.localStorage.setItem('ultron-data-dir', defaultPath);
           await window.ultronAPI.updateDataDir(defaultPath);

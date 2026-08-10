@@ -15,19 +15,35 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('disable-http-cache');
 app.commandLine.appendSwitch('disk-cache-size', '1');
 
+function getDefaultDataDirectory() {
+  if (app.isPackaged) {
+    // Default to 'data' folder inside installation directory chosen by user at setup
+    const installDir = path.dirname(app.getPath('exe'));
+    const installDataDir = path.join(installDir, 'data');
+    try {
+      if (!fs.existsSync(installDataDir)) {
+        fs.mkdirSync(installDataDir, { recursive: true });
+      }
+      const testFile = path.join(installDataDir, '.permcheck');
+      fs.writeFileSync(testFile, 'ok');
+      fs.unlinkSync(testFile);
+      return installDataDir;
+    } catch (e) {
+      console.warn('[DATA-DIR] Installation directory not writable; using AppData fallback:', e);
+    }
+  }
+  const fallbackDir = path.join(app.getPath('userData'), 'data');
+  if (!fs.existsSync(fallbackDir)) {
+    fs.mkdirSync(fallbackDir, { recursive: true });
+  }
+  return fallbackDir;
+}
+
 function initializeDataDirectories() {
-  // Use user data directory by default (%LOCALAPPDATA%\UltronData\memory)
-  // NEVER use app.getAppPath() which points inside read-only app.asar in production
-  let localAgentDir = path.join(app.getPath('userData'), 'memory');
+  let localAgentDir = getDefaultDataDirectory();
 
   try {
-    const appDataPath = process.env.APPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Roaming');
-    const systemConfigDir = path.join(appDataPath, 'LocalAgent');
-    const configFile = path.join(systemConfigDir, 'config.json');
-    
-    if (!fs.existsSync(systemConfigDir)) {
-      fs.mkdirSync(systemConfigDir, { recursive: true });
-    }
+    const configFile = path.join(localAgentDir, 'config.json');
     
     // Read custom path from config.json if set by user in Settings
     if (fs.existsSync(configFile)) {
@@ -42,28 +58,26 @@ function initializeDataDirectories() {
     }
     
     const tempDir = path.join(localAgentDir, 'temp');
+    const memoryDir = path.join(localAgentDir, 'memory');
     if (!fs.existsSync(localAgentDir)) {
       fs.mkdirSync(localAgentDir, { recursive: true });
+    }
+    if (!fs.existsSync(memoryDir)) {
+      fs.mkdirSync(memoryDir, { recursive: true });
     }
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
   } catch (err) {
     console.error('Error initializing data directories:', err);
-    // Fallback safely to userData/memory so app NEVER crashes on launch
-    localAgentDir = path.join(app.getPath('userData'), 'memory');
-    try {
-      if (!fs.existsSync(localAgentDir)) fs.mkdirSync(localAgentDir, { recursive: true });
-      const tempDir = path.join(localAgentDir, 'temp');
-      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-    } catch (e) {
-      console.error('Fallback directory creation failed:', e);
-    }
+    localAgentDir = getDefaultDataDirectory();
   }
   
   // Expose path info to process environment
   process.env.ULTRON_DATA_DIR = localAgentDir;
 }
+
+module.exports = { getDefaultDataDirectory };
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
