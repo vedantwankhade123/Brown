@@ -165,10 +165,23 @@ function initAutoUpdater(mainWindow) {
 
   // Automatically check for updates 10 seconds after launch in production
   if (app.isPackaged) {
-    setTimeout(() => {
-      autoUpdater.checkForUpdates().catch(err => {
+    setTimeout(async () => {
+      try {
+        const latest = await fetchLatestGitHubRelease();
+        const currentVersion = app.getVersion();
+        if (latest && latest.tag_name) {
+          const latestTag = latest.tag_name.replace(/^v/, '');
+          if (latestTag > currentVersion) {
+            sendToRenderer('update-status', {
+              status: 'available',
+              version: latestTag,
+              releaseNotes: latest.body || 'New features and bug fixes available.'
+            });
+          }
+        }
+      } catch (err) {
         console.error('[AUTO-UPDATER] Background check failed:', err);
-      });
+      }
     }, 10000);
   }
 }
