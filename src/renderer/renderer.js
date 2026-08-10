@@ -1605,8 +1605,33 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       } catch (e) {
         errDetail = await response.text();
       }
+
+      // If GPU VRAM Out Of Memory error occurs, RETRY automatically on CPU RAM (num_gpu: 0) with compact context!
+      if (errDetail.includes('out-of-memory') || errDetail.includes('cudaMalloc failed') || errDetail.includes('allocate compute')) {
+        logTrace(`CUDA VRAM Out of Memory detected on GPU. Retrying ${activeModel} on CPU RAM (num_gpu: 0)...`, 'system');
+        bodyData.options = bodyData.options || {};
+        bodyData.options.num_gpu = 0; // Offload model to system CPU RAM
+        bodyData.options.num_ctx = 1024; // Compact context footprint
+
+        try {
+          const retryRes = await fetch(`http://127.0.0.1:11434${endpoint}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(bodyData)
+          });
+
+          if (retryRes.ok) {
+            const retryData = await retryRes.json();
+            let text = endpoint === '/api/chat' ? (retryData.message ? retryData.message.content : '') : retryData.response;
+            return sanitizeResponseText(text, prompt);
+          }
+        } catch (retryErr) {
+          logTrace(`CPU RAM fallback retry failed: ${retryErr.message}`, 'error');
+        }
+      }
+
       logTrace(`Local LLM response HTTP error (${response.status}): ${errDetail}`, 'error');
-      return `⚠️ **Ollama Model Error (${activeModel})**\n\n${errDetail || `HTTP Status ${response.status}`}\n\n*Verify model name in ` + '`ollama list`' + ` or run ` + '`ollama pull ' + activeModel + '`' + `.*`;
+      return `⚠️ **Ollama GPU Memory Limit Exceeded (${activeModel})**\n\nYour GPU VRAM ran out of memory loading **${activeModel}** (` + '`cudaMalloc failed: out of memory`' + `).\n\n**Solutions:**\n1. Pull the lightweight 2B version (` + '`ollama pull gemma2:2b`' + `).\n2. Use lightweight models like ` + '`tinyllama:latest`' + ` / ` + '`phi3`' + `.\n3. Or select Google Gemini from top model dropdown for zero VRAM cloud inference.`;
     }
   } catch (e) {
     logTrace(`Local LLM offline loop exception: ${e.message}`, 'error');
