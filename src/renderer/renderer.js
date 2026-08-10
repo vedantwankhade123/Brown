@@ -1520,12 +1520,9 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
         .filter(m => !isThinkingMarkup(m.text))
         .slice(-10);
       
-      const chatMessages = [
-        {
-          role: 'system',
-          content: systemPrompt
-        }
-      ];
+      // Gemma 2 models in Ollama do not support 'system' role in chat messages array
+      const isGemma = activeModel && activeModel.toLowerCase().includes('gemma');
+      const chatMessages = isGemma ? [] : [{ role: 'system', content: systemPrompt }];
       
       recentMsgs.forEach(m => {
         const textContent = extractPlainTextFromMessage(m.text);
@@ -1542,12 +1539,16 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
         extraMessages.forEach(msg => chatMessages.push(msg));
       }
       
+      const userMessageContent = isGemma
+        ? `${systemPrompt}\n\nUser Message:\n${finalUserPrompt}`
+        : finalUserPrompt;
+      
       // Add current user prompt if not already in history
-      if (chatMessages.length === 1 || chatMessages[chatMessages.length - 1].content !== finalUserPrompt) {
-        chatMessages.push({ role: 'user', content: finalUserPrompt });
+      if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].content !== userMessageContent) {
+        chatMessages.push({ role: 'user', content: userMessageContent });
       }
       
-      logTrace(`Sending chat payload to local LLM with ${chatMessages.length - 1} messages...`, 'system');
+      logTrace(`Sending chat payload to local LLM (${activeModel}) with ${chatMessages.length} messages...`, 'system');
       
       const maxTokens = intent === 'conversation' ? 512 : 2048;
       const ctxTokens = intent === 'conversation' ? 2048 : 4096;
@@ -1571,7 +1572,7 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       bodyData = {
         model: activeModel,
         prompt: finalUserPrompt,
-        system: systemPrompt,
+        system: activeModel && activeModel.toLowerCase().includes('gemma') ? undefined : systemPrompt,
         stream: false,
         options: {
           num_ctx: ctxTokens,
@@ -1588,7 +1589,7 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
     });
     if (response.ok) {
       const data = await response.json();
-      let text = endpoint === '/api/chat' ? data.message.content : data.response;
+      let text = endpoint === '/api/chat' ? (data.message ? data.message.content : '') : data.response;
       
       // Filter out model disclaimer responses that deny computer access capabilities during tool action execution ONLY
       if (intent !== 'conversation' && text && (text.includes("I do not have access") || text.includes("unable to access your operating system") || text.includes("I cannot access"))) {
@@ -1597,12 +1598,19 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       }
       return sanitizeResponseText(text, prompt);
     } else {
-      logTrace(`Local LLM response HTTP error: ${response.status}`, 'error');
-      return '';
+      let errDetail = '';
+      try {
+        const errJson = await response.json();
+        errDetail = errJson.error || JSON.stringify(errJson);
+      } catch (e) {
+        errDetail = await response.text();
+      }
+      logTrace(`Local LLM response HTTP error (${response.status}): ${errDetail}`, 'error');
+      return `⚠️ **Ollama Model Error (${activeModel})**\n\n${errDetail || `HTTP Status ${response.status}`}\n\n*Verify model name in ` + '`ollama list`' + ` or run ` + '`ollama pull ' + activeModel + '`' + `.*`;
     }
   } catch (e) {
     logTrace(`Local LLM offline loop exception: ${e.message}`, 'error');
-    return '';
+    return `⚠️ **Ollama Connection Error**\n\nCould not connect to Ollama service at ` + '`http://127.0.0.1:11434`' + `.\n\n*Make sure Ollama is running (` + '`ollama serve`' + `).*`;
   }
 }
 
