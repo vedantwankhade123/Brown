@@ -4781,8 +4781,8 @@ function setupAutoUpdaterUI() {
         if (topDownloadText) topDownloadText.textContent = `Download v${data.version}`;
       }
     } else if (data.status === 'not-available') {
-      if (title) title.textContent = 'Ultron is up to date';
-      if (subtitle) subtitle.textContent = `Current Version: v${data.version}`;
+      if (title) title.textContent = 'Ultron is Up to Date ✓';
+      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.3'}).`;
       if (actionContainer) actionContainer.style.display = 'none';
       if (topBtnDownload) topBtnDownload.classList.add('hidden');
       if (topBtnRestart) topBtnRestart.classList.add('hidden');
@@ -4806,8 +4806,14 @@ function setupAutoUpdaterUI() {
       if (topBtnDownload) topBtnDownload.classList.add('hidden');
       if (topBtnRestart) topBtnRestart.classList.remove('hidden');
     } else if (data.status === 'error') {
-      if (title) title.textContent = 'Update Check Error';
-      if (subtitle) subtitle.textContent = data.error || 'Failed to check for updates.';
+      const isUpToDate = data.error && (data.error.includes('latest version') || data.error.includes('No newer release') || data.error.includes('404'));
+      if (isUpToDate) {
+        if (title) title.textContent = 'Ultron is Up to Date ✓';
+        if (subtitle) subtitle.textContent = 'You are running the latest version.';
+      } else {
+        if (title) title.textContent = 'Update Check Error';
+        if (subtitle) subtitle.textContent = data.error || 'Failed to check for updates.';
+      }
     }
   });
 }

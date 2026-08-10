@@ -55,8 +55,12 @@ function initAutoUpdater(mainWindow) {
   autoUpdater.on('error', (err) => {
     console.error('[AUTO-UPDATER] Error:', err ? err.message : err);
     let msg = err ? (err.message || String(err)) : 'Failed to check for updates.';
-    if (msg.includes('404') || msg.includes('releases.atom')) {
-      msg = 'No newer release tag found on GitHub (You are running the latest version).';
+    if (msg.includes('404') || msg.includes('releases.atom') || msg.includes('latest version') || msg.includes('No newer release')) {
+      sendToRenderer('update-status', {
+        status: 'not-available',
+        version: app.getVersion()
+      });
+      return;
     }
     sendToRenderer('update-status', {
       status: 'error',
