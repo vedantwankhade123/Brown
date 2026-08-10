@@ -434,6 +434,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
             Apps
           </div>
+          <div class="settings-tab-btn" data-tab="updates">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            Software Updates
+          </div>
         </aside>
         
         <!-- Settings Tab Contents (Right side of modal) -->
@@ -651,6 +655,38 @@
             </div>
             <div id="settings-apps-list" class="apps-list-container">
               <!-- dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Software Updates Tab -->
+          <div id="tab-updates" class="tab-pane hidden">
+            <h4 style="margin: 0 0 16px 0;">Software Updates</h4>
+            <div class="update-card" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div class="update-status-icon-wrapper" style="width: 42px; height: 42px; border-radius: 10px; background: rgba(66, 133, 244, 0.15); display: flex; align-items: center; justify-content: center; color: #4285f4;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                  </div>
+                  <div>
+                    <h5 id="update-status-title" style="margin: 0; font-size: 15px; font-weight: 600; color: #fff;">Ultron is up to date</h5>
+                    <p id="update-status-subtitle" style="margin: 4px 0 0 0; font-size: 12px; color: #a1a1aa;">Current Version: v1.0.1</p>
+                  </div>
+                </div>
+                <button id="btn-check-updates" style="background: #4285f4; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background 0.2s;">
+                  Check for Updates
+                </button>
+              </div>
+
+              <!-- Action buttons for downloading / restarting -->
+              <div id="update-action-container" style="display: none; align-items: center; gap: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 16px;">
+                <button id="btn-download-update" style="display: none; background: #34a853; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer;">
+                  Download Update
+                </button>
+                <button id="btn-restart-install" style="display: none; background: #ea4335; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer;">
+                  Restart to Install Update
+                </button>
+                <span id="update-progress-label" style="font-size: 12px; color: #a1a1aa;"></span>
+              </div>
             </div>
           </div>
         </main>

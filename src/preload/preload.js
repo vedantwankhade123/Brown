@@ -56,5 +56,15 @@ contextBridge.exposeInMainWorld('ultronAPI', {
     ipcRenderer.on('request-permission', subscription);
     return () => ipcRenderer.removeListener('request-permission', subscription);
   },
-  sendPermissionResponse: (payload) => ipcRenderer.send('permission-response', payload)
+  sendPermissionResponse: (payload) => ipcRenderer.send('permission-response', payload),
+
+  // GitHub Releases Auto-Updater bindings
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  restartAndInstall: () => ipcRenderer.invoke('restart-and-install'),
+  onUpdateStatus: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('update-status', subscription);
+    return () => ipcRenderer.removeListener('update-status', subscription);
+  }
 });

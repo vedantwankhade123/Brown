@@ -26,23 +26,24 @@ Download pre-built ready-to-run Windows binaries directly from the official webs
   <tbody>
     <tr>
       <td><b>Installer</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%20Setup%201.0.0.exe"><code>Ultron AI Setup 1.0.0.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.1/Ultron-AI-Setup-1.0.1.exe"><code>Ultron-AI-Setup-1.0.1.exe</code></a></td>
       <td>Standard Windows setup installer wizard with Start Menu and Desktop shortcuts.</td>
     </tr>
     <tr>
       <td><b>Portable</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.0/Ultron%20AI%201.0.0.exe"><code>Ultron AI 1.0.0.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.1/Ultron-AI-1.0.1.exe"><code>Ultron-AI-1.0.1.exe</code></a></td>
       <td>Standalone executable file. Runs immediately on Windows without installation.</td>
     </tr>
   </tbody>
 </table>
 
-> 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.0).
+> 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.1).
 
 ---
 
 ## Key Features
 
+- **Seamless Free Auto-Updates:** Integrates `electron-updater` directly with GitHub Releases. Automatically checks for updates on launch, downloads patches in the background, and prompts to restart & install seamlessly.
 - **Local AI recommendation Engine:** Automatically profiles host hardware specs (CPU threads, total RAM size, active GPU adapter) on boot to recommend and allocate the optimal local quantized LLM footprint (e.g. `phi4`).
 - **One-Click Ollama Installer:** Silent background winget orchestration that detects, downloads, and boots local Ollama binding instances on the fly.
 - **Spotlight command Overlay:** A premium, blur-backdrop full-screen command search overlay (`width: 100vw; height: 100vh`) supporting debounced natural language indexing queries over historical chat memory.

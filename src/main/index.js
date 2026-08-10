@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { setupIpcHandlers, setMainWindow } = require('./ipc');
+const { initAutoUpdater } = require('./updater');
 
 // Redirect user data & cache directory to LOCALAPPDATA to prevent Roaming permission locks (0x5)
 const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Local');
@@ -118,6 +119,9 @@ function createWindow() {
   
   // Set main window in IPC handler
   setMainWindow(mainWindow);
+
+  // Initialize auto-updater service
+  initAutoUpdater(mainWindow);
 }
 
 app.whenReady().then(() => {

@@ -1,12 +1,13 @@
 {
   "name": "ultron",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Local offline privacy-focused Windows AI Agent framework",
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
     "build:win": "electron-builder --win nsis",
     "build:portable": "electron-builder --win portable",
+    "build:store": "electron-builder --win appx",
     "dist": "electron-builder --win",
     "test": "node tests/run.js"
   },
@@ -17,6 +18,14 @@
     "directories": {
       "output": "dist"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "vedantwankhade123",
+        "repo": "Ultron",
+        "releaseType": "release"
+      }
+    ],
     "files": [
       "src/**/*",
       "Assets/**/*",
@@ -41,6 +50,16 @@
       "certificateFile": null,
       "cscLink": null
     },
+    "appx": {
+      "applicationId": "UltronAI",
+      "identityName": "YOUR_PUBLISHER_IDENTITY_NAME",
+      "publisher": "CN=YOUR_PUBLISHER_ID_HERE",
+      "publisherDisplayName": "Vedant Wankhade",
+      "displayName": "Ultron AI",
+      "languages": [
+        "en-US"
+      ]
+    },
     "nsis": {
       "oneClick": false,
       "perMachine": true,
@@ -59,6 +78,7 @@
     }
   },
   "dependencies": {
+    "electron-updater": "^6.3.9",
     "marked": "^18.0.6",
     "systeminformation": "^5.23.5",
     "ws": "^8.21.1"
