@@ -697,6 +697,68 @@
                 <div id="download-progress-speed" style="font-size: 10px; color: var(--text-muted); margin-top: 4px; text-align: right;">Speed: --</div>
               </div>
             </div>
+
+            <div class="connector-row models-sound-section" style="margin-top: 24px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <div class="models-sound-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+                  </div>
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Agent Sounds</span>
+                      <span class="models-sound-badge">Audio feedback</span>
+                    </div>
+                    <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Play audio when tasks complete, permissions are needed, or Ultron asks a clarifying question.</p>
+                  </div>
+                </div>
+                <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
+                  <input type="checkbox" id="setting-sound-enabled" checked style="opacity: 0; width: 0; height: 0;">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+
+              <p class="text-xs text-muted" style="margin: 0 0 14px 0; line-height: 1.45;">Use the default sounds in Assets/sounds/ or pick a custom file for each event.</p>
+
+              <div class="models-sound-grid">
+                <div class="models-sound-row">
+                  <label class="models-sound-row-label">
+                    <input type="checkbox" id="setting-sound-task-complete" checked style="accent-color: #fff;">
+                    <span>Task complete</span>
+                  </label>
+                  <div class="models-sound-row-actions">
+                    <button type="button" class="sound-preview-btn" data-sound-kind="task_complete">Preview</button>
+                    <button type="button" class="sound-file-picker" data-sound-kind="task_complete">Choose file</button>
+                  </div>
+                </div>
+                <div class="models-sound-row">
+                  <label class="models-sound-row-label">
+                    <input type="checkbox" id="setting-sound-permission" checked style="accent-color: #fff;">
+                    <span>Permission prompt</span>
+                  </label>
+                  <div class="models-sound-row-actions">
+                    <button type="button" class="sound-preview-btn" data-sound-kind="permission">Preview</button>
+                    <button type="button" class="sound-file-picker" data-sound-kind="permission">Choose file</button>
+                  </div>
+                </div>
+                <div class="models-sound-row">
+                  <label class="models-sound-row-label">
+                    <input type="checkbox" id="setting-sound-question" checked style="accent-color: #fff;">
+                    <span>Clarifying question</span>
+                  </label>
+                  <div class="models-sound-row-actions">
+                    <button type="button" class="sound-preview-btn" data-sound-kind="question">Preview</button>
+                    <button type="button" class="sound-file-picker" data-sound-kind="question">Choose file</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="models-sound-volume-row">
+                <span class="text-xs text-muted">Volume</span>
+                <input type="range" id="setting-sound-volume" min="0" max="100" value="55">
+                <span id="setting-sound-volume-label" class="text-xs text-muted">55%</span>
+              </div>
+            </div>
           </div>
           
           <!-- Storage & Memory Tab -->
@@ -758,36 +820,6 @@
               </div>
               <label for="setting-never-capture-apps" class="text-xs text-muted" style="display:block; margin:12px 0 6px;">Never capture apps (comma-separated)</label>
               <input id="setting-never-capture-apps" class="override-input" type="text" placeholder="1Password, Banking, Authenticator" style="width:100%; box-sizing:border-box;">
-            </div>
-
-            <div class="setting-item" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-              <label style="display: block; margin-bottom: 8px;">Agent Sounds</label>
-              <p class="text-xs text-muted" style="margin: 0 0 12px 0;">Play audio when tasks complete, permissions are needed, or Ultron asks a question. Drop files in Assets/sounds/.</p>
-              <div style="display: flex; flex-direction: column; gap: 10px;">
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
-                  <input type="checkbox" id="setting-sound-enabled" checked style="accent-color: #fff;">
-                  <span>Enable sounds</span>
-                </label>
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
-                  <input type="checkbox" id="setting-sound-task-complete" checked style="accent-color: #fff;">
-                  <span>Task complete</span>
-                  <button type="button" class="sound-file-picker" data-sound-kind="task_complete" style="margin-left:auto;">Choose file</button>
-                </label>
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
-                  <input type="checkbox" id="setting-sound-permission" checked style="accent-color: #fff;">
-                  <span>Permission prompt</span>
-                  <button type="button" class="sound-file-picker" data-sound-kind="permission" style="margin-left:auto;">Choose file</button>
-                </label>
-                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
-                  <input type="checkbox" id="setting-sound-question" checked style="accent-color: #fff;">
-                  <span>Clarifying question</span>
-                  <button type="button" class="sound-file-picker" data-sound-kind="question" style="margin-left:auto;">Choose file</button>
-                </label>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <span class="text-xs text-muted" style="min-width: 48px;">Volume</span>
-                  <input type="range" id="setting-sound-volume" min="0" max="100" value="55" style="flex: 1; accent-color: #818cf8;">
-                </div>
-              </div>
             </div>
           </div>
           
