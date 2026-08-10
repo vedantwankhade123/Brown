@@ -3009,6 +3009,10 @@ let hasCheckedOllamaOnBoot = false;
 // Bind Google Gemini API Key Input and Save/Edit Button
 const inputGeminiKey = document.getElementById('input-gemini-api-key');
 const btnSaveGeminiKey = document.getElementById('btn-save-gemini-key');
+const btnCancelGeminiKey = document.getElementById('btn-cancel-gemini-key');
+const btnToggleGeminiInput = document.getElementById('btn-toggle-gemini-key-input');
+const geminiKeyInputContainer = document.getElementById('gemini-key-input-container');
+const geminiKeyBtnText = document.getElementById('gemini-key-btn-text');
 const feedbackGeminiKey = document.getElementById('gemini-key-feedback');
 
 let isEditingGeminiKey = false;
@@ -3030,45 +3034,46 @@ function updateGeminiKeyUi() {
   if (!inputGeminiKey || !btnSaveGeminiKey) return;
   const savedKey = localStorage.getItem('ultron-gemini-api-key') || '';
 
-  if (savedKey && !isEditingGeminiKey) {
-    inputGeminiKey.disabled = true;
+  if (savedKey) {
     inputGeminiKey.value = savedKey;
-    inputGeminiKey.style.opacity = '0.75';
-    inputGeminiKey.style.cursor = 'not-allowed';
-    btnSaveGeminiKey.textContent = 'Edit Key';
-    btnSaveGeminiKey.style.backgroundColor = 'rgba(255, 255, 255, 0.12)';
-    btnSaveGeminiKey.style.color = '#ffffff';
-    btnSaveGeminiKey.style.border = '1px solid rgba(255, 255, 255, 0.2)';
+    if (geminiKeyBtnText) geminiKeyBtnText.textContent = 'Edit Key (Configured ✓)';
   } else {
-    inputGeminiKey.disabled = false;
-    inputGeminiKey.style.opacity = '1';
-    inputGeminiKey.style.cursor = 'text';
-    btnSaveGeminiKey.textContent = 'Save Key';
-    btnSaveGeminiKey.style.backgroundColor = '#ffffff';
-    btnSaveGeminiKey.style.color = '#000000';
-    btnSaveGeminiKey.style.border = 'none';
+    if (geminiKeyBtnText) geminiKeyBtnText.textContent = 'Add Key';
+  }
+
+  // Hide or show the input container based on editing state
+  if (!isEditingGeminiKey) {
+    if (geminiKeyInputContainer) geminiKeyInputContainer.classList.add('hidden');
+    if (btnToggleGeminiInput) btnToggleGeminiInput.style.display = 'inline-flex';
+  } else {
+    if (geminiKeyInputContainer) geminiKeyInputContainer.classList.remove('hidden');
+    if (btnToggleGeminiInput) btnToggleGeminiInput.style.display = 'none';
   }
 }
 
 // Initial UI check on script load
 initPersistentGeminiKey();
 
+if (btnToggleGeminiInput) {
+  btnToggleGeminiInput.addEventListener('click', () => {
+    isEditingGeminiKey = true;
+    updateGeminiKeyUi();
+    if (inputGeminiKey) {
+      inputGeminiKey.focus();
+      inputGeminiKey.select();
+    }
+  });
+}
+
+if (btnCancelGeminiKey) {
+  btnCancelGeminiKey.addEventListener('click', () => {
+    isEditingGeminiKey = false;
+    updateGeminiKeyUi();
+  });
+}
+
 if (btnSaveGeminiKey) {
   btnSaveGeminiKey.addEventListener('click', () => {
-    const savedKey = localStorage.getItem('ultron-gemini-api-key') || '';
-
-    // If key is saved and user clicks "Edit Key", switch to edit mode
-    if (savedKey && !isEditingGeminiKey) {
-      isEditingGeminiKey = true;
-      updateGeminiKeyUi();
-      if (inputGeminiKey) {
-        inputGeminiKey.focus();
-        inputGeminiKey.select();
-      }
-      return;
-    }
-
-    // Otherwise, perform Save operation
     const val = inputGeminiKey ? inputGeminiKey.value.trim() : '';
     if (val) {
       localStorage.setItem('ultron-gemini-api-key', val);

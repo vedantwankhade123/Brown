@@ -525,11 +525,21 @@
               <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
                 Enable Google Gemini API models (<b>Gemini 2.5 Flash</b>, <b>Gemini 2.5 Pro</b>, <b>Gemini 2.0</b>, and <b>Gemini 1.5</b>). Get a free API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: #60a5fa; text-decoration: underline;">aistudio.google.com</a>.
               </p>
-              <div style="display: flex; gap: 8px; align-items: center;">
+              <!-- Initial Add Key Trigger Button -->
+              <div id="gemini-key-trigger-container" style="margin-top: 10px;">
+                <button id="btn-toggle-gemini-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                  <svg id="gemini-key-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span id="gemini-key-btn-text">Add Key</span>
+                </button>
+              </div>
+
+              <!-- Collapsible Input Field & Save Key Form (Hidden initially) -->
+              <div id="gemini-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
                 <input type="password" id="input-gemini-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Gemini API Key (AIzaSy...)" />
                 <button id="btn-save-gemini-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+                <button id="btn-cancel-gemini-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
-              <div id="gemini-key-feedback" class="text-xs hidden" style="margin-top: 6px; color: #34d399; font-weight: 500;">✓ Gemini API key saved!</div>
+              <div id="gemini-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ Gemini API key saved!</div>
             </div>
 
             <div class="connector-row">
