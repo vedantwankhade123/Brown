@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', { filePath, content }),
   listDir: (dirPath) => ipcRenderer.invoke('list-dir', dirPath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  appAction: (payload) => ipcRenderer.invoke('app-action', payload),
+  resolveAppName: (appName) => ipcRenderer.invoke('resolve-app-name', appName),
+  captureScreen: (payload) => ipcRenderer.invoke('capture-screen', payload || {}),
+  ocrScreen: (payload) => ipcRenderer.invoke('ocr-screen', payload || {}),
+  getLiveMetrics: () => ipcRenderer.invoke('get-live-metrics'),
+  restoreFileBackup: (payload) => ipcRenderer.invoke('restore-file-backup', payload),
   searchWeb: (query) => ipcRenderer.invoke('search-web', query),
   
   // Apps & connector installs
@@ -37,6 +43,7 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   checkOllamaInstalled: () => ipcRenderer.invoke('check-ollama-installed'),
   startOllamaService: (exePath) => ipcRenderer.invoke('start-ollama-service', exePath),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  selectSoundFile: () => ipcRenderer.invoke('select-sound-file'),
   updateDataDir: (customPath) => ipcRenderer.invoke('update-data-dir', customPath),
   getDefaultDataDir: () => ipcRenderer.invoke('get-default-data-dir'),
   saveConversations: (dataStr) => ipcRenderer.invoke('save-conversations', dataStr),

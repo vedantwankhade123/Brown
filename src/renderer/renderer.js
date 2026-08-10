@@ -1,4 +1,4 @@
-// Cache DOM elements
+﻿// Cache DOM elements
 const chatMessagesContainer = document.getElementById('chat-messages-container');
 const chatInput = document.getElementById('chat-input');
 const btnSend = document.getElementById('btn-send');
@@ -10,6 +10,8 @@ const selectSecurityMode = document.getElementById('select-security-mode');
 const statRecommendation = document.getElementById('stat-recommendation');
 const statRam = document.getElementById('stat-ram');
 const statCpu = document.getElementById('stat-cpu');
+const statRamLive = document.getElementById('stat-ram-live');
+const statCpuLive = document.getElementById('stat-cpu-live');
 const statGpu = document.getElementById('stat-gpu');
 
 // Trace & Checklist references
@@ -69,6 +71,556 @@ let installedModelsList = [];
 let searchTimeout = null;
 let isAwaitingResponse = false;
 
+const LOCAL_MODEL_FALLBACK_ORDER = [
+  'phi3',
+  'llama3.2:3b',
+  'gemma2:2b',
+  'qwen2.5:3b',
+  'mistral',
+  'llama3',
+  'qwen2.5',
+  'tinyllama',
+  'llama3.2:1b'
+];
+
+function normalizeModelName(model) {
+  const raw = typeof model === 'string' ? model : (model && model.name);
+  return (raw || '').trim();
+}
+
+function modelBaseName(modelName) {
+  return normalizeModelName(modelName).toLowerCase().split(':')[0];
+}
+
+function getModelFallbackRank(modelName) {
+  const lower = normalizeModelName(modelName).toLowerCase();
+  const exactIndex = LOCAL_MODEL_FALLBACK_ORDER.findIndex(name => lower === name);
+  if (exactIndex >= 0) return exactIndex;
+
+  const base = modelBaseName(lower);
+  const baseIndex = LOCAL_MODEL_FALLBACK_ORDER.findIndex(name => name.split(':')[0] === base);
+  if (baseIndex >= 0) return baseIndex;
+
+  return 100;
+}
+
+function selectBestInstalledLocalModel(excludedModels = []) {
+  const excluded = new Set(excludedModels.map(name => normalizeModelName(name).toLowerCase()).filter(Boolean));
+  return (installedModelsList || [])
+    .map(model => ({
+      name: normalizeModelName(model),
+      size: typeof model === 'object' && model ? model.size : 0
+    }))
+    .filter(model => model.name && !excluded.has(model.name.toLowerCase()))
+    .sort((a, b) => {
+      const rankDiff = getModelFallbackRank(a.name) - getModelFallbackRank(b.name);
+      if (rankDiff !== 0) return rankDiff;
+      return (a.size || 0) - (b.size || 0);
+    })[0]?.name || '';
+}
+
+function getModelCapabilities(modelName) {
+  const name = (modelName || activeModel || '').toLowerCase();
+  const isGemini = name.includes('gemini');
+  const isOllamaVision = ['llava', 'bakllava', 'llama3.2-vision', 'minicpm-v', 'moondream', 'vision'].some(v => name.includes(v));
+  const isVision = isGemini || isOllamaVision;
+
+  return {
+    isVision,
+    badgeText: isVision ? 'Vision' : 'Text',
+    badgeClass: isVision ? 'badge-vision' : 'badge-text',
+    accept: isVision
+      ? 'image/*,.txt,.js,.py,.md,.json,.csv,.pdf,.html,.css,.c,.cpp,.h,.java,.ts,.sql,.xml,.log'
+      : '.txt,.js,.py,.md,.json,.csv,.pdf,.html,.css,.c,.cpp,.h,.java,.ts,.sql,.xml,.log',
+    hint: isVision ? 'Vision & Text/Code supported' : 'Text & Code files supported'
+  };
+}
+
+function syncModelAttachmentCapabilities() {
+  const caps = getModelCapabilities(activeModel);
+  const hiddenFileInput = document.getElementById('hidden-file-input');
+  if (hiddenFileInput) {
+    hiddenFileInput.accept = caps.accept;
+  }
+  const badge = document.getElementById('model-capability-badge');
+  if (badge) {
+    badge.textContent = caps.badgeText;
+    badge.className = `model-capability-badge ${caps.badgeClass}`;
+    badge.title = `${caps.hint} for model: ${activeModel}`;
+  }
+}
+
+const TASK_ICON_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="9" height="9"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+
+function renderTaskWidgetHtml(tasks, title = "Tasks") {
+  if (!tasks || !Array.isArray(tasks) || tasks.length === 0) return '';
+
+  const completedCount = tasks.filter(t => t.completed || t.status === 'completed').length;
+
+  const itemsHtml = tasks.map((t) => {
+    const isCompleted = t.completed || t.status === 'completed';
+    const isInProgress = t.status === 'in_progress';
+    const isFailed = t.status === 'failed';
+    const statusClass = isFailed ? 'failed' : (isCompleted ? 'completed' : (isInProgress ? 'in_progress' : 'pending'));
+    const iconHtml = isCompleted
+      ? TASK_ICON_CHECK_SVG
+      : (isInProgress ? '<span class="task-icon-spinner"></span>' : (isFailed ? '!' : ''));
+
+    return `
+      <div class="task-widget-item ${statusClass}">
+        <div class="task-item-icon">${iconHtml}</div>
+        <span class="task-item-text">${escapeHtml(t.text || t.name || 'Task step')}</span>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="task-execution-widget">
+      <div class="task-widget-header">
+        <div class="task-widget-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
+            <polyline points="9 11 12 14 22 4"></polyline>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+          </svg>
+          <span>${title}</span>
+        </div>
+        <div class="task-widget-counter">${completedCount} of ${tasks.length} done</div>
+      </div>
+      <div class="task-widget-list">
+        ${itemsHtml}
+      </div>
+    </div>
+  `;
+}
+
+function parseMarkdownChecklist(text) {
+  if (!text || typeof text !== 'string') return null;
+  const lines = text.split('\n');
+  const tasks = [];
+
+  for (const line of lines) {
+    const match = line.match(/^\s*(?:[-*+]|\d+\.)\s+\[([ xX])\]\s+(.+)/);
+    if (match) {
+      tasks.push({
+        completed: match[1].toLowerCase() === 'x',
+        text: match[2].trim()
+      });
+    }
+  }
+
+  return tasks.length > 0 ? tasks : null;
+}
+
+// Tiny muted icons per progress step type (Cursor-style transcript lines)
+const PROGRESS_LINE_ICONS = {
+  THINKING: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>',
+  SCREEN: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>',
+  SEARCH: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>',
+  APP: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line></svg>',
+  EXECUTE: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>',
+  FILE: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>',
+  VERIFY: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
+  SUCCESS: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>',
+  ERROR: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>',
+  DOT: '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="3"></circle></svg>'
+};
+
+function getProgressLineIcon(type) {
+  const t = String(type || '').toUpperCase();
+  if (t === 'THINKING') return PROGRESS_LINE_ICONS.THINKING;
+  if (t === 'SCREEN' || t === 'MEDIA') return PROGRESS_LINE_ICONS.SCREEN;
+  if (t === 'SEARCH') return PROGRESS_LINE_ICONS.SEARCH;
+  if (t === 'EXECUTE') return PROGRESS_LINE_ICONS.EXECUTE;
+  if (t.includes('FILE') || t === 'LIST_DIR') return PROGRESS_LINE_ICONS.FILE;
+  if (t === 'VERIFY') return PROGRESS_LINE_ICONS.VERIFY;
+  if (t === 'SUCCESS') return PROGRESS_LINE_ICONS.SUCCESS;
+  if (t === 'ERROR') return PROGRESS_LINE_ICONS.ERROR;
+  if (t.includes('APP') || t === 'TYPE_TEXT' || t === 'HOTKEY' || t === 'CLICK' || t === 'DOUBLE_CLICK' || t === 'SCROLL' || t === 'WAIT' || t === 'OPEN_URL' || t === 'OPEN_FILE') return PROGRESS_LINE_ICONS.APP;
+  return PROGRESS_LINE_ICONS.DOT;
+}
+
+// Cursor-style transcript: muted one-line entries, no boxes or badges
+function renderActivityFeedHtml(stepsList) {
+  if (!stepsList || stepsList.length === 0) return '';
+
+  const stepsHtml = stepsList.map((step, index) => {
+    const typeStr = String(step.type || '').toUpperCase();
+    const stateClass = typeStr === 'ERROR' ? ' line-error' : (typeStr === 'SUCCESS' ? ' line-success' : '');
+    const newestClass = index === stepsList.length - 1 ? ' line-new' : '';
+    const thumbHtml = step.thumbnail
+      ? `<img class="agent-line-thumb" src="${step.thumbnail}" alt="screenshot" />`
+      : '';
+    const appHtml = step.appName
+      ? `<span class="agent-app-chip">${step.appIcon
+          ? `<img src="${step.appIcon}" alt="" class="agent-app-logo" />`
+          : `<span class="agent-app-logo agent-app-logo-fallback">${escapeHtml(step.appName.substring(0, 1).toUpperCase())}</span>`
+        }<span>${escapeHtml(step.appName)}</span></span>`
+      : '';
+
+    return `
+      <div class="agent-progress-line${stateClass}${newestClass}">
+        <span class="agent-line-icon">${getProgressLineIcon(step.type)}</span>
+        <span class="agent-line-text">${escapeHtml(step.label || step.text || '')}</span>
+        ${appHtml}
+        ${thumbHtml}
+      </div>
+    `;
+  }).join('');
+
+  return `<div class="agent-progress-feed">${stepsHtml}</div>`;
+}
+
+// Shimmering gray status line for the action currently running (like Cursor's
+// "Planning next moves" indicator)
+function getAgentShimmerLineHtml(text) {
+  return `<div class="agent-shimmer-line">${escapeHtml(String(text || 'Working...'))}</div>`;
+}
+
+function formatWorkDuration(ms) {
+  const totalSeconds = Math.max(1, Math.round((ms || 0) / 1000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function isOllamaMemoryError(detail) {
+  return /cudaMalloc failed|out[-\s]?of[-\s]?memory|not enough memory|memory limit|allocate compute|requires more (system )?memory|failed to allocate|alloc(?:ate)?[_\s-]*(?:tensor|buffer)|cpu buffer|ggml_assert\(buffer\)|projector cpu offload|server startup failed|exit status 0xc0000409|stack-based buffer/i.test(detail || '');
+}
+
+let _lastOllamaModel = '';
+
+async function unloadOllamaModelsExcept(modelToKeep = '') {
+  try {
+    const psResponse = await fetch('http://127.0.0.1:11434/api/ps');
+    if (!psResponse.ok) return;
+    const payload = await psResponse.json();
+    const running = Array.isArray(payload.models) ? payload.models : [];
+    for (const model of running) {
+      const name = normalizeModelName(model);
+      if (!name || (modelToKeep && name.toLowerCase() === modelToKeep.toLowerCase())) continue;
+      await fetch('http://127.0.0.1:11434/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: name, keep_alive: 0 })
+      });
+      logTrace(`Released inactive Ollama model from memory: ${name}`, 'system');
+    }
+  } catch (e) {
+    logTrace(`Could not release inactive Ollama models: ${e.message}`, 'system');
+  }
+}
+
+function hasDedicatedGpuAvailable(sysEnv = {}) {
+  if (sysEnv.hasDedicatedGpu || (sysEnv.hardware && sysEnv.hardware.hasDedicatedGpu)) return true;
+  const gpus = [
+    ...(Array.isArray(sysEnv.gpuDetails) ? sysEnv.gpuDetails : []),
+    ...(sysEnv.hardware && Array.isArray(sysEnv.hardware.gpuDetails) ? sysEnv.hardware.gpuDetails : [])
+  ];
+  return gpus.some(gpu => gpu && gpu.dedicated);
+}
+
+function getOllamaGpuOptions(sysEnv = {}, modelName = activeModel) {
+  // No dedicated GPU (e.g. Intel iGPU): force CPU + system RAM so Ollama never
+  // attempts a VRAM allocation that fails mid-task.
+  if (!hasDedicatedGpuAvailable(sysEnv)) return { num_gpu: 0 };
+
+  const dedicatedGpu = sysEnv.dedicatedGpu || sysEnv.hardware?.dedicatedGpu || {};
+  const vramGB = Number(dedicatedGpu.vramGB || 0);
+  const isVisionModel = modelSupportsVision(modelName);
+
+  // A 4 GB RTX cannot hold llava's single ~4.03 GB full-offload allocation.
+  // Split vision layers across RTX VRAM and host RAM instead. Empirically,
+  // 16 layers is the stable balance for a 4 GB RTX 2050.
+  if (isVisionModel && vramGB > 0 && vramGB <= 4.5) return { num_gpu: 16 };
+  if (isVisionModel && vramGB > 4.5 && vramGB <= 6.5) return { num_gpu: 24 };
+
+  // Larger-VRAM cards can use full layer offload. Allocation failures are
+  // handled below with model unloading and a compact-context retry.
+  return { num_gpu: 999 };
+}
+
+function buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet = '', hasVisualContext = false) {
+  const drivesDesc = (sysEnv.drives || []).map(d => `${d.letter} (${d.description || 'Disk'}, ${d.totalGB || '?'}GB total, ${d.freeGB || '?'}GB free)`).join(', ') || 'C:';
+  return {
+    userName,
+    sysEnv,
+    realtime,
+    drivesDesc,
+    memorySnippet,
+    hasVisualContext,
+    screenCaptureEnabled: isScreenCaptureEnabled()
+  };
+}
+
+function resolveAgentSystemPrompt(context) {
+  if (window.UltronAgentPrompt && typeof window.UltronAgentPrompt.buildUltronAgentSystemPrompt === 'function') {
+    return window.UltronAgentPrompt.buildUltronAgentSystemPrompt(context);
+  }
+  return null;
+}
+
+function getAgentProgressMessage(category, context = {}) {
+  if (window.UltronAgentPrompt && typeof window.UltronAgentPrompt.getAgentProgressMessage === 'function') {
+    return window.UltronAgentPrompt.getAgentProgressMessage(category, context);
+  }
+  return context.fallback || `${category}...`;
+}
+
+function isScreenCaptureEnabled() {
+  if (window.localStorage.getItem('ultron-screen-aware-enabled') === 'false') return false;
+  return window.localStorage.getItem('ultron-screen-capture-enabled') !== 'false';
+}
+
+function modelSupportsVision(modelName) {
+  return getModelCapabilities(modelName).isVision;
+}
+
+function mergeImagePayloads(...groups) {
+  const merged = [];
+  const seen = new Set();
+  for (const group of groups) {
+    if (!Array.isArray(group)) continue;
+    for (const payload of group) {
+      if (!payload || !payload.data) continue;
+      const key = String(payload.data).slice(0, 96);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(payload);
+    }
+  }
+  return merged.slice(-2);
+}
+
+async function captureScreenForAgent(options = {}) {
+  if (!isScreenCaptureEnabled() || !window.ultronAPI || typeof window.ultronAPI.captureScreen !== 'function') {
+    return null;
+  }
+  try {
+    const neverCaptureApps = (window.localStorage.getItem('ultron-never-capture-apps') || '')
+      .split(',').map(item => item.trim()).filter(Boolean);
+    const result = await window.ultronAPI.captureScreen({
+      ...options,
+      appName: options.appName || _activeAgentApp?.name || '',
+      neverCaptureApps
+    });
+    if (!result || !result.success || !result.data) return null;
+    return {
+      mimeType: result.mimeType || 'image/png',
+      data: result.data,
+      width: result.width,
+      height: result.height,
+      label: result.label || options.label || 'desktop',
+      sourceName: result.sourceName || 'Screen',
+      thumbnailDataUrl: `data:${result.mimeType || 'image/png'};base64,${result.data}`
+    };
+  } catch (err) {
+    logTrace(`Screen capture failed: ${err.message}`, 'system');
+    return null;
+  }
+}
+
+async function readScreenTextForAgent(options = {}) {
+  if (!isScreenCaptureEnabled() || !window.ultronAPI || typeof window.ultronAPI.ocrScreen !== 'function') {
+    return null;
+  }
+  try {
+    const neverCaptureApps = (window.localStorage.getItem('ultron-never-capture-apps') || '')
+      .split(',').map(item => item.trim()).filter(Boolean);
+    const result = await window.ultronAPI.ocrScreen({
+      ...options,
+      appName: options.appName || _activeAgentApp?.name || '',
+      neverCaptureApps
+    });
+    if (!result?.success) {
+      logTrace(result?.error || 'Windows OCR could not read the screen.', 'system');
+      return null;
+    }
+    return result;
+  } catch (err) {
+    logTrace(`Windows OCR failed: ${err.message}`, 'error');
+    return null;
+  }
+}
+
+function pushAgentProgressStep(activitySteps, category, context = {}) {
+  const label = getAgentProgressMessage(category, context);
+  activitySteps.push({ type: category, label, isProgress: true });
+  return label;
+}
+
+const INTERACTIVE_APP_ACTIONS = new Set(['OPEN_APP', 'FOCUS_APP', 'OPEN_URL', 'OPEN_FILE', 'TYPE_TEXT', 'HOTKEY', 'CLICK', 'DOUBLE_CLICK', 'SCROLL']);
+
+// Screenshots only help when the active model can actually see them
+function canUseScreenAnalysis() {
+  return isScreenCaptureEnabled() && modelSupportsVision(activeModel);
+}
+
+function shouldContinueAgentLoopAfterTool(toolCall) {
+  if (!toolCall) return false;
+  if (toolCall.type === 'CAPTURE_SCREEN') return true;
+  if (toolCall.type === 'APP_ACTION') {
+    if (toolCall.action === 'WAIT' || toolCall.action === 'LIST_APPS') return true;
+    if (['CLICK', 'DOUBLE_CLICK', 'SCROLL'].includes(toolCall.action)) {
+      return isScreenCaptureEnabled();
+    }
+    return INTERACTIVE_APP_ACTIONS.has(toolCall.action) && isScreenCaptureEnabled();
+  }
+  if (toolCall.type === 'WRITE_FILE' || toolCall.type === 'READ_FILE') {
+    return isScreenCaptureEnabled();
+  }
+  return false;
+}
+
+function getExplicitTaskRequirements(userPrompt) {
+  const prompt = String(userPrompt || '');
+  const opensApp = /\b(open|launch|start|focus|switch to)\b/i.test(prompt);
+  return {
+    needsTextEntry: opensApp && /\b(type|write|enter|paste|fill)\b/i.test(prompt),
+    needsSave: /\b(save|save as)\b/i.test(prompt)
+  };
+}
+
+function hasUnfinishedExplicitTask(userPrompt, executedActions = []) {
+  const requirements = getExplicitTaskRequirements(userPrompt);
+  const actions = new Set(executedActions.map(action => String(action || '').toUpperCase()));
+  if (requirements.needsTextEntry && !actions.has('TYPE_TEXT')) return true;
+  if (requirements.needsSave && !actions.has('HOTKEY')) return true;
+  return false;
+}
+
+function buildMissingActionInstruction(userPrompt, executedActions = []) {
+  const requirements = getExplicitTaskRequirements(userPrompt);
+  const missing = [];
+  if (requirements.needsTextEntry && !executedActions.includes('TYPE_TEXT')) {
+    missing.push('Generate the content requested by the user and output a TYPE_TEXT tool call containing the full content.');
+  }
+  if (requirements.needsSave && !executedActions.includes('HOTKEY')) {
+    missing.push('After entering the content, output a HOTKEY tool call for ctrl+s.');
+  }
+  return `The task is not complete. Completed app actions: ${executedActions.join(', ') || 'none'}.
+Original request: ${userPrompt}
+Missing work: ${missing.join(' ')}
+Output exactly one required JSON tool call and no explanatory text.`;
+}
+
+function shouldCreateAgentTaskPlan(userPrompt, firstToolCall) {
+  const prompt = String(userPrompt || '');
+  const requirements = getExplicitTaskRequirements(prompt);
+  return firstToolCall?.type === 'APP_SEQUENCE'
+    || requirements.needsTextEntry
+    || requirements.needsSave
+    || /\b(and then|then|after that|multiple|several|workflow)\b/i.test(prompt);
+}
+
+function buildAgentTaskPlan(userPrompt, firstToolCall) {
+  const requirements = getExplicitTaskRequirements(userPrompt);
+  const tasks = [];
+  const firstAction = firstToolCall?.type === 'APP_ACTION'
+    ? String(firstToolCall.action || '').toUpperCase()
+    : String(firstToolCall?.type || '').toUpperCase();
+
+  if (firstToolCall?.type === 'APP_SEQUENCE') {
+    for (const action of firstToolCall.actions || []) {
+      tasks.push({
+        action: String(action.action || '').toUpperCase(),
+        text: humanizeToolCallLabel({ type: 'APP_ACTION', ...action }),
+        completed: false,
+        status: 'pending'
+      });
+    }
+  } else if (firstToolCall) {
+    tasks.push({
+      action: firstAction,
+      text: humanizeToolCallLabel(firstToolCall),
+      completed: false,
+      status: 'pending'
+    });
+  }
+
+  if (requirements.needsTextEntry && !tasks.some(task => task.action === 'TYPE_TEXT')) {
+    tasks.push({ action: 'TYPE_TEXT', text: 'Write the requested content', completed: false, status: 'pending' });
+  }
+  if (requirements.needsSave && !tasks.some(task => task.action === 'HOTKEY')) {
+    tasks.push({ action: 'HOTKEY', text: 'Save the changes', completed: false, status: 'pending' });
+  }
+  return tasks;
+}
+
+function selectBestVisionModel() {
+  if (geminiConnectionState === 'connected' && ONLINE_GEMINI_MODELS.length) {
+    return ONLINE_GEMINI_MODELS.find(model => model.name.includes('flash'))?.name
+      || ONLINE_GEMINI_MODELS[0].name;
+  }
+  const visionPrefs = ['gemini', 'llava', 'llama3.2-vision', 'minicpm-v', 'moondream', 'bakllava'];
+  const models = (installedModelsList || []).map(m => normalizeModelName(m)).filter(Boolean);
+  for (const pref of visionPrefs) {
+    const hit = models.find(name => name.toLowerCase().includes(pref));
+    if (hit) return hit;
+  }
+  return models.find(name => getModelCapabilities(name).isVision) || '';
+}
+
+let _visionAutoSwitchFrom = null;
+
+async function ensureVisionModelForScreen() {
+  if (modelSupportsVision(activeModel)) return activeModel;
+  const visionModel = selectBestVisionModel();
+  if (!visionModel) return activeModel;
+
+  // Local vision models (llava etc.) need several GB of memory. On systems
+  // without a dedicated GPU they load into system RAM, so skip the switch when
+  // RAM is starved. With a dedicated GPU (VRAM offload) this guard is skipped.
+  if (!visionModel.toLowerCase().includes('gemini')) {
+    try {
+      const sysEnv = await getSystemContext();
+      if (!hasDedicatedGpuAvailable(sysEnv)) {
+        const metrics = await window.ultronAPI.getLiveMetrics();
+        if (metrics && metrics.success && parseFloat(metrics.freeMemoryGB) < 3.5) {
+          logTrace(`Skipping vision model auto-switch: only ${metrics.freeMemoryGB} GB RAM free (needs ~4 GB). Continuing with ${activeModel}.`, 'system');
+          return activeModel;
+        }
+      }
+    } catch (e) {}
+  }
+
+  _visionAutoSwitchFrom = activeModel;
+  activeModel = visionModel;
+  syncModelAttachmentCapabilities();
+  const label = document.getElementById('model-selector-label');
+  if (label) label.textContent = activeModel;
+  logTrace(`Auto-switched to vision model: ${activeModel}`, 'system');
+  return activeModel;
+}
+
+function revertVisionModelSwitch(reason = 'load failure') {
+  if (!_visionAutoSwitchFrom) return false;
+  logTrace(`Vision model ${activeModel} failed (${reason}). Reverting to ${_visionAutoSwitchFrom} and continuing without screen analysis.`, 'system');
+  activeModel = _visionAutoSwitchFrom;
+  _visionAutoSwitchFrom = null;
+  syncModelAttachmentCapabilities();
+  const label = document.getElementById('model-selector-label');
+  if (label) label.textContent = activeModel;
+  return true;
+}
+
+function isModelLoadFailureResponse(text) {
+  return typeof text === 'string' && (
+    text.includes('Ollama Memory Limit Exceeded') ||
+    text.includes('Ollama GPU Memory Limit Exceeded') ||
+    text.includes('Ollama Model Error')
+  );
+}
+
+function attachImagesToChatUserMessage(message, imagePayloads) {
+  if (!message || message.role !== 'user' || !Array.isArray(imagePayloads) || imagePayloads.length === 0) {
+    return message;
+  }
+  const images = imagePayloads.map(item => item.data).filter(Boolean);
+  if (images.length === 0) return message;
+  return { ...message, images };
+}
+
 // Local session storage matrix to support natural language keyword scans
 let conversationsStore = {};
 
@@ -84,11 +636,67 @@ function nowIso() {
 }
 
 function isThinkingMarkup(text) {
-  return typeof text === 'string' && (text.includes('thinking-container') || text.includes('thinking-dot') || text.includes('web-search-status-wrapper') || text.includes('web-search-shimmer-text') || text.includes('step-exec-card'));
+  return typeof text === 'string' && (text.includes('thinking-container') || text.includes('thinking-dot') || text.includes('web-search-status-wrapper') || text.includes('web-search-shimmer-text') || text.includes('step-exec-card') || text.includes('agent-shimmer-line'));
 }
 
 function isRichResultMarkup(text) {
   return typeof text === 'string' && text.includes('ultron-search-experience');
+}
+
+// Agent execution widgets are pre-built HTML and must never pass through the markdown parser
+function isAgentWidgetMarkup(text) {
+  return typeof text === 'string' && (
+    text.includes('task-execution-widget') ||
+    text.includes('ai-activity-live-box') ||
+    text.includes('agent-progress-feed') ||
+    text.includes('agent-work-summary') ||
+    text.includes('agent-final-response')
+  );
+}
+
+// .message-content uses white-space: pre-wrap, so whitespace between widget tags
+// renders as large empty gaps. Collapse it (widget HTML never contains <pre> code).
+function collapseWidgetWhitespace(html) {
+  return String(html || '').replace(/>\s+</g, '><').trim();
+}
+
+// Join live-progress widget fragments into one whitespace-safe HTML string
+function composeAgentLiveContent(...parts) {
+  return collapseWidgetWhitespace(parts.filter(Boolean).join(''));
+}
+
+// Compose the final agent chat message: the work transcript collapses into a
+// "Worked for Xs" summary (Cursor-style), followed by the actual answer.
+// Widgets stay raw HTML; the answer is converted from Markdown up-front so the
+// mix never hits the markdown parser again.
+function composeAgentFinalContent(agentSubgoals, activitySteps, finalResponse, durationMs = 0) {
+  const widgetsHtml = collapseWidgetWhitespace(`${renderTaskWidgetHtml(agentSubgoals)}${renderActivityFeedHtml(activitySteps)}`);
+  let responseHtml = '';
+
+  if (finalResponse && typeof finalResponse === 'string') {
+    if (isRichResultMarkup(finalResponse) || isAgentWidgetMarkup(finalResponse)) {
+      responseHtml = finalResponse;
+    } else {
+      try {
+        responseHtml = window.ultronAPI.parseMarkdown(finalResponse);
+      } catch (e) {
+        responseHtml = escapeHtml(finalResponse);
+      }
+    }
+  }
+
+  const summaryLabel = durationMs > 0 ? `Worked for ${formatWorkDuration(durationMs)}` : 'View work';
+  const workHtml = collapseWidgetWhitespace(`
+    <details class="agent-work-summary">
+      <summary>
+        <svg class="work-summary-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        <span>${summaryLabel}</span>
+      </summary>
+      <div class="agent-work-body">${widgetsHtml}</div>
+    </details>
+  `);
+
+  return `${workHtml}<div class="agent-final-response">${responseHtml}</div>`;
 }
 
 function escapeHtml(value) {
@@ -208,9 +816,7 @@ function setSendingState(isSending) {
 }
 
 function renderMessageContent(content, text) {
-  if (isThinkingMarkup(text)) {
-    content.innerHTML = text;
-  } else if (isRichResultMarkup(text)) {
+  if (isThinkingMarkup(text) || isRichResultMarkup(text) || isAgentWidgetMarkup(text)) {
     content.innerHTML = text;
   } else {
     content.innerHTML = window.ultronAPI.parseMarkdown(text || '');
@@ -362,16 +968,17 @@ async function typeMessageResponse(contentElement, fullText, options = {}) {
   // Hide message actions while typing / thinking
   if (actionsDiv) actionsDiv.style.display = 'none';
 
-  if (!fullText || fullText.length < 10 || isThinkingMarkup(fullText) || options.instant) {
+  if (!fullText || fullText.length < 10 || isThinkingMarkup(fullText) || isRichResultMarkup(fullText) || isAgentWidgetMarkup(fullText) || options.instant) {
     renderMessageContent(contentElement, fullText);
     formatCodeBlocks(contentElement);
-    
+    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+
     if (actionsDiv && !isThinkingMarkup(fullText)) {
       actionsDiv.style.display = 'flex';
       if (btnCopy) {
         btnCopy.onclick = (e) => {
           e.stopPropagation();
-          navigator.clipboard.writeText(fullText);
+          navigator.clipboard.writeText(extractPlainTextFromMessage(fullText) || fullText);
           const span = btnCopy.querySelector('span');
           if (span) span.textContent = 'Copied!';
           btnCopy.style.color = '#34d399';
@@ -474,7 +1081,7 @@ function renderChatMessage(sender, text, isAi = false) {
     
     btnCopy.addEventListener('click', (e) => {
       e.stopPropagation();
-      navigator.clipboard.writeText(text);
+      navigator.clipboard.writeText(extractPlainTextFromMessage(text) || text);
       const span = btnCopy.querySelector('span');
       if (span) span.textContent = 'Copied!';
       btnCopy.style.color = '#34d399';
@@ -892,32 +1499,240 @@ async function refreshOllamaStatus() {
 }
 
 // Trace Logger utility
+// ==========================================
+// AGENT SOUNDS (drop files into Assets/sounds/)
+// ==========================================
+// Supported filenames (first match wins):
+//   task-complete.{mp3,wav,ogg}  — every finished agent task
+//   permission.{mp3,wav,ogg}     — permission / authorization prompt
+//   question.{mp3,wav,ogg}       — agent asks the user a question
+const ULTRON_SOUND_FILES = {
+  task_complete: ['task-complete', 'complete', 'success'],
+  permission: ['permission', 'alert', 'notify'],
+  question: ['question', 'ask', 'prompt']
+};
+const ULTRON_SOUND_EXTS = ['mp3', 'wav', 'ogg'];
+const _soundCache = {};
+let _soundsUnlocked = false;
+
+function unlockUltronSounds() {
+  _soundsUnlocked = true;
+}
+
+['pointerdown', 'keydown', 'click'].forEach(evt => {
+  document.addEventListener(evt, unlockUltronSounds, { once: true, capture: true });
+});
+
+function resolveSoundCandidates(kind) {
+  const bases = ULTRON_SOUND_FILES[kind] || [];
+  const customUrl = window.localStorage.getItem(`ultron-sound-file-${kind}`) || '';
+  const urls = customUrl ? [customUrl] : [];
+  for (const base of bases) {
+    for (const ext of ULTRON_SOUND_EXTS) {
+      urls.push(`../../Assets/sounds/${base}.${ext}`);
+    }
+  }
+  return urls;
+}
+
+function isSoundEnabled(kind) {
+  if (window.localStorage.getItem('ultron-sound-enabled') === 'false') return false;
+  const keyMap = {
+    task_complete: 'ultron-sound-task-complete',
+    permission: 'ultron-sound-permission',
+    question: 'ultron-sound-question'
+  };
+  const key = keyMap[kind];
+  if (key && window.localStorage.getItem(key) === 'false') return false;
+  return true;
+}
+
+function getSoundVolume() {
+  const raw = window.localStorage.getItem('ultron-sound-volume');
+  const n = raw != null ? Number(raw) : 55;
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n / 100)) : 0.55;
+}
+
+function playUltronSound(kind) {
+  if (!_soundsUnlocked || !isSoundEnabled(kind)) return;
+  try {
+    const urls = resolveSoundCandidates(kind);
+    if (!urls.length) return;
+
+    const tryPlay = (index) => {
+      if (index >= urls.length) return;
+      const url = urls[index];
+      let audio = _soundCache[url];
+      if (!audio) {
+        audio = new Audio(url);
+        audio.preload = 'auto';
+        const baseVol = getSoundVolume();
+        audio.volume = kind === 'permission' ? baseVol * 1.1 : baseVol;
+        _soundCache[url] = audio;
+        audio.addEventListener('error', () => {
+          delete _soundCache[url];
+          tryPlay(index + 1);
+        }, { once: true });
+      }
+      audio.currentTime = 0;
+      const playPromise = audio.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => tryPlay(index + 1));
+      }
+    };
+
+    tryPlay(0);
+  } catch (err) {
+    // Silent — missing sound files are expected until the user adds them
+  }
+}
+
+function expandRightSidebarSection(sectionId) {
+  const section = document.getElementById(sectionId);
+  if (section) section.classList.remove('collapsed');
+}
+
+function ensureRightSidebarVisible() {
+  if (!rightSidebar || !rightSidebar.classList.contains('collapsed')) return;
+  rightSidebar.classList.remove('collapsed');
+  if (rightSidebarResizer) rightSidebarResizer.classList.remove('resizer-hidden');
+  if (btnToggleRightSidebarOpen) btnToggleRightSidebarOpen.classList.add('hidden');
+  if (!rightSidebar.style.width) rightSidebar.style.width = '340px';
+}
+
+function renderClarifyAppCard(query, suggestions = []) {
+  const buttons = suggestions.slice(0, 4).map(name =>
+    `<button type="button" class="clarify-choice-btn" data-app-choice="${escapeHtml(name)}">${escapeHtml(name)}</button>`
+  ).join('');
+  return `
+    <div class="agent-clarify-card">
+      <p><strong>Which app did you mean?</strong> "${escapeHtml(query)}" matches several installed apps.</p>
+      <div class="clarify-choice-row">${buttons}</div>
+    </div>`;
+}
+
+function renderErrorRecoveryCard(errorCode, message, context = {}) {
+  const actions = [];
+  if (errorCode === 'APP_NOT_FOUND' || errorCode === 'APP_AMBIGUOUS') {
+    actions.push('<button type="button" class="error-fix-btn" data-fix-action="open-settings-apps">Open Apps Settings</button>');
+  }
+  if (errorCode === 'CAPTURE_DISABLED' || errorCode === 'CAPTURE_FAILED') {
+    actions.push('<button type="button" class="error-fix-btn" data-fix-action="enable-screen">Enable Screen Capture</button>');
+    actions.push('<button type="button" class="error-fix-btn" data-fix-action="switch-vision-model">Switch Vision Model</button>');
+  }
+  if (/ollama|model|offline/i.test(message)) {
+    actions.push('<button type="button" class="error-fix-btn" data-fix-action="open-models">Open Models Settings</button>');
+  }
+  if (context.suggestions && context.suggestions.length) {
+    context.suggestions.slice(0, 3).forEach(name => {
+      actions.push(`<button type="button" class="error-fix-btn" data-fix-action="open-app" data-app-name="${escapeHtml(name)}">Try ${escapeHtml(name)}</button>`);
+    });
+  }
+  return `
+    <div class="agent-error-recovery-card">
+      <p>${escapeHtml(message)}</p>
+      ${actions.length ? `<div class="error-fix-row">${actions.join('')}</div>` : ''}
+    </div>`;
+}
+
+function renderUndoActionCard() {
+  return `<div class="agent-undo-card"><button type="button" class="error-fix-btn" data-fix-action="undo-last">Undo last file change</button></div>`;
+}
+
+function getLearnedMemorySnippet() {
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.getTaskMemorySnippet === 'function') {
+    const snippet = window.UltronAgentMemory.getTaskMemorySnippet(5);
+    return snippet ? `\n\nSELF-LEARNING MEMORY (your past task outcomes for reference):\n${snippet}` : '';
+  }
+  return _learnedTaskMemory.length > 0
+    ? `\n\nSELF-LEARNING MEMORY (your past task outcomes for reference):\n${_learnedTaskMemory.slice(-5).map((m, i) => `${i + 1}. ${m}`).join('\n')}`
+    : '';
+}
+
+function persistTaskMemory(summary) {
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.pushTaskMemory === 'function') {
+    window.UltronAgentMemory.pushTaskMemory(summary);
+  }
+  _learnedTaskMemory.push(summary);
+  if (_learnedTaskMemory.length > 20) _learnedTaskMemory.shift();
+}
+
+function looksLikeAgentQuestion(text) {
+  if (!text || typeof text !== 'string') return false;
+  const plain = extractPlainTextFromMessage(text) || text;
+  if (plain.length > 400) return false;
+  return /(\?\s*$)|(\b(can you|could you|would you|please (confirm|choose|tell|provide|approve|allow))\b)/i.test(plain.trim());
+}
+
+let _traceLogFilter = 'all';
+
 function logTrace(message, type = 'local') {
+  if (!traceLogsStream) return;
+  if (_traceLogFilter !== 'all' && _traceLogFilter !== type) return;
+
+  const empty = traceLogsStream.querySelector('.trace-empty');
+  if (empty) empty.remove();
+
   const line = document.createElement('div');
-  line.className = `trace-line text-xs py-0.5 ${type === 'system' ? 'trace-sys' : ''}`;
-  
-  const timestamp = new Date().toLocaleTimeString();
-  line.textContent = `[${timestamp}] [${type.toUpperCase()}] ${message}`;
-  
+  const typeClass = type === 'system' ? 'trace-sys'
+    : type === 'error' ? 'trace-error'
+    : type === 'permission' ? 'trace-permission'
+    : type === 'local' ? 'trace-local'
+    : '';
+  line.className = `trace-line ${typeClass}`.trim();
+
+  const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  line.textContent = `[${timestamp}] ${message}`;
+  line.title = `[${type.toUpperCase()}] ${message}`;
+
+  // Keep the log stream bounded
+  while (traceLogsStream.children.length >= 200) {
+    traceLogsStream.removeChild(traceLogsStream.firstChild);
+  }
+
   traceLogsStream.appendChild(line);
   traceLogsStream.scrollTop = traceLogsStream.scrollHeight;
+  expandRightSidebarSection('section-trace');
+}
+
+function initTraceEmptyState() {
+  if (!traceLogsStream || traceLogsStream.children.length > 0) return;
+  const empty = document.createElement('div');
+  empty.className = 'trace-empty';
+  empty.textContent = 'Live agent logs will appear here.';
+  traceLogsStream.appendChild(empty);
 }
 
 // Checklist rendering manager
 function renderChecklist(tasks) {
+  if (!taskChecklistContainer) return;
   taskChecklistContainer.innerHTML = '';
+
+  if (!tasks || tasks.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'checklist-empty';
+    empty.textContent = 'No active tasks yet. Ask Ultron to run something.';
+    taskChecklistContainer.appendChild(empty);
+    return;
+  }
+
   tasks.forEach((task) => {
+    const isCompleted = Boolean(task.completed || task.status === 'completed');
+    const isFailed = task.status === 'failed';
+    const isInProgress = !isCompleted && !isFailed && (task.status === 'in_progress' || task.status === 'running');
+
     const node = document.createElement('div');
-    node.className = `task-node flex items-start gap-2 text-xs transition-all ${task.completed ? 'completed' : ''}`;
-    
+    node.className = `task-node${isCompleted ? ' completed' : ''}${isFailed ? ' failed' : ''}${isInProgress ? ' in-progress' : ''}`;
+
+    const mark = isCompleted ? '✓' : (isFailed ? '!' : (isInProgress ? '…' : ''));
     node.innerHTML = `
-      <div class="task-check">
-        ${task.completed ? '✓' : ''}
-      </div>
-      <span class="task-text">${task.text}</span>
+      <div class="task-check">${mark}</div>
+      <span class="task-text">${escapeHtml(task.text || 'Task step')}</span>
     `;
     taskChecklistContainer.appendChild(node);
   });
+
+  expandRightSidebarSection('section-checklist');
 }
 
 // Append Message to Chat Container and save in conversationsStore
@@ -1100,6 +1915,12 @@ function sanitizeResponseText(text, userPrompt = '', options = {}) {
 function extractPlainTextFromMessage(text) {
   if (!text || typeof text !== 'string') return '';
   let cleaned = text;
+
+  // Extract only the answer from agent execution messages (skip widget markup)
+  const agentAnswerMatch = cleaned.match(/<div class="agent-final-response">([\s\S]*)<\/div>\s*$/i);
+  if (agentAnswerMatch) {
+    cleaned = agentAnswerMatch[1];
+  }
 
   // Extract answer text from search experience markup if present
   const answerMatch = cleaned.match(/<div class="search-answer">([\s\S]*?)<\/div>/i);
@@ -1374,10 +2195,15 @@ function classifyIntent(prompt) {
 }
 
 // Google Gemini API Online Model Provider
-async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMessages = []) {
+async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMessages = [], imagePayloads = []) {
   let officialModel = modelName;
   if (!officialModel || !officialModel.startsWith('gemini')) {
-    officialModel = 'gemini-3.0-flash';
+    officialModel = ONLINE_GEMINI_MODELS[0]?.name;
+  }
+  if (!officialModel) {
+    const connection = await connectGemini(apiKey);
+    if (!connection.success) throw new Error(connection.error);
+    officialModel = ONLINE_GEMINI_MODELS[0]?.name;
   }
 
   const makeCall = async (targetModel) => {
@@ -1397,7 +2223,15 @@ async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMess
 
     contents.push({
       role: 'user',
-      parts: [{ text: prompt }]
+      parts: [
+        { text: prompt },
+        ...(Array.isArray(imagePayloads) ? imagePayloads : []).filter(p => p && p.data).map(p => ({
+          inline_data: {
+            mime_type: p.mimeType || 'image/png',
+            data: p.data
+          }
+        }))
+      ]
     });
 
     const payload = {
@@ -1423,26 +2257,38 @@ async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMess
 
     const data = await response.json();
     const candidate = data.candidates && data.candidates[0];
-    if (!candidate || !candidate.content || !candidate.content.parts || !candidate.content.parts[0]) {
-      throw new Error('Gemini API returned an empty response.');
+    const output = candidate?.content?.parts
+      ?.map(part => part.text || '')
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+    if (!output) {
+      const blockReason = data.promptFeedback?.blockReason || candidate?.finishReason;
+      throw new Error(blockReason
+        ? `Gemini returned no text (${blockReason}).`
+        : 'Gemini API returned an empty response.');
     }
-
-    return candidate.content.parts[0].text;
+    return output;
   };
 
   try {
     return await makeCall(officialModel);
   } catch (err) {
-    if (err.message && (err.message.includes('no longer available') || err.message.includes('404') || err.message.includes('not found'))) {
-      logTrace(`Gemini model "${officialModel}" returned availability notice. Retrying with gemini-2.0-flash...`, 'system');
-      return await makeCall('gemini-2.0-flash');
+    if (err.message && (err.message.includes('no longer available') || err.message.includes('404') || err.message.includes('not found') || err.message.includes('not supported'))) {
+      const fallback = ONLINE_GEMINI_MODELS.find(model => model.name !== officialModel);
+      if (fallback) {
+        logTrace(`Gemini model "${officialModel}" unavailable. Retrying with ${fallback.name}...`, 'system');
+        activeModel = fallback.name;
+        updateModelSelectorLabel();
+        return await makeCall(fallback.name);
+      }
     }
     throw new Error(`Google Gemini API (${officialModel}): ${err.message}`);
   }
 }
 
 // Offline inference helper querying local servers or Online Cloud APIs
-async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null, customSystemPromptOverride = null) {
+async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null, customSystemPromptOverride = null, imagePayloads = []) {
   // Direct Ollama / Gemini API generate/chat loop.
   try {
     const memoryEnabled = window.localStorage.getItem('ultron-memory-enabled') !== 'false';
@@ -1466,11 +2312,14 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
     // Build drives description
     const drivesDesc = (sysEnv.drives || []).map(d => `${d.letter} (${d.description || 'Disk'}, ${d.totalGB || '?'}GB total, ${d.freeGB || '?'}GB free)`).join(', ') || 'C:';
 
-    const memorySnippet = _learnedTaskMemory.length > 0
-      ? `\n\nSELF-LEARNING MEMORY (your past task outcomes for reference):\n${_learnedTaskMemory.slice(-5).map((m, i) => `${i + 1}. ${m}`).join('\n')}`
-      : '';
+    const memorySnippet = getLearnedMemorySnippet();
 
-    const systemPrompt = customSystemPromptOverride || (intent === 'conversation'
+    const agentPromptContext = buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet, Array.isArray(imagePayloads) && imagePayloads.length > 0);
+    const agentSystemPrompt = intent === 'action' ? resolveAgentSystemPrompt(agentPromptContext) : null;
+    const visionImages = Array.isArray(imagePayloads) ? imagePayloads.filter(p => p && p.data) : [];
+    const canUseVision = visionImages.length > 0 && modelSupportsVision(activeModel);
+
+    const systemPrompt = customSystemPromptOverride || agentSystemPrompt || (intent === 'conversation'
       ? `You are Ultron, a warm, intelligent, articulate AI assistant created to help ${userName}. Respond directly to ${userName}'s prompt naturally, concisely, and conversationally in the first person.`
       : `You are Ultron, a warm, highly intelligent, articulate, and engaging AI assistant in a direct 1-on-1 personal conversation with ${userName}.
 
@@ -1491,6 +2340,9 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
 - Available Drives: ${drivesDesc}` : ''}${memorySnippet}`);
 
     let finalUserPrompt = prompt;
+    if (visionImages.length > 0 && !canUseVision && !activeModel.startsWith('gemini')) {
+      finalUserPrompt = `${prompt}\n\n[Note: Desktop screenshot(s) were captured for this step, but the active model "${activeModel}" does not support vision. Switch to a vision model (e.g. llava, gemini) to analyze screen content.]`;
+    }
     if (/\b(table|tabular|difference between|vs|comparison)\b/i.test(prompt) && !/\b(html\s+code|css\s+code|write\s+code)\b/i.test(prompt)) {
       finalUserPrompt = `${prompt}\n\n[Formatting Instruction: Respond using standard Markdown table syntax (| Header 1 | Header 2 |). DO NOT write HTML/CSS code.]`;
     }
@@ -1502,17 +2354,27 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
         return `⚠️ **Google Gemini API Key Required**\n\nYou selected **${activeModel}**, but no Gemini API key is configured.\n\n**To connect Google Gemini:**\n1. Open **Settings > Models**.\n2. Paste your free Google Gemini API Key from [Google AI Studio](https://aistudio.google.com/app/apikey).\n3. Click **Save Key**.`;
       }
       try {
-        const geminiOutput = await queryGeminiAPI(finalUserPrompt, systemPrompt, activeModel, apiKey, extraMessages);
+        const geminiOutput = await queryGeminiAPI(finalUserPrompt, systemPrompt, activeModel, apiKey, extraMessages, visionImages);
         return geminiOutput;
       } catch (err) {
         logTrace(`Gemini API execution error: ${err.message}`, 'system');
         return `⚠️ **Google Gemini API Error**\n\n${err.message}\n\nPlease verify your API key in **Settings > Models** or switch models in the top dropdown selector.`;
       }
     }
+
+    if (_lastOllamaModel.toLowerCase() !== activeModel.toLowerCase()) {
+      await unloadOllamaModelsExcept(activeModel);
+    }
+    _lastOllamaModel = activeModel;
     
     let bodyData;
     let endpoint = '/api/generate';
     const activeTemp = intent === 'conversation' ? 0.7 : 0.2;
+    const gpuOptions = getOllamaGpuOptions(sysEnv, activeModel);
+    if (gpuOptions.num_gpu) {
+      const gpuName = sysEnv.dedicatedGpu?.model || sysEnv.hardware?.dedicatedGpu?.model || 'dedicated GPU';
+      logTrace(`Dedicated GPU detected (${gpuName}). Enabling Ollama GPU layer offload for ${activeModel}.`, 'system');
+    }
     
     if (memoryEnabled && currentSessionId && conversationsStore[currentSessionId]) {
       // Sliding window memory (last 10 messages for rich context)
@@ -1547,17 +2409,24 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       if (chatMessages.length === 0 || chatMessages[chatMessages.length - 1].content !== userMessageContent) {
         chatMessages.push({ role: 'user', content: userMessageContent });
       }
+
+      if (canUseVision) {
+        const lastIdx = chatMessages.length - 1;
+        chatMessages[lastIdx] = attachImagesToChatUserMessage(chatMessages[lastIdx], visionImages);
+      }
       
       logTrace(`Sending chat payload to local LLM (${activeModel}) with ${chatMessages.length} messages...`, 'system');
       
-      const maxTokens = intent === 'conversation' ? 512 : 2048;
-      const ctxTokens = intent === 'conversation' ? 2048 : 4096;
+      const maxTokens = intent === 'conversation' ? 512 : 768;
+      const ctxTokens = canUseVision ? 1536 : 2048;
 
       bodyData = {
         model: activeModel,
         messages: chatMessages,
         stream: false,
+        keep_alive: '2m',
         options: {
+          ...gpuOptions,
           num_ctx: ctxTokens,
           num_predict: maxTokens,
           temperature: activeTemp
@@ -1566,15 +2435,18 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       endpoint = '/api/chat';
     } else {
       // Memory disabled: single prompt mode
-      const maxTokens = intent === 'conversation' ? 512 : 2048;
-      const ctxTokens = intent === 'conversation' ? 2048 : 4096;
+      const maxTokens = intent === 'conversation' ? 512 : 768;
+      const ctxTokens = canUseVision ? 1536 : 2048;
 
       bodyData = {
         model: activeModel,
         prompt: finalUserPrompt,
         system: activeModel && activeModel.toLowerCase().includes('gemma') ? undefined : systemPrompt,
         stream: false,
+        keep_alive: '2m',
+        ...(canUseVision ? { images: visionImages.map(p => p.data) } : {}),
         options: {
+          ...gpuOptions,
           num_ctx: ctxTokens,
           num_predict: maxTokens,
           temperature: activeTemp
@@ -1606,12 +2478,18 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
         errDetail = await response.text();
       }
 
-      // If GPU VRAM Out Of Memory error occurs, RETRY automatically on CPU RAM (num_gpu: 0) with compact context!
-      if (errDetail.includes('out-of-memory') || errDetail.includes('cudaMalloc failed') || errDetail.includes('allocate compute')) {
-        logTrace(`CUDA VRAM Out of Memory detected on GPU. Retrying ${activeModel} on CPU RAM (num_gpu: 0)...`, 'system');
+      // If Ollama hits GPU/system memory pressure, first release every resident
+      // model and retry compactly. Dedicated-GPU systems keep GPU offload;
+      // forcing CPU there can make the failure worse by exhausting system RAM.
+      if (isOllamaMemoryError(errDetail)) {
+        const compactGpuOptions = getOllamaGpuOptions(sysEnv, activeModel);
+        logTrace(`Ollama model allocation failed. Releasing resident models and retrying ${activeModel} with compact memory settings...`, 'system');
+        await unloadOllamaModelsExcept('');
         bodyData.options = bodyData.options || {};
-        bodyData.options.num_gpu = 0; // Offload model to system CPU RAM
-        bodyData.options.num_ctx = 1024; // Compact context footprint
+        Object.assign(bodyData.options, compactGpuOptions);
+        bodyData.options.num_ctx = 1024;
+        bodyData.options.num_predict = Math.min(bodyData.options.num_predict || 512, 512);
+        bodyData.keep_alive = '30s';
 
         try {
           const retryRes = await fetch(`http://127.0.0.1:11434${endpoint}`, {
@@ -1626,12 +2504,65 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
             return sanitizeResponseText(text, prompt);
           }
         } catch (retryErr) {
-          logTrace(`CPU RAM fallback retry failed: ${retryErr.message}`, 'error');
+          logTrace(`Compact model retry failed: ${retryErr.message}`, 'error');
+        }
+
+        const fallbackModel = selectBestInstalledLocalModel([activeModel]);
+        if (fallbackModel) {
+          logTrace(`Compact retry did not return a response. Falling back to installed lightweight model ${fallbackModel}...`, 'system');
+          await unloadOllamaModelsExcept('');
+          const fallbackBodyData = {
+            ...bodyData,
+            model: fallbackModel,
+            keep_alive: '2m',
+            ...(endpoint === '/api/chat' && Array.isArray(bodyData.messages) ? {
+              messages: bodyData.messages.map(message => {
+                const { images, ...textMessage } = message;
+                return textMessage;
+              })
+            } : {}),
+            ...(endpoint === '/api/generate' ? {
+              system: fallbackModel.toLowerCase().includes('gemma') ? undefined : systemPrompt,
+              images: undefined
+            } : {}),
+            options: {
+              ...(bodyData.options || {}),
+              num_gpu: 0,
+              num_ctx: 1024,
+              num_predict: intent === 'conversation' ? 512 : 1024
+            }
+          };
+
+          try {
+            const fallbackRes = await fetch(`http://127.0.0.1:11434${endpoint}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(fallbackBodyData)
+            });
+
+            if (fallbackRes.ok) {
+              const fallbackData = await fallbackRes.json();
+              const text = endpoint === '/api/chat' ? (fallbackData.message ? fallbackData.message.content : '') : fallbackData.response;
+              const cleaned = sanitizeResponseText(text, prompt);
+              activeModel = fallbackModel;
+              _lastOllamaModel = fallbackModel;
+              updateModelSelectorLabel();
+              syncModelAttachmentCapabilities();
+              return cleaned
+                ? `${cleaned}\n\n_Model note: the selected model could not load in available memory, so I continued with ${fallbackModel}._`
+                : cleaned;
+            }
+          } catch (fallbackErr) {
+            logTrace(`Installed model fallback failed: ${fallbackErr.message}`, 'error');
+          }
         }
       }
 
       logTrace(`Local LLM response HTTP error (${response.status}): ${errDetail}`, 'error');
-      return `⚠️ **Ollama GPU Memory Limit Exceeded (${activeModel})**\n\nYour GPU VRAM ran out of memory loading **${activeModel}** (` + '`cudaMalloc failed: out of memory`' + `).\n\n**Solutions:**\n1. Pull the lightweight 2B version (` + '`ollama pull gemma2:2b`' + `).\n2. Use lightweight models like ` + '`tinyllama:latest`' + ` / ` + '`phi3`' + `.\n3. Or select Google Gemini from top model dropdown for zero VRAM cloud inference.`;
+      if (!isOllamaMemoryError(errDetail)) {
+        return `Warning: **Ollama Model Error (${activeModel})**\n\nOllama returned an error before generating a response:\n\n` + '`' + `${errDetail || 'Unknown error'}` + '`' + `\n\nTry selecting another installed model from the model dropdown, or restart Ollama and send the prompt again.`;
+      }
+      return `⚠️ **Ollama Memory Limit Exceeded (${activeModel})**\n\n**${activeModel}** does not fit in the memory currently available on this PC. I released inactive models and retried with compact GPU/RAM settings, but it still could not load.\n\n**Solutions:**\n1. Close memory-heavy apps and try again.\n2. Use a lighter model (` + '`ollama pull gemma2:2b`' + `, ` + '`phi3`' + `, ` + '`tinyllama:latest`' + `).\n3. Or select Google Gemini from the top model dropdown for zero-RAM cloud inference.`;
     }
   } catch (e) {
     logTrace(`Local LLM offline loop exception: ${e.message}`, 'error');
@@ -1639,11 +2570,97 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
   }
 }
 
-const ONLINE_GEMINI_MODELS = [
-  { name: 'gemini-3.0-flash', tag: '3.0 FLASH', desc: 'Google Gemini 3.0 Flash (Ultra Fast & Multimodal Agent)' },
-  { name: 'gemini-3.0-pro', tag: '3.0 PRO', desc: 'Google Gemini 3.0 Pro (Autonomous Reasoning & Coding)' },
-  { name: 'gemini-3.5-pro', tag: '3.5 PRO', desc: 'Google Gemini 3.5 Pro (Frontier Agent Architecture)' }
-];
+let ONLINE_GEMINI_MODELS = [];
+let geminiConnectionState = 'disconnected';
+let geminiConnectionError = '';
+
+function geminiModelTag(name) {
+  return String(name || '')
+    .replace(/^gemini-/i, '')
+    .replace(/-/g, ' ')
+    .toUpperCase();
+}
+
+async function discoverGeminiModels(apiKey) {
+  const key = String(apiKey || '').trim();
+  if (!key) throw new Error('API key is empty.');
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error?.message || `Google API returned HTTP ${response.status}`);
+  }
+  const models = (payload.models || [])
+    .filter(model => {
+      const name = String(model.name || '').replace(/^models\//, '');
+      const methods = model.supportedGenerationMethods || [];
+      return name.startsWith('gemini-')
+        && methods.includes('generateContent')
+        && !/(embedding|aqa|imagen|image-generation|tts|robotics)/i.test(name);
+    })
+    .map(model => {
+      const name = String(model.name || '').replace(/^models\//, '');
+      return {
+        name,
+        tag: geminiModelTag(name),
+        desc: model.description || model.displayName || name,
+        inputTokenLimit: model.inputTokenLimit || 0,
+        outputTokenLimit: model.outputTokenLimit || 0
+      };
+    })
+    .sort((a, b) => {
+      const score = (model) => {
+        const name = model.name.toLowerCase();
+        if (name.includes('flash') && name.includes('latest')) return 0;
+        if (name.includes('flash')) return 1;
+        if (name.includes('pro') && name.includes('latest')) return 2;
+        if (name.includes('pro')) return 3;
+        return 4;
+      };
+      return score(a) - score(b) || a.name.localeCompare(b.name);
+    });
+  if (!models.length) throw new Error('No Gemini models supporting generateContent are available for this key.');
+  return models;
+}
+
+function updateGeminiConnectionBadge() {
+  const badge = document.getElementById('gemini-status-badge');
+  if (!badge) return;
+  const connected = geminiConnectionState === 'connected';
+  const connecting = geminiConnectionState === 'connecting';
+  badge.textContent = connected ? 'Connected' : (connecting ? 'Connecting…' : 'Not connected');
+  badge.style.background = connected ? 'rgba(34, 197, 94, 0.14)' : (connecting ? 'rgba(59, 130, 246, 0.14)' : 'rgba(161, 161, 170, 0.12)');
+  badge.style.color = connected ? '#4ade80' : (connecting ? '#60a5fa' : '#a1a1aa');
+  badge.style.borderColor = connected ? 'rgba(34, 197, 94, 0.35)' : (connecting ? 'rgba(59, 130, 246, 0.3)' : 'rgba(161, 161, 170, 0.25)');
+  badge.title = connected
+    ? `${ONLINE_GEMINI_MODELS.length} compatible model${ONLINE_GEMINI_MODELS.length === 1 ? '' : 's'} available`
+    : geminiConnectionError;
+}
+
+async function connectGemini(apiKey, options = {}) {
+  geminiConnectionState = 'connecting';
+  geminiConnectionError = '';
+  updateGeminiConnectionBadge();
+  try {
+    ONLINE_GEMINI_MODELS = await discoverGeminiModels(apiKey);
+    geminiConnectionState = 'connected';
+    updateGeminiConnectionBadge();
+    renderModelDropdownList();
+    if (options.selectFirst && ONLINE_GEMINI_MODELS.length) {
+      activeModel = ONLINE_GEMINI_MODELS[0].name;
+      updateModelSelectorLabel();
+    }
+    logTrace(`Gemini connected: ${ONLINE_GEMINI_MODELS.length} compatible models discovered.`, 'system');
+    return { success: true, models: ONLINE_GEMINI_MODELS };
+  } catch (err) {
+    ONLINE_GEMINI_MODELS = [];
+    geminiConnectionState = 'disconnected';
+    geminiConnectionError = err.message;
+    updateGeminiConnectionBadge();
+    renderModelDropdownList();
+    logTrace(`Gemini connection failed: ${err.message}`, 'error');
+    return { success: false, error: err.message };
+  }
+}
 
 function updateModelSelectorLabel() {
   if (!modelSelectorLabel) return;
@@ -1651,11 +2668,11 @@ function updateModelSelectorLabel() {
   let name = activeModel;
   
   if (!hasGeminiKey && (!name || name.toLowerCase().includes('gemini'))) {
-    const firstLocal = (installedModelsList && installedModelsList.length > 0) ? installedModelsList[0].name : 'tinyllama:latest';
+    const firstLocal = selectBestInstalledLocalModel() || 'phi3:latest';
     activeModel = firstLocal;
     name = firstLocal;
   } else if (!name) {
-    name = 'gemini-3.0-flash';
+    name = ONLINE_GEMINI_MODELS[0]?.name || selectBestInstalledLocalModel() || 'phi3:latest';
     activeModel = name;
   }
 
@@ -1671,6 +2688,8 @@ function updateModelSelectorLabel() {
     <img src="${logoSrc}" alt="Logo" style="width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; display: block; margin: 0; ${filterStyle}" />
     <span style="line-height: 1; display: inline-block; margin: 0; padding: 0;">${name}</span>
   `;
+
+  syncModelAttachmentCapabilities();
 }
 
 function renderModelDropdownList() {
@@ -1678,8 +2697,8 @@ function renderModelDropdownList() {
   
   const hasGeminiKey = Boolean((localStorage.getItem('ultron-gemini-api-key') || '').trim());
 
-  // Render Online Gemini Models section only if API key is configured
-  if (hasGeminiKey) {
+  // Render only models confirmed available for this API key.
+  if (hasGeminiKey && geminiConnectionState === 'connected' && ONLINE_GEMINI_MODELS.length > 0) {
     const onlineHeader = document.createElement('div');
     onlineHeader.className = 'model-dropdown-section-title';
     onlineHeader.style.cssText = 'padding: 8px 12px 4px 12px; font-size: 11px; font-weight: 600; color: #60a5fa; letter-spacing: 0.02em; text-transform: none;';
@@ -1696,7 +2715,8 @@ function renderModelDropdownList() {
         </div>
         <span class="model-badge" style="background: transparent !important; color: #ffffff !important; border: none !important; padding: 0; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">${model.tag}</span>
       `;
-      item.addEventListener('click', () => {
+      item.addEventListener('click', async () => {
+        await unloadOllamaModelsExcept('');
         activeModel = model.name;
         updateModelSelectorLabel();
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
@@ -1710,7 +2730,7 @@ function renderModelDropdownList() {
   } else {
     // If activeModel is currently a Gemini model but no key exists, fallback to first local offline model
     if (activeModel && activeModel.toLowerCase().includes('gemini')) {
-      const firstLocal = (installedModelsList && installedModelsList.length > 0) ? installedModelsList[0].name : 'tinyllama:latest';
+      const firstLocal = selectBestInstalledLocalModel() || 'phi3:latest';
       activeModel = firstLocal;
       updateModelSelectorLabel();
     }
@@ -1726,7 +2746,7 @@ function renderModelDropdownList() {
   const map = new Map();
   (installedModelsList || []).forEach(m => map.set(m.name, m));
   const uniqueModels = Array.from(map.values());
-  
+
   if (uniqueModels.length === 0) {
     const emptyItem = document.createElement('div');
     emptyItem.className = 'model-dropdown-item disabled';
@@ -1750,7 +2770,8 @@ function renderModelDropdownList() {
         </div>
         <span class="model-badge" style="background: transparent !important; color: #ffffff !important; border: none !important; padding: 0; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">${badgeText}</span>
       `;
-      item.addEventListener('click', () => {
+      item.addEventListener('click', async () => {
+        await unloadOllamaModelsExcept(model.name);
         activeModel = model.name;
         updateModelSelectorLabel();
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
@@ -1779,7 +2800,13 @@ async function runOnboardingProfiler() {
     // Bind to Right Sidebar Card UI
     if (statRam) statRam.textContent = `${stats.totalRamGB} GB`;
     if (statCpu) statCpu.textContent = `${stats.cpuThreads} Threads`;
-    if (statGpu) statGpu.textContent = stats.gpus[0] || 'Unknown GPU';
+    if (statGpu) {
+      // Prefer the dedicated GPU (NVIDIA/AMD) over the integrated adapter
+      statGpu.textContent = stats.dedicatedGpu
+        ? `${stats.dedicatedGpu.vendor} ${stats.dedicatedGpu.model}`.trim()
+        : (stats.gpus[0] || 'Unknown GPU');
+      statGpu.title = (stats.gpus || []).join(' | ');
+    }
     if (statRecommendation) statRecommendation.textContent = `${recommendation.toUpperCase()} (Quantized)`;
     
     // Set active model to an actually installed model from Ollama or Gemini if key exists
@@ -1788,11 +2815,11 @@ async function runOnboardingProfiler() {
     if (installedMatch) {
       activeModel = installedMatch.name;
     } else if (installedModelsList.length > 0) {
-      activeModel = installedModelsList[0].name;
-    } else if (hasGeminiKey) {
-      activeModel = 'gemini-3.0-flash';
+      activeModel = selectBestInstalledLocalModel() || installedModelsList[0].name;
+    } else if (hasGeminiKey && ONLINE_GEMINI_MODELS.length) {
+      activeModel = ONLINE_GEMINI_MODELS[0].name;
     } else {
-      activeModel = 'tinyllama:latest';
+      activeModel = 'phi3:latest';
     }
     
     logTrace(`Onboarding Profiler: Total RAM resolved as ${stats.totalRamGB} GB`, 'system');
@@ -1812,13 +2839,10 @@ async function runOnboardingProfiler() {
     renderSettingsModels();
     renderOllamaCatalog();
     
-    activeSubgoals = [
-      { text: 'Profile host CPU, GPU, and RAM parameters', completed: true },
-      { text: 'Establish Ollama API local binding: 127.0.0.1:11434', completed: true },
-      { text: `Allocate local execution memory model settings (${recommendation})`, completed: true },
-      { text: 'Awaiting local prompt commands', completed: false }
-    ];
-    renderChecklist(activeSubgoals);
+    // Hardware diagnostics belong in Engine/Logs, not in the agent task list.
+    // Tasks are populated only while an actual agent request is running.
+    activeSubgoals = [];
+    renderChecklist([]);
   } else {
     logTrace(`Hardware profiling failed: ${result ? result.error : 'Unknown error'}`, 'system');
   }
@@ -1828,34 +2852,56 @@ async function runOnboardingProfiler() {
 }
 
 // Bind security settings selector
-async function syncSecurityMode() {
-  const currentMode = await window.ultronAPI.getSecurityMode();
-  selectSecurityMode.value = currentMode;
-  settingsDefaultSecurity.value = currentMode;
-  logTrace(`Security Boundary synchronization completed: Mode is "${currentMode}"`, 'system');
+const SECURITY_MODE_LABELS = {
+  Review: 'Review',
+  Containment: 'Containment',
+  Adaptive: 'Adaptive',
+  Trusted: 'Trusted'
+};
+
+function updateSecurityModeUI(mode) {
+  const resolved = SECURITY_MODE_LABELS[mode] ? mode : 'Adaptive';
+  if (selectSecurityMode) selectSecurityMode.value = resolved;
+  if (settingsDefaultSecurity) settingsDefaultSecurity.value = resolved;
+
+  document.querySelectorAll('.plus-menu-item.mode-option').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === resolved);
+  });
 }
 
-selectSecurityMode.addEventListener('change', async (e) => {
-  const selectedMode = e.target.value;
+async function applySecurityMode(selectedMode, source = 'ui') {
   const result = await window.ultronAPI.setSecurityMode(selectedMode);
-  if (result.success) {
-    settingsDefaultSecurity.value = selectedMode;
-    logTrace(`Security boundary changed to: "${selectedMode}" Mode`, 'system');
-  } else {
-    logTrace(`Failed to alter security boundary settings: ${result.error}`, 'system');
+  if (result && result.success) {
+    updateSecurityModeUI(selectedMode);
+    logTrace(`Security mode set to ${SECURITY_MODE_LABELS[selectedMode] || selectedMode} (${source}).`, 'system');
+    return true;
   }
-});
+  logTrace(`Failed to alter security boundary settings: ${result ? result.error : 'unknown'}`, 'error');
+  return false;
+}
 
-settingsDefaultSecurity.addEventListener('change', async (e) => {
-  const selectedMode = e.target.value;
-  const result = await window.ultronAPI.setSecurityMode(selectedMode);
-  if (result.success) {
-    selectSecurityMode.value = selectedMode;
-    logTrace(`Default security boundary changed via settings: "${selectedMode}" Mode`, 'system');
-  } else {
-    logTrace(`Failed to alter security boundary settings: ${result.error}`, 'system');
+async function syncSecurityMode() {
+  try {
+    const currentMode = await window.ultronAPI.getSecurityMode();
+    updateSecurityModeUI(currentMode);
+    logTrace(`Security boundary synced: ${currentMode}`, 'system');
+  } catch (err) {
+    updateSecurityModeUI('Adaptive');
+    logTrace(`Security sync failed: ${err.message}`, 'error');
   }
-});
+}
+
+if (selectSecurityMode) {
+  selectSecurityMode.addEventListener('change', async (e) => {
+    await applySecurityMode(e.target.value, 'sidebar');
+  });
+}
+
+if (settingsDefaultSecurity) {
+  settingsDefaultSecurity.addEventListener('change', async (e) => {
+    await applySecurityMode(e.target.value, 'settings');
+  });
+}
 
 // Custom model dropdown toggle and click-outside close
 modelSelectorBtn.addEventListener('click', (e) => {
@@ -1892,10 +2938,13 @@ window.ultronAPI.onPermissionRequest((request) => {
   currentPermissionId = request.id;
   permActionCode.textContent = request.command;
   permOverrideInput.value = '';
-  
+
   // Show permission panel
   permissionDialog.classList.remove('hidden');
-  logTrace(`Execution paused. Action "${request.command.substring(0, 30)}..." requires human permission.`, 'system');
+  playUltronSound('permission');
+  ensureRightSidebarVisible();
+  expandRightSidebarSection('section-security');
+  logTrace(`Permission required: "${String(request.command || '').substring(0, 60)}"`, 'permission');
 });
 
 // Accept and run action
@@ -2067,7 +3116,6 @@ function isMeaninglessPrompt(text) {
   // 2. Check for continuous consonant gibberish longer than 8 characters (e.g. "sdfghjkshdflkjsdhf")
   const words = trimmed.split(/\s+/);
   for (const word of words) {
-    // If a word is long (8+ letters) and has absolutely no vowels (excluding numbers/punctuation)
     if (word.length > 8 && !/[aeiouyAEIOUY0-9]/i.test(word)) {
       return true;
     }
@@ -2081,11 +3129,28 @@ async function submitPrompt() {
   if (isAwaitingResponse) return;
 
   let prompt = chatInput.value.trim();
+  let currentImagePayloads = [];
   
   // Include attached files in prompt if present
   if (attachedFiles.length > 0) {
-    const fileListStr = attachedFiles.map(f => `📄 ${f.name} (${(f.size/1024).toFixed(1)} KB)`).join(', ');
-    prompt = prompt ? `${prompt}\n\n[Attached Files: ${fileListStr}]` : `[Attached Files: ${fileListStr}]`;
+    const fileSummaries = [];
+    attachedFiles.forEach(f => {
+      if (f.isImage && f.dataUrl) {
+        const base64Data = f.dataUrl.includes(',') ? f.dataUrl.split(',')[1] : f.dataUrl;
+        currentImagePayloads.push({ mimeType: f.type || 'image/png', data: base64Data });
+        fileSummaries.push(`📷 Image: ${f.name} (${(f.size/1024).toFixed(1)} KB)`);
+      } else if (f.textContent) {
+        const ext = f.name.includes('.') ? f.name.split('.').pop().toLowerCase() : 'txt';
+        prompt = prompt ? `${prompt}\n\n📄 **Attached File: ${f.name}**\n\`\`\`${ext}\n${f.textContent}\n\`\`\`` : `📄 **Attached File: ${f.name}**\n\`\`\`${ext}\n${f.textContent}\n\`\`\``;
+        fileSummaries.push(`📄 File: ${f.name} (${(f.size/1024).toFixed(1)} KB)`);
+      } else {
+        fileSummaries.push(`📄 File: ${f.name} (${(f.size/1024).toFixed(1)} KB)`);
+      }
+    });
+
+    if (!prompt && fileSummaries.length > 0) {
+      prompt = `Attached files: ${fileSummaries.join(', ')}`;
+    }
     attachedFiles = [];
     renderAttachmentPreviews();
   }
@@ -2124,6 +3189,10 @@ async function submitPrompt() {
       // 3. Classify user intent
       const intent = classifyIntent(prompt);
       logTrace(`Intent classified as: "${intent}" for prompt: "${prompt.substring(0, 40)}..."`, 'system');
+      if (!['action', 'search'].includes(intent)) {
+        activeSubgoals = [];
+        renderChecklist([]);
+      }
 
       // 4. Setup AI placeholder loading bubble
       const aiBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
@@ -2196,7 +3265,7 @@ async function submitPrompt() {
         const userName = userNameEl ? userNameEl.textContent.trim() : 'Vedant';
         
         // Pure conversational response — query local AI model dynamically on the spot
-        let response = await queryOfflineLLM(prompt, [], 'conversation');
+        let response = await queryOfflineLLM(prompt, [], 'conversation', null, currentImagePayloads);
         if (!response || !response.trim()) {
           const isGemini = activeModel && activeModel.startsWith('gemini');
           if (isGemini) {
@@ -2211,7 +3280,7 @@ async function submitPrompt() {
 
       } else {
         // Action or Search intent — run the full agentic loop
-        await runAgenticLoop(prompt, aiBubble, intent);
+        await runAgenticLoop(prompt, aiBubble, intent, currentImagePayloads);
       }
     }
   } finally {
@@ -2221,6 +3290,64 @@ async function submitPrompt() {
 
 function parseAgentToolCall(text, userPrompt = '') {
   if (text && typeof text === 'string') {
+    const jsonToolCall = parseJsonToolCall(text);
+    if (jsonToolCall) return jsonToolCall;
+
+    // OPEN_APP: app name
+    const openAppMatch = text.match(/OPEN_APP:\s*([^\n]+)/i);
+    if (openAppMatch) {
+      return {
+        type: 'APP_ACTION',
+        action: 'OPEN_APP',
+        appName: openAppMatch[1].trim(),
+        target: openAppMatch[1].trim()
+      };
+    }
+
+    // FOCUS_APP: app name
+    const focusAppMatch = text.match(/FOCUS_APP:\s*([^\n]+)/i);
+    if (focusAppMatch) {
+      return {
+        type: 'APP_ACTION',
+        action: 'FOCUS_APP',
+        appName: focusAppMatch[1].trim(),
+        target: focusAppMatch[1].trim()
+      };
+    }
+
+    // OPEN_URL: https://...
+    const openUrlMatch = text.match(/OPEN_URL:\s*([^\n]+)/i);
+    if (openUrlMatch) {
+      return {
+        type: 'APP_ACTION',
+        action: 'OPEN_URL',
+        url: openUrlMatch[1].trim(),
+        target: openUrlMatch[1].trim()
+      };
+    }
+
+    // TYPE_TEXT: text
+    const typeTextMatch = text.match(/TYPE_TEXT:\s*([\s\S]+)/i);
+    if (typeTextMatch) {
+      return {
+        type: 'APP_ACTION',
+        action: 'TYPE_TEXT',
+        text: typeTextMatch[1].trim(),
+        target: 'text input'
+      };
+    }
+
+    // HOTKEY: ctrl+s
+    const hotkeyMatch = text.match(/HOTKEY:\s*([^\n]+)/i);
+    if (hotkeyMatch) {
+      return {
+        type: 'APP_ACTION',
+        action: 'HOTKEY',
+        keys: hotkeyMatch[1].trim(),
+        target: hotkeyMatch[1].trim()
+      };
+    }
+
     // WRITE_FILE: filepath | content
     const writeMatch = text.match(/WRITE_FILE:\s*([^|]+)\|\s*([\s\S]*)/i);
     if (writeMatch) {
@@ -2265,6 +3392,160 @@ function parseAgentToolCall(text, userPrompt = '') {
   return null;
 }
 
+function getToolTargetLabel(toolCall) {
+  if (!toolCall) return '';
+  return String(toolCall.target || toolCall.appName || toolCall.url || toolCall.path || toolCall.keys || toolCall.action || toolCall.type || '').trim();
+}
+
+// Short, human-readable step label for the task plan (Cursor-style todos)
+function humanizeToolCallLabel(toolCall) {
+  if (!toolCall) return 'Run action';
+  const trim = (s, n = 40) => {
+    const str = String(s || '').trim();
+    return str.length > n ? `${str.substring(0, n)}...` : str;
+  };
+  if (toolCall.type === 'APP_ACTION') {
+    switch (String(toolCall.action || '').toUpperCase()) {
+      case 'OPEN_APP': return `Open ${trim(toolCall.appName || toolCall.target)}`;
+      case 'FOCUS_APP': return `Switch to ${trim(toolCall.appName || toolCall.target)}`;
+      case 'OPEN_URL': return `Open ${trim(toolCall.url || toolCall.target)}`;
+      case 'OPEN_FILE': return `Open file ${trim(toolCall.path || toolCall.target)}`;
+      case 'TYPE_TEXT': return `Type "${trim(toolCall.text, 30)}"`;
+      case 'HOTKEY': return `Press ${trim(toolCall.keys)}`;
+      case 'CLICK': return `Click at (${toolCall.x}, ${toolCall.y})`;
+      case 'DOUBLE_CLICK': return `Double-click at (${toolCall.x}, ${toolCall.y})`;
+      case 'SCROLL': return 'Scroll the page';
+      case 'WAIT': return 'Wait for the app';
+      case 'LIST_APPS': return 'List installed apps';
+      default: return trim(toolCall.action);
+    }
+  }
+  switch (toolCall.type) {
+    case 'APP_SEQUENCE': return 'Run app steps';
+    case 'CAPTURE_SCREEN': return 'Check the screen';
+    case 'EXECUTE': return `Run command: ${trim(toolCall.target, 32)}`;
+    case 'WRITE_FILE': return `Write ${trim(toolCall.targetPath || toolCall.target, 36)}`;
+    case 'READ_FILE': return `Read ${trim(toolCall.target, 36)}`;
+    case 'LIST_DIR': return `List folder ${trim(toolCall.target, 32)}`;
+    case 'SEARCH': return `Search the web: ${trim(toolCall.target, 30)}`;
+    default: return trim(toolCall.type);
+  }
+}
+
+function getAppActivityVerb(toolCall) {
+  const labels = {
+    OPEN_APP: 'Opening',
+    FOCUS_APP: 'Switching to',
+    TYPE_TEXT: 'Typing in',
+    HOTKEY: 'Sending shortcut to',
+    CLICK: 'Clicking in',
+    DOUBLE_CLICK: 'Double-clicking in',
+    SCROLL: 'Scrolling in',
+    WAIT: 'Waiting for'
+  };
+  return labels[String(toolCall && toolCall.action || '').toUpperCase()]
+    || humanizeToolCallLabel(toolCall);
+}
+
+let _activeAgentApp = { name: '', icon: '' };
+
+async function enrichToolCallAppPresentation(toolCall) {
+  if (!toolCall || toolCall.type !== 'APP_ACTION') return;
+  const action = String(toolCall.action || '').toUpperCase();
+  if (['OPEN_APP', 'FOCUS_APP'].includes(action) && window.ultronAPI.resolveAppName) {
+    try {
+      const resolved = await window.ultronAPI.resolveAppName(toolCall.appName || toolCall.target);
+      if (resolved && resolved.success && resolved.match) {
+        toolCall.appName = resolved.match.name;
+        toolCall.target = resolved.match.name;
+        toolCall.appIcon = resolved.match.icon || '';
+        _activeAgentApp = { name: resolved.match.name, icon: resolved.match.icon || '' };
+        return;
+      }
+    } catch (e) {}
+  }
+  if (['TYPE_TEXT', 'HOTKEY', 'CLICK', 'DOUBLE_CLICK', 'SCROLL', 'WAIT'].includes(action) && _activeAgentApp.name) {
+    toolCall.appName = toolCall.appName || _activeAgentApp.name;
+    toolCall.appIcon = toolCall.appIcon || _activeAgentApp.icon;
+  }
+}
+
+function parseJsonToolCall(text) {
+  const candidates = [];
+  const fencedJson = text.match(/```json\s*([\s\S]*?)```/i);
+  if (fencedJson) candidates.push(fencedJson[1]);
+
+  const objectMatch = text.match(/\{[\s\S]*\}/);
+  if (objectMatch) candidates.push(objectMatch[0]);
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      const tool = String(parsed.tool || parsed.type || parsed.action || '').toUpperCase();
+      const args = parsed.args || parsed.arguments || parsed;
+      if (!tool) continue;
+
+      if (tool === 'APP_SEQUENCE' && Array.isArray(args.actions)) {
+        return {
+          type: 'APP_SEQUENCE',
+          actions: args.actions.map(action => ({
+            action: String(action.action || action.tool || '').toUpperCase(),
+            appName: action.appName || action.app || action.name,
+            url: action.url,
+            path: action.path || action.filePath,
+            text: action.text,
+            keys: action.keys || action.hotkey,
+            ms: action.ms,
+            target: action.appName || action.app || action.name || action.url || action.path || action.text || action.keys || action.action
+          })).filter(action => action.action),
+          target: 'app sequence'
+        };
+      }
+
+      if (['OPEN_APP', 'FOCUS_APP', 'OPEN_URL', 'OPEN_FILE', 'TYPE_TEXT', 'HOTKEY', 'WAIT', 'LIST_APPS', 'CLICK', 'DOUBLE_CLICK', 'SCROLL'].includes(tool)) {
+        return {
+          type: 'APP_ACTION',
+          action: tool,
+          appName: args.appName || args.app || args.name,
+          url: args.url,
+          path: args.path || args.filePath,
+          text: args.text,
+          keys: args.keys || args.hotkey,
+          ms: args.ms,
+          x: args.x,
+          y: args.y,
+          delta: args.delta || args.amount,
+          target: args.appName || args.app || args.name || args.url || args.path || args.text || args.keys || tool
+        };
+      }
+
+      if (tool === 'CAPTURE_SCREEN') {
+        return {
+          type: 'CAPTURE_SCREEN',
+          mode: args.mode || 'screen',
+          windowTitle: args.windowTitle || args.appName || args.title || '',
+          target: args.windowTitle || args.appName || 'screen'
+        };
+      }
+
+      if (['EXECUTE', 'READ_FILE', 'LIST_DIR', 'SEARCH'].includes(tool)) {
+        return { type: tool, target: args.command || args.path || args.query || args.target || '' };
+      }
+
+      if (tool === 'WRITE_FILE') {
+        return {
+          type: 'WRITE_FILE',
+          targetPath: args.path || args.filePath,
+          content: args.content || '',
+          target: args.path || args.filePath || 'file'
+        };
+      }
+    } catch (e) {}
+  }
+
+  return null;
+}
+
 function detectFallbackToolCall(userPrompt) {
   if (!userPrompt || typeof userPrompt !== 'string') return null;
   const p = userPrompt.toLowerCase().trim();
@@ -2276,6 +3557,68 @@ function detectFallbackToolCall(userPrompt) {
   const documentsDir = dirs.documents || `${userHome}\\Documents`;
   const downloadsDir = dirs.downloads || `${userHome}\\Downloads`;
   const stopWords = new Set(['for', 'me', 'a', 'the', 'my', 'new', 'some', 'please', 'on', 'in', 'at', 'to', 'it', 'us']);
+
+  const appAliases = [
+    ['notepad', 'Notepad'],
+    ['chrome', 'Google Chrome'],
+    ['google chrome', 'Google Chrome'],
+    ['edge', 'Microsoft Edge'],
+    ['microsoft edge', 'Microsoft Edge'],
+    ['vscode', 'Visual Studio Code'],
+    ['vs code', 'Visual Studio Code'],
+    ['visual studio code', 'Visual Studio Code'],
+    ['obsidian', 'Obsidian'],
+    ['powershell', 'PowerShell'],
+    ['command prompt', 'Command Prompt'],
+    ['cmd', 'Command Prompt']
+  ];
+
+  const findPromptAppName = () => {
+    const direct = userPrompt.match(/(?:open|launch|start|focus|switch to)\s+([a-zA-Z0-9 +._-]+?)(?:\s+and|\s+then|\s+to\s+type|\s+with\s+text|$)/i);
+    if (direct) {
+      const raw = direct[1].trim();
+      const alias = appAliases.find(([key]) => raw.toLowerCase().includes(key));
+      return alias ? alias[1] : raw;
+    }
+    const alias = appAliases.find(([key]) => p.includes(key));
+    return alias ? alias[1] : '';
+  };
+
+  const quotedTextMatch = userPrompt.match(/(?:type|write|enter|paste)\s+["']([^"']+)["']/i);
+  const typedTextMatch = quotedTextMatch
+    || userPrompt.match(/(?:type|write|enter|paste)\s+(.+?)(?:\s+in\s+|\s+into\s+|\s+on\s+|$)/i);
+  const typedText = typedTextMatch ? typedTextMatch[1].trim() : '';
+  const requiresGeneratedText =
+    /\b\d+\s+(quotes?|ideas?|sentences?|paragraphs?|examples?|names?|captions?|headlines?)\b/i.test(userPrompt)
+    || /\b(write|draft|compose|create)\s+(an?\s+)?(essay|article|story|poem|letter|email|report|summary|speech|blog|code|script)\b/i.test(userPrompt);
+
+  // 1. Desktop app launch/control
+  if (/\b(open|launch|start|focus|switch to)\b/i.test(userPrompt)) {
+    const urlMatch = userPrompt.match(/https?:\/\/[^\s]+/i);
+    if (urlMatch) {
+      return { type: 'APP_ACTION', action: 'OPEN_URL', url: urlMatch[0], target: urlMatch[0] };
+    }
+
+    const appName = findPromptAppName();
+    if (appName) {
+      if (typedText && !requiresGeneratedText) {
+        return {
+          type: 'APP_SEQUENCE',
+          target: `${appName} then type text`,
+          actions: [
+            { action: 'OPEN_APP', appName, target: appName },
+            { action: 'WAIT', ms: 900, target: '900ms' },
+            { action: 'TYPE_TEXT', text: typedText, target: 'text input' }
+          ]
+        };
+      }
+      return { type: 'APP_ACTION', action: 'OPEN_APP', appName, target: appName };
+    }
+  }
+
+  if (/\b(type|paste|enter)\b/i.test(userPrompt) && typedText) {
+    return { type: 'APP_ACTION', action: 'TYPE_TEXT', text: typedText, target: 'text input' };
+  }
 
   // Helper: resolve target location from prompt
   function resolveLocation(defaultPath) {
@@ -2381,44 +3724,159 @@ function detectFallbackToolCall(userPrompt) {
   return null;
 }
 
-async function runAgenticLoop(userPrompt, aiBubble, intent = 'action') {
+function buildAgentToolPrompt(userPrompt, step, observation = '', options = {}) {
+  if (window.UltronAgentPrompt && typeof window.UltronAgentPrompt.buildAgentToolExecutionPrompt === 'function') {
+    return window.UltronAgentPrompt.buildAgentToolExecutionPrompt(userPrompt, step, observation, options);
+  }
+
+  return `User task:
+${userPrompt}
+
+Available tools. When an action is needed, output exactly one JSON object and nothing else:
+{"tool":"OPEN_APP","args":{"appName":"Notepad"}}
+{"tool":"FOCUS_APP","args":{"appName":"Google Chrome"}}
+{"tool":"OPEN_URL","args":{"url":"https://example.com"}}
+{"tool":"OPEN_FILE","args":{"path":"C:\\\\path\\\\file.txt"}}
+{"tool":"TYPE_TEXT","args":{"text":"text to type into the currently focused app"}}
+{"tool":"HOTKEY","args":{"keys":"ctrl+s"}}
+{"tool":"CLICK","args":{"x":640,"y":480}}
+{"tool":"DOUBLE_CLICK","args":{"x":640,"y":480}}
+{"tool":"SCROLL","args":{"delta":-120}}
+{"tool":"WAIT","args":{"ms":1000}}
+{"tool":"READ_FILE","args":{"path":"C:\\\\path\\\\file.txt"}}
+{"tool":"WRITE_FILE","args":{"path":"C:\\\\path\\\\file.txt","content":"file content"}}
+{"tool":"LIST_DIR","args":{"path":"C:\\\\path"}}
+{"tool":"SEARCH","args":{"query":"web search query"}}
+{"tool":"EXECUTE","args":{"command":"safe command"}}${options.canCaptureScreen ? '\n{"tool":"CAPTURE_SCREEN","args":{"mode":"screen"}}' : ''}
+
+For multi-step app work, do one step at a time unless a simple app open + type sequence is obvious.
+After the task is complete, respond normally without JSON.
+${observation ? `\nLatest observation:\n${observation}\n\nContinue from that observation.` : `\nThis is step ${step}. Decide the next best tool call or final answer.`}`;
+}
+
+async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayloads = []) {
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.findWorkflowByPrompt === 'function') {
+    const workflow = window.UltronAgentMemory.findWorkflowByPrompt(userPrompt);
+    if (workflow && workflow.steps && workflow.steps.length) {
+      userPrompt = `${userPrompt}\n\n[Run workflow "${workflow.name}": ${workflow.steps.join(' then ')}]`;
+    }
+  }
+
   let steps = 0;
   const maxSteps = 8;
-  let currentPrompt = userPrompt;
+  const loopStartedAt = Date.now();
+  let loopImagePayloads = mergeImagePayloads(imagePayloads || []);
+  let hasVisualContext = loopImagePayloads.length > 0;
+  const canCaptureScreen = isScreenCaptureEnabled();
+  let currentPrompt = buildAgentToolPrompt(userPrompt, 1, '', { hasVisualContext, canCaptureScreen });
   let accumulatedContext = [];
   let isDone = false;
   let finalResponse = '';
+  const executedAppActions = [];
+  let completionNudges = 0;
+  let showTaskPlan = false;
 
-  activeSubgoals = [
-    { text: `Understand user request: "${userPrompt.substring(0, 35)}..."`, completed: true },
-    { text: `Intent: ${intent}`, completed: true },
-    { text: 'Executing task pipeline', completed: false }
-  ];
-  renderChecklist(activeSubgoals);
+  const userNameEl = document.querySelector('.profile-detail-name');
+  const userName = userNameEl ? userNameEl.textContent.trim() : 'Vedant Wankhade';
+  const sysEnv = await getSystemContext();
+  const realtime = buildRealtimeContext(sysEnv);
+  const memorySnippet = getLearnedMemorySnippet();
+
+  let agentSubgoals = [];
+  let activitySteps = [];
+
+  // Cursor-style first frame: think first. Do not invent or expose a task plan
+  // until the model has selected its first action.
+  activeSubgoals = [];
+  renderChecklist([]);
+  ensureRightSidebarVisible();
+  renderMessageContent(aiBubble, composeAgentLiveContent(
+    getAgentShimmerLineHtml('Thinking')
+  ));
+
+  if (loopImagePayloads.length > 0) pushAgentProgressStep(activitySteps, 'MEDIA');
+
+  if (isScreenCaptureEnabled() && intent === 'action') {
+    await ensureVisionModelForScreen();
+    pushAgentProgressStep(activitySteps, 'SCREEN');
+    if (canUseScreenAnalysis()) {
+      const initialShot = await captureScreenForAgent({ label: 'initial' });
+      if (initialShot) {
+        loopImagePayloads = mergeImagePayloads(loopImagePayloads, [initialShot]);
+        hasVisualContext = loopImagePayloads.length > 0;
+        activitySteps.push({
+          type: 'SCREEN',
+          label: 'Captured the screen',
+          thumbnail: initialShot.thumbnailDataUrl
+        });
+        currentPrompt = buildAgentToolPrompt(userPrompt, 1, 'Initial desktop screenshot captured and attached.', { hasVisualContext, canCaptureScreen });
+      }
+    } else {
+      const ocr = await readScreenTextForAgent({ label: 'initial-ocr' });
+      if (ocr) {
+        const visibleText = String(ocr.text || '').slice(0, 12000);
+        activitySteps.push({
+          type: 'SCREEN',
+          label: 'Read visible screen text with Windows OCR',
+          thumbnail: ocr.thumbnailDataUrl
+        });
+        currentPrompt = buildAgentToolPrompt(
+          userPrompt,
+          1,
+          `Windows OCR visible text:\n${visibleText || '[No readable text found]'}`,
+          { hasVisualContext: false, canCaptureScreen }
+        );
+      }
+    }
+  }
+
+  const agentSystemPrompt = resolveAgentSystemPrompt(
+    buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet, hasVisualContext)
+  );
 
   // If intent is 'search', immediately do a web search first
   if (intent === 'search') {
-    renderMessageContent(aiBubble, getWebSearchCardHtml('Analyzing prompt & formulating search strategy...'));
+    pushAgentProgressStep(activitySteps, 'SEARCH', { query: 'strategy' });
+    renderMessageContent(aiBubble, composeAgentLiveContent(
+      renderTaskWidgetHtml(agentSubgoals),
+      renderActivityFeedHtml(activitySteps),
+      getWebSearchCardHtml('Analyzing prompt & formulating search strategy...')
+    ));
     chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
 
     await new Promise(resolve => setTimeout(resolve, 300));
 
     const searchQuery = await buildWebSearchQuery(userPrompt);
 
-    renderMessageContent(aiBubble, getWebSearchCardHtml(searchQuery));
+    activitySteps.push({ type: 'SEARCH', label: getAgentProgressMessage('SEARCH', { query: searchQuery }) });
+    renderMessageContent(aiBubble, composeAgentLiveContent(
+      renderTaskWidgetHtml(agentSubgoals),
+      renderActivityFeedHtml(activitySteps),
+      getWebSearchCardHtml(searchQuery)
+    ));
     chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
 
-    activeSubgoals.push({ text: `Web Search: "${searchQuery.substring(0, 25)}"`, completed: false });
+    agentSubgoals.push({ text: `Web Search: "${searchQuery.substring(0, 25)}"`, completed: false, status: 'in_progress' });
+    activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
     renderChecklist(activeSubgoals);
     
     let searchResult = null;
     try {
       const rawSearchResult = await window.ultronAPI.searchWeb(searchQuery);
       searchResult = normalizeSearchPayload(rawSearchResult, searchQuery);
-      activeSubgoals[activeSubgoals.length - 1].completed = true;
+      
+      agentSubgoals[agentSubgoals.length - 1].completed = true;
+      agentSubgoals[agentSubgoals.length - 1].status = 'completed';
+      activitySteps.push({ type: 'SEARCH', label: getAgentProgressMessage('SEARCH', { query: `results (${searchResult.results?.length || 0})` }) });
+      
+      activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
       renderChecklist(activeSubgoals);
 
-      renderMessageContent(aiBubble, getWebSearchCardHtml('Analyzing live web results...'));
+      renderMessageContent(aiBubble, composeAgentLiveContent(
+        renderTaskWidgetHtml(agentSubgoals),
+        renderActivityFeedHtml(activitySteps),
+        getWebSearchCardHtml('Analyzing live web results...')
+      ));
       chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
 
       if (shouldAskForSearchClarification(searchResult)) {
@@ -2446,7 +3904,7 @@ ${liveContext}
 
 Write the direct final answer now.`;
 
-        let summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt);
+        let summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt, loopImagePayloads);
         if (!summary || summary.trim() === '' || summary.includes('offline model loop failed') || summary.includes('Search Query Generator')) {
           summary = `I found ${searchResult.results.length} live result${searchResult.results.length === 1 ? '' : 's'} for "${searchQuery}". Open the sources below to inspect the original pages.`;
         }
@@ -2459,17 +3917,26 @@ Write the direct final answer now.`;
       finalResponse = `Web search failed: ${e.message}. Please try again.`;
     }
 
-    activeSubgoals.push({ text: 'Task completed successfully', completed: true });
+    agentSubgoals.push({ text: 'Task completed successfully', completed: true, status: 'completed' });
+    activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
     renderChecklist(activeSubgoals);
-    const richResponse = typeof searchResult !== 'undefined' && searchResult.results && searchResult.results.length > 0
+    
+    const searchExperienceMarkup = typeof searchResult !== 'undefined' && searchResult.results && searchResult.results.length > 0
       ? renderSearchExperience(finalResponse, searchResult)
       : finalResponse;
-    await typeMessageResponse(aiBubble, richResponse, { instant: Boolean(isRichResultMarkup(richResponse)) });
-    appendChatMessage('Ultron', richResponse, true, { skipRender: true });
 
-    // Self-learning: record task outcome
-    _learnedTaskMemory.push(`[SEARCH] Query: "${searchQuery.substring(0, 40)}" -> ${finalResponse.substring(0, 60)}...`);
-    if (_learnedTaskMemory.length > 20) _learnedTaskMemory.shift();
+    const fullFinalContent = composeAgentFinalContent(showTaskPlan ? agentSubgoals : [], activitySteps, searchExperienceMarkup, Date.now() - loopStartedAt);
+
+    await typeMessageResponse(aiBubble, fullFinalContent, { instant: true });
+    appendChatMessage('Ultron', fullFinalContent, true, { skipRender: true });
+
+    if (looksLikeAgentQuestion(finalResponse)) {
+      playUltronSound('question');
+    } else {
+      playUltronSound('task_complete');
+    }
+
+    persistTaskMemory(`[SEARCH] Query: "${searchQuery.substring(0, 40)}" -> ${finalResponse.substring(0, 60)}...`);
     return;
   }
 
@@ -2477,102 +3944,183 @@ Write the direct final answer now.`;
     steps++;
     logTrace(`Agent Loop Step ${steps}/${maxSteps}...`, 'system');
 
+    const thinkingStartedAt = Date.now();
+
+    renderMessageContent(aiBubble, composeAgentLiveContent(
+      showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : '',
+      renderActivityFeedHtml(activitySteps),
+      getAgentShimmerLineHtml('Thinking')
+    ));
+
     // 1. Query LLM for next step/action
-    let rawResponse = await queryOfflineLLM(currentPrompt, accumulatedContext, intent);
+    let rawResponse = await queryOfflineLLM(currentPrompt, accumulatedContext, intent, agentSystemPrompt, loopImagePayloads);
     if (!rawResponse || typeof rawResponse !== 'string') {
       rawResponse = '';
+    }
+
+    // Replace the live "deciding..." entry with a Cursor-style timed line
+    activitySteps.push({
+      type: 'THINKING',
+      label: `Thought for ${formatWorkDuration(Date.now() - thinkingStartedAt)}`
+    });
+
+    // The auto-selected vision model could not load (out of memory): revert to
+    // the previous text model and keep the task going without screenshots.
+    if (isModelLoadFailureResponse(rawResponse) && revertVisionModelSwitch('out of memory')) {
+      loopImagePayloads = [];
+      hasVisualContext = false;
+      activitySteps.push({
+        type: 'ERROR',
+        label: `Vision model did not fit in memory — continuing with ${activeModel} (no screen analysis).`
+      });
+      currentPrompt = buildAgentToolPrompt(userPrompt, steps, 'Screen analysis is unavailable on this system right now. Complete the task without screenshots.', { hasVisualContext: false, canCaptureScreen: false });
+      rawResponse = await queryOfflineLLM(currentPrompt, accumulatedContext, intent, agentSystemPrompt, []);
+      if (!rawResponse || typeof rawResponse !== 'string') {
+        rawResponse = '';
+      }
     }
 
     rawResponse = rawResponse.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
 
     // 2. Parse for tool calls (with fallback intent steerer for small models like tinyllama)
-    const toolCall = parseAgentToolCall(rawResponse, steps === 1 ? userPrompt : '');
+    let toolCall = parseAgentToolCall(rawResponse, steps === 1 ? userPrompt : '');
 
     if (!toolCall) {
-      // No tool calls: Task complete!
+      if (hasUnfinishedExplicitTask(userPrompt, executedAppActions) && completionNudges < 2) {
+        completionNudges++;
+        const missingInstruction = buildMissingActionInstruction(userPrompt, executedAppActions);
+        accumulatedContext.push({ role: 'assistant', content: rawResponse || '(no tool call)' });
+        accumulatedContext.push({ role: 'user', content: missingInstruction });
+        currentPrompt = `${buildAgentToolPrompt(userPrompt, steps + 1, 'The previous response stopped before completing all requested app actions.', { hasVisualContext, canCaptureScreen })}
+
+${missingInstruction}`;
+        activitySteps.push({ type: 'THINKING', label: 'Continuing the unfinished request' });
+        continue;
+      }
+      // No tool calls and no explicit work remains: task complete.
       isDone = true;
       finalResponse = rawResponse || "Task completed successfully.";
       break;
     }
 
     // 3. Execute tool based on tool type
-    logTrace(`Agent Action Step ${steps}: Executing ${toolCall.type} (${toolCall.target.substring(0, 40)}...)`, 'local');
-    
-    activeSubgoals.push({
-      text: `Step ${steps}: ${toolCall.type} "${toolCall.target.substring(0, 25)}"`,
-      completed: true
+    await enrichToolCallAppPresentation(toolCall);
+    const toolTargetLabel = getToolTargetLabel(toolCall);
+    logTrace(`Agent Action Step ${steps}: Executing ${toolCall.type} (${toolTargetLabel.substring(0, 40)}...)`, 'local');
+
+    if (agentSubgoals.length === 0) {
+      showTaskPlan = shouldCreateAgentTaskPlan(userPrompt, toolCall);
+      agentSubgoals = showTaskPlan
+        ? buildAgentTaskPlan(userPrompt, toolCall)
+        : [{
+            action: toolCall.type === 'APP_ACTION' ? String(toolCall.action || '').toUpperCase() : toolCall.type,
+            text: humanizeToolCallLabel(toolCall),
+            completed: false,
+            status: 'pending'
+          }];
+    }
+
+    const actionKey = toolCall.type === 'APP_ACTION'
+      ? String(toolCall.action || '').toUpperCase()
+      : String(toolCall.type || '').toUpperCase();
+    let currentSubgoal = toolCall.type === 'APP_SEQUENCE'
+      ? agentSubgoals.find(task => !task.completed && task.status !== 'failed')
+      : agentSubgoals.find(task => task.action === actionKey && !task.completed && task.status !== 'failed');
+    if (!currentSubgoal) {
+      currentSubgoal = {
+        action: actionKey,
+        text: humanizeToolCallLabel(toolCall),
+        completed: false,
+        status: 'pending'
+      };
+      agentSubgoals.push(currentSubgoal);
+    }
+    if (toolCall.type !== 'APP_SEQUENCE') {
+      currentSubgoal.text = humanizeToolCallLabel(toolCall);
+      currentSubgoal.status = 'in_progress';
+    }
+
+    const progressCategory = toolCall.type === 'APP_ACTION' ? (toolCall.action || 'APP') : toolCall.type;
+    activitySteps.push({
+      type: progressCategory,
+      appName: toolCall.appName || '',
+      appIcon: toolCall.appIcon || '',
+      label: toolCall.type === 'APP_ACTION'
+        ? getAppActivityVerb(toolCall)
+        : getAgentProgressMessage(progressCategory, {
+            appName: toolCall.appName || toolTargetLabel,
+            command: toolCall.target,
+            path: toolCall.targetPath || toolCall.target,
+            keys: toolCall.keys,
+            query: toolCall.target
+          })
     });
+    const actionProgressIndex = activitySteps.length - 1;
+
+    activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
     renderChecklist(activeSubgoals);
 
-    renderMessageContent(aiBubble, getStepExecCardHtml(steps, toolCall.type, toolCall.target));
+    renderMessageContent(aiBubble, composeAgentLiveContent(
+      showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : '',
+      renderActivityFeedHtml(activitySteps),
+      getAgentShimmerLineHtml(humanizeToolCallLabel(toolCall))
+    ));
     chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
 
     let toolResult = '';
+    let execResult = null;
     const withTimeout = (promise, ms = 15000) => {
       const timeout = new Promise(resolve => setTimeout(() => resolve({ success: false, error: `Execution Timed Out (${ms / 1000}s limit reached).` }), ms));
       return Promise.race([promise, timeout]);
     };
-    
-    if (toolCall.type === 'EXECUTE') {
-      const execRes = await withTimeout(window.ultronAPI.executeAction({ command: toolCall.target }));
-      if (execRes.success) {
-        toolResult = `Command output:\n\`\`\`text\n${execRes.stdout || 'Success (No Output)'}\n\`\`\``;
-        if (execRes.stderr) toolResult += `\nStderr:\n\`\`\`text\n${execRes.stderr}\n\`\`\``;
-        if (toolCall.target.startsWith('mkdir')) {
-          finalResponse = `Folder created successfully on computer at **${toolCall.target.replace('mkdir ', '').replace(/"/g, '')}**.`;
-          isDone = true;
+
+    const executor = window.UltronAgentExecutor;
+    const schema = window.UltronToolSchema;
+
+    if (toolCall.type === 'APP_SEQUENCE') {
+      const results = [];
+      for (const action of toolCall.actions || []) {
+        const actionTool = { type: 'APP_ACTION', ...action };
+        await enrichToolCallAppPresentation(actionTool);
+        const sequenceTask = agentSubgoals.find(task =>
+          task.action === String(action.action || '').toUpperCase()
+          && !task.completed
+          && task.status !== 'failed'
+        );
+        if (sequenceTask) {
+          sequenceTask.status = 'in_progress';
+          activeSubgoals = agentSubgoals.map(task => ({ ...task }));
+          renderChecklist(activeSubgoals);
+          renderMessageContent(aiBubble, composeAgentLiveContent(
+            showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : '',
+            renderActivityFeedHtml(activitySteps),
+            getAgentShimmerLineHtml(humanizeToolCallLabel(actionTool))
+          ));
         }
-      } else {
-        toolResult = `Command failed with error: ${execRes.error}`;
-        finalResponse = `Failed to execute action: ${execRes.error}`;
-        isDone = true;
-      }
-    } else if (toolCall.type === 'WRITE_FILE') {
-      const writeRes = await withTimeout(window.ultronAPI.writeFile(toolCall.targetPath, toolCall.content));
-      if (writeRes.success) {
-        toolResult = `File written successfully to ${writeRes.filePath}`;
-        finalResponse = `File created successfully on computer at **${writeRes.filePath}**.`;
-        if (toolCall.followUpCommand) {
-          renderMessageContent(aiBubble, getStepExecCardHtml(steps, 'EXECUTE', toolCall.followUpCommand));
-          chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-          const execRes = await withTimeout(window.ultronAPI.executeAction({ command: toolCall.followUpCommand }));
-          if (execRes.success) {
-            toolResult += `\n\nExecution Output:\n\`\`\`text\n${execRes.stdout || 'Success (No Output)'}\n\`\`\``;
-            finalResponse += `\n\n**Execution Output:**\n\`\`\`text\n${execRes.stdout || 'Done'}\n\`\`\``;
-          }
+        const stepResult = executor
+          ? await executor.executeAgentToolCall(actionTool, { withTimeout, canCaptureScreen })
+          : schema.normalizeToolResult(await withTimeout(window.ultronAPI.appAction(actionTool), 20000));
+        results.push(`${action.action}: ${stepResult.success ? stepResult.message : `failed - ${stepResult.message}`}`);
+        if (stepResult.success) executedAppActions.push(String(action.action || '').toUpperCase());
+        if (sequenceTask) {
+          sequenceTask.completed = stepResult.success;
+          sequenceTask.status = stepResult.success ? 'completed' : 'failed';
         }
-        isDone = true;
-      } else {
-        toolResult = `Failed to write file: ${writeRes.error}`;
-        finalResponse = `Failed to write file: ${writeRes.error}`;
-        isDone = true;
+        if (!stepResult.success) break;
       }
-    } else if (toolCall.type === 'READ_FILE') {
-      const readRes = await withTimeout(window.ultronAPI.readFile(toolCall.target));
-      if (readRes.success) {
-        toolResult = `File content of ${readRes.filePath}:\n\`\`\`text\n${readRes.content}\n\`\`\``;
-        finalResponse = `**File Content (${readRes.filePath}):**\n\`\`\`text\n${readRes.content}\n\`\`\``;
-        isDone = true;
-      } else {
-        toolResult = `Failed to read file: ${readRes.error}`;
-        finalResponse = `Failed to read file: ${readRes.error}`;
-        isDone = true;
-      }
-    } else if (toolCall.type === 'LIST_DIR') {
-      const listRes = await withTimeout(window.ultronAPI.listDir(toolCall.target));
-      if (listRes.success) {
-        const fileNames = listRes.items.map(i => `${i.isDirectory ? '[DIR]' : '[FILE]'} ${i.name}`).join('\n');
-        toolResult = `Directory listing for ${listRes.dirPath}:\n\`\`\`text\n${fileNames}\n\`\`\``;
-        finalResponse = `**Directory Contents (${listRes.dirPath}):**\n\`\`\`text\n${fileNames}\n\`\`\``;
-        isDone = true;
-      } else {
-        toolResult = `Failed to list directory: ${listRes.error}`;
-        finalResponse = `Failed to list directory: ${listRes.error}`;
-        isDone = true;
-      }
+      toolResult = results.join('\n');
+      const failedResult = results.find(result => result.includes('failed -'));
+      finalResponse = failedResult
+        ? `I couldn't complete the app workflow. ${failedResult.replace(/^[A-Z_]+:\s*/, '')}`
+        : `Completed the requested actions${_activeAgentApp.name ? ` in **${_activeAgentApp.name}**` : ''}.`;
+      isDone = true;
     } else if (toolCall.type === 'SEARCH') {
       const searchTarget = await buildWebSearchQuery(toolCall.target || userPrompt);
-      renderMessageContent(aiBubble, getWebSearchCardHtml(searchTarget));
+      renderMessageContent(aiBubble, composeAgentLiveContent(
+        showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : '',
+        renderActivityFeedHtml(activitySteps),
+        getWebSearchCardHtml(searchTarget)
+      ));
       chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
 
       const searchRes = await withTimeout(window.ultronAPI.searchWeb(searchTarget), 20000);
@@ -2596,7 +4144,7 @@ ${toolResult}
 
 Write the final answer now.`;
 
-        const summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt);
+        const summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt, loopImagePayloads);
         const answer = sanitizeResponseText(summary || `I found ${searchPayload.results.length} live results for "${searchTarget}".`, userPrompt, {
           allowedUrls: (searchPayload.results || []).map(item => item.url).filter(Boolean)
         });
@@ -2605,25 +4153,159 @@ Write the final answer now.`;
         finalResponse = searchPayload.clarification || `I searched for "${searchTarget}", but the results were too thin to answer confidently. Can you add a brand, budget, location, or what kind of result you want?`;
       }
       isDone = true;
+    } else if (executor && ['APP_ACTION', 'CAPTURE_SCREEN', 'EXECUTE', 'WRITE_FILE', 'READ_FILE', 'LIST_DIR'].includes(toolCall.type)) {
+      if (toolCall.type === 'CAPTURE_SCREEN') await ensureVisionModelForScreen();
+      execResult = await executor.executeAgentToolCall(toolCall, {
+        withTimeout,
+        canCaptureScreen,
+        captureScreenForAgent
+      });
+      toolResult = schema ? schema.toolResultToObservation(execResult) : execResult.message;
+
+      if (execResult.success) {
+        if (toolCall.type === 'APP_ACTION') {
+          executedAppActions.push(String(toolCall.action || '').toUpperCase());
+        }
+        if (toolCall.type === 'CAPTURE_SCREEN' && execResult.raw && execResult.raw.shot) {
+          const shot = execResult.raw.shot;
+          loopImagePayloads = mergeImagePayloads(loopImagePayloads, [shot]);
+          hasVisualContext = loopImagePayloads.length > 0;
+          activitySteps.push({
+            type: 'SCREEN',
+            label: `Captured ${shot.sourceName || 'screen'} (${shot.width}x${shot.height})`,
+            thumbnail: shot.thumbnailDataUrl
+          });
+          isDone = false;
+        } else if (toolCall.type === 'WRITE_FILE') {
+          finalResponse = `File created successfully on computer at **${execResult.evidence || toolCall.targetPath}**.${renderUndoActionCard()}`;
+          if (toolCall.followUpCommand) {
+            const execRes = await withTimeout(window.ultronAPI.executeAction({ command: toolCall.followUpCommand }));
+            if (execRes.success) {
+              toolResult += `\n\nExecution Output:\n\`\`\`text\n${execRes.stdout || 'Success (No Output)'}\n\`\`\``;
+              finalResponse += `\n\n**Execution Output:**\n\`\`\`text\n${execRes.stdout || 'Done'}\n\`\`\``;
+            }
+          }
+          isDone = !shouldContinueAgentLoopAfterTool(toolCall);
+        } else if (toolCall.type === 'READ_FILE') {
+          finalResponse = `**File Content (${toolCall.target}):**\n\`\`\`text\n${execResult.evidence}\n\`\`\``;
+          isDone = !shouldContinueAgentLoopAfterTool(toolCall);
+        } else if (toolCall.type === 'LIST_DIR') {
+          finalResponse = `**Directory Contents (${toolCall.target}):**\n\`\`\`text\n${execResult.evidence}\n\`\`\``;
+          isDone = !shouldContinueAgentLoopAfterTool(toolCall);
+        } else if (toolCall.type === 'EXECUTE' && toolCall.target.startsWith('mkdir')) {
+          finalResponse = `Folder created successfully on computer at **${toolCall.target.replace('mkdir ', '').replace(/"/g, '')}**.`;
+          isDone = true;
+        } else if (shouldContinueAgentLoopAfterTool(toolCall) || hasUnfinishedExplicitTask(userPrompt, executedAppActions)) {
+          isDone = false;
+        } else {
+          finalResponse = execResult.message;
+          isDone = true;
+        }
+      } else {
+        pushAgentProgressStep(activitySteps, 'ERROR');
+        if (execResult.errorCode === 'APP_AMBIGUOUS') {
+          finalResponse = renderClarifyAppCard(toolCall.appName || toolCall.target, execResult.suggestions);
+          playUltronSound('question');
+        } else {
+          finalResponse = renderErrorRecoveryCard(execResult.errorCode, execResult.message, execResult);
+        }
+        isDone = true;
+      }
+    } else {
+      toolResult = `Unsupported tool type: ${toolCall.type}`;
+      finalResponse = toolResult;
+      isDone = true;
+    }
+
+    // Reflect this step's real outcome in the task plan
+    const stepFailed = execResult ? !execResult.success : /failed|stopped|error/i.test(toolResult);
+    if (toolCall.type !== 'APP_SEQUENCE') {
+      currentSubgoal.completed = !stepFailed;
+      currentSubgoal.status = stepFailed ? 'failed' : 'completed';
+    }
+    if (execResult && execResult.success && (execResult.resolvedApp || execResult.appIcon)) {
+      const resolvedName = execResult.resolvedApp || toolCall.appName || '';
+      const resolvedIcon = execResult.appIcon || toolCall.appIcon || '';
+      activitySteps[actionProgressIndex].appName = resolvedName;
+      activitySteps[actionProgressIndex].appIcon = resolvedIcon;
+      if (resolvedName) _activeAgentApp = { name: resolvedName, icon: resolvedIcon };
+    }
+
+    if (!isDone && shouldContinueAgentLoopAfterTool(toolCall) && toolCall.type !== 'CAPTURE_SCREEN') {
+      await new Promise(resolve => setTimeout(resolve, 600));
+      pushAgentProgressStep(activitySteps, 'VERIFY');
+      if (canUseScreenAnalysis()) {
+        const verifyShot = await captureScreenForAgent({ label: `after-${progressCategory}` });
+        if (verifyShot) {
+          loopImagePayloads = mergeImagePayloads(loopImagePayloads, [verifyShot]);
+          hasVisualContext = loopImagePayloads.length > 0;
+          toolResult += `\n[Post-action screenshot captured (${verifyShot.width}x${verifyShot.height}) — verify the UI state before continuing.]`;
+          activitySteps.push({
+            type: 'SCREEN',
+            label: getAgentProgressMessage('VERIFY'),
+            thumbnail: verifyShot.thumbnailDataUrl
+          });
+        }
+      } else {
+        const ocr = await readScreenTextForAgent({ label: `after-${progressCategory}-ocr` });
+        if (ocr) {
+          toolResult += `\n[Windows OCR after action]:\n${String(ocr.text || '[No readable text found]').slice(0, 12000)}`;
+          activitySteps.push({
+            type: 'SCREEN',
+            label: 'Verified visible text with Windows OCR',
+            thumbnail: ocr.thumbnailDataUrl
+          });
+        }
+      }
     }
 
     // 4. Append observation to context for self-correction feedback loop
     accumulatedContext.push({ role: 'assistant', content: rawResponse });
     accumulatedContext.push({ role: 'user', content: `[Observation / System Result]:\n${toolResult}\n\nContinue toward completing the user's task.` });
     
-    currentPrompt = `[Observation / System Result]:\n${toolResult}\n\nContinue toward completing the user's task.`;
+    currentPrompt = buildAgentToolPrompt(userPrompt, steps + 1, toolResult, { hasVisualContext, canCaptureScreen });
+    if (hasUnfinishedExplicitTask(userPrompt, executedAppActions)) {
+      currentPrompt += `\n\n${buildMissingActionInstruction(userPrompt, executedAppActions)}`;
+    }
   }
 
-  activeSubgoals.push({ text: 'Task completed successfully', completed: true });
+  if (!finalResponse) {
+    finalResponse = isDone
+      ? 'Task completed successfully.'
+      : 'Reached the maximum number of agent steps. Review the activity feed for partial progress.';
+  }
+
+  const anyFailed = agentSubgoals.some(step => step.status === 'failed');
+  agentSubgoals.forEach(step => {
+    if (!step.completed && step.status !== 'failed') {
+      step.completed = true;
+      step.status = 'completed';
+    }
+  });
+  if (!anyFailed) {
+    agentSubgoals.push({ text: 'Done', completed: true, status: 'completed' });
+  }
+  activitySteps.push({
+    type: anyFailed ? 'ERROR' : 'SUCCESS',
+    label: anyFailed ? 'Task stopped — one of the steps failed.' : 'Task complete.'
+  });
+  activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
   renderChecklist(activeSubgoals);
+  ensureRightSidebarVisible();
 
-  await typeMessageResponse(aiBubble, finalResponse, { instant: isRichResultMarkup(finalResponse) });
-  appendChatMessage('Ultron', finalResponse, true, { skipRender: true });
+  const fullFinalContent = composeAgentFinalContent(showTaskPlan ? agentSubgoals : [], activitySteps, finalResponse, Date.now() - loopStartedAt);
 
-  // Self-learning: record task outcome
+  await typeMessageResponse(aiBubble, fullFinalContent, { instant: true });
+  appendChatMessage('Ultron', fullFinalContent, true, { skipRender: true });
+
+  if (looksLikeAgentQuestion(finalResponse)) {
+    playUltronSound('question');
+  } else {
+    playUltronSound('task_complete');
+  }
+
   const taskSummary = `[${intent.toUpperCase()}] "${userPrompt.substring(0, 40)}" → ${finalResponse.substring(0, 60).replace(/\n/g, ' ')}...`;
-  _learnedTaskMemory.push(taskSummary);
-  if (_learnedTaskMemory.length > 20) _learnedTaskMemory.shift();
+  persistTaskMemory(taskSummary);
 }
 
 // Load historical conversation session
@@ -2662,17 +4344,11 @@ function loadSession(id, title) {
       });
       chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
       
-      activeSubgoals = [
-        { text: `Loaded chat context: "${title}"`, completed: true },
-        { text: 'Awaiting local prompt commands', completed: false }
-      ];
+      activeSubgoals = [];
     } else {
       // Fallback loading template if empty
       renderChatMessage('Ultron', 'This chat has no saved messages yet.', true);
-      activeSubgoals = [
-        { text: 'Loaded historical session', completed: true },
-        { text: 'Awaiting local prompt commands', completed: false }
-      ];
+      activeSubgoals = [];
     }
   } catch (err) {
     logTrace(`Error loading session messages: ${err.message}`, 'system');
@@ -2729,15 +4405,15 @@ function renderSettingsModels() {
     settingsModelsList.innerHTML = `
       <div style="border: 1px dashed var(--border-color); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 8px;">
         <p style="font-size: 13px; color: var(--accent-white); font-weight: 500; margin: 0 0 6px 0;">No local model weights installed yet</p>
-        <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 14px 0;">Click below to download <strong>tinyllama</strong> (637 MB) to start chatting offline with Ultron.</p>
-        <button id="btn-quick-download-tinyllama" class="btn-primary-sm" style="background-color: #ffffff !important; color: #000000 !important; font-weight: 600; padding: 6px 16px; font-size: 12px; border-radius: 6px; cursor: pointer; border: none;">
-          Download tinyllama (637 MB)
+        <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 14px 0;">Click below to download <strong>Phi-3</strong> (2.2 GB), a stronger small model for reliable offline replies.</p>
+        <button id="btn-quick-download-phi3" class="btn-primary-sm" style="background-color: #ffffff !important; color: #000000 !important; font-weight: 600; padding: 6px 16px; font-size: 12px; border-radius: 6px; cursor: pointer; border: none;">
+          Download Phi-3 (2.2 GB)
         </button>
       </div>
     `;
     
     setTimeout(() => {
-      const btnQuick = document.getElementById('btn-quick-download-tinyllama');
+      const btnQuick = document.getElementById('btn-quick-download-phi3');
       if (btnQuick) {
         btnQuick.addEventListener('click', () => {
           const btnShow = document.getElementById('btn-show-download-fields');
@@ -2747,7 +4423,7 @@ function renderSettingsModels() {
           
           if (btnShow) btnShow.style.display = 'none';
           if (inputsRow) inputsRow.classList.remove('hidden');
-          if (inputModel) inputModel.value = 'tinyllama';
+          if (inputModel) inputModel.value = 'phi3:latest';
           if (btnDownload) btnDownload.click();
         });
       }
@@ -3099,6 +4775,8 @@ async function initPersistentGeminiKey() {
     } catch (e) {}
   }
   updateGeminiKeyUi();
+  if (key) await connectGemini(key);
+  else updateGeminiConnectionBadge();
 }
 
 function updateGeminiKeyUi() {
@@ -3107,7 +4785,7 @@ function updateGeminiKeyUi() {
 
   if (savedKey) {
     inputGeminiKey.value = savedKey;
-    if (geminiKeyBtnText) geminiKeyBtnText.textContent = 'Edit Key (Configured ✓)';
+    if (geminiKeyBtnText) geminiKeyBtnText.textContent = 'Edit Key';
   } else {
     if (geminiKeyBtnText) geminiKeyBtnText.textContent = 'Add Key';
   }
@@ -3144,29 +4822,40 @@ if (btnCancelGeminiKey) {
 }
 
 if (btnSaveGeminiKey) {
-  btnSaveGeminiKey.addEventListener('click', () => {
+  btnSaveGeminiKey.addEventListener('click', async () => {
     const val = inputGeminiKey ? inputGeminiKey.value.trim() : '';
     if (val) {
+      btnSaveGeminiKey.disabled = true;
+      btnSaveGeminiKey.textContent = 'Connecting…';
       localStorage.setItem('ultron-gemini-api-key', val);
       if (window.ultronAPI && window.ultronAPI.saveGeminiKey) {
-        window.ultronAPI.saveGeminiKey(val).catch(() => {});
+        await window.ultronAPI.saveGeminiKey(val).catch(() => {});
       }
-      isEditingGeminiKey = false;
-      updateGeminiKeyUi();
-      renderModelDropdownList();
-      updateModelSelectorLabel();
+      const connection = await connectGemini(val, { selectFirst: true });
+      btnSaveGeminiKey.disabled = false;
+      btnSaveGeminiKey.textContent = 'Save Key';
       if (feedbackGeminiKey) {
-        feedbackGeminiKey.textContent = '✓ Gemini API key saved successfully!';
+        feedbackGeminiKey.textContent = connection.success
+          ? `✓ Connected — ${connection.models.length} compatible Gemini models available.`
+          : `Could not connect: ${connection.error}`;
+        feedbackGeminiKey.style.color = connection.success ? '#34d399' : '#f87171';
         feedbackGeminiKey.classList.remove('hidden');
-        setTimeout(() => feedbackGeminiKey.classList.add('hidden'), 3000);
+        if (connection.success) setTimeout(() => feedbackGeminiKey.classList.add('hidden'), 5000);
       }
-      logTrace('Google Gemini API key updated in user settings.', 'local');
+      if (connection.success) {
+        isEditingGeminiKey = false;
+        updateGeminiKeyUi();
+      }
     } else {
       localStorage.removeItem('ultron-gemini-api-key');
       if (window.ultronAPI && window.ultronAPI.saveGeminiKey) {
         window.ultronAPI.saveGeminiKey('').catch(() => {});
       }
       isEditingGeminiKey = false;
+      ONLINE_GEMINI_MODELS = [];
+      geminiConnectionState = 'disconnected';
+      geminiConnectionError = '';
+      updateGeminiConnectionBadge();
       updateGeminiKeyUi();
       renderModelDropdownList();
       updateModelSelectorLabel();
@@ -3337,6 +5026,7 @@ const OLLAMA_POPULAR_MODELS = [
   { name: 'llama3:latest', size: '8B', downloadSize: '4.7 GB', desc: 'Meta flagship open model for general AI tasks' },
   { name: 'mistral:latest', size: '7B', downloadSize: '4.1 GB', desc: 'Fast, high-accuracy general AI model by Mistral AI' },
   { name: 'phi3:latest', size: '3.8B', downloadSize: '2.2 GB', desc: 'Microsoft high-efficiency reasoning & logic model' },
+  { name: 'gemma2:2b', size: '2B', downloadSize: '1.6 GB', desc: 'Google Gemma 2 compact model for low VRAM systems' },
   { name: 'gemma2:latest', size: '9B', downloadSize: '5.4 GB', desc: 'Google state-of-the-art open model with high precision' },
   { name: 'qwen2.5:latest', size: '7B', downloadSize: '4.7 GB', desc: 'Alibaba top-tier reasoning, math, and code model' },
   { name: 'deepseek-r1:latest', size: '7B', downloadSize: '4.7 GB', desc: 'DeepSeek advanced reasoning & chain-of-thought model' },
@@ -3516,10 +5206,8 @@ const triggerNewChat = () => {
   updateWelcomeGreeting();
   
   logTrace('New chat isolation workspace container generated.', 'system');
-  activeSubgoals = [
-    { text: 'Awaiting local prompt commands', completed: false }
-  ];
-  renderChecklist(activeSubgoals);
+  activeSubgoals = [];
+  renderChecklist([]);
   
   if (activeChatTitle) activeChatTitle.textContent = 'New chat';
   
@@ -3617,24 +5305,231 @@ async function reloadConversationsFromDisk() {
 // ==========================================
 let attachedFiles = [];
 
-const btnAttach = document.getElementById('btn-attach');
+const btnPlusMenu = document.getElementById('btn-plus-menu');
+const plusMenuWrapper = document.getElementById('plus-menu-wrapper');
+const plusMenuDropdown = document.getElementById('plus-menu-dropdown');
+const plusMenuAttach = document.getElementById('plus-menu-attach');
 const hiddenFileInput = document.getElementById('hidden-file-input');
 const attachmentPreviewBar = document.getElementById('attachment-preview-bar');
 
-if (btnAttach && hiddenFileInput) {
-  btnAttach.addEventListener('click', (e) => {
+function closePlusMenu() {
+  if (!plusMenuWrapper || !plusMenuDropdown || !btnPlusMenu) return;
+  plusMenuDropdown.classList.add('hidden');
+  plusMenuWrapper.classList.remove('open');
+  btnPlusMenu.setAttribute('aria-expanded', 'false');
+}
+
+function togglePlusMenu() {
+  if (!plusMenuWrapper || !plusMenuDropdown || !btnPlusMenu) return;
+  const willOpen = plusMenuDropdown.classList.contains('hidden');
+  if (willOpen) {
+    syncModelAttachmentCapabilities();
+    plusMenuDropdown.classList.remove('hidden');
+    plusMenuWrapper.classList.add('open');
+    btnPlusMenu.setAttribute('aria-expanded', 'true');
+  } else {
+    closePlusMenu();
+  }
+}
+
+async function processAndAttachFiles(files) {
+  const caps = getModelCapabilities(activeModel);
+  let hasImageOnTextModel = false;
+
+  for (const file of Array.from(files)) {
+    if (attachedFiles.some(f => f.name === file.name && f.size === file.size)) continue;
+
+    const isImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|svg)$/i.test(file.name);
+    let textContent = '';
+    let dataUrl = '';
+
+    if (isImage) {
+      if (!caps.isVision) {
+        hasImageOnTextModel = true;
+      }
+      try {
+        dataUrl = await new Promise((res, rej) => {
+          const reader = new FileReader();
+          reader.onload = () => res(reader.result);
+          reader.onerror = rej;
+          reader.readAsDataURL(file);
+        });
+      } catch (err) {
+        logTrace(`Failed to read image dataUrl for ${file.name}: ${err.message}`, 'error');
+      }
+    } else {
+      if (file.size < 2 * 1024 * 1024) {
+        try {
+          textContent = await new Promise((res, rej) => {
+            const reader = new FileReader();
+            reader.onload = () => res(reader.result);
+            reader.onerror = rej;
+            reader.readAsText(file);
+          });
+        } catch (err) {
+          logTrace(`Failed to read text file ${file.name}: ${err.message}`, 'error');
+        }
+      }
+    }
+
+    attachedFiles.push({
+      file,
+      name: file.name,
+      size: file.size,
+      type: file.type || 'text/plain',
+      isImage,
+      textContent,
+      dataUrl
+    });
+  }
+
+  renderAttachmentPreviews(hasImageOnTextModel);
+}
+
+if (btnPlusMenu) {
+  btnPlusMenu.addEventListener('click', (e) => {
     e.preventDefault();
+    e.stopPropagation();
+    togglePlusMenu();
+  });
+}
+
+if (plusMenuAttach && hiddenFileInput) {
+  plusMenuAttach.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    closePlusMenu();
+    syncModelAttachmentCapabilities();
     hiddenFileInput.click();
   });
+}
 
-  hiddenFileInput.addEventListener('change', (e) => {
-    if (e.target.files && e.target.files.length > 0) {
-      Array.from(e.target.files).forEach(file => {
-        if (!attachedFiles.some(f => f.name === file.name && f.size === file.size)) {
-          attachedFiles.push(file);
+document.querySelectorAll('.plus-menu-item.mode-option').forEach(btn => {
+  btn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const mode = btn.dataset.mode;
+    if (!mode) return;
+    await applySecurityMode(mode, 'plus-menu');
+    closePlusMenu();
+  });
+});
+
+function syncPlusMenuToggles() {
+  const toggles = [
+    { id: 'plus-toggle-agent-tools', key: 'ultron-agent-tools-enabled' },
+    { id: 'plus-toggle-screen-aware', key: 'ultron-screen-aware-enabled' },
+    { id: 'plus-toggle-web-search', key: 'ultron-web-search-enabled' }
+  ];
+  toggles.forEach(({ id, key }) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    const enabled = window.localStorage.getItem(key) !== 'false';
+    btn.classList.toggle('active', enabled);
+    btn.setAttribute('aria-checked', enabled ? 'true' : 'false');
+  });
+}
+
+document.querySelectorAll('.plus-menu-item.toggle-option').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const keyMap = {
+      'plus-toggle-agent-tools': 'ultron-agent-tools-enabled',
+      'plus-toggle-screen-aware': 'ultron-screen-aware-enabled',
+      'plus-toggle-web-search': 'ultron-web-search-enabled'
+    };
+    const key = keyMap[btn.id];
+    if (!key) return;
+    const next = window.localStorage.getItem(key) === 'false';
+    window.localStorage.setItem(key, next ? 'true' : 'false');
+    if (btn.id === 'plus-toggle-screen-aware' && settingScreenCaptureToggle) {
+      settingScreenCaptureToggle.checked = next;
+      window.localStorage.setItem('ultron-screen-capture-enabled', next ? 'true' : 'false');
+    }
+    syncPlusMenuToggles();
+    logTrace(`Agent option "${btn.querySelector('.plus-menu-item-title')?.textContent || btn.id}" ${next ? 'enabled' : 'disabled'}.`, 'system');
+  });
+});
+
+syncPlusMenuToggles();
+
+if (chatMessagesContainer) {
+  chatMessagesContainer.addEventListener('click', async (e) => {
+    const fixBtn = e.target.closest('.error-fix-btn');
+    if (fixBtn) {
+      const action = fixBtn.dataset.fixAction;
+      if (action === 'open-settings-apps') {
+        if (btnSettings && settingsModal) {
+          settingsModal.classList.remove('hidden');
+          document.querySelector('.settings-tab-btn[data-tab="apps"]')?.click();
         }
-      });
-      renderAttachmentPreviews();
+      } else if (action === 'enable-screen') {
+        window.localStorage.setItem('ultron-screen-capture-enabled', 'true');
+        window.localStorage.setItem('ultron-screen-aware-enabled', 'true');
+        if (settingScreenCaptureToggle) settingScreenCaptureToggle.checked = true;
+        syncPlusMenuToggles();
+      } else if (action === 'switch-vision-model') {
+        await ensureVisionModelForScreen();
+        updateModelSelectorLabel();
+      } else if (action === 'open-models') {
+        if (btnSettings && settingsModal) {
+          settingsModal.classList.remove('hidden');
+          document.querySelector('.settings-tab-btn[data-tab="models"]')?.click();
+        }
+      } else if (action === 'open-app' && fixBtn.dataset.appName) {
+        chatInput.value = `Open ${fixBtn.dataset.appName}`;
+        chatInput.focus();
+      } else if (action === 'undo-last' && window.UltronAgentExecutor) {
+        const undoRes = await window.UltronAgentExecutor.popAndRunUndo();
+        logTrace(undoRes.message || 'Undo attempted.', undoRes.success ? 'system' : 'error');
+      }
+      return;
+    }
+    const choiceBtn = e.target.closest('.clarify-choice-btn');
+    if (choiceBtn && choiceBtn.dataset.appChoice) {
+      chatInput.value = `Open ${choiceBtn.dataset.appChoice}`;
+      chatInput.focus();
+      playUltronSound('question');
+    }
+  });
+}
+
+document.querySelectorAll('.trace-filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.trace-filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    _traceLogFilter = btn.dataset.traceFilter || 'all';
+  });
+});
+
+let _liveMetricsTimer = null;
+async function refreshLiveMetrics() {
+  if (!window.ultronAPI || typeof window.ultronAPI.getLiveMetrics !== 'function') return;
+  try {
+    const res = await window.ultronAPI.getLiveMetrics();
+    if (!res || !res.success) return;
+    if (statRamLive) statRamLive.textContent = `${res.memoryUsedPct}% (${res.freeMemoryGB} GB free)`;
+    if (statCpuLive && res.cpuLoadPct != null) statCpuLive.textContent = `${res.cpuLoadPct}%`;
+  } catch (e) {}
+}
+
+function startLiveMetricsPolling() {
+  refreshLiveMetrics();
+  if (_liveMetricsTimer) clearInterval(_liveMetricsTimer);
+  _liveMetricsTimer = setInterval(refreshLiveMetrics, 8000);
+}
+
+document.addEventListener('click', (e) => {
+  if (plusMenuWrapper && !plusMenuWrapper.contains(e.target)) {
+    closePlusMenu();
+  }
+});
+
+if (hiddenFileInput) {
+  hiddenFileInput.addEventListener('change', async (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      await processAndAttachFiles(e.target.files);
     }
     hiddenFileInput.value = '';
   });
@@ -3650,22 +5545,17 @@ if (btnAttach && hiddenFileInput) {
       e.preventDefault();
       inputWrapper.style.borderColor = '';
     });
-    inputWrapper.addEventListener('drop', (e) => {
+    inputWrapper.addEventListener('drop', async (e) => {
       e.preventDefault();
       inputWrapper.style.borderColor = '';
       if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-        Array.from(e.dataTransfer.files).forEach(file => {
-          if (!attachedFiles.some(f => f.name === file.name && f.size === file.size)) {
-            attachedFiles.push(file);
-          }
-        });
-        renderAttachmentPreviews();
+        await processAndAttachFiles(e.dataTransfer.files);
       }
     });
   }
 }
 
-function renderAttachmentPreviews() {
+function renderAttachmentPreviews(hasImageWarning = false) {
   if (!attachmentPreviewBar) return;
 
   if (attachedFiles.length === 0) {
@@ -3677,15 +5567,46 @@ function renderAttachmentPreviews() {
   attachmentPreviewBar.classList.remove('hidden');
   attachmentPreviewBar.innerHTML = '';
 
-  attachedFiles.forEach((file, index) => {
-    const ext = file.name.includes('.') ? file.name.split('.').pop().toUpperCase() : 'FILE';
-    const sizeKB = (file.size / 1024).toFixed(1);
+  const caps = getModelCapabilities(activeModel);
+
+  if (hasImageWarning || (attachedFiles.some(f => f.isImage) && !caps.isVision)) {
+    const warnBanner = document.createElement('div');
+    warnBanner.className = 'attachment-warning-banner';
+    warnBanner.style.cssText = 'width: 100%; font-size: 11px; color: #fbbf24; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25); padding: 4px 8px; border-radius: 6px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;';
+    warnBanner.innerHTML = `
+      <span>⚠️ <b>${activeModel}</b> is a text-based model. Switch to Gemini or a Vision model to process image contents.</span>
+      <button type="button" id="btn-switch-to-vision" style="background: #fbbf24; color: #000; border: none; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px; cursor: pointer;">Switch to Gemini</button>
+    `;
+    attachmentPreviewBar.appendChild(warnBanner);
+
+    const switchBtn = warnBanner.querySelector('#btn-switch-to-vision');
+    if (switchBtn) {
+      switchBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        activeModel = ONLINE_GEMINI_MODELS.find(model => model.name.includes('flash'))?.name
+          || ONLINE_GEMINI_MODELS[0]?.name
+          || activeModel;
+        updateModelSelectorLabel();
+        renderAttachmentPreviews();
+        logTrace(`Switched model to Gemini 3.0 Flash for image vision analysis`, 'system');
+      });
+    }
+  }
+
+  attachedFiles.forEach((fileObj, index) => {
+    const ext = fileObj.name.includes('.') ? fileObj.name.split('.').pop().toUpperCase() : 'FILE';
+    const sizeKB = (fileObj.size / 1024).toFixed(1);
     
     const pill = document.createElement('div');
     pill.className = 'attachment-pill';
+
+    const thumbHtml = fileObj.isImage && fileObj.dataUrl
+      ? `<img src="${fileObj.dataUrl}" class="attachment-pill-thumb" alt="Preview" />`
+      : `<span class="attachment-badge">${ext}</span>`;
+
     pill.innerHTML = `
-      <span class="attachment-badge">${ext}</span>
-      <span class="attachment-name" title="${file.name}">${file.name}</span>
+      ${thumbHtml}
+      <span class="attachment-name" title="${fileObj.name}">${fileObj.name}</span>
       <span class="attachment-size">${sizeKB} KB</span>
       <button type="button" class="btn-remove-attachment" data-index="${index}" title="Remove attachment">✕</button>
     `;
@@ -3947,7 +5868,10 @@ async function stopVoiceRecording(saveTranscript = true) {
             reader.readAsDataURL(finalAudioBlob);
           });
 
-          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey.trim()}`;
+          const speechModel = ONLINE_GEMINI_MODELS.find(model => model.name.includes('flash'))?.name
+            || ONLINE_GEMINI_MODELS[0]?.name;
+          if (!speechModel) throw new Error('No compatible Gemini model is connected.');
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${speechModel}:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
           const res = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4154,11 +6078,28 @@ function hideSkeletonLoader() {
 
 // Immediate boot sequence: Keep skeleton loader visible while background diagnostics run
 async function bootSystem() {
+  if (window.UltronAgentPrompt && typeof window.UltronAgentPrompt.loadUltronAgentConfig === 'function') {
+    try {
+      await window.UltronAgentPrompt.loadUltronAgentConfig();
+      if (typeof window.UltronAgentPrompt.startUltronAgentConfigHotReload === 'function') {
+        window.UltronAgentPrompt.startUltronAgentConfigHotReload();
+      }
+    } catch (err) {
+      console.warn('Ultron agent config preload failed:', err);
+    }
+  }
+
   loadAccountDetails();
   updateWelcomeGreeting();
   setSendingState(false);
+  initTraceEmptyState();
+  renderChecklist([]);
+  syncPlusMenuToggles();
+  startLiveMetricsPolling();
 
-  // Background conversation reload
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.loadTaskMemory === 'function') {
+    _learnedTaskMemory = window.UltronAgentMemory.loadTaskMemory().map(item => item.text || item);
+  }
   reloadConversationsFromDisk().catch(err => {
     console.error('Conversation reload error:', err);
   });
@@ -4203,6 +6144,8 @@ rightSections.forEach((section) => {
 
 // Bind settings modal triggers
 const settingMemoryToggle = document.getElementById('setting-memory-toggle');
+const settingScreenCaptureToggle = document.getElementById('setting-screen-capture-toggle');
+const settingNeverCaptureApps = document.getElementById('setting-never-capture-apps');
 
 function updateMemoryUIState() {
   if (!settingMemoryToggle) return;
@@ -4232,6 +6175,85 @@ if (settingMemoryToggle) {
   settingMemoryToggle.addEventListener('change', updateMemoryUIState);
 }
 
+if (settingScreenCaptureToggle) {
+  settingScreenCaptureToggle.addEventListener('change', () => {
+    window.localStorage.setItem('ultron-screen-capture-enabled', settingScreenCaptureToggle.checked ? 'true' : 'false');
+    window.localStorage.setItem('ultron-screen-aware-enabled', settingScreenCaptureToggle.checked ? 'true' : 'false');
+    syncPlusMenuToggles();
+    logTrace(`Live screen capture ${settingScreenCaptureToggle.checked ? 'enabled' : 'disabled'}.`, 'system');
+  });
+}
+
+if (settingNeverCaptureApps) {
+  settingNeverCaptureApps.value = window.localStorage.getItem('ultron-never-capture-apps') || '';
+  settingNeverCaptureApps.addEventListener('change', () => {
+    window.localStorage.setItem('ultron-never-capture-apps', settingNeverCaptureApps.value.trim());
+  });
+}
+
+const settingSoundEnabled = document.getElementById('setting-sound-enabled');
+const settingSoundTaskComplete = document.getElementById('setting-sound-task-complete');
+const settingSoundPermission = document.getElementById('setting-sound-permission');
+const settingSoundQuestion = document.getElementById('setting-sound-question');
+const settingSoundVolume = document.getElementById('setting-sound-volume');
+
+function initSoundSettingsUI() {
+  if (settingSoundEnabled) {
+    settingSoundEnabled.checked = window.localStorage.getItem('ultron-sound-enabled') !== 'false';
+    settingSoundEnabled.addEventListener('change', () => {
+      window.localStorage.setItem('ultron-sound-enabled', settingSoundEnabled.checked ? 'true' : 'false');
+    });
+  }
+  if (settingSoundTaskComplete) {
+    settingSoundTaskComplete.checked = window.localStorage.getItem('ultron-sound-task-complete') !== 'false';
+    settingSoundTaskComplete.addEventListener('change', () => {
+      window.localStorage.setItem('ultron-sound-task-complete', settingSoundTaskComplete.checked ? 'true' : 'false');
+    });
+  }
+  if (settingSoundPermission) {
+    settingSoundPermission.checked = window.localStorage.getItem('ultron-sound-permission') !== 'false';
+    settingSoundPermission.addEventListener('change', () => {
+      window.localStorage.setItem('ultron-sound-permission', settingSoundPermission.checked ? 'true' : 'false');
+    });
+  }
+  if (settingSoundQuestion) {
+    settingSoundQuestion.checked = window.localStorage.getItem('ultron-sound-question') !== 'false';
+    settingSoundQuestion.addEventListener('change', () => {
+      window.localStorage.setItem('ultron-sound-question', settingSoundQuestion.checked ? 'true' : 'false');
+    });
+  }
+  if (settingSoundVolume) {
+    const vol = window.localStorage.getItem('ultron-sound-volume');
+    if (vol != null) settingSoundVolume.value = vol;
+    settingSoundVolume.addEventListener('input', () => {
+      window.localStorage.setItem('ultron-sound-volume', settingSoundVolume.value);
+    });
+  }
+
+  document.querySelectorAll('.sound-file-picker').forEach(button => {
+    const kind = button.dataset.soundKind;
+    const savedName = window.localStorage.getItem(`ultron-sound-name-${kind}`);
+    if (savedName) button.textContent = savedName;
+    button.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!window.ultronAPI?.selectSoundFile) return;
+      const result = await window.ultronAPI.selectSoundFile();
+      if (result?.canceled || !result?.fileUrl) return;
+      const fileName = String(result.path || '').split(/[\\/]/).pop() || 'Custom file';
+      window.localStorage.setItem(`ultron-sound-file-${kind}`, result.fileUrl);
+      window.localStorage.setItem(`ultron-sound-name-${kind}`, fileName);
+      button.textContent = fileName;
+      Object.keys(_soundCache).forEach(key => {
+        if (key === result.fileUrl) delete _soundCache[key];
+      });
+      playUltronSound(kind);
+    });
+  });
+}
+
+initSoundSettingsUI();
+
 if (btnSettings && settingsModal && btnCloseSettings) {
   btnSettings.addEventListener('click', async () => {
     // Open Account tab by default
@@ -4244,6 +6266,14 @@ if (btnSettings && settingsModal && btnCloseSettings) {
     if (settingMemoryToggle) {
       const isMemoryEnabled = window.localStorage.getItem('ultron-memory-enabled') !== 'false';
       settingMemoryToggle.checked = isMemoryEnabled;
+    }
+
+    if (settingScreenCaptureToggle) {
+      const screenCaptureEnabled = window.localStorage.getItem('ultron-screen-capture-enabled') !== 'false';
+      settingScreenCaptureToggle.checked = screenCaptureEnabled;
+    }
+    if (settingNeverCaptureApps) {
+      settingNeverCaptureApps.value = window.localStorage.getItem('ultron-never-capture-apps') || '';
     }
     
     // Initialize Data Storage Location input path
@@ -4864,4 +6894,5 @@ function setupAutoUpdaterUI() {
 }
 
 setupAutoUpdaterUI();
+
 

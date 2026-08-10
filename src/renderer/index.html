@@ -206,12 +206,80 @@
         <!-- Actions Row at Bottom -->
         <div class="input-pill-actions">
           <div class="input-actions-left">
-            <button id="btn-attach" class="input-action-btn btn-attach-text">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-              </svg>
-              <span>Attach</span>
-            </button>
+            <!-- Plus menu: attach files + permission modes -->
+            <div id="plus-menu-wrapper" class="plus-menu-wrapper">
+              <button id="btn-plus-menu" class="input-action-btn btn-plus-menu" title="Attach files & agent mode" type="button" aria-haspopup="true" aria-expanded="false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+              </button>
+              <div id="plus-menu-dropdown" class="plus-menu-dropdown hidden" role="menu">
+                <button type="button" class="plus-menu-item" id="plus-menu-attach" role="menuitem">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+                  </svg>
+                  <div class="plus-menu-item-text">
+                    <span class="plus-menu-item-title">Attach files</span>
+                    <span class="plus-menu-item-desc">Upload text, code, or images</span>
+                  </div>
+                  <span id="model-capability-badge" class="model-capability-badge badge-text">Text</span>
+                </button>
+                <div class="plus-menu-divider"></div>
+                <div class="plus-menu-section-label">Agent permission mode</div>
+                <button type="button" class="plus-menu-item mode-option" data-mode="Review" role="menuitem">
+                  <span class="mode-radio"></span>
+                  <div class="plus-menu-item-text">
+                    <span class="plus-menu-item-title">Review</span>
+                    <span class="plus-menu-item-desc">Ask before every action</span>
+                  </div>
+                </button>
+                <button type="button" class="plus-menu-item mode-option" data-mode="Containment" role="menuitem">
+                  <span class="mode-radio"></span>
+                  <div class="plus-menu-item-text">
+                    <span class="plus-menu-item-title">Containment</span>
+                    <span class="plus-menu-item-desc">Run inside sandbox only</span>
+                  </div>
+                </button>
+                <button type="button" class="plus-menu-item mode-option" data-mode="Adaptive" role="menuitem">
+                  <span class="mode-radio"></span>
+                  <div class="plus-menu-item-text">
+                    <span class="plus-menu-item-title">Adaptive</span>
+                    <span class="plus-menu-item-desc">Smart auto with safety checks</span>
+                  </div>
+                </button>
+                <button type="button" class="plus-menu-item mode-option" data-mode="Trusted" role="menuitem">
+                  <span class="mode-radio"></span>
+                  <div class="plus-menu-item-text">
+                    <span class="plus-menu-item-title">Trusted</span>
+                    <span class="plus-menu-item-desc">Full automation, minimal prompts</span>
+                  </div>
+                </button>
+                <div class="plus-menu-divider"></div>
+                <div class="plus-menu-section-label">Agent options</div>
+                <button type="button" class="plus-menu-item toggle-option" id="plus-toggle-agent-tools" role="menuitemcheckbox" aria-checked="true">
+                  <span class="mode-radio"></span>
+                  <div class="plus-menu-item-text">
+                    <span class="plus-menu-item-title">Agent tools</span>
+                    <span class="plus-menu-item-desc">Run desktop actions & file ops</span>
+                  </div>
+                </button>
+                <button type="button" class="plus-menu-item toggle-option" id="plus-toggle-screen-aware" role="menuitemcheckbox" aria-checked="true">
+                  <span class="mode-radio"></span>
+                  <div class="plus-menu-item-text">
+                    <span class="plus-menu-item-title">Screen aware</span>
+                    <span class="plus-menu-item-desc">Capture desktop for vision tasks</span>
+                  </div>
+                </button>
+                <button type="button" class="plus-menu-item toggle-option" id="plus-toggle-web-search" role="menuitemcheckbox" aria-checked="true">
+                  <span class="mode-radio"></span>
+                  <div class="plus-menu-item-text">
+                    <span class="plus-menu-item-title">Web search</span>
+                    <span class="plus-menu-item-desc">Allow live web lookups</span>
+                  </div>
+                </button>
+              </div>
+            </div>
             <!-- Custom Upward Model Selector -->
             <div id="model-selector-wrapper" class="model-selector-wrapper">
               <button id="model-selector-btn" class="model-selector-btn">
@@ -307,7 +375,7 @@
     </div>
     
     <!-- Hardware Interface Card (Collapsible) -->
-    <div id="section-hardware" class="right-section collapsible collapsed">
+    <div id="section-hardware" class="right-section collapsible">
       <div class="section-header-clickable">
         <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
@@ -338,6 +406,14 @@
               <span id="stat-ram" class="info-value value-mono">-- GB</span>
             </div>
             <div class="info-row">
+              <span class="info-label">Memory In Use:</span>
+              <span id="stat-ram-live" class="info-value value-mono">-- %</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">CPU Load:</span>
+              <span id="stat-cpu-live" class="info-value value-mono">-- %</span>
+            </div>
+            <div class="info-row">
               <span class="info-label">Core Threads:</span>
               <span id="stat-cpu" class="info-value value-mono">-- Cores</span>
             </div>
@@ -351,7 +427,7 @@
     </div>
 
     <!-- Security Mode Picker (Collapsible) -->
-    <div id="section-security" class="right-section collapsible collapsed">
+    <div id="section-security" class="right-section collapsible">
       <div class="section-header-clickable">
         <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
@@ -372,7 +448,7 @@
     </div>
 
     <!-- Task List Tracker (Collapsible) -->
-    <div id="section-checklist" class="right-section collapsible collapsed">
+    <div id="section-checklist" class="right-section collapsible">
       <div class="section-header-clickable">
         <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="9 11 12 14 22 4"></polyline>
@@ -391,7 +467,7 @@
     </div>
 
     <!-- Real-Time Trace Log (Collapsible) -->
-    <div id="section-trace" class="right-section collapsible collapsed">
+    <div id="section-trace" class="right-section collapsible">
       <div class="section-header-clickable">
         <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="8" y1="6" x2="21" y2="6"></line>
@@ -407,6 +483,13 @@
         </svg>
       </div>
       <div class="section-body">
+        <div class="trace-filter-row" style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;">
+          <button type="button" class="trace-filter-btn active" data-trace-filter="all">All</button>
+          <button type="button" class="trace-filter-btn" data-trace-filter="system">System</button>
+          <button type="button" class="trace-filter-btn" data-trace-filter="local">Agent</button>
+          <button type="button" class="trace-filter-btn" data-trace-filter="permission">Permission</button>
+          <button type="button" class="trace-filter-btn" data-trace-filter="error">Error</button>
+        </div>
         <div id="trace-logs-stream" class="trace-container">
           <!-- populated dynamically -->
         </div>
@@ -514,7 +597,7 @@
                   <div style="display: flex; flex-direction: column;">
                     <div style="display: flex; align-items: center; gap: 8px;">
                       <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Google Gemini</span>
-                      <span id="gemini-status-badge" class="badge-active" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Online API</span>
+                      <span id="gemini-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Not connected</span>
                     </div>
                     <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: https://generativelanguage.googleapis.com</p>
                   </div>
@@ -661,6 +744,51 @@
               </select>
             </div>
             <p class="text-xs text-muted">This establishes the validation container mode when initiating new chat threads.</p>
+
+            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+                <div>
+                  <label style="display: block; margin-bottom: 4px;">Live Screen Capture</label>
+                  <p class="text-xs text-muted" style="margin: 0; line-height: 1.4;">Allow Ultron to capture desktop screenshots during agent tasks for visual verification and UI understanding. Only screenshots needed for the task are analyzed.</p>
+                </div>
+                <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
+                  <input type="checkbox" id="setting-screen-capture-toggle" style="opacity: 0; width: 0; height: 0;">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <label for="setting-never-capture-apps" class="text-xs text-muted" style="display:block; margin:12px 0 6px;">Never capture apps (comma-separated)</label>
+              <input id="setting-never-capture-apps" class="override-input" type="text" placeholder="1Password, Banking, Authenticator" style="width:100%; box-sizing:border-box;">
+            </div>
+
+            <div class="setting-item" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+              <label style="display: block; margin-bottom: 8px;">Agent Sounds</label>
+              <p class="text-xs text-muted" style="margin: 0 0 12px 0;">Play audio when tasks complete, permissions are needed, or Ultron asks a question. Drop files in Assets/sounds/.</p>
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+                  <input type="checkbox" id="setting-sound-enabled" checked style="accent-color: #fff;">
+                  <span>Enable sounds</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+                  <input type="checkbox" id="setting-sound-task-complete" checked style="accent-color: #fff;">
+                  <span>Task complete</span>
+                  <button type="button" class="sound-file-picker" data-sound-kind="task_complete" style="margin-left:auto;">Choose file</button>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+                  <input type="checkbox" id="setting-sound-permission" checked style="accent-color: #fff;">
+                  <span>Permission prompt</span>
+                  <button type="button" class="sound-file-picker" data-sound-kind="permission" style="margin-left:auto;">Choose file</button>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer;">
+                  <input type="checkbox" id="setting-sound-question" checked style="accent-color: #fff;">
+                  <span>Clarifying question</span>
+                  <button type="button" class="sound-file-picker" data-sound-kind="question" style="margin-left:auto;">Choose file</button>
+                </label>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span class="text-xs text-muted" style="min-width: 48px;">Volume</span>
+                  <input type="range" id="setting-sound-volume" min="0" max="100" value="55" style="flex: 1; accent-color: #818cf8;">
+                </div>
+              </div>
+            </div>
           </div>
           
           <!-- Apps Tab -->
@@ -757,6 +885,12 @@
     </div>
   </div>
 
+  <script src="../agent/app-registry.js"></script>
+  <script src="../agent/agent-policy.js"></script>
+  <script src="../agent/tool-schema.js"></script>
+  <script src="../agent/agent-memory.js"></script>
+  <script src="../agent/agent-executor.js"></script>
+  <script src="../agent/agent-prompt.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
