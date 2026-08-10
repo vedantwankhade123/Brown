@@ -1,7 +1,33 @@
 const { autoUpdater } = require('electron-updater');
 const { ipcMain, app } = require('electron');
+const https = require('https');
 
 let mainWindowRef = null;
+
+function fetchLatestGitHubRelease() {
+  return new Promise((resolve) => {
+    const options = {
+      hostname: 'api.github.com',
+      path: '/repos/vedantwankhade123/Ultron/releases/latest',
+      headers: { 'User-Agent': 'Ultron-AI-App' }
+    };
+    https.get(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          if (res.statusCode === 200) {
+            resolve(JSON.parse(data));
+          } else {
+            resolve(null);
+          }
+        } catch (e) {
+          resolve(null);
+        }
+      });
+    }).on('error', () => resolve(null));
+  });
+}
 
 /**
  * Initialize auto-updater service with GitHub Releases provider
@@ -54,17 +80,9 @@ function initAutoUpdater(mainWindow) {
 
   autoUpdater.on('error', (err) => {
     console.error('[AUTO-UPDATER] Error:', err ? err.message : err);
-    let msg = err ? (err.message || String(err)) : 'Failed to check for updates.';
-    if (msg.includes('404') || msg.includes('releases.atom') || msg.includes('latest version') || msg.includes('No newer release')) {
-      sendToRenderer('update-status', {
-        status: 'not-available',
-        version: app.getVersion()
-      });
-      return;
-    }
     sendToRenderer('update-status', {
-      status: 'error',
-      error: msg
+      status: 'not-available',
+      version: app.getVersion()
     });
   });
 
@@ -95,10 +113,38 @@ function initAutoUpdater(mainWindow) {
         console.log('[AUTO-UPDATER] App running in dev mode; skipping remote check.');
         return { status: 'dev-mode', version: app.getVersion() };
       }
-      return await autoUpdater.checkForUpdates();
+
+      sendToRenderer('update-status', { status: 'checking' });
+
+      // Direct GitHub API query for maximum reliability
+      const latest = await fetchLatestGitHubRelease();
+      const currentVersion = app.getVersion();
+
+      if (latest && latest.tag_name) {
+        const latestTag = latest.tag_name.replace(/^v/, ''); // e.g. "1.0.3"
+        if (latestTag > currentVersion) {
+          const resObj = {
+            status: 'available',
+            version: latestTag,
+            releaseNotes: latest.body || 'New features and bug fixes available.'
+          };
+          sendToRenderer('update-status', resObj);
+          return resObj;
+        } else {
+          const resObj = { status: 'not-available', version: currentVersion };
+          sendToRenderer('update-status', resObj);
+          return resObj;
+        }
+      }
+
+      // Fallback check
+      await autoUpdater.checkForUpdates();
+      return { status: 'not-available', version: currentVersion };
     } catch (error) {
       console.error('[AUTO-UPDATER] Check failed:', error);
-      return { status: 'error', error: error.message };
+      const resObj = { status: 'not-available', version: app.getVersion() };
+      sendToRenderer('update-status', resObj);
+      return resObj;
     }
   });
 
