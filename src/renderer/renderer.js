@@ -1610,9 +1610,19 @@ const ONLINE_GEMINI_MODELS = [
 
 function updateModelSelectorLabel() {
   if (!modelSelectorLabel) return;
-  const name = activeModel || 'gemini-3.0-flash';
-  const isGemini = ONLINE_GEMINI_MODELS.some(m => m.name === name) || name.toLowerCase().includes('gemini');
+  const hasGeminiKey = Boolean((localStorage.getItem('ultron-gemini-api-key') || '').trim());
+  let name = activeModel;
+  
+  if (!hasGeminiKey && (!name || name.toLowerCase().includes('gemini'))) {
+    const firstLocal = (installedModelsList && installedModelsList.length > 0) ? installedModelsList[0].name : 'tinyllama:latest';
+    activeModel = firstLocal;
+    name = firstLocal;
+  } else if (!name) {
+    name = 'gemini-3.0-flash';
+    activeModel = name;
+  }
 
+  const isGemini = ONLINE_GEMINI_MODELS.some(m => m.name === name) || name.toLowerCase().includes('gemini');
   const logoSrc = isGemini ? '../../Assets/gemini-logo.png' : '../../Assets/ollama-logo.png';
   const filterStyle = isGemini ? '' : 'filter: brightness(0) invert(1);';
 
@@ -1629,34 +1639,45 @@ function updateModelSelectorLabel() {
 function renderModelDropdownList() {
   modelDropdownList.innerHTML = '';
   
-  // Render Online Gemini Models section
-  const onlineHeader = document.createElement('div');
-  onlineHeader.className = 'model-dropdown-section-title';
-  onlineHeader.style.cssText = 'padding: 8px 12px 4px 12px; font-size: 11px; font-weight: 600; color: #60a5fa; letter-spacing: 0.02em; text-transform: none;';
-  onlineHeader.textContent = 'Online Models';
-  modelDropdownList.appendChild(onlineHeader);
+  const hasGeminiKey = Boolean((localStorage.getItem('ultron-gemini-api-key') || '').trim());
 
-  ONLINE_GEMINI_MODELS.forEach(model => {
-    const item = document.createElement('div');
-    item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
-    item.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <img src="../../Assets/gemini-logo.png" alt="Gemini" style="width: 16px; height: 16px; object-fit: contain;" />
-        <span class="model-name-text">${model.name}</span>
-      </div>
-      <span class="model-badge" style="background: transparent !important; color: #ffffff !important; border: none !important; padding: 0; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">${model.tag}</span>
-    `;
-    item.addEventListener('click', () => {
-      activeModel = model.name;
-      updateModelSelectorLabel();
-      modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
-      item.classList.add('active');
-      modelDropdown.classList.add('hidden');
-      modelSelectorWrapper.classList.remove('open');
-      logTrace(`Chat context model shifted to Online Model: "${activeModel}"`, 'local');
+  // Render Online Gemini Models section only if API key is configured
+  if (hasGeminiKey) {
+    const onlineHeader = document.createElement('div');
+    onlineHeader.className = 'model-dropdown-section-title';
+    onlineHeader.style.cssText = 'padding: 8px 12px 4px 12px; font-size: 11px; font-weight: 600; color: #60a5fa; letter-spacing: 0.02em; text-transform: none;';
+    onlineHeader.textContent = 'Online Models';
+    modelDropdownList.appendChild(onlineHeader);
+
+    ONLINE_GEMINI_MODELS.forEach(model => {
+      const item = document.createElement('div');
+      item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
+      item.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="../../Assets/gemini-logo.png" alt="Gemini" style="width: 16px; height: 16px; object-fit: contain;" />
+          <span class="model-name-text">${model.name}</span>
+        </div>
+        <span class="model-badge" style="background: transparent !important; color: #ffffff !important; border: none !important; padding: 0; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">${model.tag}</span>
+      `;
+      item.addEventListener('click', () => {
+        activeModel = model.name;
+        updateModelSelectorLabel();
+        modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
+        item.classList.add('active');
+        modelDropdown.classList.add('hidden');
+        modelSelectorWrapper.classList.remove('open');
+        logTrace(`Chat context model shifted to Online Model: "${activeModel}"`, 'local');
+      });
+      modelDropdownList.appendChild(item);
     });
-    modelDropdownList.appendChild(item);
-  });
+  } else {
+    // If activeModel is currently a Gemini model but no key exists, fallback to first local offline model
+    if (activeModel && activeModel.toLowerCase().includes('gemini')) {
+      const firstLocal = (installedModelsList && installedModelsList.length > 0) ? installedModelsList[0].name : 'tinyllama:latest';
+      activeModel = firstLocal;
+      updateModelSelectorLabel();
+    }
+  }
 
   // Render Local Ollama Models section
   const localHeader = document.createElement('div');
@@ -3087,6 +3108,8 @@ if (btnSaveGeminiKey) {
       }
       isEditingGeminiKey = false;
       updateGeminiKeyUi();
+      renderModelDropdownList();
+      updateModelSelectorLabel();
       if (feedbackGeminiKey) {
         feedbackGeminiKey.textContent = '✓ Gemini API key saved successfully!';
         feedbackGeminiKey.classList.remove('hidden');
@@ -3100,6 +3123,8 @@ if (btnSaveGeminiKey) {
       }
       isEditingGeminiKey = false;
       updateGeminiKeyUi();
+      renderModelDropdownList();
+      updateModelSelectorLabel();
       if (feedbackGeminiKey) {
         feedbackGeminiKey.textContent = 'Key cleared.';
         feedbackGeminiKey.classList.remove('hidden');
