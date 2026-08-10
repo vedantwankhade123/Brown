@@ -1749,14 +1749,17 @@ async function runOnboardingProfiler() {
     if (statGpu) statGpu.textContent = stats.gpus[0] || 'Unknown GPU';
     if (statRecommendation) statRecommendation.textContent = `${recommendation.toUpperCase()} (Quantized)`;
     
-    // Set active model to recommended if installed, else fallback to first installed model
-    const hasRecommended = installedModelsList.some(m => m.name && (m.name.toLowerCase().includes(recommendation.toLowerCase()) || recommendation.toLowerCase().includes(m.name.toLowerCase())));
-    if (hasRecommended) {
-      activeModel = recommendation;
+    // Set active model to an actually installed model from Ollama or Gemini if key exists
+    const hasGeminiKey = Boolean((localStorage.getItem('ultron-gemini-api-key') || '').trim());
+    const installedMatch = installedModelsList.find(m => m.name === recommendation || (m.name && m.name.split(':')[0] === recommendation.split(':')[0]));
+    if (installedMatch) {
+      activeModel = installedMatch.name;
     } else if (installedModelsList.length > 0) {
       activeModel = installedModelsList[0].name;
+    } else if (hasGeminiKey) {
+      activeModel = 'gemini-3.0-flash';
     } else {
-      activeModel = 'gemini-2.0-flash'; // High-speed cloud fallback
+      activeModel = 'tinyllama:latest';
     }
     
     logTrace(`Onboarding Profiler: Total RAM resolved as ${stats.totalRamGB} GB`, 'system');
