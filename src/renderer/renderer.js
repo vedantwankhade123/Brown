@@ -1,4 +1,4 @@
-﻿// Cache DOM elements
+// Cache DOM elements
 const chatMessagesContainer = document.getElementById('chat-messages-container');
 const chatInput = document.getElementById('chat-input');
 const btnSend = document.getElementById('btn-send');
@@ -30,6 +30,10 @@ const settingsModal = document.getElementById('settings-modal');
 const btnSettings = document.getElementById('btn-settings');
 const btnCloseSettings = document.getElementById('btn-close-settings');
 const settingDataDir = document.getElementById('setting-data-dir');
+const settingConnectorsDir = document.getElementById('setting-connectors-dir');
+const settingOllamaModelsDir = document.getElementById('setting-ollama-models-dir');
+const storageInstallRootLabel = document.getElementById('storage-install-root-label');
+const storageUltronRootLabel = document.getElementById('storage-ultron-root-label');
 
 // Custom model dropdown elements
 const modelSelectorBtn = document.getElementById('model-selector-btn');
@@ -70,8 +74,11 @@ let currentSessionId = null;
 let installedModelsList = [];
 let searchTimeout = null;
 let isAwaitingResponse = false;
+let _activeAbortController = null; // AbortController for cancelling in-flight LLM requests
+const btnStop = document.getElementById('btn-stop');
 
 const LOCAL_MODEL_FALLBACK_ORDER = [
+  'phi4',
   'phi3',
   'llama3.2:3b',
   'gemma2:2b',
@@ -79,8 +86,8 @@ const LOCAL_MODEL_FALLBACK_ORDER = [
   'mistral',
   'llama3',
   'qwen2.5',
-  'tinyllama',
-  'llama3.2:1b'
+  'llama3.2:1b',
+  'tinyllama'
 ];
 
 function normalizeModelName(model) {
@@ -104,7 +111,39 @@ function getModelFallbackRank(modelName) {
   return 100;
 }
 
-function selectBestInstalledLocalModel(excludedModels = []) {
+function isTinyLocalModel(modelName) {
+  const base = modelBaseName(modelName);
+  return base.includes('tinyllama') || base === 'llama3.2:1b';
+}
+
+function getRecoveryModelCandidates(intent, failedModel) {
+  const seen = new Set();
+  const ordered = [];
+  const add = (name) => {
+    const normalized = normalizeModelName(name);
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    ordered.push(normalized);
+  };
+
+  add(failedModel);
+  const installed = getInstalledLocalModelCandidates();
+  const qualityFirst = installed.filter(name => !isTinyLocalModel(name));
+  const tinyLast = installed.filter(name => isTinyLocalModel(name));
+
+  if (intent === 'conversation') {
+    qualityFirst.forEach(add);
+    tinyLast.forEach(add);
+  } else {
+    installed.forEach(add);
+  }
+
+  return ordered;
+}
+
+function getInstalledLocalModelCandidates(excludedModels = []) {
   const excluded = new Set(excludedModels.map(name => normalizeModelName(name).toLowerCase()).filter(Boolean));
   return (installedModelsList || [])
     .map(model => ({
@@ -116,7 +155,181 @@ function selectBestInstalledLocalModel(excludedModels = []) {
       const rankDiff = getModelFallbackRank(a.name) - getModelFallbackRank(b.name);
       if (rankDiff !== 0) return rankDiff;
       return (a.size || 0) - (b.size || 0);
-    })[0]?.name || '';
+    })
+    .map(model => model.name);
+}
+
+function selectBestInstalledLocalModel(excludedModels = []) {
+  return getInstalledLocalModelCandidates(excludedModels)[0] || '';
+}
+
+function getLocalAiMode() {
+  return window.localStorage.getItem('ultron-ai-mode') || 'local-first';
+}
+
+function resolveModelForLocalAi(intent) {
+  const mode = getLocalAiMode();
+  const isAutomation = intent === 'action' || intent === 'search';
+  const usingCloud = activeModel && activeModel.startsWith('gemini');
+
+  if (mode === 'local-only' && usingCloud) {
+    const local = selectBestInstalledLocalModel();
+    return local
+      ? { model: local, switched: true, blocked: false }
+      : { model: activeModel, switched: false, blocked: true };
+  }
+
+  if (mode === 'local-first' && usingCloud && isAutomation) {
+    const local = selectBestInstalledLocalModel();
+    if (local) return { model: local, switched: true, blocked: false };
+    return { model: activeModel, switched: false, blocked: false };
+  }
+
+  return { model: activeModel, switched: false, blocked: false };
+}
+
+function updateLocalAiModeStatus() {
+  const el = document.getElementById('local-ai-mode-status');
+  if (!el) return;
+  const mode = getLocalAiMode();
+  const local = selectBestInstalledLocalModel() || '(none installed)';
+  if (mode === 'local-only') {
+    el.textContent = `Local only — Ollama required. Best local model: ${local}.`;
+  } else if (mode === 'local-first') {
+    el.textContent = `Automations use Ollama first (${local}). Chat follows your dropdown selection.`;
+  } else {
+    el.textContent = `Using selected model: ${activeModel || 'not set'}.`;
+  }
+}
+
+async function refreshInstalledModelsFromOllama() {
+  try {
+    const response = await fetch('http://127.0.0.1:11434/api/tags');
+    if (!response.ok) return;
+    const payload = await response.json();
+    installedModelsList = (payload.models || [])
+      .map(model => ({
+        name: normalizeModelName(model),
+        size: model.size || 0
+      }))
+      .filter(model => model.name);
+  } catch (e) {
+    logTrace(`Could not refresh installed Ollama models: ${e.message}`, 'system');
+  }
+}
+
+function buildOllamaRecoveryBody(baseBody, endpoint, modelName, systemPrompt, intent) {
+  const isGemma = modelName.toLowerCase().includes('gemma');
+  const recoveryBody = {
+    ...baseBody,
+    model: modelName,
+    stream: false,
+    keep_alive: '30s',
+    options: {
+      num_gpu: 0,
+      num_ctx: 768,
+      num_predict: intent === 'conversation' ? 384 : 512,
+      temperature: baseBody.options?.temperature ?? 0.7
+    }
+  };
+
+  if (endpoint === '/api/chat' && Array.isArray(baseBody.messages)) {
+    recoveryBody.messages = baseBody.messages.map(message => {
+      const { images, ...textMessage } = message;
+      return textMessage;
+    });
+  }
+
+  if (endpoint === '/api/generate') {
+    recoveryBody.system = isGemma ? undefined : systemPrompt;
+    recoveryBody.images = undefined;
+  }
+
+  return recoveryBody;
+}
+
+async function tryOllamaMemoryRecovery({ endpoint, bodyData, prompt, systemPrompt, intent, failedModel }) {
+  await unloadOllamaModelsExcept('');
+  await refreshInstalledModelsFromOllama();
+
+  const attemptModels = getRecoveryModelCandidates(intent, failedModel);
+  const triedModels = [];
+
+  async function attemptModel(modelName, recoveryBody, modeLabel) {
+    triedModels.push(modelName);
+    logTrace(`Memory recovery (${modeLabel}): trying ${modelName}...`, 'system');
+    const retryRes = await fetch(`http://127.0.0.1:11434${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(recoveryBody),
+      signal: _activeAbortController ? _activeAbortController.signal : undefined
+    });
+
+    if (!retryRes.ok) {
+      let retryErr = '';
+      try {
+        const errJson = await retryRes.json();
+        retryErr = errJson.error || JSON.stringify(errJson);
+      } catch (e) {
+        retryErr = await retryRes.text();
+      }
+      logTrace(`Memory recovery (${modeLabel}) for ${modelName} failed: ${retryErr}`, 'system');
+      return null;
+    }
+
+    const retryData = await retryRes.json();
+    const text = endpoint === '/api/chat'
+      ? (retryData.message ? retryData.message.content : '')
+      : retryData.response;
+    const cleaned = sanitizeResponseText(text, prompt);
+    if (!cleaned || isIrrelevantModelResponse(cleaned, prompt)) {
+      logTrace(`Memory recovery (${modeLabel}) for ${modelName} returned unusable output — trying next model.`, 'system');
+      return null;
+    }
+    return cleaned;
+  }
+
+  for (const modelName of attemptModels) {
+    try {
+      const defaultBody = buildOllamaDefaultRecoveryBody(bodyData, endpoint, modelName);
+      const cleaned = await attemptModel(modelName, defaultBody, 'ollama defaults');
+      if (cleaned) {
+        const switched = normalizeModelName(failedModel).toLowerCase() !== modelName.toLowerCase();
+        if (switched) {
+          activeModel = modelName;
+          _lastOllamaModel = modelName;
+          updateModelSelectorLabel();
+          syncModelAttachmentCapabilities();
+          logTrace(`Memory recovery switched active model: ${failedModel} → ${modelName}`, 'system');
+        }
+        return cleaned;
+      }
+    } catch (retryErr) {
+      logTrace(`Memory recovery default attempt for ${modelName} threw: ${retryErr.message}`, 'error');
+    }
+  }
+
+  for (const modelName of attemptModels) {
+    try {
+      const compactBody = buildOllamaRecoveryBody(bodyData, endpoint, modelName, systemPrompt, intent);
+      const cleaned = await attemptModel(modelName, compactBody, 'compact CPU');
+      if (cleaned) {
+        const switched = normalizeModelName(failedModel).toLowerCase() !== modelName.toLowerCase();
+        if (switched) {
+          activeModel = modelName;
+          _lastOllamaModel = modelName;
+          updateModelSelectorLabel();
+          syncModelAttachmentCapabilities();
+          logTrace(`Memory recovery switched active model: ${failedModel} → ${modelName}`, 'system');
+        }
+        return cleaned;
+      }
+    } catch (retryErr) {
+      logTrace(`Memory recovery compact attempt for ${modelName} threw: ${retryErr.message}`, 'error');
+    }
+  }
+
+  return { failed: true, triedModels: [...new Set(triedModels)] };
 }
 
 function getModelCapabilities(modelName) {
@@ -150,7 +363,48 @@ function syncModelAttachmentCapabilities() {
   }
 }
 
-const TASK_ICON_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="9" height="9"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+function deriveTaskPlanTitle(userPrompt) {
+  const t = String(userPrompt || '').trim().replace(/\s+/g, ' ');
+  if (!t) return 'Working on your request';
+  return t.length <= 52 ? t : `${t.slice(0, 49)}…`;
+}
+
+function isInstructionalFinalAnswer(text) {
+  return /\b(navigate to|start menu|search bar|click on|right-?click|press win|administrator privileges|select it from the list|pop-?up window)\b/i.test(String(text || ''));
+}
+
+async function ensureDesktopAutomationReady() {
+  if (!window.ultronAPI) return { uia: false };
+  try {
+    let status = await window.ultronAPI.getMcpStatus();
+    const connected = status.connected || [];
+    if (connected.includes('windows-uia')) return { uia: true, already: true };
+    if (window.ultronAPI.installMcpWindowsUia) {
+      const res = await window.ultronAPI.installMcpWindowsUia().catch(() => ({ success: false }));
+      status = await window.ultronAPI.getMcpStatus().catch(() => status);
+      return { uia: Boolean(res.success) || (status.connected || []).includes('windows-uia'), installed: Boolean(res.installed) };
+    }
+  } catch (e) { /* ignore */ }
+  return { uia: false };
+}
+
+function setConnectorBadge(badgeEl, state, labels = {}) {
+  if (!badgeEl) return;
+  badgeEl.classList.remove('badge-checking');
+  const styles = {
+    connected: { text: labels.connected || 'Connected', color: '#34d399', border: 'rgba(52, 211, 153, 0.35)', bg: 'rgba(52, 211, 153, 0.12)' },
+    partial: { text: labels.partial || 'Partial', color: '#fbbf24', border: 'rgba(251, 191, 36, 0.35)', bg: 'rgba(251, 191, 36, 0.12)' },
+    offline: { text: labels.offline || 'Not connected', color: '#a1a1aa', border: 'rgba(161, 161, 170, 0.25)', bg: 'rgba(161, 161, 170, 0.12)' },
+    error: { text: labels.error || 'Error', color: '#f87171', border: 'rgba(248, 113, 113, 0.35)', bg: 'rgba(248, 113, 113, 0.12)' }
+  };
+  const s = styles[state] || styles.offline;
+  badgeEl.textContent = s.text;
+  badgeEl.style.color = s.color;
+  badgeEl.style.borderColor = s.border;
+  badgeEl.style.background = s.bg;
+}
+
+const TASK_ICON_CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><polyline points="20 6 9 17 4 12"></polyline></svg>';
 
 function renderTaskWidgetHtml(tasks, title = "Tasks") {
   if (!tasks || !Array.isArray(tasks) || tasks.length === 0) return '';
@@ -285,7 +539,7 @@ function formatWorkDuration(ms) {
 }
 
 function isOllamaMemoryError(detail) {
-  return /cudaMalloc failed|out[-\s]?of[-\s]?memory|not enough memory|memory limit|allocate compute|requires more (system )?memory|failed to allocate|alloc(?:ate)?[_\s-]*(?:tensor|buffer)|cpu buffer|ggml_assert\(buffer\)|projector cpu offload|server startup failed|exit status 0xc0000409|stack-based buffer/i.test(detail || '');
+  return /cudaMalloc failed|out[-\s]?of[-\s]?memory|not enough memory|memory limit|allocate compute|requires more (system )?memory|failed to allocate|alloc(?:ate)?[_\s-]*(?:tensor|buffer)|cpu buffer|ggml_assert\(buffer\)|projector cpu offload|stack buffer overrun|stack-based buffer overrun/i.test(detail || '');
 }
 
 let _lastOllamaModel = '';
@@ -321,26 +575,58 @@ function hasDedicatedGpuAvailable(sysEnv = {}) {
 }
 
 function getOllamaGpuOptions(sysEnv = {}, modelName = activeModel) {
-  // No dedicated GPU (e.g. Intel iGPU): force CPU + system RAM so Ollama never
-  // attempts a VRAM allocation that fails mid-task.
-  if (!hasDedicatedGpuAvailable(sysEnv)) return { num_gpu: 0 };
+  const isVisionModel = modelSupportsVision(modelName);
+
+  // Text models: do not override GPU settings — match official Ollama app / CLI,
+  // which lets Ollama auto-balance VRAM vs system RAM. Forcing num_gpu: 999 was
+  // causing false "out of memory" failures on otherwise healthy hardware.
+  if (!isVisionModel) return {};
+
+  if (!hasDedicatedGpuAvailable(sysEnv)) return {};
 
   const dedicatedGpu = sysEnv.dedicatedGpu || sysEnv.hardware?.dedicatedGpu || {};
   const vramGB = Number(dedicatedGpu.vramGB || 0);
-  const isVisionModel = modelSupportsVision(modelName);
 
-  // A 4 GB RTX cannot hold llava's single ~4.03 GB full-offload allocation.
-  // Split vision layers across RTX VRAM and host RAM instead. Empirically,
-  // 16 layers is the stable balance for a 4 GB RTX 2050.
-  if (isVisionModel && vramGB > 0 && vramGB <= 4.5) return { num_gpu: 16 };
-  if (isVisionModel && vramGB > 4.5 && vramGB <= 6.5) return { num_gpu: 24 };
+  // Vision models on small VRAM cards still need an explicit partial offload cap.
+  if (vramGB > 0 && vramGB <= 4.5) return { num_gpu: 16 };
+  if (vramGB > 0 && vramGB <= 6.5) return { num_gpu: 24 };
 
-  // Larger-VRAM cards can use full layer offload. Allocation failures are
-  // handled below with model unloading and a compact-context retry.
-  return { num_gpu: 999 };
+  return {};
 }
 
-function buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet = '', hasVisualContext = false) {
+function buildOllamaRequestOptions({ gpuOptions = {}, intent = 'conversation', canUseVision = false, temperature = 0.7, contentGeneration = false } = {}) {
+  const options = {
+    num_ctx: canUseVision ? 1536 : 2048,
+    num_predict: contentGeneration ? 2048 : (intent === 'conversation' ? 1536 : 1024),
+    temperature
+  };
+  if (gpuOptions && typeof gpuOptions.num_gpu === 'number') {
+    options.num_gpu = gpuOptions.num_gpu;
+  }
+  return options;
+}
+
+function buildOllamaDefaultRecoveryBody(baseBody, endpoint, modelName) {
+  const body = {
+    model: modelName,
+    stream: false,
+    keep_alive: '5m'
+  };
+
+  if (endpoint === '/api/chat' && Array.isArray(baseBody.messages)) {
+    body.messages = baseBody.messages.map(message => {
+      const { images, ...textMessage } = message;
+      return textMessage;
+    });
+  } else {
+    body.prompt = baseBody.prompt || '';
+    if (baseBody.system) body.system = baseBody.system;
+  }
+
+  return body;
+}
+
+function buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet = '', hasVisualContext = false, skillsSnippet = '', mcpSnippet = '') {
   const drivesDesc = (sysEnv.drives || []).map(d => `${d.letter} (${d.description || 'Disk'}, ${d.totalGB || '?'}GB total, ${d.freeGB || '?'}GB free)`).join(', ') || 'C:';
   return {
     userName,
@@ -348,6 +634,8 @@ function buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet = '',
     realtime,
     drivesDesc,
     memorySnippet,
+    skillsSnippet,
+    mcpSnippet,
     hasVisualContext,
     screenCaptureEnabled: isScreenCaptureEnabled()
   };
@@ -449,6 +737,24 @@ function pushAgentProgressStep(activitySteps, category, context = {}) {
   return label;
 }
 
+function replaceProgressStepsOfType(activitySteps, type, newStep) {
+  const upper = String(type || '').toUpperCase();
+  for (let i = activitySteps.length - 1; i >= 0; i--) {
+    if (String(activitySteps[i].type || '').toUpperCase() === upper && activitySteps[i].isProgress) {
+      activitySteps.splice(i, 1);
+    }
+  }
+  if (newStep) activitySteps.push(newStep);
+}
+
+function renderSearchLiveStatus(aiBubble, agentSubgoals, statusText, showTaskPlan = true) {
+  renderMessageContent(aiBubble, composeAgentLiveContent(
+    showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : '',
+    getWebSearchCardHtml(statusText)
+  ));
+  chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+}
+
 const INTERACTIVE_APP_ACTIONS = new Set(['OPEN_APP', 'FOCUS_APP', 'OPEN_URL', 'OPEN_FILE', 'TYPE_TEXT', 'HOTKEY', 'CLICK', 'DOUBLE_CLICK', 'SCROLL']);
 
 // Screenshots only help when the active model can actually see them
@@ -456,28 +762,51 @@ function canUseScreenAnalysis() {
   return isScreenCaptureEnabled() && modelSupportsVision(activeModel);
 }
 
-function shouldContinueAgentLoopAfterTool(toolCall) {
+function shouldContinueAgentLoopAfterTool(toolCall, userPrompt = '', executedAppActions = []) {
   if (!toolCall) return false;
   if (toolCall.type === 'CAPTURE_SCREEN') return true;
   if (toolCall.type === 'APP_ACTION') {
     if (toolCall.action === 'WAIT' || toolCall.action === 'LIST_APPS') return true;
+    if (['OPEN_APP', 'FOCUS_APP', 'OPEN_URL', 'OPEN_FILE'].includes(toolCall.action)) {
+      return hasUnfinishedExplicitTask(userPrompt, executedAppActions)
+        || /\b(and then|then|after that|and go|go to|navigate|type|click|save|write|read)\b/i.test(String(userPrompt || ''));
+    }
     if (['CLICK', 'DOUBLE_CLICK', 'SCROLL'].includes(toolCall.action)) {
       return isScreenCaptureEnabled();
     }
-    return INTERACTIVE_APP_ACTIONS.has(toolCall.action) && isScreenCaptureEnabled();
-  }
-  if (toolCall.type === 'WRITE_FILE' || toolCall.type === 'READ_FILE') {
-    return isScreenCaptureEnabled();
+    return INTERACTIVE_APP_ACTIONS.has(toolCall.action) && isScreenCaptureEnabled()
+      && hasUnfinishedExplicitTask(userPrompt, executedAppActions);
   }
   return false;
 }
 
+function resolveFolderTargetFromPrompt(userPrompt, sysEnv = _cachedSystemEnv) {
+  const p = String(userPrompt || '').toLowerCase();
+  const dirs = (sysEnv && sysEnv.keyDirectories) || {};
+  const userHome = (sysEnv && sysEnv.homeDir) || 'C:\\Users\\vedan';
+  if (/download|downlaod|downlod/i.test(p)) return dirs.downloads || `${userHome}\\Downloads`;
+  if (/\b(documents?|documets?)\b/i.test(p)) return dirs.documents || `${userHome}\\Documents`;
+  if (/\bdesktop\b/i.test(p)) return dirs.desktop || `${userHome}\\Desktop`;
+  return '';
+}
+
 function getExplicitTaskRequirements(userPrompt) {
   const prompt = String(userPrompt || '');
+  const p = prompt.toLowerCase();
   const opensApp = /\b(open|launch|start|focus|switch to)\b/i.test(prompt);
+  const folderTarget = resolveFolderTargetFromPrompt(prompt);
+  const needsNavigation = Boolean(folderTarget)
+    && (/\b(go to|navigate|head to|take me to|browse to|open folder|and go)\b/i.test(prompt)
+      || (opensApp && /\b(download|document|desktop|folder|directory)\b/i.test(p)));
+  const needsFileWrite = promptWantsFileCreation(prompt);
+  const needsFolderCreate = promptWantsFolderCreation(prompt);
   return {
-    needsTextEntry: opensApp && /\b(type|write|enter|paste|fill)\b/i.test(prompt),
-    needsSave: /\b(save|save as)\b/i.test(prompt)
+    needsTextEntry: opensApp && /\b(type|write|enter|paste|fill|send|message|text)\b/i.test(prompt),
+    needsSave: /\b(save|save as)\b/i.test(prompt),
+    needsNavigation,
+    needsFileWrite,
+    needsFolderCreate,
+    folderTarget
   };
 }
 
@@ -486,6 +815,11 @@ function hasUnfinishedExplicitTask(userPrompt, executedActions = []) {
   const actions = new Set(executedActions.map(action => String(action || '').toUpperCase()));
   if (requirements.needsTextEntry && !actions.has('TYPE_TEXT')) return true;
   if (requirements.needsSave && !actions.has('HOTKEY')) return true;
+  if (requirements.needsNavigation && !actions.has('OPEN_FILE') && !actions.has('EXECUTE') && !actions.has('NAVIGATE')) {
+    return true;
+  }
+  if (requirements.needsFileWrite && !actions.has('WRITE_FILE')) return true;
+  if (requirements.needsFolderCreate && !actions.has('EXECUTE')) return true;
   return false;
 }
 
@@ -497,6 +831,18 @@ function buildMissingActionInstruction(userPrompt, executedActions = []) {
   }
   if (requirements.needsSave && !executedActions.includes('HOTKEY')) {
     missing.push('After entering the content, output a HOTKEY tool call for ctrl+s.');
+  }
+  if (requirements.needsNavigation && !executedActions.some(a => ['OPEN_FILE', 'EXECUTE', 'NAVIGATE'].includes(String(a || '').toUpperCase()))) {
+    const folder = requirements.folderTarget || 'the requested folder';
+    missing.push(`Navigate to the folder the user asked for. Output OPEN_FILE with path "${folder}" (or EXECUTE: explorer "${folder}"). Do not give Final Answer until navigation is done.`);
+  }
+  if (requirements.needsFileWrite && !executedActions.includes('WRITE_FILE')) {
+    const write = buildWriteFileFromPrompt(userPrompt);
+    missing.push(`Create the file the user requested. Output WRITE_FILE with path "${write.targetPath}" and appropriate content. Do not use OPEN_APP for file creation.`);
+  }
+  if (requirements.needsFolderCreate && !executedActions.includes('EXECUTE')) {
+    const mkdir = buildMkdirFromPrompt(userPrompt);
+    missing.push(`Create the folder on disk. Output EXECUTE with command "${mkdir.target}". Do not give Final Answer until the folder exists.`);
   }
   return `The task is not complete. Completed app actions: ${executedActions.join(', ') || 'none'}.
 Original request: ${userPrompt}
@@ -510,6 +856,7 @@ function shouldCreateAgentTaskPlan(userPrompt, firstToolCall) {
   return firstToolCall?.type === 'APP_SEQUENCE'
     || requirements.needsTextEntry
     || requirements.needsSave
+    || requirements.needsNavigation
     || /\b(and then|then|after that|multiple|several|workflow)\b/i.test(prompt);
 }
 
@@ -539,7 +886,13 @@ function buildAgentTaskPlan(userPrompt, firstToolCall) {
   }
 
   if (requirements.needsTextEntry && !tasks.some(task => task.action === 'TYPE_TEXT')) {
-    tasks.push({ action: 'TYPE_TEXT', text: 'Write the requested content', completed: false, status: 'pending' });
+    const typedMatch = userPrompt.match(/(?:type|write|enter|paste)\s+["']([^"']+)["']/i);
+    tasks.push({
+      action: 'TYPE_TEXT',
+      text: typedMatch ? `Type "${typedMatch[1].slice(0, 40)}${typedMatch[1].length > 40 ? '…' : ''}"` : `Enter text in ${firstToolCall?.appName || 'the app'}`,
+      completed: false,
+      status: 'pending'
+    });
   }
   if (requirements.needsSave && !tasks.some(task => task.action === 'HOTKEY')) {
     tasks.push({ action: 'HOTKEY', text: 'Save the changes', completed: false, status: 'pending' });
@@ -549,8 +902,7 @@ function buildAgentTaskPlan(userPrompt, firstToolCall) {
 
 function selectBestVisionModel() {
   if (geminiConnectionState === 'connected' && ONLINE_GEMINI_MODELS.length) {
-    return ONLINE_GEMINI_MODELS.find(model => model.name.includes('flash'))?.name
-      || ONLINE_GEMINI_MODELS[0].name;
+    return pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0].name;
   }
   const visionPrefs = ['gemini', 'llava', 'llama3.2-vision', 'minicpm-v', 'moondream', 'bakllava'];
   const models = (installedModelsList || []).map(m => normalizeModelName(m)).filter(Boolean);
@@ -650,7 +1002,10 @@ function isAgentWidgetMarkup(text) {
     text.includes('ai-activity-live-box') ||
     text.includes('agent-progress-feed') ||
     text.includes('agent-work-summary') ||
-    text.includes('agent-final-response')
+    text.includes('agent-final-response') ||
+    text.includes('agent-error-recovery-card') ||
+    text.includes('agent-undo-card') ||
+    text.includes('error-fix-row')
   );
 }
 
@@ -665,12 +1020,43 @@ function composeAgentLiveContent(...parts) {
   return collapseWidgetWhitespace(parts.filter(Boolean).join(''));
 }
 
+/** Update live agent UI without restarting the shimmer animation on every step. */
+function renderAgentLiveContent(contentEl, { widgetsHtml = '', shimmerText = 'Thinking' } = {}) {
+  if (!contentEl) return;
+  let root = contentEl.querySelector('.agent-live-root');
+  if (!root) {
+    root = document.createElement('div');
+    root.className = 'agent-live-root';
+    contentEl.innerHTML = '';
+    contentEl.appendChild(root);
+  }
+
+  let widgets = root.querySelector('.agent-live-widgets');
+  if (!widgets) {
+    widgets = document.createElement('div');
+    widgets.className = 'agent-live-widgets';
+    root.appendChild(widgets);
+  }
+  widgets.innerHTML = collapseWidgetWhitespace(widgetsHtml);
+
+  let shimmer = root.querySelector('.agent-shimmer-line');
+  if (!shimmer) {
+    shimmer = document.createElement('div');
+    shimmer.className = 'agent-shimmer-line';
+    root.appendChild(shimmer);
+  }
+  const nextLabel = String(shimmerText || 'Thinking');
+  if (shimmer.textContent !== nextLabel) {
+    shimmer.textContent = nextLabel;
+  }
+}
+
 // Compose the final agent chat message: the work transcript collapses into a
 // "Worked for Xs" summary (Cursor-style), followed by the actual answer.
 // Widgets stay raw HTML; the answer is converted from Markdown up-front so the
 // mix never hits the markdown parser again.
-function composeAgentFinalContent(agentSubgoals, activitySteps, finalResponse, durationMs = 0) {
-  const widgetsHtml = collapseWidgetWhitespace(`${renderTaskWidgetHtml(agentSubgoals)}${renderActivityFeedHtml(activitySteps)}`);
+function composeAgentFinalContent(agentSubgoals, activitySteps, finalResponse, durationMs = 0, taskTitle = 'Tasks') {
+  const widgetsHtml = collapseWidgetWhitespace(`${renderTaskWidgetHtml(agentSubgoals, taskTitle)}${renderActivityFeedHtml(activitySteps)}`);
   let responseHtml = '';
 
   if (finalResponse && typeof finalResponse === 'string') {
@@ -678,7 +1064,7 @@ function composeAgentFinalContent(agentSubgoals, activitySteps, finalResponse, d
       responseHtml = finalResponse;
     } else {
       try {
-        responseHtml = window.ultronAPI.parseMarkdown(finalResponse);
+        responseHtml = window.ultronAPI.parseMarkdown(structureReadableMarkdown(finalResponse));
       } catch (e) {
         responseHtml = escapeHtml(finalResponse);
       }
@@ -793,11 +1179,21 @@ function setSendingState(isSending) {
     btnSend.disabled = isSending;
     btnSend.setAttribute('aria-disabled', String(isSending));
     btnSend.title = isSending ? 'Waiting for Ultron to finish responding' : 'Send message';
+    btnSend.style.display = isSending ? 'none' : 'flex';
+  }
+  if (btnStop) {
+    if (isSending) {
+      btnStop.classList.add('visible');
+    } else {
+      btnStop.classList.remove('visible');
+    }
   }
   if (chatInput) {
     if (isSending) {
-      chatInput.setAttribute('disabled', 'true');
-      chatInput.disabled = true;
+      chatInput.removeAttribute('disabled');
+      chatInput.disabled = false;
+      chatInput.style.pointerEvents = 'auto';
+      chatInput.style.opacity = '1';
     } else {
       chatInput.removeAttribute('disabled');
       chatInput.disabled = false;
@@ -813,14 +1209,62 @@ function setSendingState(isSending) {
       } catch (e) {}
     }, 50);
   }
+  // Clean up abort controller when done
+  if (!isSending) {
+    _activeAbortController = null;
+  }
 }
 
 function renderMessageContent(content, text) {
   if (isThinkingMarkup(text) || isRichResultMarkup(text) || isAgentWidgetMarkup(text)) {
     content.innerHTML = text;
   } else {
-    content.innerHTML = window.ultronAPI.parseMarkdown(text || '');
+    const structured = structureReadableMarkdown(text || '');
+    content.innerHTML = window.ultronAPI.parseMarkdown(structured);
   }
+  formatCodeBlocks(content);
+  wrapMarkdownTables(content);
+}
+
+function wrapMarkdownTables(container) {
+  if (!container) return;
+  container.querySelectorAll('table').forEach((table) => {
+    if (table.parentElement && table.parentElement.classList.contains('md-table-wrap')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'md-table-wrap';
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+  });
+}
+
+function buildMarkdownFormattingRules() {
+  return `FORMATTING (Markdown — always):
+- Open with **one bold summary line**.
+- Use bullet lists (- ) or numbered lists (1. ) for multiple items — never dense paragraphs.
+- Use ### subheadings when the answer has 2+ sections.
+- Use markdown tables (| A | B |) for comparisons of 3+ items.
+- Keep paragraphs to 1–2 short sentences max.
+- Never write "(No specific URL/source given)" — sources appear below separately.
+- Never claim you lack web access when live search data is provided.`;
+}
+
+function structureReadableMarkdown(text) {
+  let t = String(text || '').trim();
+  if (!t) return t;
+
+  t = t.replace(/\s*\(No specific URL\/source given\)\s*/gi, ' ');
+  t = t.replace(/\s*\(no specific url[^)]*\)\s*/gi, ' ');
+  t = t.replace(/\bdeveloped by Microsoft\b[^.!\n]*[.!\n]?/gi, '');
+  t = t.replace(/\bI am unable to directly execute actions\b[^.!\n]*[.!\n]?/gi, '');
+  t = t.replace(/\bwhile I don't have real-time access\b[^.!\n]*[.!\n]?/gi, '');
+
+  const dashItems = t.match(/\s-\s+[A-Za-z0-9"']/g);
+  if (!/^[\s#*\d-]/.test(t) && dashItems && dashItems.length >= 2) {
+    t = t.replace(/\s-\s+(?=[A-Za-z0-9"'])/g, '\n- ');
+    if (!/^\s*[-*]/.test(t)) t = `- ${t.replace(/^\-\s*/, '')}`;
+  }
+
+  return t.replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function highlightSyntax(code, lang) {
@@ -960,10 +1404,17 @@ function formatCodeBlocks(containerElement) {
   });
 }
 
+function finalizeAiMessageBubble(contentElement, fullText, { autoSpeak = true } = {}) {
+  if (!contentElement || !fullText || isThinkingMarkup(fullText)) return;
+  const messageWrapper = contentElement.closest('.message-wrapper') || contentElement.parentNode;
+  const actionsDiv = messageWrapper ? messageWrapper.querySelector('.message-actions') : null;
+  if (actionsDiv) wireMessageActionButtons(actionsDiv, fullText);
+  if (autoSpeak) finishStreamingAutoSpeak(fullText);
+}
+
 async function typeMessageResponse(contentElement, fullText, options = {}) {
   const messageWrapper = contentElement.closest('.message-wrapper') || contentElement.parentNode;
   const actionsDiv = messageWrapper ? messageWrapper.querySelector('.message-actions') : null;
-  const btnCopy = actionsDiv ? actionsDiv.querySelector('.btn-copy-msg') : null;
 
   // Hide message actions while typing / thinking
   if (actionsDiv) actionsDiv.style.display = 'none';
@@ -971,24 +1422,22 @@ async function typeMessageResponse(contentElement, fullText, options = {}) {
   if (!fullText || fullText.length < 10 || isThinkingMarkup(fullText) || isRichResultMarkup(fullText) || isAgentWidgetMarkup(fullText) || options.instant) {
     renderMessageContent(contentElement, fullText);
     formatCodeBlocks(contentElement);
+    wrapMarkdownTables(contentElement);
     chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-
-    if (actionsDiv && !isThinkingMarkup(fullText)) {
-      actionsDiv.style.display = 'flex';
-      if (btnCopy) {
-        btnCopy.onclick = (e) => {
-          e.stopPropagation();
-          navigator.clipboard.writeText(extractPlainTextFromMessage(fullText) || fullText);
-          const span = btnCopy.querySelector('span');
-          if (span) span.textContent = 'Copied!';
-          btnCopy.style.color = '#34d399';
-          setTimeout(() => {
-            if (span) span.textContent = 'Copy';
-            btnCopy.style.color = 'var(--text-muted)';
-          }, 2000);
-        };
-      }
+    if (options.autoSpeak !== false && isTtsAutoSpeakEnabled()) {
+      beginUnifiedSpeechPlayback(fullText);
     }
+    finalizeAiMessageBubble(contentElement, fullText, { autoSpeak: false });
+    return;
+  }
+
+  if (options.autoSpeak !== false && isTtsAutoSpeakEnabled()) {
+    beginUnifiedSpeechPlayback(fullText);
+    renderMessageContent(contentElement, fullText);
+    formatCodeBlocks(contentElement);
+    wrapMarkdownTables(contentElement);
+    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+    finalizeAiMessageBubble(contentElement, fullText, { autoSpeak: false });
     return;
   }
 
@@ -1007,25 +1456,10 @@ async function typeMessageResponse(contentElement, fullText, options = {}) {
   // Render final completed markdown without typing cursor
   renderMessageContent(contentElement, fullText);
   formatCodeBlocks(contentElement);
+  wrapMarkdownTables(contentElement);
   chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
 
-  // Reveal Copy button when typing completes
-  if (actionsDiv && !isThinkingMarkup(fullText)) {
-    actionsDiv.style.display = 'flex';
-    if (btnCopy) {
-      btnCopy.onclick = (e) => {
-        e.stopPropagation();
-        navigator.clipboard.writeText(fullText);
-        const span = btnCopy.querySelector('span');
-        if (span) span.textContent = 'Copied!';
-        btnCopy.style.color = '#34d399';
-        setTimeout(() => {
-          if (span) span.textContent = 'Copy';
-          btnCopy.style.color = 'var(--text-muted)';
-        }, 2000);
-      };
-    }
-  }
+  finalizeAiMessageBubble(contentElement, fullText, { autoSpeak: options.autoSpeak !== false });
 }
 
 function renderChatMessage(sender, text, isAi = false) {
@@ -1035,7 +1469,7 @@ function renderChatMessage(sender, text, isAi = false) {
   }
 
   const messageDiv = document.createElement('div');
-  messageDiv.className = `chat-message flex gap-4 max-w-3xl ${isAi ? 'ai' : 'user'}`;
+  messageDiv.className = `chat-message chat-bubble ${isAi ? 'ai' : 'user'}`;
 
   const content = document.createElement('div');
   content.className = 'message-content';
@@ -1049,7 +1483,6 @@ function renderChatMessage(sender, text, isAi = false) {
     
     const wrapper = document.createElement('div');
     wrapper.className = 'message-wrapper';
-    wrapper.style.flex = '1';
     wrapper.appendChild(content);
     
     const actions = document.createElement('div');
@@ -1060,24 +1493,15 @@ function renderChatMessage(sender, text, isAi = false) {
     actions.style.marginTop = '6px';
     
     const btnCopy = document.createElement('button');
-    btnCopy.className = 'btn-copy-msg';
+    btnCopy.className = 'btn-copy-msg message-action-btn';
+    applyMessageActionButtonStyles(btnCopy);
     btnCopy.innerHTML = `
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" style="margin-right: 4px; vertical-align: middle;">
+      <svg class="message-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
       </svg>
       <span>Copy</span>
     `;
-    btnCopy.style.background = 'transparent';
-    btnCopy.style.border = 'none';
-    btnCopy.style.color = 'var(--text-muted)';
-    btnCopy.style.cursor = 'pointer';
-    btnCopy.style.display = 'flex';
-    btnCopy.style.alignItems = 'center';
-    btnCopy.style.fontSize = '10px';
-    btnCopy.style.padding = '2px 6px';
-    btnCopy.style.borderRadius = '4px';
-    btnCopy.style.transition = 'color 0.2s, background-color 0.2s';
     
     btnCopy.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1101,12 +1525,16 @@ function renderChatMessage(sender, text, isAi = false) {
     });
     
     actions.appendChild(btnCopy);
+    actions.appendChild(createSpeakMessageButton(() => text));
     wrapper.appendChild(actions);
     messageDiv.appendChild(wrapper);
 
     // Format code blocks for static rendered messages
     if (!isThinking) {
-      setTimeout(() => formatCodeBlocks(content), 0);
+      setTimeout(() => {
+        formatCodeBlocks(content);
+        wrapMarkdownTables(content);
+      }, 0);
     }
   } else {
     const avatar = document.createElement('div');
@@ -1373,6 +1801,9 @@ async function startOllamaInstallFlow(buttonElement) {
   
   const result = await window.ultronAPI.installOllama();
   if (result.success) {
+    if (result.ultronRoot) {
+      logTrace(`${paths.storageFolderName || 'Ultron-local'} ready at: ${result.ultronRoot} (models → ${result.modelsDir || result.ultronRoot + '\\models'})`, 'system');
+    }
     logTrace('winget Ollama installation command executed successfully.', 'system');
     showOllamaBanner('warning', 'Ollama installation spawned. Checking connection...', false);
     
@@ -1615,6 +2046,7 @@ function renderErrorRecoveryCard(errorCode, message, context = {}) {
   const actions = [];
   if (errorCode === 'APP_NOT_FOUND' || errorCode === 'APP_AMBIGUOUS') {
     actions.push('<button type="button" class="error-fix-btn" data-fix-action="open-settings-apps">Open Apps Settings</button>');
+    actions.push('<button type="button" class="error-fix-btn" data-fix-action="open-settings-desktop">Desktop Automation</button>');
   }
   if (errorCode === 'CAPTURE_DISABLED' || errorCode === 'CAPTURE_FAILED') {
     actions.push('<button type="button" class="error-fix-btn" data-fix-action="enable-screen">Enable Screen Capture</button>');
@@ -1640,13 +2072,42 @@ function renderUndoActionCard() {
 }
 
 function getLearnedMemorySnippet() {
+  let snippet = '';
   if (window.UltronAgentMemory && typeof window.UltronAgentMemory.getTaskMemorySnippet === 'function') {
-    const snippet = window.UltronAgentMemory.getTaskMemorySnippet(5);
-    return snippet ? `\n\nSELF-LEARNING MEMORY (your past task outcomes for reference):\n${snippet}` : '';
+    const taskSnippet = window.UltronAgentMemory.getTaskMemorySnippet(5);
+    if (taskSnippet) {
+      snippet += `\n\nSELF-LEARNING MEMORY (your past task outcomes for reference):\n${taskSnippet}`;
+    }
+  } else if (_learnedTaskMemory.length > 0) {
+    snippet += `\n\nSELF-LEARNING MEMORY (your past task outcomes for reference):\n${_learnedTaskMemory.slice(-5).map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
   }
-  return _learnedTaskMemory.length > 0
-    ? `\n\nSELF-LEARNING MEMORY (your past task outcomes for reference):\n${_learnedTaskMemory.slice(-5).map((m, i) => `${i + 1}. ${m}`).join('\n')}`
-    : '';
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.getAppStatsSnippet === 'function') {
+    const appStats = window.UltronAgentMemory.getAppStatsSnippet(5);
+    if (appStats) {
+      snippet += `\n\nAPP RELIABILITY (prefer apps that launch successfully on this PC):\n${appStats}`;
+    }
+  }
+  return snippet;
+}
+
+function getAgentRuntimeSettings() {
+  if (window.UltronAgentPrompt && typeof window.UltronAgentPrompt.getAgentRuntimeConfig === 'function') {
+    return window.UltronAgentPrompt.getAgentRuntimeConfig();
+  }
+  return {
+    maxTurns: 10,
+    reactFormatEnabled: true,
+    skillsEnabled: true,
+    contextWindowMessages: 12,
+    loopGuard: { enabled: true, maxIdenticalCalls: 3, pingPongWindow: 6, pollToolBudget: 5, warnBeforeBlock: true }
+  };
+}
+
+function buildAgentSkillsSnippet(userPrompt) {
+  const runtime = getAgentRuntimeSettings();
+  if (!runtime.skillsEnabled || !window.UltronAgentSkills) return '';
+  const skills = window.UltronAgentSkills.findSkillsForPrompt(userPrompt, 2);
+  return window.UltronAgentSkills.buildSkillsPromptSection(skills);
 }
 
 function persistTaskMemory(summary) {
@@ -1778,16 +2239,133 @@ async function getSystemContext(forceRefresh = false) {
   return _cachedSystemEnv;
 }
 
-// Auto-detect device location & system environment on software boot
-(async function autoDetectSystemLocationOnBoot() {
-  try {
-    const env = await getSystemContext(true);
-    const realtime = buildRealtimeContext(env);
-    logTrace(`System & location auto-detected on startup: "${realtime.locationLabel}" (Timezone: ${realtime.timeZone})`, 'system');
-  } catch (err) {
-    console.warn('[STARTUP LOG] Automatic location detection on startup encountered non-fatal notice:', err.message);
+const AUTO_LOCATION_KEY = 'ultron-auto-location-enabled';
+const MANUAL_LOCATION_KEY = 'ultron-location-manual';
+
+function isAutoLocationEnabled() {
+  return window.localStorage.getItem(AUTO_LOCATION_KEY) !== 'false';
+}
+
+function isManualHomeLocation() {
+  return window.localStorage.getItem(MANUAL_LOCATION_KEY) === 'true';
+}
+
+function getAutoLocationLabelFromEnv(sysEnv = {}) {
+  const geo = sysEnv.geoLocation || {};
+  const region = sysEnv.region || {};
+  const parts = [geo.city, geo.region, geo.country || region.country].filter(Boolean);
+  return parts.length > 0 ? parts.join(', ') : '';
+}
+
+function getLocationSourceLabel(geo = {}) {
+  if (geo.source === 'windows-gps') return 'Windows Location';
+  if (geo.latitude != null && geo.longitude != null) return 'IP geolocation';
+  if (geo.city) return 'network estimate';
+  return 'timezone';
+}
+
+function persistHomeLocation(label) {
+  const value = String(label || '').trim();
+  if (window.UltronLocationContext) {
+    window.UltronLocationContext.setSavedLocation(value);
+  } else if (value) {
+    window.localStorage.setItem('ultron-user-location', value);
+  } else {
+    window.localStorage.removeItem('ultron-user-location');
   }
-})();
+}
+
+async function autoDetectHomeLocation(options = {}) {
+  const {
+    silent = false,
+    forceRefresh = false,
+    reason = 'manual',
+    allowManualOverride = false
+  } = options;
+
+  const statusEl = document.getElementById('setting-location-status');
+  const inputEl = document.getElementById('setting-home-location');
+  const detectBtn = document.getElementById('btn-detect-location');
+  const detectSpinner = detectBtn?.querySelector('.account-detect-spinner');
+  const detectLabel = detectBtn?.querySelector('.account-detect-label');
+
+  const savedLoc = window.UltronLocationContext
+    ? window.UltronLocationContext.getSavedLocation()
+    : (window.localStorage.getItem('ultron-user-location') || '');
+
+  const autoEnabled = isAutoLocationEnabled();
+  const manual = isManualHomeLocation();
+
+  if (!autoEnabled && reason !== 'manual' && !forceRefresh) {
+    if (inputEl && savedLoc) inputEl.value = savedLoc;
+    if (statusEl) {
+      statusEl.textContent = savedLoc
+        ? `Using saved home city: ${savedLoc} (auto-detect off)`
+        : 'Auto-detect is off. Enter your city or click Detect.';
+    }
+    return { applied: false, label: savedLoc, source: 'saved' };
+  }
+
+  if (manual && savedLoc && !forceRefresh && !allowManualOverride) {
+    if (inputEl) inputEl.value = savedLoc;
+    if (statusEl) statusEl.textContent = `Using saved home city: ${savedLoc}`;
+    return { applied: false, label: savedLoc, source: 'saved-manual' };
+  }
+
+  if (detectBtn) detectBtn.classList.add('is-detecting');
+  if (detectSpinner) detectSpinner.classList.remove('hidden');
+  if (detectLabel) detectLabel.textContent = 'Detecting…';
+  if (statusEl && !silent) statusEl.textContent = 'Detecting location…';
+
+  try {
+    _cachedSystemEnv = null;
+    if (forceRefresh && window.ultronAPI?.refreshGeoLocation) {
+      await window.ultronAPI.refreshGeoLocation();
+    }
+    const env = await getSystemContext(forceRefresh);
+    const detectedLabel = getAutoLocationLabelFromEnv(env);
+    const geo = env.geoLocation || {};
+    const sourceLabel = getLocationSourceLabel(geo);
+
+    if (detectedLabel) {
+      const shouldApply = forceRefresh || !manual || !savedLoc || reason === 'startup';
+      const labelToUse = shouldApply ? detectedLabel : savedLoc;
+
+      if (inputEl) inputEl.value = labelToUse;
+      if (shouldApply) {
+        persistHomeLocation(labelToUse);
+        if (!manual || forceRefresh || reason === 'startup') {
+          window.localStorage.setItem(MANUAL_LOCATION_KEY, 'false');
+        }
+      }
+
+      if (statusEl) {
+        statusEl.textContent = manual && savedLoc && !shouldApply
+          ? `Using saved home city: ${savedLoc}`
+          : `Auto-detected (${sourceLabel}): ${labelToUse}`;
+      }
+      if (!silent) {
+        logTrace(`Location ${reason === 'startup' ? 'auto-detected on startup' : 'detected'}: "${labelToUse}" [${sourceLabel}]`, 'system');
+      }
+      return { applied: shouldApply, label: labelToUse, source: geo.source || sourceLabel };
+    }
+
+    if (inputEl && savedLoc) inputEl.value = savedLoc;
+    if (statusEl) {
+      statusEl.textContent = savedLoc
+        ? `Using saved home city: ${savedLoc} (live detection unavailable)`
+        : 'Could not detect location. Enable Windows Location or enter your city manually.';
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Detection failed. Enter your city manually or try again.';
+  } finally {
+    if (detectBtn) detectBtn.classList.remove('is-detecting');
+    if (detectSpinner) detectSpinner.classList.add('hidden');
+    if (detectLabel) detectLabel.textContent = 'Detect';
+  }
+
+  return { applied: false, label: savedLoc || '', source: 'none' };
+}
 
 function buildRealtimeContext(sysEnv = {}) {
   const now = new Date();
@@ -1799,8 +2377,10 @@ function buildRealtimeContext(sysEnv = {}) {
   const dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
   const locationParts = [geo.city, geo.region, geo.country || region.country].filter(Boolean);
   const autoLocation = locationParts.length > 0 ? locationParts.join(', ') : (region.country || 'Unknown location');
-  const savedLocation = localStorage.getItem('ultron-user-location');
-  const locationLabel = savedLocation ? savedLocation : autoLocation;
+  const savedLocation = window.UltronLocationContext
+    ? window.UltronLocationContext.getSavedLocation()
+    : (localStorage.getItem('ultron-user-location') || '');
+  const locationLabel = savedLocation || autoLocation;
 
   return {
     dateLabel: now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
@@ -1858,6 +2438,184 @@ function stripUnverifiedLinks(text, allowedUrls = []) {
   return cleaned.replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').trim();
 }
 
+function isUnusableChatHistoryMessage(text) {
+  if (!text || typeof text !== 'string') return true;
+  if (isThinkingMarkup(text) || isRichResultMarkup(text) || isAgentWidgetMarkup(text)) return true;
+  const plain = extractPlainTextFromMessage(text);
+  if (!plain || plain.length < 2) return true;
+  if (/⚠️|Warning:\s*\*\*Ollama|Memory Limit Exceeded|Connection Error|error-recovery|GEMINI_KEY_MISSING|OLLAMA_OFFLINE|Model note:/i.test(plain)) return true;
+  if (isMetaInstructionLeak(plain)) return true;
+  return false;
+}
+
+function isMetaInstructionLeak(text) {
+  if (!text || typeof text !== 'string') return false;
+  return /\b(general guidelines for creating|specific prompt or the context|CONVERSATIONAL PERSONA|NEVER speak in the third person|guidelines for creating engaging|do not have access to .+ specific prompt|respond as if you were speaking directly to the user, using the first person|avoid (using |getting tripped up by ).+ context|chatty interactions|provide (me with )?some examples of how (i|you) can avoid|thanks for the feedback|in conclusion, here['']s an example of how to avoid)\b/i.test(text);
+}
+
+function shouldSkipConversationHistory(prompt) {
+  const p = String(prompt || '').trim();
+  if (isContentGenerationRequest(p)) return true;
+  if (/^(hi|hello|hey|good\s*(morning|afternoon|evening|night))[\s,!.?]*(\w+)?[\s!.?]*$/i.test(p)) return true;
+  return false;
+}
+
+function extractContentTopic(prompt) {
+  const p = String(prompt || '');
+  const quoted = p.match(/(?:topic|about|on)\s+["']([^"']+)["']/i);
+  if (quoted) return quoted[1].trim().toLowerCase();
+  const plain = p.match(/(?:topic|about|on)\s+([a-z0-9][a-z0-9\s-]{1,40})/i);
+  return plain ? plain[1].trim().toLowerCase() : '';
+}
+
+function isIrrelevantModelResponse(text, userPrompt) {
+  if (!text || typeof text !== 'string') return true;
+  const plain = text.trim();
+  if (!plain) return true;
+  if (isMetaInstructionLeak(plain)) return true;
+  if (/Model note:/i.test(plain)) return true;
+
+  const lower = plain.toLowerCase();
+  const promptLower = normalizePromptTypos(String(userPrompt || '')).toLowerCase();
+
+  if (isGenericAssistantGreeting(plain) && (isProductOrShoppingQuery(userPrompt) || isFactualOrCurrentEventsQuery(userPrompt))) {
+    return true;
+  }
+  if (isMultiTopicHallucination(plain, userPrompt)) return true;
+
+  if (/thanks for the feedback/i.test(lower) && !/feedback/i.test(promptLower)) return true;
+  if (/provide me with some examples/i.test(lower) && !/example/i.test(promptLower)) return true;
+  if (/avoid (using |getting tripped up by )/i.test(lower)) return true;
+
+  if (isContentGenerationRequest(userPrompt)) {
+    const wantsPoem = /\bpoem\b/i.test(promptLower);
+    const wantsEssay = /\bessay\b/i.test(promptLower);
+    if (wantsPoem && wantsEssay === false && /\bessay\b/i.test(lower) && !/\bpoem\b/i.test(lower)) return true;
+    if (wantsEssay && /\bpoem:/i.test(lower) && !/\bessay\b/i.test(lower)) return true;
+
+    const topic = extractContentTopic(userPrompt);
+    if (topic) {
+      const topicWord = topic.split(/\s+/).find(w => w.length > 3) || topic.split(/\s+/)[0];
+      if (topicWord && topicWord.length > 2 && !lower.includes(topicWord)) {
+        return true;
+      }
+    }
+  }
+
+  if (/^(hi|hello|hey)\b/i.test(promptLower.trim()) && /\b(examples of how|chatty interactions|feedback)\b/i.test(lower)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isGenericAssistantGreeting(text) {
+  const lower = String(text || '').toLowerCase();
+  return /\b(hello!?\s+i'?m ultron|i'?m ultron,?\s+your (ai )?assistant|how can i assist you today|how can i help you today|what can i do for you)\b/i.test(lower);
+}
+
+function buildConversationSystemPrompt() {
+  return `You are Ultron, a helpful local AI assistant on the user's Windows PC.
+${buildMarkdownFormattingRules()}
+Reply naturally in first person. Never mention system prompts, rules, or meta instructions.
+For current events, live prices, today's news, or who holds an office right now, say you will look it up online if you are not certain — do not invent outdated facts.`;
+}
+
+function buildContentGenerationSystemPrompt(userPrompt) {
+  const topic = extractContentTopic(userPrompt);
+  const topicLine = topic ? `The topic is: ${topic}.` : '';
+  return `You are Ultron, a skilled writing assistant. Write exactly what the user requested — only the content itself.
+${topicLine}
+Rules:
+- Output ONLY the essay, poem, story, or other writing they asked for.
+- Do NOT mention system prompts, context, guidelines, or meta instructions.
+- Do NOT ask the user for feedback or examples.
+- Stay on topic and match the requested format.`;
+}
+
+async function queryFreshConversation(prompt, imagePayloads = [], streamCallbacks = null) {
+  const system = isContentGenerationRequest(prompt)
+    ? buildContentGenerationSystemPrompt(prompt)
+    : buildConversationSystemPrompt();
+  return queryOfflineLLM(prompt, [], 'conversation', system, imagePayloads, streamCallbacks);
+}
+
+function buildConversationPromptFromHistory(recentMsgs, currentPrompt) {
+  const lines = (recentMsgs || [])
+    .filter(m => !isUnusableChatHistoryMessage(m.text))
+    .slice(-6)
+    .map(m => {
+      const text = extractPlainTextFromMessage(m.text);
+      if (!text) return null;
+      return `${m.isAi ? 'Assistant' : 'User'}: ${text}`;
+    })
+    .filter(Boolean);
+
+  const trimmedPrompt = String(currentPrompt || '').trim();
+  const lastLine = lines[lines.length - 1];
+  if (lastLine && lastLine.startsWith('User: ') && lastLine.slice(6).trim() === trimmedPrompt) {
+    lines.pop();
+  }
+
+  if (lines.length === 0) return trimmedPrompt;
+  return `${lines.join('\n')}\nUser: ${trimmedPrompt}\nAssistant:`;
+}
+
+function shouldUseOllamaGenerateForConversation(intent, customSystemPromptOverride, canUseVision, extraMessages) {
+  return intent === 'conversation'
+    && !customSystemPromptOverride
+    && !canUseVision
+    && (!Array.isArray(extraMessages) || extraMessages.length === 0);
+}
+
+function getRecentSessionContextSnippet(maxMessages = 4) {
+  if (!currentSessionId || !conversationsStore[currentSessionId]) return '';
+  const msgs = conversationsStore[currentSessionId].messages
+    .filter(m => !isUnusableChatHistoryMessage(m.text))
+    .slice(-maxMessages);
+  const lines = msgs.map(m => {
+    const text = extractPlainTextFromMessage(m.text);
+    return text ? `${m.isAi ? 'Assistant' : 'User'}: ${text.slice(0, 600)}` : null;
+  }).filter(Boolean);
+  if (!lines.length) return '';
+  return `[RECENT CHAT — use this context for follow-ups]\n${lines.join('\n')}`;
+}
+
+function isFollowUpAboutPriorTurn(prompt) {
+  const p = normalizePromptTypos(String(prompt || '')).toLowerCase().trim();
+  if (!p || p.length > 160) return false;
+  return /\b(where|which (folder|path|location|destination|directory)|at what|what (folder|path|location|destination)|it (is|was|downloaded|saved)|the (image|file|folder|flower|photo|picture) (you|that)|you (downloaded|saved|created|wrote|opened)|about (the|that|this)|i am asking|asking about|you just|that you|did you)\b/i.test(p)
+    || /^(where|which folder|what path|what location|what destination)\b/i.test(p);
+}
+
+function buildFollowUpConversationSystemPrompt() {
+  const ctx = getRecentSessionContextSnippet(4);
+  return `You are Ultron, the user's local AI assistant on Windows.
+${buildMarkdownFormattingRules()}
+The user is asking a FOLLOW-UP about the immediately previous message in this chat.
+${ctx ? `\n${ctx}\n` : ''}
+Rules:
+- Answer ONLY what they asked about the prior task or assistant message.
+- Do NOT list unrelated topics (shopping, weather, stocks, other old requests).
+- If they ask where a file was saved, quote the exact path from the assistant's previous reply.
+- One short direct answer — no multi-topic bullet lists.`;
+}
+
+function isMultiTopicHallucination(text, userPrompt) {
+  if (!isFollowUpAboutPriorTurn(userPrompt)) return false;
+  const lower = String(text || '').toLowerCase();
+  const bulletCount = (String(text || '').match(/^-\s+/gm) || []).length;
+  if (bulletCount >= 2) return true;
+  const topicHits = [
+    /\bshoes?\b/i.test(lower),
+    /\bweather\b/i.test(lower),
+    /\bstock\b/i.test(lower),
+    /\bapple inc\b/i.test(lower),
+    /\bprime minister\b/i.test(lower)
+  ].filter(Boolean).length;
+  return topicHits >= 2;
+}
+
 function sanitizeResponseText(text, userPrompt = '', options = {}) {
   if (!text || typeof text !== 'string') return '';
 
@@ -1891,6 +2649,22 @@ function sanitizeResponseText(text, userPrompt = '', options = {}) {
   cleaned = cleaned.replace(/^\s*Live Web Search Information:\s*/gi, '');
   cleaned = cleaned.replace(/^\s*Answer the user's question directly:?\s*/gi, '');
 
+  // 4b. Strip meta-instruction leaks (small models paraphrasing system prompts)
+  if (isMetaInstructionLeak(cleaned)) {
+    const withoutGuidelines = cleaned.replace(/I do not have access to[\s\S]*?(?=\n\n|\d+\.\s|$)/gi, '').trim();
+    const listMatch = withoutGuidelines.match(/\d+\.\s+.+/);
+    if (listMatch && isMetaInstructionLeak(withoutGuidelines)) {
+      cleaned = '';
+    } else {
+      cleaned = withoutGuidelines;
+    }
+  }
+  cleaned = cleaned.replace(/^(?:however,? )?i can provide (?:some )?general guidelines for[\s\S]*?(?=\n\n[A-Za-z]|$)/gi, '').trim();
+  cleaned = cleaned.replace(/(?:\n|^)_Model note:[\s\S]*?_\s*$/gi, '').trim();
+  cleaned = cleaned.replace(/(?:\n|^)Model note:[\s\S]*$/gi, '').trim();
+  cleaned = cleaned.replace(/^in conclusion, here['']s an example of how to avoid[\s\S]*?(?=\n\nPoem:|\n\n[A-Z]|$)/gi, '').trim();
+  cleaned = cleaned.replace(/^thanks for the feedback\.[\s\S]*?(?=\n\n|$)/gi, '').trim();
+
   // 5. Replace template tags
   const userNameEl = document.querySelector('.profile-detail-name');
   const currentUserName = userNameEl ? userNameEl.textContent.trim() : 'User';
@@ -1904,7 +2678,21 @@ function sanitizeResponseText(text, userPrompt = '', options = {}) {
     cleaned = stripUnverifiedLinks(cleaned, []);
   }
 
-  // 7. Capitalize first letter if valid text remains
+  // 7. Never show raw tool-call JSON or tool planning to the user
+  if (window.UltronToolSchema && typeof window.UltronToolSchema.stripToolJsonArtifacts === 'function') {
+    cleaned = window.UltronToolSchema.stripToolJsonArtifacts(cleaned);
+  } else {
+    cleaned = cleaned.replace(/```(?:json)?\s*\{[\s\S]*?"tool"\s*:\s*"[^"]+"[\s\S]*?\}\s*```/gi, '');
+    cleaned = cleaned.replace(/\{[^{}]*"tool"\s*:\s*"[A-Z_][A-Z0-9_]*"[^{}]*\}/g, '');
+    cleaned = cleaned.replace(/^\s*(OPEN_APP|FOCUS_APP|OPEN_URL|OPEN_FILE|WRITE_FILE|READ_FILE|CAPTURE_SCREEN|TYPE_TEXT|HOTKEY|EXECUTE|SEARCH|WEB_FETCH|LIST_DIR|CLICK|DOUBLE_CLICK|SCROLL|WAIT)\s*:.*$/gmi, '');
+  }
+  cleaned = cleaned.replace(/Given that I cannot directly observe[\s\S]*?(?=\n\n[A-Z]|$)/gi, '');
+  cleaned = cleaned.replace(/^(my approach to|i(?:'|’)ll (?:now )?(?:open|launch|capture|use tools)|here(?:'|’)s (?:my|the) (?:plan|approach)|available tools\s*[—\-])/gim, '');
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+
+  cleaned = structureReadableMarkdown(cleaned);
+
+  // 8. Capitalize first letter if valid text remains
   if (cleaned.length > 0) {
     cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
   }
@@ -1954,7 +2742,7 @@ function fallbackSearchQueryFromPrompt(prompt) {
     .replace(/\bwbe\b/gi, 'web')
     .replace(/\bspiderman\b/gi, 'Spider-Man')
     // Remove "please can you search the web online for"
-    .replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+)?(search|google|look\s+up|find\s+out|find|check)\s+(the\s+)?(web\s+)?(online\s+)?(for\s+)?/i, '')
+    .replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+)?(search|google|look\s+up|find\s+out|find|finid)\s+(me\s+)?(the\s+)?(some\s+)?(web\s+)?(online\s+)?(for\s+)?/i, '')
     // Remove "search for the best", "search for", "search"
     .replace(/^(search\s+for\s+(the\s+)?(best\s+)?|search\s+(the\s+)?web\s+for\s+(the\s+)?|search\s+)/i, '')
     // Remove trailing conversational phrases like "for me", "for us", "please"
@@ -1985,25 +2773,45 @@ function fallbackSearchQueryFromPrompt(prompt) {
 }
 
 async function buildWebSearchQuery(userPrompt) {
-  const fallback = fallbackSearchQueryFromPrompt(userPrompt);
+  let fallback = fallbackSearchQueryFromPrompt(userPrompt);
+  const sysEnv = await getSystemContext();
+  const regional = getRegionalShoppingContext(sysEnv);
+
+  const locCtx = window.UltronLocationContext;
+  let locationHint = '';
+  if (locCtx) {
+    const loc = await locCtx.resolveEffectiveLocation(userPrompt, { getSystemContext });
+    locationHint = loc.label || '';
+    if (locationHint && locCtx.isLocationSensitiveQuery(userPrompt)) {
+      fallback = locCtx.augmentQueryWithLocation(fallback, locationHint);
+    }
+  } else {
+    const realtime = buildRealtimeContext(sysEnv);
+    locationHint = realtime.locationLabel && realtime.locationLabel !== 'Unknown location' ? realtime.locationLabel : '';
+  }
+
+  const finalizeQuery = (query) => {
+    let out = String(query || '').trim();
+    if (isProductOrShoppingQuery(userPrompt)) {
+      out = augmentShoppingSearchQuery(userPrompt, out, regional);
+    }
+    return out.replace(/\s+/g, ' ').trim();
+  };
 
   const isMetaGarbage = (str) => /\b(based on|user prompt|we can generate|search query|keywords:|live information|snippet available|ai prompt|docsbot|prompt generation)\b/i.test(str);
 
-  // If fallback is already a clean topic query without meta words, return fallback directly!
-  if (fallback && fallback.split(' ').length <= 8 && !isMetaGarbage(fallback)) {
-    return fallback;
+  if (fallback && fallback.split(' ').length <= 12 && !isMetaGarbage(fallback)) {
+    return finalizeQuery(fallback);
   }
 
-  const sysEnv = await getSystemContext();
-  const realtime = buildRealtimeContext(sysEnv);
-  const locationHint = realtime.locationLabel && realtime.locationLabel !== 'Unknown location' ? realtime.locationLabel : '';
-
+  const shoppingHint = isProductOrShoppingQuery(userPrompt)
+    ? `Shopping query — use local currency (${regional.currency || 'auto'}) and region (${regional.country || regional.countryCode || 'auto'}). Include product type and budget in keywords.`
+    : '';
   const queryPlannerSystemPrompt = `You are a Search Engine Query Keyword Generator.
-Your job is to convert raw conversational user prompts into 2 to 5 highly relevant search keywords.
-STRICT RULES:
-- Output ONLY 2 to 5 keywords.
-- NEVER include conversational fillers, instructions, or meta-commentary.
-- Focus ONLY on the core intent and specific subject entities.`;
+Convert the user prompt into 2 to 5 search keywords.
+${locationHint ? `User location context: ${locationHint} — include it ONLY if the query is local (weather, restaurants, news, stores, events).` : ''}
+${shoppingHint}
+Output ONLY keywords. No sentences.`;
 
   const queryPlannerUserPrompt = `Prompt: "${userPrompt}"\nKeywords:`;
 
@@ -2012,17 +2820,19 @@ STRICT RULES:
     if (rawAiOutput && !isMetaGarbage(rawAiOutput)) {
       let planned = rawAiOutput.replace(/```[^`]*```/g, '').replace(/["'`]/g, '').trim();
       planned = fallbackSearchQueryFromPrompt(planned);
-
+      if (locationHint && locCtx && locCtx.isLocationSensitiveQuery(userPrompt)) {
+        planned = locCtx.augmentQueryWithLocation(planned, locationHint);
+      }
       if (planned && planned.length >= 3) {
         logTrace(`AI Search Query Reconstructed: "${planned}"`, 'system');
-        return planned;
+        return finalizeQuery(planned);
       }
     }
   } catch (e) {
     logTrace(`Search query AI reconstruction fallback: ${e.message}`, 'system');
   }
 
-  return fallback;
+  return finalizeQuery(fallback);
 }
 
 function normalizeSearchPayload(payload, query) {
@@ -2042,30 +2852,519 @@ function normalizeSearchPayload(payload, query) {
   };
 }
 
+function getRegionalShoppingContext(sysEnv = {}) {
+  const region = sysEnv.region || {};
+  const geo = sysEnv.geoLocation || {};
+  const countryCode = String(geo.countryCode || region.countryCode || '').toUpperCase();
+  const currency = String(region.currency || '').toUpperCase();
+  const country = geo.country || region.country || '';
+  const currencyWords = { INR: 'rupees', USD: 'dollars', GBP: 'pounds', EUR: 'euros', AUD: 'AUD', CAD: 'CAD' };
+  return {
+    countryCode,
+    currency,
+    country,
+    currencyWord: currencyWords[currency] || currency
+  };
+}
+
+function normalizePromptTypos(prompt) {
+  return String(prompt || '')
+    .replace(/\bfinid\b/gi, 'find')
+    .replace(/\bfidn\b/gi, 'find')
+    .replace(/\bserach\b/gi, 'search')
+    .replace(/\bserch\b/gi, 'search')
+    .replace(/\bgoogel\b/gi, 'google')
+    .replace(/\bshwo\b/gi, 'show')
+    .replace(/\bteh\b/gi, 'the')
+    .replace(/\bmessafe\b/gi, 'message')
+    .replace(/\bmesage\b/gi, 'message');
+}
+
+function isProductOrShoppingQuery(prompt) {
+  const p = normalizePromptTypos(prompt).toLowerCase();
+  const productNouns = 'monitor|laptop|phone|headphone|earbuds|keyboard|mouse|tablet|tv|television|camera|gpu|graphics card|processor|cpu|ssd|hard drive|speaker|watch|smartwatch|fridge|refrigerator|shoe|shoes|sneaker|sneakers|footwear|sandals|boots|bag|backpack|dress|shirt|jacket|clothing|clothes|furniture|sofa|bed|mattress|bike|bicycle|scooter|buy|purchase|deal|deals|price|amazon|flipkart|myntra|ajio|meesho';
+
+  if (/\b(find|show|list|recommend|suggest|pick|get|give|search)\s+(me\s+)?(the\s+)?(some\s+)?/i.test(p)
+      && /\b(under|below|less than|within|around|budget)\s+[\d,.]+/i.test(p)) {
+    return true;
+  }
+  if (/\b(find|show|list|recommend|suggest|pick|get|give|search)\s+(me\s+)?(the\s+)?(best|top|good|cheap|budget|affordable)\b/i.test(p)) return true;
+  if (/\b(best|top|recommended|budget|cheapest|affordable)\s+.+\b(under|below|less than|within|around)\s+[\d,.]+/i.test(p)) return true;
+  if (/\b(under|below|less than|within|around)\s+[\d,.]+\b/i.test(p) && new RegExp(`\\b(${productNouns})\\b`, 'i').test(p)) return true;
+  if (/\b(find|show|get|give|search)\s+(me\s+)?(the\s+)?(some\s+)?/i.test(p) && new RegExp(`\\b(${productNouns})\\b`, 'i').test(p)) return true;
+  if (/\b(which|what)\s+(monitor|laptop|phone|headphone|keyboard|mouse|tablet|tv|gpu|processor|smartphone|shoe|shoes|sneaker)\s+(should|to|can|is)\b/i.test(p)) return true;
+  if (/\bcompare\b/i.test(p) && /\b(vs|versus|or)\b/i.test(p)) return true;
+  return false;
+}
+
+function augmentShoppingSearchQuery(userPrompt, query, regional = {}) {
+  let q = String(query || '').trim();
+  const p = String(userPrompt || '');
+  const { currency, countryCode, currencyWord } = regional;
+
+  const amountMatch = p.match(/\b(under|below|less than|within|around)\s+([\d,.]+)\b/i);
+  if (amountMatch) {
+    const amount = amountMatch[2].replace(/,/g, '');
+    const hasCurrency = /\b(inr|usd|eur|gbp|aud|cad|₹|\$|€|£|rupee|dollar|euro|pound)\b/i.test(q);
+    if (!hasCurrency && currency === 'INR') {
+      q = `${q} under ${amount} INR rupees India`.trim();
+    } else if (!hasCurrency && currency) {
+      q = `${q} under ${amount} ${currency} ${currencyWord || ''}`.trim();
+    }
+  }
+
+  if (countryCode === 'IN' && !/\bindia\b/i.test(q)) {
+    q = `${q} India`.trim();
+  } else if (regional.country && countryCode && countryCode !== 'US' && !new RegExp(`\\b${regional.country.split(' ')[0]}\\b`, 'i').test(q)) {
+    q = `${q} ${regional.country}`.trim();
+  }
+
+  return q.replace(/\s+/g, ' ').trim();
+}
+
+function hasExplicitSearchIntent(prompt) {
+  const p = String(prompt || '').toLowerCase();
+  if (isProductOrShoppingQuery(prompt)) return true;
+  if (p.startsWith('search')) return true;
+  if (/\b(research|deep research|investigate|compare .+ vs|which is better|pros and cons)\b/i.test(p)) return true;
+  if (/\b(check|get|tell me|what'?s?\s+the)\s+weather\b/i.test(p)) return true;
+  if (/\bweather\s+(in|for|at)\b/i.test(p)) return true;
+  if (/\b(search the web|search online|google for|look up online|find out about|latest news|current news|weather in|weather for|news about|web search)\b/i.test(p)) return true;
+  if (/\b(search|google|look up|find out)\b/i.test(p) && /\b(news|weather|price|deals|latest|trending|stock|crypto|offers)\b/i.test(p)) return true;
+  if (/\?\s*$/.test(p.trim()) && /\b(best|top|recommended|under \d+|compare|vs|versus)\b/i.test(p)) return true;
+  return false;
+}
+
 function searchContextForLLM(searchPayload) {
   if (!searchPayload) return '';
   if (searchPayload.answerContext) return searchPayload.answerContext;
   return (searchPayload.results || []).map((item, index) => {
-    return `[${index + 1}] ${item.title}\nURL: ${item.url}\nSource: ${item.source}\nSnippet: ${item.snippet || 'No snippet available.'}`;
+    const body = item.pageContent
+      ? `Content:\n${String(item.pageContent).slice(0, 2500)}`
+      : `Snippet: ${item.snippet || 'No snippet available.'}`;
+    return `[${index + 1}] ${item.title}\nURL: ${item.url}\nSource: ${item.source}\n${body}`;
   }).join('\n\n');
 }
 
 function shouldAskForSearchClarification(searchPayload) {
   const results = searchPayload && Array.isArray(searchPayload.results) ? searchPayload.results : [];
-  const usefulSnippets = results.filter(item => (item.snippet || '').trim().length > 40).length;
-  return Boolean(searchPayload && searchPayload.needsClarification) || results.length === 0 || usefulSnippets === 0;
+  const useful = results.filter(item =>
+    (item.snippet || '').trim().length > 40 || (item.pageContent || '').trim().length > 80
+  ).length;
+  if (results.length === 0) return true;
+  if (searchPayload && searchPayload.needsClarification && useful === 0) return true;
+  return false;
+}
+
+function getSourceDomain(item) {
+  try {
+    const urlObj = new URL(item.url);
+    return urlObj.hostname.replace(/^www\./, '');
+  } catch (e) {
+    return item.source || 'web';
+  }
+}
+
+function getSourceFaviconUrl(domain) {
+  if (!domain || domain === 'web') return '';
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`;
+}
+
+function plainSearchSnippet(text) {
+  return String(text || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function dedupeSearchResultsByDomain(results) {
+  const seen = new Set();
+  return (Array.isArray(results) ? results : []).filter(item => {
+    const domain = getSourceDomain(item).toLowerCase();
+    if (!domain || seen.has(domain)) return false;
+    seen.add(domain);
+    return true;
+  });
+}
+
+function isWeatherQuery(prompt) {
+  return /\bweather\b/i.test(String(prompt || ''))
+    || /\b(temperature|forecast|rain|humidity)\s+(in|for|at)\b/i.test(String(prompt || ''));
+}
+
+function extractWeatherLocation(prompt) {
+  const locCtx = window.UltronLocationContext;
+  if (locCtx) {
+    const explicit = locCtx.extractExplicitLocationFromPrompt(prompt);
+    if (explicit && !locCtx.isImplicitLocationPhrase(explicit)) return explicit;
+    if (locCtx.isImplicitLocationPhrase(prompt)) return '';
+  }
+  const p = String(prompt || '');
+  const m = p.match(/\bweather\s+(?:in|for|at)\s+([^?.,!]+)/i)
+    || p.match(/\b(?:check|get|what'?s?\s+the)\s+weather\s+(?:in|for|at)\s+([^?.,!]+)/i);
+  if (!m) return '';
+  const candidate = m[1].trim().replace(/\s+/g, ' ');
+  if (/\b(here|near me|my area|local)\b/i.test(candidate)) return '';
+  return candidate;
+}
+
+async function resolveWeatherLocationLabel(userPrompt) {
+  const explicit = extractWeatherLocation(userPrompt);
+  if (explicit) return explicit;
+  const locCtx = window.UltronLocationContext;
+  if (locCtx) {
+    const loc = await locCtx.resolveEffectiveLocation(userPrompt, { getSystemContext });
+    if (loc.label) return loc.label.split(',')[0].trim();
+  }
+  const sysEnv = await getSystemContext();
+  const rt = buildRealtimeContext(sysEnv);
+  return rt.locationLabel && rt.locationLabel !== 'Unknown location' ? rt.locationLabel.split(',')[0].trim() : 'your area';
+}
+
+async function buildWeatherResultsAnswer(userPrompt, searchPayload) {
+  const results = dedupeSearchResultsByDomain(searchPayload?.results || []);
+  if (!results.length) return { text: '', factCount: 0 };
+
+  const location = await resolveWeatherLocationLabel(userPrompt);
+  const chunks = results.map(item => plainSearchSnippet(item.pageContent || item.snippet || '')).filter(Boolean);
+  const combined = chunks.join(' ');
+
+  const pick = (regex) => {
+    const m = combined.match(regex);
+    return m ? m[1] || m[0] : '';
+  };
+
+  const temps = [...combined.matchAll(/(-?\d{1,3})\s*°\s*([CFcf])\b/g)].map(m => `${m[1]}°${(m[2] || 'C').toUpperCase()}`);
+  const nowMatch = combined.match(/(?:currently|now|right now)[^.]{0,40}?(-?\d{1,3})\s*°\s*([CFcf])\b/i);
+  const nowTemp = nowMatch ? `${nowMatch[1]}°${nowMatch[2].toUpperCase()}` : (temps[0] || '');
+  const feelsMatch = combined.match(/feels?\s*like\s*(-?\d{1,3})\s*°\s*([CFcf])?/i);
+  const feelsLike = feelsMatch ? `${feelsMatch[1]}°${(feelsMatch[2] || 'C').toUpperCase()}` : '';
+  const high = pick(/(?:high|maximum|max)[:\s]*(-?\d{1,3})\s*°/i);
+  const low = pick(/(?:low|minimum|min)[:\s]*(-?\d{1,3})\s*°/i);
+  const humidity = pick(/humidity[:\s]*(\d{1,3})\s*%/i);
+  const wind = pick(/wind[:\s]*(\d+(?:\.\d+)?\s*(?:km\/h|kmph|mph|m\/s))/i);
+  const condition = pick(/\b(clear|mostly clear|partly cloudy|cloudy|overcast|rain|rainy|light rain|heavy rain|thunderstorm|sunny|fog|foggy|haze|hazy|drizzle|showers?)\b/i);
+
+  const lines = [`**Weather in ${location}**`, ''];
+  let factCount = 0;
+
+  if (nowTemp) {
+    lines.push(`- **Now:** ${nowTemp}${condition ? ` · ${condition}` : ''}`);
+    factCount++;
+  } else if (condition) {
+    lines.push(`- **Conditions:** ${condition}`);
+    factCount++;
+  }
+  if (high && low) {
+    lines.push(`- **High / Low:** ${high}° / ${low}°`);
+    factCount++;
+  } else if (high) {
+    lines.push(`- **High:** ${high}°`);
+    factCount++;
+  } else if (low) {
+    lines.push(`- **Low:** ${low}°`);
+    factCount++;
+  }
+  if (feelsLike) {
+    lines.push(`- **Feels like:** ${feelsLike}`);
+    factCount++;
+  }
+  if (humidity) {
+    lines.push(`- **Humidity:** ${humidity}%`);
+    factCount++;
+  }
+  if (wind) {
+    lines.push(`- **Wind:** ${wind}`);
+    factCount++;
+  }
+
+  if (factCount === 0 && chunks[0]) {
+    const short = chunks[0].slice(0, 180);
+    lines.push(`- ${short}${chunks[0].length > 180 ? '…' : ''}`);
+    factCount = 1;
+  }
+
+  const sourceNames = results.slice(0, 4).map(r => getSourceDomain(r)).filter(Boolean);
+  if (sourceNames.length) {
+    lines.push('', `_Live data from ${sourceNames.join(', ')}._`);
+  }
+
+  return { text: lines.join('\n').trim(), factCount };
+}
+
+function extractProductTypeFromPrompt(prompt) {
+  const m = String(prompt || '').match(/\b(monitors?|laptops?|phones?|smartphones?|headphones?|earbuds?|keyboards?|mice|mouse|tablets?|tvs?|televisions?|cameras?|gpus?|graphics cards?|processors?|cpus?|ssds?|speakers?|smartwatches?|watches?)\b/i);
+  return m ? m[1] : 'products';
+}
+
+function buildProductResultsAnswer(userPrompt, searchPayload, regional = {}) {
+  const results = dedupeSearchResultsByDomain(searchPayload?.results || []);
+  if (!results.length) return { text: '', factCount: 0 };
+
+  const productType = extractProductTypeFromPrompt(userPrompt);
+  const budgetMatch = userPrompt.match(/\b(under|below|less than|within|around)\s+([\d,.]+)\b/i);
+  let budgetLabel = '';
+  if (budgetMatch) {
+    const amount = budgetMatch[2];
+    if (regional.currency === 'INR') budgetLabel = ` under ₹${amount}`;
+    else if (regional.currency === 'USD') budgetLabel = ` under $${amount}`;
+    else if (regional.currency) budgetLabel = ` under ${amount} ${regional.currency}`;
+    else budgetLabel = ` under ${amount}`;
+  }
+
+  const pricePattern = /(?:₹|Rs\.?\s*|INR\s*|[$€£]\s*)([\d][\d,]*(?:\.\d{2})?)/gi;
+  const seen = new Set();
+  const picks = [];
+
+  for (const item of results) {
+    const title = plainSearchSnippet(item.title || '').replace(/\s*[-|–—]\s*.+$/, '').trim();
+    const body = plainSearchSnippet(item.pageContent || item.snippet || '');
+    if (!title || title.length < 8 || seen.has(title.toLowerCase())) continue;
+
+    const combined = `${title} ${body}`;
+    const prices = [...combined.matchAll(pricePattern)].map(m => m[0].trim()).slice(0, 2);
+    const price = prices[0] || '';
+
+    if (/\b(best|top|buy|review|price|under|budget)\b/i.test(combined) || price || /\b\d{3,}\b/.test(combined)) {
+      seen.add(title.toLowerCase());
+      picks.push({
+        name: title.slice(0, 90),
+        price,
+        source: getSourceDomain(item)
+      });
+    }
+    if (picks.length >= 6) break;
+  }
+
+  if (picks.length < 2) {
+    results.slice(0, 5).forEach(item => {
+      const title = plainSearchSnippet(item.title || '').trim();
+      if (title.length >= 8 && !seen.has(title.toLowerCase())) {
+        seen.add(title.toLowerCase());
+        picks.push({ name: title.slice(0, 90), price: '', source: getSourceDomain(item) });
+      }
+    });
+  }
+
+  if (!picks.length) return { text: '', factCount: 0 };
+
+  const lines = [`**Best ${productType}${budgetLabel}**`, ''];
+  picks.slice(0, 6).forEach((pick, index) => {
+    const pricePart = pick.price ? ` — **${pick.price}**` : '';
+    const sourcePart = pick.source ? ` _(${pick.source})_` : '';
+    lines.push(`${index + 1}. **${pick.name}**${pricePart}${sourcePart}`);
+  });
+  lines.push('', '_Prices from live web results — check sources for current availability._');
+
+  return { text: lines.join('\n').trim(), factCount: picks.length };
+}
+
+async function buildSearchFallbackAnswer(userPrompt, searchPayload) {
+  const results = dedupeSearchResultsByDomain(searchPayload?.results || []);
+  if (!results.length) return '';
+
+  if (isWeatherQuery(userPrompt)) {
+    const weather = await buildWeatherResultsAnswer(userPrompt, { ...searchPayload, results });
+    if (weather.text) return weather.text;
+  }
+
+  if (isProductOrShoppingQuery(userPrompt)) {
+    const sysEnv = await getSystemContext();
+    const product = buildProductResultsAnswer(userPrompt, { ...searchPayload, results }, getRegionalShoppingContext(sysEnv));
+    if (product.text) return product.text;
+  }
+
+  const bodies = results.map(item => ({
+    title: item.title || getSourceDomain(item),
+    body: plainSearchSnippet(item.pageContent || item.snippet || '')
+  })).filter(entry => entry.body.length > 20);
+
+  const lines = [`**Quick results**`, ''];
+  bodies.slice(0, 4).forEach(entry => {
+    lines.push(`- **${entry.title}:** ${entry.body.slice(0, 160)}${entry.body.length > 160 ? '…' : ''}`);
+  });
+  if (bodies.length > 4) lines.push('', '_Open **See more** for additional sources._');
+  return lines.join('\n').trim();
+}
+
+async function summarizeSearchAnswer(userPrompt, searchPayload, searchQuery, options = {}) {
+  const userName = options.userName || getUserFullName();
+  const loopImagePayloads = options.imagePayloads || [];
+  const hopNote = options.hopNote || '';
+  const dedupedPayload = {
+    ...searchPayload,
+    results: dedupeSearchResultsByDomain(searchPayload?.results || [])
+  };
+  const liveContext = searchContextForLLM(dedupedPayload);
+
+  let locationNote = '';
+  const locCtx = window.UltronLocationContext;
+  if (locCtx && locCtx.isLocationSensitiveQuery(userPrompt)) {
+    const loc = await locCtx.resolveEffectiveLocation(userPrompt, { getSystemContext });
+    if (loc.label) {
+      locationNote = `\nUser location: ${loc.label} (${loc.confidence} confidence). Use this for local results when the prompt says "near me", "here", or omits a city.`;
+    }
+  }
+
+  if (isWeatherQuery(userPrompt)) {
+    const weather = await buildWeatherResultsAnswer(userPrompt, dedupedPayload);
+    if (weather.factCount >= 1) {
+      return sanitizeResponseText(weather.text, userPrompt, {
+        allowedUrls: dedupedPayload.results.map(item => item.url).filter(Boolean)
+      });
+    }
+  }
+
+  const sysEnv = await getSystemContext();
+  const regional = getRegionalShoppingContext(sysEnv);
+
+  if (isProductOrShoppingQuery(userPrompt)) {
+    const product = buildProductResultsAnswer(userPrompt, dedupedPayload, regional);
+    if (product.factCount >= 2) {
+      return sanitizeResponseText(product.text, userPrompt, {
+        allowedUrls: dedupedPayload.results.map(item => item.url).filter(Boolean)
+      });
+    }
+  }
+
+  const weatherBlock = isWeatherQuery(userPrompt) ? `
+
+WEATHER FORMAT (mandatory — no paragraphs):
+**Weather in [city]**
+
+- **Now:** [temp] · [condition]
+- **High / Low:** [high] / [low]
+- **Humidity:** [value]
+- **Wind:** [value]
+
+Rules: Max 6 bullet lines. Only facts from live data. Never describe weather companies, agriculture, or generic climate advice.` : '';
+
+  const productBlock = isProductOrShoppingQuery(userPrompt) ? `
+
+PRODUCT / SHOPPING FORMAT (mandatory):
+**Best [product type] under [budget in ${regional.currency || 'local currency'}]**
+
+1. **[Exact product name]** — **[price in ${regional.currency || 'local currency'}]** _(source)_
+2. ...
+
+Rules:
+- List 4–6 specific products with real names and prices from the live data.
+- Use ${regional.currency === 'INR' ? '₹ / INR / rupees' : regional.currency || 'local currency'} — NEVER assume USD unless the data says so.
+- Budget "${userPrompt.match(/\b(under|below)\s+[\d,.]+/i)?.[0] || ''}" means ${regional.currency === 'INR' ? 'Indian Rupees' : regional.currencyWord || 'local currency'}.
+- No generic brand advice. No "I don't have real-time access". No essays.` : '';
+
+  const summarySystemPrompt = `You are Ultron, a concise assistant in a direct conversation with ${userName}.
+Answer using ONLY the live web information provided.${hopNote}${locationNote}${weatherBlock}${productBlock}
+
+CRITICAL:
+- Give RESULTS not essays. ${buildMarkdownFormattingRules()}
+- Include specific numbers (prices, temps, dates, names) when present in the data.
+- Speak in first person ("I found…"). No meta narration.
+- No raw URLs — sources are shown separately below.`;
+
+  const summaryPrompt = `Request: ${userPrompt}
+
+Search: ${searchQuery}
+
+Live data:
+${liveContext}
+
+Write the final answer now.`;
+
+  let summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt, loopImagePayloads);
+  if (
+    !summary
+    || !summary.trim()
+    || isModelLoadFailureResponse(summary)
+    || summary.includes('offline model loop failed')
+    || summary.includes('Search Query Generator')
+    || (isWeatherQuery(userPrompt) && summary.split(/\n\n/).some(p => p.length > 320))
+    || (isProductOrShoppingQuery(userPrompt) && /\b(don'?t have real-time|do not have real-time|without access to current|historically speaking|while i don'?t have|cannot access current)\b/i.test(summary))
+    || (isProductOrShoppingQuery(userPrompt) && summary.split(/\n\n/).some(p => p.length > 280))
+  ) {
+    summary = (await buildSearchFallbackAnswer(userPrompt, dedupedPayload))
+      || `I found ${dedupedPayload.results.length} live result${dedupedPayload.results.length === 1 ? '' : 's'} for "${searchQuery}". Open the sources below for details.`;
+  }
+
+  return sanitizeResponseText(summary, userPrompt, {
+    allowedUrls: dedupedPayload.results.map(item => item.url).filter(Boolean)
+  });
+}
+
+function renderStackedSourcesHtml(results) {
+  const all = dedupeSearchResultsByDomain(Array.isArray(results) ? results.slice(0, 12) : []);
+  if (!all.length) return '';
+
+  const stackCount = Math.min(4, all.length);
+  const stackItems = all.slice(0, stackCount);
+  const extraCount = all.length - stackCount;
+
+  const stackHtml = stackItems.map((item, index) => {
+    const domain = getSourceDomain(item);
+    const faviconUrl = getSourceFaviconUrl(domain);
+    const title = item.title || domain;
+    return `
+      <a class="source-stack-logo" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer"
+         style="z-index:${stackCount - index}" title="${escapeHtml(title)} — ${escapeHtml(domain)}">
+        ${faviconUrl
+          ? `<img src="${escapeHtml(faviconUrl.replace('sz=32', 'sz=64'))}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><span class="source-stack-fallback" style="display:none;">🌐</span>`
+          : `<span class="source-stack-fallback">🌐</span>`}
+      </a>
+    `;
+  }).join('');
+
+  const renderSourceCard = (item) => {
+    const domain = getSourceDomain(item);
+    const faviconUrl = getSourceFaviconUrl(domain);
+    return `
+      <a class="source-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
+        <div class="source-header">
+          ${faviconUrl
+            ? `<img class="source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" /><span class="source-favicon-fallback" style="display:none;">🌐</span>`
+            : `<span class="source-favicon-fallback">🌐</span>`}
+          <span class="source-domain">${escapeHtml(domain)}</span>
+        </div>
+        <div class="source-result-title">${escapeHtml(item.title || item.source || 'Web result')}</div>
+      </a>
+    `;
+  };
+
+  const stackBlock = `<div class="source-logo-stack" aria-label="${all.length} source${all.length === 1 ? '' : 's'}">${stackHtml}</div>`;
+
+  const bodyHtml = extraCount > 0 ? `
+    <details class="source-see-more">
+      <summary class="source-see-more-summary">
+        <span class="source-summary-preview">
+          ${stackBlock}
+          <span class="source-see-more-cta">
+            <span class="source-see-more-label">See more</span>
+            <span class="source-more-count">+${extraCount}</span>
+          </span>
+        </span>
+        <span class="source-summary-less">See less</span>
+      </summary>
+      <div class="source-expanded-list">${all.map(renderSourceCard).join('')}</div>
+    </details>
+  ` : stackBlock;
+
+  return `
+    <div class="search-section search-sources-section">
+      <div class="search-section-title">Sources</div>
+      ${bodyHtml}
+    </div>
+  `;
 }
 
 function renderSearchExperience(answer, searchPayload) {
-  const results = Array.isArray(searchPayload.results) ? searchPayload.results.slice(0, 6) : [];
+  const results = dedupeSearchResultsByDomain(Array.isArray(searchPayload.results) ? searchPayload.results.slice(0, 12) : []);
   const products = Array.isArray(searchPayload.products) ? searchPayload.products.slice(0, 6) : [];
   const answerHtml = window.ultronAPI.parseMarkdown(
-    sanitizeResponseText(answer || '', searchPayload.query || '', {
+    structureReadableMarkdown(sanitizeResponseText(answer || '', searchPayload.query || '', {
       allowedUrls: results.map(item => item.url).filter(Boolean)
-    })
+    }))
   );
 
-  const productHtml = products.length > 0 ? `
+  const productHtml = products.length > 0 && isProductOrShoppingQuery(searchPayload.query || '') ? `
     <div class="search-section">
       <div class="search-section-title">Product Matches</div>
       <div class="product-card-grid">
@@ -2103,39 +3402,7 @@ function renderSearchExperience(answer, searchPayload) {
     </div>
   ` : '';
 
-  const sourcesHtml = results.length > 0 ? `
-    <div class="search-section">
-      <div class="search-section-title">Sources</div>
-      <div class="source-card-list">
-        ${results.map((item) => {
-          let domain = '';
-          try {
-            const urlObj = new URL(item.url);
-            domain = urlObj.hostname.replace(/^www\./, '');
-          } catch (e) {
-            domain = item.source || 'web';
-          }
-          const faviconUrl = domain && domain !== 'web' 
-            ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
-            : '';
-
-          return `
-            <a class="source-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
-              <div class="source-header">
-                ${faviconUrl 
-                  ? `<img class="source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" /><span class="source-favicon-fallback" style="display:none;">🌐</span>` 
-                  : `<span class="source-favicon-fallback">🌐</span>`
-                }
-                <span class="source-domain">${escapeHtml(domain)}</span>
-              </div>
-              <div class="source-result-title">${escapeHtml(item.title || item.source || 'Web result')}</div>
-              <div class="source-meta">Today</div>
-            </a>
-          `;
-        }).join('')}
-      </div>
-    </div>
-  ` : '';
+  const sourcesHtml = renderStackedSourcesHtml(results);
 
   return `
     <div class="ultron-search-experience">
@@ -2144,6 +3411,181 @@ function renderSearchExperience(answer, searchPayload) {
       ${sourcesHtml}
     </div>
   `;
+}
+
+/**
+ * True when the user wants generated text/content in chat, not desktop control.
+ * e.g. "write me an essay on my country" must NOT become an OPEN_APP/WRITE_FILE task.
+ */
+function isContentGenerationRequest(prompt) {
+  const p = String(prompt || '');
+  if (isCodeOnlyGenerationRequest(p)) return true;
+  if (/\b(write|draft|compose|create|generate|give\s+me|make)\s+(me\s+)?(an?\s+)?(essay|article|story|poem|letter|email|report|summary|speech|blog|paragraph|explanation|review|analysis|outline|notes?|caption|headline)\b/i.test(p)) {
+    return true;
+  }
+  if (/\b(write|draft|compose)\s+me\b/i.test(p)) {
+    return true;
+  }
+  if (/\b(write|draft|compose|generate)\s+(an?\s+)?(code|script|function|program|snippet|poem|essay)\b/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
+/** User wants source code only (e.g. "write only html", "html code only"). */
+function isCodeOnlyGenerationRequest(prompt) {
+  const p = String(prompt || '').toLowerCase();
+  if (/\b(only|just)\s+(html|css|javascript|js|python|typescript|tsx?|jsx?|code|sql|json|xml|svg)\b/.test(p)) return true;
+  if (/\b(html|css|javascript|js|python|typescript|tsx?|jsx?|code|sql|json|xml|svg)\s+only\b/.test(p)) return true;
+  if (/\bwrite\s+(only\s+)?(html|css|javascript|js|python|code)\b/.test(p)) return true;
+  if (/\b(code\s+only|only\s+code)\b/.test(p)) return true;
+  if (/\bgive\s+me\s+(only\s+)?(html|css|javascript|js|python|code)\b/.test(p)) return true;
+  if (/\b(show|provide|output)\s+(me\s+)?(only\s+)?(html|css|javascript|js|python|code)\b/.test(p)) return true;
+  return false;
+}
+
+function detectRequestedCodeLanguage(prompt) {
+  const p = String(prompt || '').toLowerCase();
+  if (/\bhtml\b/.test(p)) return 'html';
+  if (/\bcss\b/.test(p)) return 'css';
+  if (/\b(typescript|tsx)\b/.test(p)) return 'typescript';
+  if (/\b(javascript|jsx|\bjs\b)\b/.test(p)) return 'javascript';
+  if (/\bpython\b/.test(p)) return 'python';
+  if (/\bsql\b/.test(p)) return 'sql';
+  if (/\bjson\b/.test(p)) return 'json';
+  if (/\bxml\b/.test(p)) return 'xml';
+  if (/\bsvg\b/.test(p)) return 'svg';
+  return 'code';
+}
+
+function buildCodeGenerationSystemPrompt(userPrompt) {
+  const lang = detectRequestedCodeLanguage(userPrompt);
+  const langLabel = lang === 'html' ? 'HTML5' : lang;
+  return `You are Ultron, a coding assistant. The user wants source code only.
+
+Rules:
+- Output exactly ONE fenced code block: \`\`\`${lang}
+...your code...
+\`\`\`
+- Put ALL code inside that single fence — no text before or after it.
+- Do NOT write explanations, markdown headings, bullet lists, or prose outside the fence.
+- Do NOT invent placeholder boilerplate (copyright footers, locale/language pickers, theme dropdowns, "Your Company Name", Privacy Policy) unless the user explicitly asked for them.
+- Write complete, valid ${langLabel} that matches what they asked for.
+- If they said "only html", output HTML only — no separate CSS/JS unless they asked for it.`;
+}
+
+function sanitizeCodeGenerationResponse(text, userPrompt = '') {
+  let cleaned = String(text || '').trim();
+  if (!cleaned) return '';
+
+  const lang = detectRequestedCodeLanguage(userPrompt);
+  const fenceRe = /```(?:[\w-]+)?\s*\n?([\s\S]*?)```/gi;
+  const blocks = [];
+  let match;
+  while ((match = fenceRe.exec(cleaned)) !== null) {
+    const body = (match[1] || '').trim();
+    if (body) blocks.push(body);
+  }
+
+  let code = blocks.length ? blocks.join('\n\n') : '';
+
+  if (!code) {
+    const htmlDoc = cleaned.match(/<!DOCTYPE[\s\S]*?<\/html>/i) || cleaned.match(/<html[\s\S]*?<\/html>/i);
+    if (htmlDoc) code = htmlDoc[0];
+  }
+
+  if (!code) {
+    cleaned = cleaned
+      .replace(/©\s*\d{4}[\s\S]*?(Privacy Policy|Terms and Conditions)[^\n]*/gi, '')
+      .replace(/Select your preferred (language|theme|locale)[^\n]*/gi, '')
+      .replace(/Please choose a preference first[^\n]*/gi, '')
+      .replace(/\bEn_US\.UTF8\b|\bEspañol\b|\bes_ES\.UTF8\b/gi, '')
+      .replace(/^(sure!?|here is|here's|certainly|of course)[^\n]*\n/gi, '')
+      .replace(/^#{1,6}\s+.*\n/gm, '');
+    const tagLines = cleaned.split('\n').filter(line => /<\/?[a-z][^>]*>/i.test(line));
+    if (tagLines.length >= 1) code = tagLines.join('\n');
+  }
+
+  if (!code) return `\`\`\`${lang}\n${cleaned.replace(/<[^>]+>/g, '').trim() || '/* No code generated — try rephrasing or switch model */'}\n\`\`\``;
+
+  code = code
+    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+    .replace(/©\s*\d{4}[\s\S]*?(Privacy Policy|Terms)[^\n<]*/gi, '')
+    .trim();
+
+  return `\`\`\`${lang}\n${code}\n\`\`\``;
+}
+
+/** Desktop/file/UI cues that mean the user wants tools, not a chat answer. */
+function hasDesktopActionCues(prompt) {
+  const p = String(prompt || '');
+  return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|notepad|chrome|edge|browser|desktop|download|document|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(p)
+    || /\.(txt|docx?|pdf|md|js|py|ts|html)\b/i.test(p)
+    || /[A-Za-z]:\\/.test(p);
+}
+
+/** Only UI/desktop tasks benefit from automatic screen capture. */
+function needsScreenCaptureForTask(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+
+  // Direct file/folder operations — use filesystem APIs, not screenshots
+  if (/\b(read|list|show|parse|open|view|display)\s+(my\s+)?(file|files|folder|directory|document|documents|settings|config)\b/i.test(p)) {
+    return false;
+  }
+  if (/[a-z]:\\[^\s]+/i.test(p) && !/\b(click|type|scroll|button|menu|dialog|save as)\b/i.test(p)) {
+    return false;
+  }
+
+  // Simple app launch — no screen analysis needed (avoids vision OOM)
+  if (/^(open|launch|start|focus|switch to)\s+[a-z0-9 .+\-_]+$/i.test(p) && !/\b(and|then|type|click|scroll|save|write|read)\b/i.test(p)) {
+    return false;
+  }
+
+  return /\b(click|double[\s-]?click|type|scroll|hotkey|press|navigate|fill|screenshot|screen|window|ui|button|menu|save|dialog|file explorer)\b/i.test(p);
+}
+
+function isWebSearchEnabled() {
+  return window.localStorage.getItem('ultron-web-search-enabled') !== 'false';
+}
+
+function isFactualOrCurrentEventsQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().replace(/\s+/g, ' ');
+  if (/\b(right now|currently|at present|as of now|today|this week|this month|this year|in 2026|in 2025|latest|recent|live update|happening now)\b/i.test(p)) return true;
+  if (/\b(now|nwo)\b/i.test(p) && /\b(who|what|when|where|which)\b/i.test(p)) return true;
+  if (/\bwho\s+(is|are|was|'s)\b/i.test(p) && /\b(prime minister|president|chief minister|ceo|governor|mayor|king|queen|leader|head of|minister of|secretary of)\b/i.test(p)) return true;
+  if (/\b(what is the|what's the|what are the)\s+(price|score|result|winner|population|capital|weather|news)\b/i.test(p)) return true;
+  if (/\b(news about|latest on|update on|happening in|election result|match result|stock price|crypto price)\b/i.test(p)) return true;
+  if (/\b(when did|when was|when is|where is|how old is|how much is|how many people)\b/i.test(p)) return true;
+  return false;
+}
+
+function isStaleOrUncertainResponse(text) {
+  const lower = String(text || '').toLowerCase();
+  return /\b(as of my last update|knowledge cutoff|don't have access to real.?time|do not have access to real.?time|may not be up to date|my training data|cannot provide real.?time|as of \d{4}|i'm not able to browse|don't have live|do not have live|information may be outdated|i don't have up-to-date|without access to the internet)\b/i.test(lower);
+}
+
+function shouldFallbackToWebSearch(prompt, response) {
+  if (!isWebSearchEnabled()) return false;
+  return isFactualOrCurrentEventsQuery(prompt) || isStaleOrUncertainResponse(response);
+}
+
+/** Split "who is PM … open notepad" into a web search part + desktop action tail. */
+function splitSearchAndActionPrompt(prompt) {
+  const p = String(prompt || '').trim();
+  if (!p || !hasDesktopActionCues(p)) return null;
+
+  const actionRe = /\b((?:open|launch|start|focus)\s+(?:notepad(?:\+\+)?|chrome|google chrome|edge|microsoft edge|file explorer|vscode|vs code|visual studio code|powershell|command prompt|cmd|word|calculator|paint)|write\s+.+\s+in\s+notepad(?:\+\+)?)\s*$/i;
+  const match = p.match(actionRe);
+  if (!match) return null;
+
+  const actionPart = match[1].trim();
+  let searchPart = p.slice(0, match.index).replace(/^(?:hello|hi|hey)[,!\s]+/i, '').trim();
+  if (!searchPart || searchPart.length < 8) return null;
+  if (!isFactualOrCurrentEventsQuery(searchPart) && !hasExplicitSearchIntent(searchPart) && !/^who\s+(is|are|was)/i.test(searchPart)) {
+    return null;
+  }
+
+  return { searchPart, actionPart };
 }
 
 /**
@@ -2158,8 +3600,18 @@ function classifyIntent(prompt) {
     return 'user_identity';
   }
 
-  // 1. Explicit Web Search Intent — check FIRST before clock / system rules
-  if (p.startsWith('search') || /\b(search|google|look up|find out|iphone|offers|movies|movie|film|trailer|watch|buy|deal|deals|latest|news|current|recent|weather|trending|price|cost|rate|dollar|rupee|currency|exchange|stock|market|crypto|btc|score|vs|compare|comparison|ramayana)\b/i.test(p)) {
+  // 0b. Follow-ups about the previous turn — stay in conversation with chat history
+  if (isFollowUpAboutPriorTurn(prompt)) {
+    return 'conversation';
+  }
+
+  // 1. Explicit Web Search Intent — require clear search signals (not bare nouns like "watch" or "movie")
+  if (hasExplicitSearchIntent(prompt)) {
+    return 'search';
+  }
+
+  // 1b. Legacy keyword search only when paired with search verbs
+  if (/\b(search|google|look up|find out)\b/i.test(p) && /\b(iphone|offers|movies|movie|film|trailer|latest|news|weather|trending|price|deals|ramayana)\b/i.test(p)) {
     return 'search';
   }
 
@@ -2175,18 +3627,57 @@ function classifyIntent(prompt) {
     return 'system_info';
   }
 
-  // 4. Greeting / casual conversational
-  if (/^(hi|hello|hey|good\s*(morning|evening|afternoon|night)|thanks|thank you|how are you|what'?s up|who are you|what can you do|your name)\b/i.test(p) || p.startsWith('hello ') || p.startsWith('hi ') || p.startsWith('hey ')) {
+  // 4. Greeting / casual conversational — only when the whole message is a short greeting
+  const isPureGreeting = /^(hi|hello|hey|good\s*(morning|evening|afternoon|night)|thanks|thank you|how are you|what'?s up|who are you|what can you do|your name)[\s!.?,]*$/i.test(p);
+  if (isPureGreeting) {
     return 'conversation';
   }
 
-  // 5. General knowledge / opinion / explanation questions
+  // 5. Pure content generation (essays, poems, explanations) → chat, not tools
+  if (isContentGenerationRequest(prompt) && !hasDesktopActionCues(prompt)) {
+    return 'conversation';
+  }
+
+  // 6. General knowledge — search the web when factual/current and web search is on
   if (/^(what is|what are|who is|who are|why is|why do|how does|how do|explain|tell me about|define|describe|meaning of|difference between)\b/i.test(p) && !/\b(file|folder|directory|create|make|write|delete|run|execute|install|open|list|show|read)\b/i.test(p)) {
+    if (isWebSearchEnabled() && (isFactualOrCurrentEventsQuery(prompt) || hasExplicitSearchIntent(prompt) || /\b(latest|today|current|recent|2024|2025|2026|news|price|stock|weather)\b/i.test(p))) {
+      return 'search';
+    }
+    return 'conversation';
+  }
+
+  // 6b. Factual / current-events phrasing even without leading "who is"
+  if (isWebSearchEnabled() && isFactualOrCurrentEventsQuery(prompt) && !hasDesktopActionCues(prompt)) {
     return 'search';
   }
 
-  // 6. Computer action (file/folder/command/code)
+  // 6c. Saved workflow / routine triggers → desktop automation
+  if (/\b(run|start|execute|trigger)\s+(workflow|routine)\b/i.test(p)) {
+    return 'action';
+  }
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.findWorkflowByPrompt === 'function') {
+    const wf = window.UltronAgentMemory.findWorkflowByPrompt(prompt);
+    if (wf && wf.steps && wf.steps.length) {
+      return 'action';
+    }
+  }
+
+  // 7. Computer action (file/folder/command/code) — desktop cues or simulate/execute verbs
+  if (/\b(go to|navigate to|head to|take me to|browse to|open folder)\b/i.test(p) && /\b(download|document|desktop|folder|explorer|files)\b/i.test(p)) {
+    return 'action';
+  }
+
+  if (hasDesktopActionCues(prompt) || /\b(simulate|perform|execute|do)\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click|write)\b/i.test(p)) {
+    if (isContentGenerationRequest(prompt) && !hasDesktopActionCues(prompt)) {
+      return 'conversation';
+    }
+    return 'action';
+  }
+
   if (/\b(create|make|write|delete|remove|open|read|list|show files|move|copy|rename|run|execute|install|download|mkdir|folder|directory|file|script|code|program|app)\b/i.test(p)) {
+    if (isContentGenerationRequest(prompt) && !hasDesktopActionCues(prompt)) {
+      return 'conversation';
+    }
     return 'action';
   }
 
@@ -2197,13 +3688,13 @@ function classifyIntent(prompt) {
 // Google Gemini API Online Model Provider
 async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMessages = [], imagePayloads = []) {
   let officialModel = modelName;
-  if (!officialModel || !officialModel.startsWith('gemini')) {
-    officialModel = ONLINE_GEMINI_MODELS[0]?.name;
+  if (!officialModel || !officialModel.startsWith('gemini') || !isGeminiChatModel(officialModel)) {
+    officialModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name;
   }
   if (!officialModel) {
     const connection = await connectGemini(apiKey);
     if (!connection.success) throw new Error(connection.error);
-    officialModel = ONLINE_GEMINI_MODELS[0]?.name;
+    officialModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name;
   }
 
   const makeCall = async (targetModel) => {
@@ -2246,7 +3737,8 @@ async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMess
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: _activeAbortController ? _activeAbortController.signal : undefined
     });
 
     if (!response.ok) {
@@ -2274,22 +3766,37 @@ async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMess
   try {
     return await makeCall(officialModel);
   } catch (err) {
-    if (err.message && (err.message.includes('no longer available') || err.message.includes('404') || err.message.includes('not found') || err.message.includes('not supported'))) {
-      const fallback = ONLINE_GEMINI_MODELS.find(model => model.name !== officialModel);
-      if (fallback) {
-        logTrace(`Gemini model "${officialModel}" unavailable. Retrying with ${fallback.name}...`, 'system');
-        activeModel = fallback.name;
-        updateModelSelectorLabel();
-        return await makeCall(fallback.name);
+    const msg = err.message || '';
+    const shouldRetry = /no longer available|404|not found|not supported|quota|rate.limit|429|resource_exhausted|limit:\s*0/i.test(msg);
+    if (shouldRetry) {
+      const fallbacks = sortGeminiModels(
+        ONLINE_GEMINI_MODELS.filter(m => m.name !== officialModel && isGeminiChatModel(m.name))
+      );
+      for (const fallback of fallbacks) {
+        try {
+          logTrace(`Gemini model "${officialModel}" failed (${msg.slice(0, 80)}…). Retrying with ${fallback.name}…`, 'system');
+          activeModel = fallback.name;
+          updateModelSelectorLabel();
+          syncModelAttachmentCapabilities();
+          return await makeCall(fallback.name);
+        } catch (retryErr) {
+          if (!/quota|rate.limit|429|resource_exhausted|limit:\s*0/i.test(retryErr.message || '')) {
+            throw retryErr;
+          }
+        }
       }
     }
-    throw new Error(`Google Gemini API (${officialModel}): ${err.message}`);
+    if (/quota|rate.limit|429|resource_exhausted|limit:\s*0/i.test(msg)) {
+      throw new Error(`Google Gemini API (${officialModel}): Free-tier quota exceeded for this model. Switch to **gemini-2.0-flash** in the model dropdown — image/preview models often have zero free quota on new keys.`);
+    }
+    throw new Error(`Google Gemini API (${officialModel}): ${msg}`);
   }
 }
 
 // Offline inference helper querying local servers or Online Cloud APIs
-async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null, customSystemPromptOverride = null, imagePayloads = []) {
+async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null, customSystemPromptOverride = null, imagePayloads = [], streamCallbacks = null) {
   // Direct Ollama / Gemini API generate/chat loop.
+  let restoredActiveModel = null;
   try {
     const memoryEnabled = window.localStorage.getItem('ultron-memory-enabled') !== 'false';
     const userNameEl = document.querySelector('.profile-detail-name');
@@ -2303,10 +3810,19 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
       }
     }
 
-    const userName = userNameEl ? userNameEl.textContent.trim() : 'Vedant Wankhade';
+    const userName = getUserFullName();
     const sysEnv = await getSystemContext();
     const realtime = buildRealtimeContext(sysEnv);
     const intent = intentOverride || classifyIntent(prompt);
+    const localModelResolve = resolveModelForLocalAi(intent);
+    if (localModelResolve.blocked) {
+      return `⚠️ **Local-only mode**\n\nCloud models are disabled and no Ollama model is available.\n\n**To fix:**\n1. Start Ollama (\`ollama serve\`).\n2. Pull a model (\`ollama pull phi3\`).\n3. Or change **Settings → Desktop Automation → Local AI routing**.`;
+    }
+    if (localModelResolve.switched) {
+      restoredActiveModel = activeModel;
+      activeModel = localModelResolve.model;
+      logTrace(`Local-first routing: using ${activeModel} for ${intent}.`, 'system');
+    }
     const isShortQuery = prompt.length < 60 && !/\b(explain|detail|step by step|comprehensive|essay|code|script|list all)\b/i.test(prompt);
 
     // Build drives description
@@ -2319,8 +3835,14 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
     const visionImages = Array.isArray(imagePayloads) ? imagePayloads.filter(p => p && p.data) : [];
     const canUseVision = visionImages.length > 0 && modelSupportsVision(activeModel);
 
+    const isCodeRequest = intent === 'conversation' && isCodeOnlyGenerationRequest(prompt);
+    const isContentRequest = intent === 'conversation' && isContentGenerationRequest(prompt);
+    const skipConversationHistory = intent === 'conversation' && shouldSkipConversationHistory(prompt);
+
     const systemPrompt = customSystemPromptOverride || agentSystemPrompt || (intent === 'conversation'
-      ? `You are Ultron, a warm, intelligent, articulate AI assistant created to help ${userName}. Respond directly to ${userName}'s prompt naturally, concisely, and conversationally in the first person.`
+      ? (isCodeRequest
+        ? buildCodeGenerationSystemPrompt(prompt)
+        : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt()))
       : `You are Ultron, a warm, highly intelligent, articulate, and engaging AI assistant in a direct 1-on-1 personal conversation with ${userName}.
 
 CONVERSATIONAL PERSONA & DIRECT VOICE RULES:
@@ -2347,8 +3869,8 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       finalUserPrompt = `${prompt}\n\n[Formatting Instruction: Respond using standard Markdown table syntax (| Header 1 | Header 2 |). DO NOT write HTML/CSS code.]`;
     }
 
-    // Route Online Google Gemini models if selected
-    if (activeModel && activeModel.startsWith('gemini')) {
+    // Route Online Google Gemini models if selected (skipped in local-only mode)
+    if (activeModel && activeModel.startsWith('gemini') && getLocalAiMode() !== 'local-only') {
       const apiKey = localStorage.getItem('ultron-gemini-api-key') || '';
       if (!apiKey || !apiKey.trim()) {
         return `⚠️ **Google Gemini API Key Required**\n\nYou selected **${activeModel}**, but no Gemini API key is configured.\n\n**To connect Google Gemini:**\n1. Open **Settings > Models**.\n2. Paste your free Google Gemini API Key from [Google AI Studio](https://aistudio.google.com/app/apikey).\n3. Click **Save Key**.`;
@@ -2362,28 +3884,40 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       }
     }
 
-    if (_lastOllamaModel.toLowerCase() !== activeModel.toLowerCase()) {
-      await unloadOllamaModelsExcept(activeModel);
-    }
     _lastOllamaModel = activeModel;
     
     let bodyData;
     let endpoint = '/api/generate';
-    const activeTemp = intent === 'conversation' ? 0.7 : 0.2;
+    const activeTemp = isCodeRequest ? 0.15 : (intent === 'conversation' ? 0.7 : 0.2);
     const gpuOptions = getOllamaGpuOptions(sysEnv, activeModel);
-    if (gpuOptions.num_gpu) {
-      const gpuName = sysEnv.dedicatedGpu?.model || sysEnv.hardware?.dedicatedGpu?.model || 'dedicated GPU';
-      logTrace(`Dedicated GPU detected (${gpuName}). Enabling Ollama GPU layer offload for ${activeModel}.`, 'system');
+    const ollamaOptions = buildOllamaRequestOptions({
+      gpuOptions,
+      intent,
+      canUseVision,
+      temperature: activeTemp,
+      contentGeneration: isContentRequest || isCodeRequest
+    });
+    if (typeof gpuOptions.num_gpu === 'number') {
+      const gpuName = sysEnv.dedicatedGpu?.model || sysEnv.hardware?.dedicatedGpu?.model || 'GPU';
+      logTrace(`Using capped GPU offload (${gpuOptions.num_gpu} layers) for vision model ${activeModel} on ${gpuName}.`, 'system');
     }
     
-    if (memoryEnabled && currentSessionId && conversationsStore[currentSessionId]) {
-      // Sliding window memory (last 10 messages for rich context)
+    const isGemma = activeModel && activeModel.toLowerCase().includes('gemma');
+    const useGenerateForConversation = shouldUseOllamaGenerateForConversation(
+      intent,
+      customSystemPromptOverride,
+      canUseVision,
+      extraMessages
+    );
+
+    if (memoryEnabled && currentSessionId && conversationsStore[currentSessionId] && !useGenerateForConversation && !skipConversationHistory) {
+      // Sliding window memory — shorter window for follow-ups
+      const historyLimit = (customSystemPromptOverride && /follow-up/i.test(customSystemPromptOverride)) ? 4 : 10;
       const recentMsgs = conversationsStore[currentSessionId].messages
-        .filter(m => !isThinkingMarkup(m.text))
-        .slice(-10);
+        .filter(m => !isUnusableChatHistoryMessage(m.text))
+        .slice(-historyLimit);
       
       // Gemma 2 models in Ollama do not support 'system' role in chat messages array
-      const isGemma = activeModel && activeModel.toLowerCase().includes('gemma');
       const chatMessages = isGemma ? [] : [{ role: 'system', content: systemPrompt }];
       
       recentMsgs.forEach(m => {
@@ -2416,59 +3950,161 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       }
       
       logTrace(`Sending chat payload to local LLM (${activeModel}) with ${chatMessages.length} messages...`, 'system');
-      
-      const maxTokens = intent === 'conversation' ? 512 : 768;
-      const ctxTokens = canUseVision ? 1536 : 2048;
 
       bodyData = {
         model: activeModel,
         messages: chatMessages,
         stream: false,
-        keep_alive: '2m',
-        options: {
-          ...gpuOptions,
-          num_ctx: ctxTokens,
-          num_predict: maxTokens,
-          temperature: activeTemp
-        }
+        keep_alive: '5m',
+        options: ollamaOptions
       };
       endpoint = '/api/chat';
-    } else {
-      // Memory disabled: single prompt mode
-      const maxTokens = intent === 'conversation' ? 512 : 768;
-      const ctxTokens = canUseVision ? 1536 : 2048;
+    } else if (useGenerateForConversation && memoryEnabled && currentSessionId && conversationsStore[currentSessionId] && !skipConversationHistory) {
+      // Conversation mode: /api/generate avoids small models meta-commenting on chat system roles
+      const recentMsgs = conversationsStore[currentSessionId].messages
+        .filter(m => !isUnusableChatHistoryMessage(m.text))
+        .slice(-8);
+      const convPrompt = buildConversationPromptFromHistory(recentMsgs, finalUserPrompt);
+      const convSystem = isCodeRequest
+        ? buildCodeGenerationSystemPrompt(prompt)
+        : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt());
 
       bodyData = {
         model: activeModel,
-        prompt: finalUserPrompt,
-        system: activeModel && activeModel.toLowerCase().includes('gemma') ? undefined : systemPrompt,
+        prompt: isGemma ? `${convSystem}\n\n${convPrompt}` : convPrompt,
+        system: isGemma ? undefined : convSystem,
         stream: false,
-        keep_alive: '2m',
+        keep_alive: '5m',
+        options: ollamaOptions
+      };
+      endpoint = '/api/generate';
+      logTrace(`Sending generate payload for conversation (${activeModel})...`, 'system');
+    } else {
+      // Memory disabled or single-shot: single prompt mode
+      bodyData = {
+        model: activeModel,
+        prompt: isGemma ? `${systemPrompt}\n\n${finalUserPrompt}` : finalUserPrompt,
+        system: isGemma ? undefined : systemPrompt,
+        stream: false,
+        keep_alive: '5m',
         ...(canUseVision ? { images: visionImages.map(p => p.data) } : {}),
-        options: {
-          ...gpuOptions,
-          num_ctx: ctxTokens,
-          num_predict: maxTokens,
-          temperature: activeTemp
-        }
+        options: ollamaOptions
       };
     }
+
+    // Real token streaming when the caller wants progressive output (chat responses)
+    const wantsStream = Boolean(streamCallbacks && typeof streamCallbacks.onToken === 'function');
+    if (wantsStream) bodyData.stream = true;
 
     const response = await fetch(`http://127.0.0.1:11434${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(bodyData)
+      body: JSON.stringify(bodyData),
+      signal: _activeAbortController ? _activeAbortController.signal : undefined
     });
     if (response.ok) {
-      const data = await response.json();
-      let text = endpoint === '/api/chat' ? (data.message ? data.message.content : '') : data.response;
+      let text = '';
+      if (wantsStream && response.body && typeof response.body.getReader === 'function') {
+        // Ollama streams NDJSON: one JSON object per line with incremental tokens
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffered = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffered += decoder.decode(value, { stream: true });
+          const lines = buffered.split('\n');
+          buffered = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const chunk = JSON.parse(line);
+              const token = endpoint === '/api/chat'
+                ? (chunk.message ? chunk.message.content : '')
+                : (chunk.response || '');
+              if (token) {
+                text += token;
+                streamCallbacks.onToken(text);
+              }
+              if (chunk.done) break;
+            } catch (parseErr) { /* skip malformed stream line */ }
+          }
+        }
+      } else {
+        const data = await response.json();
+        text = endpoint === '/api/chat' ? (data.message ? data.message.content : '') : data.response;
+      }
       
       // Filter out model disclaimer responses that deny computer access capabilities during tool action execution ONLY
       if (intent !== 'conversation' && text && (text.includes("I do not have access") || text.includes("unable to access your operating system") || text.includes("I cannot access"))) {
         logTrace("Model output disclaimer detected and suppressed.", "system");
         return ""; // Return empty string so Fallback Intent Steerer takes over
       }
-      return sanitizeResponseText(text, prompt);
+
+      // Small models sometimes paraphrase system prompts or ignore the user — retry with a clean fresh prompt
+      if (intent === 'conversation' && text && (isMetaInstructionLeak(text) || isIrrelevantModelResponse(text, prompt))) {
+        logTrace('Low-quality or irrelevant conversation output detected; retrying with fresh generate prompt.', 'system');
+        const freshSystem = isCodeRequest
+          ? buildCodeGenerationSystemPrompt(prompt)
+          : (isContentRequest
+            ? buildContentGenerationSystemPrompt(prompt)
+            : buildConversationSystemPrompt());
+        const retryModel = isTinyLocalModel(activeModel)
+          ? (selectBestInstalledLocalModel([activeModel]) || activeModel)
+          : activeModel;
+        const retryBody = {
+          model: retryModel,
+          prompt: isGemma ? `${freshSystem}\n\nUser: ${finalUserPrompt}\nAssistant:` : finalUserPrompt,
+          system: isGemma ? undefined : freshSystem,
+          stream: false,
+          keep_alive: '5m',
+          options: {
+            ...ollamaOptions,
+            temperature: isContentRequest ? 0.75 : 0.7,
+            num_predict: isContentRequest ? 2048 : 512
+          }
+        };
+        try {
+          const retryResp = await fetch('http://127.0.0.1:11434/api/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(retryBody),
+            signal: _activeAbortController ? _activeAbortController.signal : undefined
+          });
+          if (retryResp.ok) {
+            const retryData = await retryResp.json();
+            const retryText = retryData.response || '';
+            if (retryText && !isIrrelevantModelResponse(retryText, prompt)) {
+              text = retryText;
+              if (retryModel !== activeModel) {
+                activeModel = retryModel;
+                updateModelSelectorLabel();
+                syncModelAttachmentCapabilities();
+              }
+            }
+          }
+        } catch (retryErr) {
+          logTrace(`Conversation quality retry failed: ${retryErr.message}`, 'system');
+        }
+      }
+
+      const sanitized = isCodeRequest
+        ? sanitizeCodeGenerationResponse(text, prompt)
+        : sanitizeResponseText(text, prompt);
+      if (intent === 'conversation' && !isCodeRequest && isIrrelevantModelResponse(sanitized, prompt)) {
+        if (/^(hi|hello|hey|good\s*(morning|evening|afternoon|night))[\s!.?]*(\w+)?[\s!.?]*$/i.test(String(prompt || '').trim())) {
+          const firstName = getUserFirstName();
+          return `Hey ${firstName !== 'User' ? firstName : 'there'}! I'm Ultron — how can I help you today?`;
+        }
+        if (isContentGenerationRequest(prompt) || isCodeOnlyGenerationRequest(prompt)) {
+          return `I'm having trouble generating that with the current local model (**${activeModel}**). Try switching to **phi3:latest** or **gemma2:2b** in the model dropdown, or start a **New Chat** to clear bad history.`;
+        }
+      }
+      if (intent === 'conversation' && !sanitized && /^(hi|hello|hey|good\s*(morning|evening|afternoon|night))[\s!.?]*$/i.test(String(prompt || '').trim())) {
+        const firstName = getUserFirstName();
+        return `Hey ${firstName !== 'User' ? firstName : 'there'}! I'm Ultron — how can I help you today?`;
+      }
+      return sanitized;
     } else {
       let errDetail = '';
       try {
@@ -2478,82 +4114,45 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
         errDetail = await response.text();
       }
 
-      // If Ollama hits GPU/system memory pressure, first release every resident
-      // model and retry compactly. Dedicated-GPU systems keep GPU offload;
-      // forcing CPU there can make the failure worse by exhausting system RAM.
+      let recoveryResult = null;
+
+      // If Ollama hits GPU/system memory pressure, release resident models and
+      // retry every installed model on CPU before surfacing an error.
       if (isOllamaMemoryError(errDetail)) {
-        const compactGpuOptions = getOllamaGpuOptions(sysEnv, activeModel);
-        logTrace(`Ollama model allocation failed. Releasing resident models and retrying ${activeModel} with compact memory settings...`, 'system');
-        await unloadOllamaModelsExcept('');
-        bodyData.options = bodyData.options || {};
-        Object.assign(bodyData.options, compactGpuOptions);
-        bodyData.options.num_ctx = 1024;
-        bodyData.options.num_predict = Math.min(bodyData.options.num_predict || 512, 512);
-        bodyData.keep_alive = '30s';
+        logTrace(`Ollama model allocation failed for ${activeModel}. Running full memory recovery across installed models...`, 'system');
+        recoveryResult = await tryOllamaMemoryRecovery({
+          endpoint,
+          bodyData,
+          prompt,
+          systemPrompt,
+          intent,
+          failedModel: activeModel
+        });
 
-        try {
-          const retryRes = await fetch(`http://127.0.0.1:11434${endpoint}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(bodyData)
-          });
-
-          if (retryRes.ok) {
-            const retryData = await retryRes.json();
-            let text = endpoint === '/api/chat' ? (retryData.message ? retryData.message.content : '') : retryData.response;
-            return sanitizeResponseText(text, prompt);
-          }
-        } catch (retryErr) {
-          logTrace(`Compact model retry failed: ${retryErr.message}`, 'error');
+        if (typeof recoveryResult === 'string') {
+          return recoveryResult;
         }
 
-        const fallbackModel = selectBestInstalledLocalModel([activeModel]);
-        if (fallbackModel) {
-          logTrace(`Compact retry did not return a response. Falling back to installed lightweight model ${fallbackModel}...`, 'system');
-          await unloadOllamaModelsExcept('');
-          const fallbackBodyData = {
-            ...bodyData,
-            model: fallbackModel,
-            keep_alive: '2m',
-            ...(endpoint === '/api/chat' && Array.isArray(bodyData.messages) ? {
-              messages: bodyData.messages.map(message => {
-                const { images, ...textMessage } = message;
-                return textMessage;
-              })
-            } : {}),
-            ...(endpoint === '/api/generate' ? {
-              system: fallbackModel.toLowerCase().includes('gemma') ? undefined : systemPrompt,
-              images: undefined
-            } : {}),
-            options: {
-              ...(bodyData.options || {}),
-              num_gpu: 0,
-              num_ctx: 1024,
-              num_predict: intent === 'conversation' ? 512 : 1024
-            }
-          };
-
+        const apiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
+        if (apiKey && ONLINE_GEMINI_MODELS.length) {
+          const geminiModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0].name;
+          logTrace(`All local models failed memory recovery. Falling back to ${geminiModel}...`, 'system');
           try {
-            const fallbackRes = await fetch(`http://127.0.0.1:11434${endpoint}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(fallbackBodyData)
-            });
-
-            if (fallbackRes.ok) {
-              const fallbackData = await fallbackRes.json();
-              const text = endpoint === '/api/chat' ? (fallbackData.message ? fallbackData.message.content : '') : fallbackData.response;
-              const cleaned = sanitizeResponseText(text, prompt);
-              activeModel = fallbackModel;
-              _lastOllamaModel = fallbackModel;
-              updateModelSelectorLabel();
-              syncModelAttachmentCapabilities();
-              return cleaned
-                ? `${cleaned}\n\n_Model note: the selected model could not load in available memory, so I continued with ${fallbackModel}._`
-                : cleaned;
-            }
-          } catch (fallbackErr) {
-            logTrace(`Installed model fallback failed: ${fallbackErr.message}`, 'error');
+            const geminiOutput = await queryGeminiAPI(
+              finalUserPrompt,
+              systemPrompt,
+              geminiModel,
+              apiKey,
+              extraMessages,
+              canUseVision ? visionImages : []
+            );
+            activeModel = geminiModel;
+            updateModelSelectorLabel();
+            syncModelAttachmentCapabilities();
+            logTrace(`Gemini fallback used after local memory recovery: ${geminiModel}`, 'system');
+            return geminiOutput;
+          } catch (geminiErr) {
+            logTrace(`Gemini memory fallback failed: ${geminiErr.message}`, 'error');
           }
         }
       }
@@ -2562,11 +4161,24 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       if (!isOllamaMemoryError(errDetail)) {
         return `Warning: **Ollama Model Error (${activeModel})**\n\nOllama returned an error before generating a response:\n\n` + '`' + `${errDetail || 'Unknown error'}` + '`' + `\n\nTry selecting another installed model from the model dropdown, or restart Ollama and send the prompt again.`;
       }
-      return `⚠️ **Ollama Memory Limit Exceeded (${activeModel})**\n\n**${activeModel}** does not fit in the memory currently available on this PC. I released inactive models and retried with compact GPU/RAM settings, but it still could not load.\n\n**Solutions:**\n1. Close memory-heavy apps and try again.\n2. Use a lighter model (` + '`ollama pull gemma2:2b`' + `, ` + '`phi3`' + `, ` + '`tinyllama:latest`' + `).\n3. Or select Google Gemini from the top model dropdown for zero-RAM cloud inference.`;
+      const triedModels = (recoveryResult && recoveryResult.triedModels && recoveryResult.triedModels.length)
+        ? recoveryResult.triedModels.join(', ')
+        : 'your installed models';
+      return `⚠️ **Ollama Memory Limit Exceeded (${activeModel})**\n\n**${activeModel}** could not load because your PC did not have enough free RAM/VRAM at that moment. Ultron already tried these installed models on CPU with compact settings: ${triedModels}.\n\n**What usually fixes this:**\n1. Close memory-heavy apps (browsers, games) and send again.\n2. Restart Ollama from the system tray.\n3. Pick **tinyllama:latest** or **gemma2:2b** from the model dropdown.\n4. Or connect **Google Gemini** in Settings → Models for cloud inference with no local RAM use.`;
     }
   } catch (e) {
+    if (typeof restoredActiveModel === 'string' && restoredActiveModel) {
+      activeModel = restoredActiveModel;
+    }
+    if (e.name === 'AbortError' || (_activeAbortController && _activeAbortController.signal.aborted)) {
+      throw e;
+    }
     logTrace(`Local LLM offline loop exception: ${e.message}`, 'error');
     return `⚠️ **Ollama Connection Error**\n\nCould not connect to Ollama service at ` + '`http://127.0.0.1:11434`' + `.\n\n*Make sure Ollama is running (` + '`ollama serve`' + `).*`;
+  } finally {
+    if (typeof restoredActiveModel === 'string' && restoredActiveModel) {
+      activeModel = restoredActiveModel;
+    }
   }
 }
 
@@ -2581,45 +4193,140 @@ function geminiModelTag(name) {
     .toUpperCase();
 }
 
-async function discoverGeminiModels(apiKey) {
-  const key = String(apiKey || '').trim();
-  if (!key) throw new Error('API key is empty.');
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+/** Models that appear in ListModels but are not usable for free-tier text chat. */
+function isGeminiChatModel(name) {
+  const n = String(name || '').toLowerCase().replace(/^models\//, '');
+  if (!n.startsWith('gemini-')) return false;
+  if (/(embedding|aqa|imagen|image-generation|tts|robotics|computer-use|live|native-audio|deep-research)/i.test(n)) {
+    return false;
+  }
+  // Image / preview-image variants — free tier quota is often 0 for these
+  if (/-image\b|-image-|-image$/i.test(n)) return false;
+  if (/preview-image|flash-image|generate-image/i.test(n)) return false;
+  return true;
+}
+
+function geminiModelSortScore(name) {
+  const n = String(name || '').toLowerCase();
+  if (n === 'gemini-2.0-flash') return 0;
+  if (n === 'gemini-2.0-flash-lite') return 1;
+  if (n.includes('gemini-2.0-flash')) return 2;
+  if (n === 'gemini-1.5-flash' || n === 'gemini-1.5-flash-latest') return 3;
+  if (n.includes('1.5-flash')) return 4;
+  if (n.includes('2.0-flash')) return 5;
+  if (n.includes('gemini-2.5') && !n.includes('preview') && !n.includes('image')) return 6;
+  if (n.includes('pro') && !n.includes('preview')) return 7;
+  if (n.includes('preview') || n.includes('image')) return 99;
+  return 10;
+}
+
+function sortGeminiModels(models) {
+  return [...models].sort((a, b) => {
+    const scoreDiff = geminiModelSortScore(a.name) - geminiModelSortScore(b.name);
+    return scoreDiff !== 0 ? scoreDiff : a.name.localeCompare(b.name);
+  });
+}
+
+function pickDefaultGeminiModel(models = ONLINE_GEMINI_MODELS) {
+  const usable = sortGeminiModels((models || []).filter(m => isGeminiChatModel(m.name)));
+  if (!usable.length) return null;
+  return usable[0].name;
+}
+
+const GEMINI_FALLBACK_MODELS = [
+  { name: 'gemini-2.0-flash', tag: '2.0 FLASH', desc: 'Fast multimodal model — recommended for free tier' },
+  { name: 'gemini-2.0-flash-lite', tag: '2.0 FLASH LITE', desc: 'Lightweight fast model' },
+  { name: 'gemini-1.5-flash-latest', tag: '1.5 FLASH', desc: 'Stable flash model' },
+  { name: 'gemini-1.5-pro-latest', tag: '1.5 PRO', desc: 'High quality model' }
+];
+
+function isGeminiListModelsBlocked(message) {
+  return /listmodels|modelservice\.listmodels|method.*blocked|not available in your country|has not been used in project|permission denied/i.test(String(message || ''));
+}
+
+async function pingGeminiApiKey(apiKey, modelName = 'gemini-2.0-flash') {
+  const key = encodeURIComponent(String(apiKey || '').trim());
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Reply with exactly: ok' }] }],
+        generationConfig: { maxOutputTokens: 8, temperature: 0 }
+      })
+    }
+  );
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload.error?.message || `Google API returned HTTP ${response.status}`);
   }
-  const models = (payload.models || [])
-    .filter(model => {
-      const name = String(model.name || '').replace(/^models\//, '');
-      const methods = model.supportedGenerationMethods || [];
-      return name.startsWith('gemini-')
-        && methods.includes('generateContent')
-        && !/(embedding|aqa|imagen|image-generation|tts|robotics)/i.test(name);
-    })
-    .map(model => {
-      const name = String(model.name || '').replace(/^models\//, '');
-      return {
-        name,
-        tag: geminiModelTag(name),
-        desc: model.description || model.displayName || name,
-        inputTokenLimit: model.inputTokenLimit || 0,
-        outputTokenLimit: model.outputTokenLimit || 0
-      };
-    })
-    .sort((a, b) => {
-      const score = (model) => {
-        const name = model.name.toLowerCase();
-        if (name.includes('flash') && name.includes('latest')) return 0;
-        if (name.includes('flash')) return 1;
-        if (name.includes('pro') && name.includes('latest')) return 2;
-        if (name.includes('pro')) return 3;
-        return 4;
-      };
-      return score(a) - score(b) || a.name.localeCompare(b.name);
-    });
-  if (!models.length) throw new Error('No Gemini models supporting generateContent are available for this key.');
-  return models;
+  return modelName;
+}
+
+async function discoverGeminiModels(apiKey) {
+  const key = String(apiKey || '').trim();
+  if (!key) throw new Error('API key is empty.');
+
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const apiMessage = payload.error?.message || `Google API returned HTTP ${response.status}`;
+      if (isGeminiListModelsBlocked(apiMessage)) {
+        throw new Error('LIST_MODELS_BLOCKED');
+      }
+      throw new Error(apiMessage);
+    }
+    const models = sortGeminiModels((payload.models || [])
+      .filter(model => {
+        const name = String(model.name || '').replace(/^models\//, '');
+        const methods = model.supportedGenerationMethods || [];
+        return isGeminiChatModel(name)
+          && methods.includes('generateContent');
+      })
+      .map(model => {
+        const name = String(model.name || '').replace(/^models\//, '');
+        return {
+          name,
+          tag: geminiModelTag(name),
+          desc: model.description || model.displayName || name,
+          inputTokenLimit: model.inputTokenLimit || 0,
+          outputTokenLimit: model.outputTokenLimit || 0
+        };
+      }));
+    if (models.length) return models;
+  } catch (err) {
+    if (!isGeminiListModelsBlocked(err.message) && err.message !== 'LIST_MODELS_BLOCKED') {
+      if (/invalid|api key|unauthorized|401|403|permission/i.test(err.message) && !isGeminiListModelsBlocked(err.message)) {
+        throw err;
+      }
+    }
+  }
+
+  const candidates = [
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash-latest',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro-latest'
+  ];
+  let authError = null;
+  for (const model of candidates) {
+    try {
+      await pingGeminiApiKey(key, model);
+      logTrace('Gemini key verified (ListModels blocked in your region — using standard model list).', 'system');
+      return GEMINI_FALLBACK_MODELS.map(modelDef => ({ ...modelDef }));
+    } catch (err) {
+      if (/invalid|api key|unauthorized|401|403|permission/i.test(err.message)) {
+        authError = err;
+        break;
+      }
+    }
+  }
+
+  if (authError) throw authError;
+  throw new Error('Could not verify API key. Create a key at aistudio.google.com and ensure Generative Language API is enabled.');
 }
 
 function updateGeminiConnectionBadge() {
@@ -2636,6 +4343,18 @@ function updateGeminiConnectionBadge() {
     : geminiConnectionError;
 }
 
+function ensureValidActiveGeminiModel() {
+  if (!activeModel || !String(activeModel).startsWith('gemini')) return;
+  if (isGeminiChatModel(activeModel)) return;
+  const safe = pickDefaultGeminiModel();
+  if (safe) {
+    activeModel = safe;
+    updateModelSelectorLabel();
+    syncModelAttachmentCapabilities();
+    logTrace(`Switched to ${safe} — image/preview Gemini models are not for free-tier chat.`, 'system');
+  }
+}
+
 async function connectGemini(apiKey, options = {}) {
   geminiConnectionState = 'connecting';
   geminiConnectionError = '';
@@ -2646,10 +4365,12 @@ async function connectGemini(apiKey, options = {}) {
     updateGeminiConnectionBadge();
     renderModelDropdownList();
     if (options.selectFirst && ONLINE_GEMINI_MODELS.length) {
-      activeModel = ONLINE_GEMINI_MODELS[0].name;
+      activeModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0].name;
       updateModelSelectorLabel();
+      syncModelAttachmentCapabilities();
     }
     logTrace(`Gemini connected: ${ONLINE_GEMINI_MODELS.length} compatible models discovered.`, 'system');
+    ensureValidActiveGeminiModel();
     return { success: true, models: ONLINE_GEMINI_MODELS };
   } catch (err) {
     ONLINE_GEMINI_MODELS = [];
@@ -2672,7 +4393,7 @@ function updateModelSelectorLabel() {
     activeModel = firstLocal;
     name = firstLocal;
   } else if (!name) {
-    name = ONLINE_GEMINI_MODELS[0]?.name || selectBestInstalledLocalModel() || 'phi3:latest';
+    name = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name || selectBestInstalledLocalModel() || 'phi3:latest';
     activeModel = name;
   }
 
@@ -2705,7 +4426,7 @@ function renderModelDropdownList() {
     onlineHeader.textContent = 'Online Models';
     modelDropdownList.appendChild(onlineHeader);
 
-    ONLINE_GEMINI_MODELS.forEach(model => {
+    ONLINE_GEMINI_MODELS.filter(m => isGeminiChatModel(m.name)).forEach(model => {
       const item = document.createElement('div');
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       item.innerHTML = `
@@ -2817,7 +4538,7 @@ async function runOnboardingProfiler() {
     } else if (installedModelsList.length > 0) {
       activeModel = selectBestInstalledLocalModel() || installedModelsList[0].name;
     } else if (hasGeminiKey && ONLINE_GEMINI_MODELS.length) {
-      activeModel = ONLINE_GEMINI_MODELS[0].name;
+      activeModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0].name;
     } else {
       activeModel = 'phi3:latest';
     }
@@ -3125,10 +4846,12 @@ function isMeaninglessPrompt(text) {
 }
 
 // Submit prompt logic
-async function submitPrompt() {
+async function submitPrompt(overridePrompt) {
   if (isAwaitingResponse) return;
 
-  let prompt = chatInput.value.trim();
+  let prompt = (typeof overridePrompt === 'string' && overridePrompt.trim())
+    ? overridePrompt.trim()
+    : chatInput.value.trim();
   let currentImagePayloads = [];
   
   // Include attached files in prompt if present
@@ -3157,11 +4880,18 @@ async function submitPrompt() {
 
   if (!prompt) return;
 
+  const displayPrompt = prompt;
+  prompt = normalizePromptTypos(prompt);
+
+  // Create a new AbortController for this request so the stop button can cancel it
+  _activeAbortController = new AbortController();
+
   setSendingState(true);
   
-  // Clear input and reset height
-  chatInput.value = '';
-  chatInput.style.height = 'auto';
+  if (typeof overridePrompt !== 'string') {
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+  }
   
   // Toggle off search overlay if open
   chatSearchOverlay.classList.add('hidden');
@@ -3174,10 +4904,24 @@ async function submitPrompt() {
   }
   
   // 2. Render user message
-  appendChatMessage('User', prompt, false);
+  appendChatMessage('User', displayPrompt, false);
   logTrace(`Processing user request: "${prompt.substring(0, 40)}..."`, 'local');
+  stopTtsSpeech();
   
   try {
+    if (window.UltronAgentMemory && typeof window.UltronAgentMemory.parseWorkflowFromPrompt === 'function') {
+      const savedWorkflow = window.UltronAgentMemory.parseWorkflowFromPrompt(prompt);
+      if (savedWorkflow) {
+        const aiBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
+        const response = `Saved workflow **${savedWorkflow.name}** with ${savedWorkflow.steps.length} step(s):\n${savedWorkflow.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\nSay **run ${savedWorkflow.name}** to execute it.`;
+        renderMessageContent(aiBubble, response);
+        finalizeAiMessageBubble(aiBubble, response, { autoSpeak: false });
+        appendChatMessage('Ultron', response, true, { skipRender: true });
+        setSendingState(false);
+        return;
+      }
+    }
+
     // Check for meaningless/gibberish prompts early
     if (isMeaninglessPrompt(prompt)) {
       const aiBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
@@ -3187,8 +4931,9 @@ async function submitPrompt() {
       appendChatMessage('Ultron', response, true, { skipRender: true });
     } else {
       // 3. Classify user intent
-      const intent = classifyIntent(prompt);
-      logTrace(`Intent classified as: "${intent}" for prompt: "${prompt.substring(0, 40)}..."`, 'system');
+      const compound = splitSearchAndActionPrompt(prompt);
+      const intent = compound ? 'search' : classifyIntent(prompt);
+      logTrace(`Intent classified as: "${intent}"${compound ? ' (compound: search + action)' : ''} for prompt: "${prompt.substring(0, 40)}..."`, 'system');
       if (!['action', 'search'].includes(intent)) {
         activeSubgoals = [];
         renderChecklist([]);
@@ -3198,16 +4943,20 @@ async function submitPrompt() {
       const aiBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
       
       // Check if Ollama is connected when LLM query is required
-      if (intent === 'action' || intent === 'conversation') {
+      if (intent === 'action' || intent === 'conversation' || intent === 'search') {
         const conn = await checkOllamaConnection();
-        if (!conn.connected) {
-          await new Promise(resolve => setTimeout(resolve, 400));
-          const offlineMsg = "⚠️ **Local AI Engine Offline / No Model Loaded**\n\nUltron cannot process your request because Ollama is not connected or no local model is currently loaded.\n\n**To resolve this:**\n1. Ensure the Ollama background service is running on your machine.\n2. Click the model dropdown at the top (`No Models`) to select or download a model (e.g. `tinyllama:latest`).\n3. Click **Connect Service** if prompted.";
-          renderMessageContent(aiBubble, offlineMsg);
-          formatCodeBlocks(aiBubble);
-          appendChatMessage('Ultron', offlineMsg, true, { skipRender: true });
-          setSendingState(false);
-          return;
+        const isGemini = activeModel && activeModel.startsWith('gemini');
+        const localMode = getLocalAiMode();
+        if (!conn.connected && !isGemini) {
+          if (localMode === 'local-only' || !installedModelsList.length) {
+            await new Promise(resolve => setTimeout(resolve, 400));
+            const offlineCard = `<div class="agent-final-response">${renderErrorRecoveryCard('OLLAMA_OFFLINE', 'Local AI engine offline — start Ollama (`ollama serve`) or pick a Google Gemini model from the dropdown.')}</div>`;
+            renderMessageContent(aiBubble, offlineCard);
+            finalizeAiMessageBubble(aiBubble, offlineCard, { autoSpeak: false });
+            appendChatMessage('Ultron', offlineCard, true, { skipRender: true });
+            setSendingState(false);
+            return;
+          }
         }
       }
       
@@ -3217,8 +4966,7 @@ async function submitPrompt() {
       }
 
       if (intent === 'user_identity') {
-        const userNameEl = document.querySelector('.profile-detail-name');
-        const userName = userNameEl ? userNameEl.textContent.trim() : 'Vedant Wankhade';
+        const userName = getUserFullName();
         const sysEnv = await getSystemContext();
         const response = `You are **${userName}**! You are logged into this Windows PC as \`${sysEnv.username || 'vedan'}\` on computer **${sysEnv.hostname || 'Ultron-PC'}**. I am Ultron, your local AI assistant!`;
         renderMessageContent(aiBubble, response);
@@ -3243,7 +4991,17 @@ async function submitPrompt() {
         } else if (/\b(date)\b/i.test(p) && !/\b(time)\b/i.test(p)) {
           response = `Today's date is **${realtime.dateLabel}**.`;
         } else if (/\b(where am i|my location|what city|what country)\b/i.test(p)) {
-          response = `Your approximate location is **${realtime.locationLabel}**${realtime.countryCode ? ` (${realtime.countryCode})` : ''}, timezone **${realtime.timeZone}**.`;
+          const locCtx = window.UltronLocationContext;
+          const loc = locCtx
+            ? await locCtx.resolveEffectiveLocation(prompt, { getSystemContext })
+            : { label: realtime.locationLabel, source: 'auto', confidence: 'medium' };
+          const approx = loc.label || realtime.locationLabel;
+          const sourceNote = loc.source === 'saved' ? ' (from your saved home city)'
+            : loc.source === 'windows-gps' ? ' (from Windows location services — GPS/Wi‑Fi)'
+            : loc.source === 'ip-geo' ? ' (approximate, from IP geolocation)'
+            : loc.source === 'timezone' ? ' (estimated from timezone — set home city in Settings for accuracy)'
+            : '';
+          response = `Your approximate location is **${approx}**${realtime.countryCode ? ` (${realtime.countryCode})` : ''}${sourceNote}. Timezone: **${realtime.timeZone}**.`;
         } else {
           response = `📅 **Date:** ${realtime.dateLabel}\n🕒 **Time:** ${realtime.timeLabel} (${realtime.timeZone}, UTC${realtime.utcOffsetLabel})\n📍 **Location:** ${realtime.locationLabel}`;
         }
@@ -3260,12 +5018,47 @@ async function submitPrompt() {
         await typeMessageResponse(aiBubble, response);
         appendChatMessage('Ultron', response, true, { skipRender: true });
 
+      } else if (compound && isWebSearchEnabled()) {
+        await runSearchIntentFlow(compound.searchPart, aiBubble, currentImagePayloads, [], [], Date.now(), false);
+        const actionBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
+        await runAgenticLoop(compound.actionPart, actionBubble, 'action', currentImagePayloads);
+
+      } else if (intent === 'conversation' && isProductOrShoppingQuery(prompt)) {
+        await runSearchIntentFlow(prompt, aiBubble, currentImagePayloads, [], [], Date.now(), false);
+
       } else if (intent === 'conversation') {
-        const userNameEl = document.querySelector('.profile-detail-name');
-        const userName = userNameEl ? userNameEl.textContent.trim() : 'Vedant';
-        
-        // Pure conversational response — query local AI model dynamically on the spot
-        let response = await queryOfflineLLM(prompt, [], 'conversation', null, currentImagePayloads);
+        const isFollowUp = isFollowUpAboutPriorTurn(prompt);
+        const followUpSystem = isFollowUp ? buildFollowUpConversationSystemPrompt() : null;
+        // Pure conversational response — stream local model tokens straight into the bubble
+        let streamedTokens = false;
+        let lastStreamPaint = 0;
+        let response = await queryOfflineLLM(prompt, [], 'conversation', followUpSystem, currentImagePayloads, isFollowUp ? {} : {
+          onToken: (fullText) => {
+            streamedTokens = true;
+            const now = Date.now();
+            if (now - lastStreamPaint < 80) return;
+            lastStreamPaint = now;
+            if (!isIrrelevantModelResponse(fullText, prompt)) {
+              renderMessageContent(aiBubble, fullText);
+              chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+              if (isTtsAutoSpeakEnabled()) feedStreamingAutoSpeak(fullText);
+            }
+          }
+        });
+
+        if (response && (isIrrelevantModelResponse(response, prompt) || isMultiTopicHallucination(response, prompt))) {
+          logTrace('Replacing irrelevant follow-up response with context-aware retry.', 'system');
+          streamedTokens = false;
+          renderMessageContent(aiBubble, composeAgentLiveContent(getAgentShimmerLineHtml('Thinking')));
+          response = await queryOfflineLLM(
+            prompt,
+            [],
+            'conversation',
+            isFollowUp ? buildFollowUpConversationSystemPrompt() : null,
+            currentImagePayloads
+          );
+        }
+
         if (!response || !response.trim()) {
           const isGemini = activeModel && activeModel.startsWith('gemini');
           if (isGemini) {
@@ -3274,13 +5067,65 @@ async function submitPrompt() {
             response = `⚠️ **Local Ollama Model Connection Error**\n\nCould not connect to model **${activeModel || 'ollama'}** on ` + '`http://127.0.0.1:11434`' + `.\n\n**To Fix:**\n1. Make sure Ollama is running (` + '`ollama serve`' + `).\n2. Pull your model (` + '`ollama pull ' + (activeModel || 'tinyllama') + '`' + `).\n3. Or select Google Gemini from the top dropdown.`;
           }
         }
-        response = response.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
-        await typeMessageResponse(aiBubble, response);
-        appendChatMessage('Ultron', response, true, { skipRender: true });
+        response = String(response || '').replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, 'Ultron');
+        if (response && (shouldFallbackToWebSearch(prompt, response) || (isGenericAssistantGreeting(response) && isProductOrShoppingQuery(prompt)))) {
+          logTrace('Factual or time-sensitive question — searching the web for a current answer.', 'system');
+          await runSearchIntentFlow(prompt, aiBubble, currentImagePayloads, [], [], Date.now(), false);
+        } else if (/Gemini API Key Required/i.test(response)) {
+          const card = `<div class="agent-final-response">${renderErrorRecoveryCard('GEMINI_KEY_MISSING', `Google Gemini API key required for ${activeModel}. Add your key in Settings → Models.`)}</div>`;
+          renderMessageContent(aiBubble, card);
+          finalizeAiMessageBubble(aiBubble, card, { autoSpeak: false });
+          appendChatMessage('Ultron', card, true, { skipRender: true });
+        } else if (streamedTokens) {
+          renderMessageContent(aiBubble, response);
+          formatCodeBlocks(aiBubble);
+          finalizeAiMessageBubble(aiBubble, response);
+          appendChatMessage('Ultron', response, true, { skipRender: true });
+        } else {
+          await typeMessageResponse(aiBubble, response);
+          formatCodeBlocks(aiBubble);
+          appendChatMessage('Ultron', response, true, { skipRender: true });
+        }
 
       } else {
         // Action or Search intent — run the full agentic loop
         await runAgenticLoop(prompt, aiBubble, intent, currentImagePayloads);
+      }
+    }
+  } catch (err) {
+    // Handle user-initiated stop (AbortError) gracefully
+    if (err.name === 'AbortError' || (_activeAbortController && _activeAbortController.signal.aborted)) {
+      const stoppedBubbles = chatMessagesContainer.querySelectorAll('.chat-bubble.ai');
+      const lastAiBubble = stoppedBubbles.length ? stoppedBubbles[stoppedBubbles.length - 1] : null;
+      if (lastAiBubble) {
+        const existingContent = lastAiBubble.querySelector('.message-content');
+        const liveRoot = existingContent ? existingContent.querySelector('.agent-live-root') : null;
+        const currentText = existingContent ? existingContent.textContent.trim() : '';
+        if (liveRoot && existingContent.querySelector('.agent-progress-feed')) {
+          const widgetsHtml = liveRoot.querySelector('.agent-live-widgets')?.innerHTML || '';
+          const stoppedFinal = composeAgentFinalContent([], [], '⏹ Generation stopped.', 0);
+          existingContent.innerHTML = `${widgetsHtml}${stoppedFinal}`;
+        } else if (currentText && currentText !== 'Thinking' && currentText.length > 10) {
+          const stoppedNote = document.createElement('div');
+          stoppedNote.className = 'agent-stopped-note';
+          stoppedNote.innerHTML = '<em>⏹ Generation stopped</em>';
+          if (existingContent) existingContent.appendChild(stoppedNote);
+        } else if (existingContent) {
+          renderMessageContent(existingContent, '⏹ Generation stopped.');
+        }
+      }
+      logTrace('Generation stopped by user.', 'system');
+    } else {
+      logTrace(`Request failed: ${err.message}`, 'error');
+      const stoppedBubbles = chatMessagesContainer.querySelectorAll('.chat-bubble.ai');
+      const lastAiBubble = stoppedBubbles.length ? stoppedBubbles[stoppedBubbles.length - 1] : null;
+      const errText = `Something went wrong: ${err.message || 'Unknown error'}. Try **Ctrl+R** to reload, or check that Ollama is running.`;
+      if (lastAiBubble) {
+        renderMessageContent(lastAiBubble.querySelector('.message-content') || lastAiBubble, errText);
+        finalizeAiMessageBubble(lastAiBubble.querySelector('.message-content') || lastAiBubble, errText, { autoSpeak: false });
+        appendChatMessage('Ultron', errText, true, { skipRender: true });
+      } else {
+        appendChatMessage('Ultron', errText, true);
       }
     }
   } finally {
@@ -3288,8 +5133,73 @@ async function submitPrompt() {
   }
 }
 
+function parseReactToolCall(text) {
+  if (!text || typeof text !== 'string') return null;
+
+  const finalMatch = text.match(/Final Answer:\s*([\s\S]+)/i);
+  if (finalMatch && finalMatch[1].trim()) {
+    return { type: 'FINAL_ANSWER', content: finalMatch[1].trim() };
+  }
+
+  const actionMatch = text.match(/Action:\s*([^\n]+)/i);
+  if (!actionMatch) return null;
+
+  const actionName = actionMatch[1].trim().replace(/^["']|["']$/g, '').toUpperCase();
+  const inputMatch = text.match(/Action Input:\s*([\s\S]*?)(?=\n\n|\nThought:|\nAction:|\nFinal Answer:|$)/i);
+  let actionInput = inputMatch ? inputMatch[1].trim() : '';
+
+  let args = {};
+  if (actionInput) {
+    try {
+      args = JSON.parse(actionInput);
+    } catch (e) {
+      const plain = actionInput.replace(/^["']|["']$/g, '');
+      if (['OPEN_APP', 'FOCUS_APP'].includes(actionName)) {
+        args = { appName: plain };
+      } else if (actionName === 'OPEN_URL') {
+        args = { url: plain };
+      } else if (actionName === 'OPEN_FILE') {
+        args = { path: plain };
+      } else if (actionName === 'TYPE_TEXT') {
+        args = { text: actionInput };
+      } else if (actionName === 'HOTKEY') {
+        args = { keys: plain };
+      } else if (actionName === 'SEARCH') {
+        args = { query: plain };
+      } else if (['READ_FILE', 'LIST_DIR', 'EXECUTE'].includes(actionName)) {
+        args = actionName === 'EXECUTE' ? { command: plain } : { path: plain };
+      } else if (actionName === 'WEB_FETCH') {
+        args = { url: plain };
+      } else {
+        args = { target: plain };
+      }
+    }
+  }
+
+  const synthetic = JSON.stringify({ tool: actionName, args });
+  return parseJsonToolCall(synthetic);
+}
+
+function extractReactFinalAnswer(text) {
+  if (!text || typeof text !== 'string') return '';
+  const match = text.match(/Final Answer:\s*([\s\S]+)/i);
+  return match ? match[1].trim() : '';
+}
+
+function extractReactThought(text) {
+  if (!text || typeof text !== 'string') return '';
+  const match = text.match(/Thought:\s*([\s\S]*?)(?=\nAction:|\nFinal Answer:|$)/i);
+  return match ? match[1].trim().replace(/\s+/g, ' ') : '';
+}
+
 function parseAgentToolCall(text, userPrompt = '') {
   if (text && typeof text === 'string') {
+    const reactResult = parseReactToolCall(text);
+    if (reactResult) {
+      if (reactResult.type === 'FINAL_ANSWER') return null;
+      return reactResult;
+    }
+
     const jsonToolCall = parseJsonToolCall(text);
     if (jsonToolCall) return jsonToolCall;
 
@@ -3409,7 +5319,11 @@ function humanizeToolCallLabel(toolCall) {
       case 'OPEN_APP': return `Open ${trim(toolCall.appName || toolCall.target)}`;
       case 'FOCUS_APP': return `Switch to ${trim(toolCall.appName || toolCall.target)}`;
       case 'OPEN_URL': return `Open ${trim(toolCall.url || toolCall.target)}`;
-      case 'OPEN_FILE': return `Open file ${trim(toolCall.path || toolCall.target)}`;
+      case 'OPEN_FILE': {
+        const pathLabel = trim(toolCall.path || toolCall.target);
+        const leaf = pathLabel.split(/[\\/]/).filter(Boolean).pop() || pathLabel;
+        return `Go to ${leaf}`;
+      }
       case 'TYPE_TEXT': return `Type "${trim(toolCall.text, 30)}"`;
       case 'HOTKEY': return `Press ${trim(toolCall.keys)}`;
       case 'CLICK': return `Click at (${toolCall.x}, ${toolCall.y})`;
@@ -3423,11 +5337,20 @@ function humanizeToolCallLabel(toolCall) {
   switch (toolCall.type) {
     case 'APP_SEQUENCE': return 'Run app steps';
     case 'CAPTURE_SCREEN': return 'Check the screen';
-    case 'EXECUTE': return `Run command: ${trim(toolCall.target, 32)}`;
+    case 'EXECUTE': {
+      const cmd = trim(toolCall.target, 48);
+      if (/^mkdir/i.test(cmd)) {
+        const pathMatch = cmd.match(/mkdir\s+"([^"]+)"/i);
+        const leaf = pathMatch ? pathMatch[1].split(/[\\/]/).filter(Boolean).pop() : 'folder';
+        return `Create folder "${leaf}"`;
+      }
+      return `Run command: ${cmd}`;
+    }
     case 'WRITE_FILE': return `Write ${trim(toolCall.targetPath || toolCall.target, 36)}`;
     case 'READ_FILE': return `Read ${trim(toolCall.target, 36)}`;
     case 'LIST_DIR': return `List folder ${trim(toolCall.target, 32)}`;
     case 'SEARCH': return `Search the web: ${trim(toolCall.target, 30)}`;
+    case 'WEB_FETCH': return `Fetch page: ${trim(toolCall.target || toolCall.url, 40)}`;
     default: return trim(toolCall.type);
   }
 }
@@ -3448,6 +5371,131 @@ function getAppActivityVerb(toolCall) {
 }
 
 let _activeAgentApp = { name: '', icon: '' };
+
+const RESERVED_TOOL_NAMES = new Set([
+  'OPEN_APP', 'FOCUS_APP', 'OPEN_URL', 'OPEN_FILE', 'WRITE_FILE', 'READ_FILE',
+  'LIST_DIR', 'EXECUTE', 'SEARCH', 'WEB_FETCH', 'TYPE_TEXT', 'HOTKEY', 'CLICK',
+  'DOUBLE_CLICK', 'SCROLL', 'WAIT', 'CAPTURE_SCREEN', 'APP_SEQUENCE', 'LIST_APPS'
+]);
+
+function promptWantsFileCreation(userPrompt) {
+  const p = String(userPrompt || '').toLowerCase();
+  return (/\b(createa?|creat|make|new|write)\b/i.test(p) && /\bfile\b/i.test(p))
+    || (/\bfile\b/i.test(p) && /\b(named|called)\b/i.test(p) && /\b(create|make|write)\b/i.test(p));
+}
+
+function promptWantsFolderCreation(userPrompt) {
+  const p = String(userPrompt || '').toLowerCase();
+  if (/\bfile\b/i.test(p)) return false;
+  return /\b(createa?|creat|make|new|mkdir)\s+(a\s+)?(folder|directory)\b/i.test(userPrompt)
+    || (/\b(folder|directory)\b/i.test(p) && /\b(named|called)\b/i.test(p) && /\b(create|make|new)\b/i.test(p));
+}
+
+function extractFolderNameFromPrompt(userPrompt, stopWords = new Set()) {
+  const patterns = [
+    /(?:folder|directory)\s+(?:named|called)\s+["']?([a-zA-Z0-9_\-\.]+)["']?/i,
+    /(?:named|called)\s+["']?([a-zA-Z0-9_\-\.]+)["']?(?:\s+for|\s+in|\s+on|\s*$)/i,
+    /(?:createa?|creat|make|new|mkdir)\s+(?:a\s+)?(?:folder|directory)\s+(?:named|called)?\s*["']?([a-zA-Z0-9_\-\.]+)["']?/i
+  ];
+  for (const re of patterns) {
+    const match = userPrompt.match(re);
+    if (match && match[1]) {
+      const candidate = match[1].trim();
+      if (candidate && !stopWords.has(candidate.toLowerCase()) && !RESERVED_TOOL_NAMES.has(candidate.toUpperCase())) {
+        return candidate;
+      }
+    }
+  }
+  return 'new_folder';
+}
+
+function buildMkdirFromPrompt(userPrompt, dirs = {}) {
+  const userHome = dirs.homeDir || (_cachedSystemEnv && _cachedSystemEnv.homeDir) || 'C:\\Users\\vedan';
+  const desktopDir = dirs.desktop || `${userHome}\\Desktop`;
+  const documentsDir = dirs.documents || `${userHome}\\Documents`;
+  const downloadsDir = dirs.downloads || `${userHome}\\Downloads`;
+  const stopWords = new Set(['for', 'me', 'a', 'the', 'my', 'new', 'some', 'please', 'on', 'in', 'at', 'to', 'it', 'us']);
+  const folderName = extractFolderNameFromPrompt(userPrompt, stopWords);
+  const parentDir = resolveFolderTargetFromPrompt(userPrompt) || desktopDir;
+  const targetPath = `${parentDir}\\${folderName}`;
+  return {
+    type: 'EXECUTE',
+    target: `mkdir "${targetPath}"`
+  };
+}
+
+function claimsDesktopTaskCompleted(text) {
+  const t = String(text || '');
+  return /\b(has been created|have been created|was created|is now ready|successfully created|i('ve| have) created|folder.*created|file.*created|created for you|created within|now ready to be used)\b/i.test(t);
+}
+
+function modelAnsweredWithoutExecuting(userPrompt, finalText, executedActions = [], intent = 'action') {
+  if (intent !== 'action' || executedActions.length > 0) return false;
+  if (!hasDesktopActionCues(userPrompt)) return false;
+  return claimsDesktopTaskCompleted(finalText);
+}
+
+function extractFileNameFromPrompt(userPrompt, stopWords = new Set()) {
+  const patterns = [
+    /(?:file|document)\s+(?:named|called)\s+["']?([a-zA-Z0-9_\-\.]+)["']?/i,
+    /(?:named|called)\s+["']?([a-zA-Z0-9_\-\.]+)["']?/i,
+    /(?:createa?|creat|make|new|write)\s+(?:a\s+)?file\s+(?:named|called)?\s*["']?([a-zA-Z0-9_\-\.]+)["']?/i
+  ];
+  for (const re of patterns) {
+    const match = userPrompt.match(re);
+    if (match && match[1]) {
+      const candidate = match[1].trim();
+      if (candidate && !stopWords.has(candidate.toLowerCase()) && !RESERVED_TOOL_NAMES.has(candidate.toUpperCase())) {
+        return candidate.includes('.') ? candidate : `${candidate}.txt`;
+      }
+    }
+  }
+  return 'new_file.txt';
+}
+
+function buildWriteFileFromPrompt(userPrompt, dirs = {}) {
+  const userHome = dirs.homeDir || (_cachedSystemEnv && _cachedSystemEnv.homeDir) || 'C:\\Users\\vedan';
+  const desktopDir = dirs.desktop || `${userHome}\\Desktop`;
+  const documentsDir = dirs.documents || `${userHome}\\Documents`;
+  const downloadsDir = dirs.downloads || `${userHome}\\Downloads`;
+  const stopWords = new Set(['for', 'me', 'a', 'the', 'my', 'new', 'some', 'please', 'on', 'in', 'at', 'to', 'it', 'us', 'folder']);
+  const fileName = extractFileNameFromPrompt(userPrompt, stopWords);
+  const folder = resolveFolderTargetFromPrompt(userPrompt) || desktopDir;
+  const targetPath = `${folder}\\${fileName}`;
+  return {
+    type: 'WRITE_FILE',
+    targetPath,
+    content: `Created by Ultron on ${new Date().toLocaleString()}`,
+    target: targetPath
+  };
+}
+
+function isInvalidAppToolCall(toolCall) {
+  if (!toolCall || toolCall.type !== 'APP_ACTION') return false;
+  if (!['OPEN_APP', 'FOCUS_APP'].includes(String(toolCall.action || '').toUpperCase())) return false;
+  const appName = String(toolCall.appName || toolCall.target || '').trim();
+  if (!appName) return true;
+  const upper = appName.toUpperCase();
+  return RESERVED_TOOL_NAMES.has(upper) || upper === String(toolCall.action || '').toUpperCase();
+}
+
+function sanitizeParsedToolCall(toolCall, userPrompt = '') {
+  if (!toolCall) return null;
+  if (isInvalidAppToolCall(toolCall)) {
+    const fallback = detectFallbackToolCall(userPrompt);
+    return fallback || null;
+  }
+  if (toolCall.type === 'APP_ACTION' && ['OPEN_APP', 'FOCUS_APP'].includes(String(toolCall.action || '').toUpperCase())) {
+    const appName = String(toolCall.appName || toolCall.target || '').trim();
+    if (!appName || RESERVED_TOOL_NAMES.has(appName.toUpperCase())) {
+      return detectFallbackToolCall(userPrompt);
+    }
+  }
+  if (toolCall.type === 'WRITE_FILE' && !toolCall.targetPath) {
+    return buildWriteFileFromPrompt(userPrompt);
+  }
+  return toolCall;
+}
 
 async function enrichToolCallAppPresentation(toolCall) {
   if (!toolCall || toolCall.type !== 'APP_ACTION') return;
@@ -3503,10 +5551,14 @@ function parseJsonToolCall(text) {
       }
 
       if (['OPEN_APP', 'FOCUS_APP', 'OPEN_URL', 'OPEN_FILE', 'TYPE_TEXT', 'HOTKEY', 'WAIT', 'LIST_APPS', 'CLICK', 'DOUBLE_CLICK', 'SCROLL'].includes(tool)) {
+        const appName = args.appName || args.app || args.name || '';
+        if (['OPEN_APP', 'FOCUS_APP'].includes(tool) && !appName) {
+          continue;
+        }
         return {
           type: 'APP_ACTION',
           action: tool,
-          appName: args.appName || args.app || args.name,
+          appName,
           url: args.url,
           path: args.path || args.filePath,
           text: args.text,
@@ -3515,7 +5567,7 @@ function parseJsonToolCall(text) {
           x: args.x,
           y: args.y,
           delta: args.delta || args.amount,
-          target: args.appName || args.app || args.name || args.url || args.path || args.text || args.keys || tool
+          target: appName || args.url || args.path || args.text || args.keys || ''
         };
       }
 
@@ -3528,8 +5580,12 @@ function parseJsonToolCall(text) {
         };
       }
 
-      if (['EXECUTE', 'READ_FILE', 'LIST_DIR', 'SEARCH'].includes(tool)) {
-        return { type: tool, target: args.command || args.path || args.query || args.target || '' };
+      if (['EXECUTE', 'READ_FILE', 'LIST_DIR', 'SEARCH', 'WEB_FETCH'].includes(tool)) {
+        return {
+          type: tool,
+          target: args.command || args.path || args.query || args.url || args.target || '',
+          url: args.url || ''
+        };
       }
 
       if (tool === 'WRITE_FILE') {
@@ -3558,8 +5614,40 @@ function detectFallbackToolCall(userPrompt) {
   const downloadsDir = dirs.downloads || `${userHome}\\Downloads`;
   const stopWords = new Set(['for', 'me', 'a', 'the', 'my', 'new', 'some', 'please', 'on', 'in', 'at', 'to', 'it', 'us']);
 
+  const folderTarget = resolveFolderTargetFromPrompt(userPrompt);
+  const wantsNavigation = Boolean(folderTarget)
+    && /\b(go to|navigate|head to|take me to|browse to|open folder|and go)\b/i.test(userPrompt);
+
+  // Standalone folder navigation (e.g. follow-up "go to downloads now")
+  if ((wantsNavigation || (/\b(open|show)\b/i.test(userPrompt) && folderTarget))
+      && folderTarget
+      && !/\b(file explorer|windows explorer|explorer)\b/i.test(userPrompt)) {
+    return {
+      type: 'APP_ACTION',
+      action: 'OPEN_FILE',
+      path: folderTarget,
+      target: folderTarget
+    };
+  }
+
+  // Create file — before folder logic ("in downloads folder" is a location, not mkdir)
+  if (promptWantsFileCreation(userPrompt)) {
+    return buildWriteFileFromPrompt(userPrompt, { desktop: desktopDir, documents: documentsDir, downloads: downloadsDir, homeDir: userHome });
+  }
+
+  // Create folder — fast, direct mkdir (no LLM needed)
+  if (promptWantsFolderCreation(userPrompt)) {
+    return buildMkdirFromPrompt(userPrompt, { desktop: desktopDir, documents: documentsDir, downloads: downloadsDir, homeDir: userHome });
+  }
+
   const appAliases = [
+    ['obs studio', 'OBS Studio'],
+    ['obs', 'OBS Studio'],
     ['notepad', 'Notepad'],
+    ['file explorer', 'File Explorer'],
+    ['windows explorer', 'File Explorer'],
+    ['explorer', 'File Explorer'],
+    ['settings', 'Settings'],
     ['chrome', 'Google Chrome'],
     ['google chrome', 'Google Chrome'],
     ['edge', 'Microsoft Edge'],
@@ -3570,7 +5658,11 @@ function detectFallbackToolCall(userPrompt) {
     ['obsidian', 'Obsidian'],
     ['powershell', 'PowerShell'],
     ['command prompt', 'Command Prompt'],
-    ['cmd', 'Command Prompt']
+    ['cmd', 'Command Prompt'],
+    ['whatsapp', 'WhatsApp'],
+    ['telegram', 'Telegram'],
+    ['discord', 'Discord'],
+    ['slack', 'Slack']
   ];
 
   const findPromptAppName = () => {
@@ -3592,6 +5684,76 @@ function detectFallbackToolCall(userPrompt) {
     /\b\d+\s+(quotes?|ideas?|sentences?|paragraphs?|examples?|names?|captions?|headlines?)\b/i.test(userPrompt)
     || /\b(write|draft|compose|create)\s+(an?\s+)?(essay|article|story|poem|letter|email|report|summary|speech|blog|code|script)\b/i.test(userPrompt);
 
+  // File Explorer + optional folder navigation
+  if (/\b(file explorer|windows explorer|my files|this pc)\b/i.test(userPrompt)) {
+    if (folderTarget && (wantsNavigation || /\b(download|document|desktop|folder|directory)\b/i.test(p))) {
+      return {
+        type: 'APP_SEQUENCE',
+        target: `File Explorer → ${folderTarget}`,
+        actions: [
+          { action: 'OPEN_APP', appName: 'File Explorer', target: 'File Explorer' },
+          { action: 'WAIT', ms: 900, target: '900ms' },
+          { action: 'OPEN_FILE', path: folderTarget, target: folderTarget }
+        ]
+      };
+    }
+    return { type: 'APP_ACTION', action: 'OPEN_APP', appName: 'File Explorer', target: 'File Explorer' };
+  }
+
+  if (/\b(open|show|go to)\s+(settings|windows settings)\b/i.test(userPrompt)) {
+    return { type: 'EXECUTE', target: 'start ms-settings:' };
+  }
+
+  // "open whatsapp and send a message named hi to vedant wankhade"
+  if (window.UltronCommandParser && typeof window.UltronCommandParser.tryParseToToolCall === 'function') {
+    const sendParsed = window.UltronCommandParser.tryParseToToolCall(userPrompt);
+    if (sendParsed && sendParsed.type === 'APP_SEQUENCE' && sendParsed._parsedBy === 'rule') {
+      return sendParsed;
+    }
+  }
+
+  // "write the bill of 200 in notepad for fuel" — no explicit "open" required
+  const writeInAppMatch = userPrompt.match(
+    /\b(write|type)\s+(.+?)\s+in\s+(notepad(?:\+\+)?|word|chrome|google chrome|edge|microsoft edge|vscode|vs code|visual studio code|file explorer|powershell|command prompt|cmd)\b/i
+  );
+  if (writeInAppMatch && !requiresGeneratedText) {
+    const text = writeInAppMatch[2].trim();
+    const appRaw = writeInAppMatch[3].trim().toLowerCase();
+    const alias = appAliases.find(([key]) => appRaw === key || appRaw.includes(key));
+    const appName = alias ? alias[1] : writeInAppMatch[3].trim();
+    if (text && appName) {
+      return {
+        type: 'APP_SEQUENCE',
+        target: `${appName} → type text`,
+        actions: [
+          { action: 'OPEN_APP', appName, target: appName },
+          { action: 'WAIT', ms: 1000, target: '1000ms' },
+          { action: 'TYPE_TEXT', text, appName, target: appName }
+        ]
+      };
+    }
+  }
+
+  // Read file with explicit path
+  const pathMatch = userPrompt.match(/([A-Za-z]:\\[^\s"']+|(?:desktop|documents|downloads)[/\\][^\s"']+)/i);
+  if (pathMatch && /\b(read|open|show|parse|view|content of)\b/i.test(userPrompt)) {
+    const filePath = pathMatch[1].replace(/\//g, '\\');
+    let resolved = filePath;
+    if (!/^[A-Za-z]:\\/.test(resolved)) {
+      const base = filePath.toLowerCase().startsWith('desktop') ? desktopDir
+        : filePath.toLowerCase().startsWith('documents') ? documentsDir
+        : filePath.toLowerCase().startsWith('downloads') ? downloadsDir
+        : desktopDir;
+      resolved = `${base}\\${filePath.replace(/^[^\\]+\\?/, '')}`;
+    }
+    return { type: 'READ_FILE', target: resolved, targetPath: resolved };
+  }
+
+  if (/\b(list|show)\s+(files|folders|contents)\b/i.test(userPrompt)) {
+    const listDir = p.includes('document') ? documentsDir : p.includes('download') ? downloadsDir : desktopDir;
+    return { type: 'LIST_DIR', target: listDir };
+  }
+
   // 1. Desktop app launch/control
   if (/\b(open|launch|start|focus|switch to)\b/i.test(userPrompt)) {
     const urlMatch = userPrompt.match(/https?:\/\/[^\s]+/i);
@@ -3608,7 +5770,7 @@ function detectFallbackToolCall(userPrompt) {
           actions: [
             { action: 'OPEN_APP', appName, target: appName },
             { action: 'WAIT', ms: 900, target: '900ms' },
-            { action: 'TYPE_TEXT', text: typedText, target: 'text input' }
+            { action: 'TYPE_TEXT', text: typedText, appName, target: appName }
           ]
         };
       }
@@ -3617,19 +5779,22 @@ function detectFallbackToolCall(userPrompt) {
   }
 
   if (/\b(type|paste|enter)\b/i.test(userPrompt) && typedText) {
-    return { type: 'APP_ACTION', action: 'TYPE_TEXT', text: typedText, target: 'text input' };
+    const appName = findPromptAppName() || _activeAgentApp.name || '';
+    return { type: 'APP_ACTION', action: 'TYPE_TEXT', text: typedText, appName, target: appName || 'text input' };
   }
 
   // Helper: resolve target location from prompt
   function resolveLocation(defaultPath) {
-    if (p.includes('desktop')) return desktopDir;
-    if (p.includes('document')) return documentsDir;
-    if (p.includes('download')) return downloadsDir;
+    if (/download|downlaod|downlod/i.test(p)) return downloadsDir;
+    if (/document|documet/i.test(p)) return documentsDir;
+    if (/\bdesktop\b/i.test(p)) return desktopDir;
     return defaultPath;
   }
 
-  // 1. Folder / Directory Creation (Check BEFORE File creation to prevent false keyword matches)
-  if (p.includes('folder') || p.includes('directory') || p.includes('mkdir')) {
+  // Folder creation — only when user asked for a folder, not "in X folder" as location
+  const wantsCreateFolder = /\b(create|make|new|mkdir)\s+(a\s+)?(folder|directory)\b/i.test(userPrompt)
+    || /\b(folder|directory)\s+(?:named|called)\b/i.test(userPrompt);
+  if (wantsCreateFolder && !/\bfile\b/i.test(userPrompt)) {
     let folderName = 'new_folder';
     const folderMatch = userPrompt.match(/(?:folder|directory)\s+["']?(?:named|called)?\s*["']?([a-zA-Z0-9_\-\s.]+?)["']?\s+(?:on|in|at|$)/i) ||
                         userPrompt.match(/(?:folder|directory)\s+([^\s]+)/i);
@@ -3680,32 +5845,9 @@ function detectFallbackToolCall(userPrompt) {
     return { type: 'SEARCH', target: query || userPrompt };
   }
 
-  // 5. Create file / desktop file
-  if (p.includes('create') || p.includes('make') || p.includes('write')) {
-    if (p.includes('file') || p.includes('document') || p.includes('txt') || p.includes('desktop')) {
-      let fileName = 'sample_testing.txt';
-      const nameMatch = userPrompt.match(/(?:named|called|file)\s+["']?([a-zA-Z0-9_\-\s.]+?)["']?\s+(?:on|in|at|$)/i) ||
-                        userPrompt.match(/(?:named|called)\s+([^\s]+)/i);
-      if (nameMatch) {
-        const rawName = nameMatch[1].trim();
-        if (!stopWords.has(rawName.toLowerCase())) {
-          fileName = rawName;
-          if (!fileName.includes('.')) fileName += '.txt';
-        }
-      }
-
-      const fileBase = resolveLocation(null);
-      let targetPath = fileBase ? `${fileBase}\\${fileName}` : fileName;
-      if (false) {  // resolveLocation already handled
-      }
-
-      return {
-        type: 'WRITE_FILE',
-        targetPath: targetPath,
-        content: `Created by Ultron AI Agent on ${new Date().toLocaleString()}`,
-        target: targetPath
-      };
-    }
+  // Legacy file creation fallback
+  if ((p.includes('create') || p.includes('make') || p.includes('write')) && (p.includes('file') || p.includes('document') || p.includes('txt'))) {
+    return buildWriteFileFromPrompt(userPrompt, { desktop: desktopDir, documents: documentsDir, downloads: downloadsDir, homeDir: userHome });
   }
 
   // 6. List directory / files
@@ -3732,7 +5874,9 @@ function buildAgentToolPrompt(userPrompt, step, observation = '', options = {}) 
   return `User task:
 ${userPrompt}
 
-Available tools. When an action is needed, output exactly one JSON object and nothing else:
+Available tools. Use a tool ONLY when the user needs desktop/file/web action. If they asked for text, an essay, explanation, or ideas with no request to open apps or write files, answer in natural language with NO JSON and NO tools.
+
+When an action is needed, output exactly one JSON object and nothing else:
 {"tool":"OPEN_APP","args":{"appName":"Notepad"}}
 {"tool":"FOCUS_APP","args":{"appName":"Google Chrome"}}
 {"tool":"OPEN_URL","args":{"url":"https://example.com"}}
@@ -3747,28 +5891,180 @@ Available tools. When an action is needed, output exactly one JSON object and no
 {"tool":"WRITE_FILE","args":{"path":"C:\\\\path\\\\file.txt","content":"file content"}}
 {"tool":"LIST_DIR","args":{"path":"C:\\\\path"}}
 {"tool":"SEARCH","args":{"query":"web search query"}}
+{"tool":"WEB_FETCH","args":{"url":"https://example.com/page"}}
 {"tool":"EXECUTE","args":{"command":"safe command"}}${options.canCaptureScreen ? '\n{"tool":"CAPTURE_SCREEN","args":{"mode":"screen"}}' : ''}
 
-For multi-step app work, do one step at a time unless a simple app open + type sequence is obvious.
-After the task is complete, respond normally without JSON.
+TOOL RULES:
+- Prefer answering directly when no desktop action is required.
+- Never narrate planned tool calls or show JSON/tool plans to the user as the answer.
+- Only use CAPTURE_SCREEN when you must see the UI to complete a desktop task.
+- For multi-step app work, do one step at a time unless a simple app open + type sequence is obvious.
+- After the task is complete, respond normally without JSON.
 ${observation ? `\nLatest observation:\n${observation}\n\nContinue from that observation.` : `\nThis is step ${step}. Decide the next best tool call or final answer.`}`;
 }
 
+async function runSearchIntentFlow(userPrompt, aiBubble, loopImagePayloads, activitySteps, agentSubgoals, loopStartedAt, showTaskPlan) {
+  const userName = getUserFullName();
+  const researchEnabled = window.UltronAgentResearch
+    && window.UltronAgentResearch.getResearchConfig().enabled;
+  const useDeepResearch = researchEnabled
+    && window.UltronAgentResearch.isDeepResearchRequest(userPrompt);
+
+  renderSearchLiveStatus(aiBubble, agentSubgoals, useDeepResearch ? 'Planning multi-hop research...' : 'Analyzing prompt & formulating search strategy...');
+  await new Promise(resolve => setTimeout(resolve, 300));
+
+  let searchResult = null;
+  let searchQuery = '';
+  let researchHops = [];
+
+  try {
+    if (useDeepResearch && typeof window.UltronAgentResearch.runDeepResearch === 'function') {
+      const research = await window.UltronAgentResearch.runDeepResearch(userPrompt, {
+        buildWebSearchQuery,
+        searchWeb: (query, options) => window.ultronAPI.searchWeb(query, options),
+        normalizeSearchPayload,
+        queryLLM: (prompt, systemPrompt) => queryOfflineLLM(prompt, [], 'search', systemPrompt),
+        onProgress: ({ hop, query, phase }) => {
+          if (phase !== 'searching') return;
+          renderSearchLiveStatus(aiBubble, agentSubgoals, `Research hop ${hop + 1}: ${query}`);
+        }
+      });
+      searchResult = research.merged;
+      researchHops = research.hops || [];
+      searchQuery = researchHops.map(h => h.query).filter(Boolean).join(' → ') || userPrompt;
+    } else {
+      searchQuery = await buildWebSearchQuery(userPrompt);
+      renderSearchLiveStatus(aiBubble, agentSubgoals, searchQuery);
+
+      const rawSearchResult = await window.ultronAPI.searchWeb(searchQuery);
+      searchResult = normalizeSearchPayload(rawSearchResult, searchQuery);
+    }
+
+    agentSubgoals.push({
+      text: useDeepResearch
+        ? `Deep research (${researchHops.length || 1} hop${researchHops.length === 1 ? '' : 's'})`
+        : `Web Search: "${String(searchQuery).substring(0, 25)}"`,
+      completed: true,
+      status: 'completed'
+    });
+    activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
+    renderChecklist(activeSubgoals);
+
+    renderSearchLiveStatus(aiBubble, agentSubgoals, 'Analyzing live web results...');
+
+    let finalResponse = '';
+    if (shouldAskForSearchClarification(searchResult)) {
+      finalResponse = searchResult.clarification || `I searched for "${searchQuery}", but the results were too thin to answer confidently. Can you add a brand, budget, location, or what kind of result you want?`;
+    } else {
+      const hopNote = useDeepResearch && researchHops.length > 1
+        ? `\nResearch covered ${researchHops.length} search hops. Synthesize across all sources.`
+        : '';
+      finalResponse = await summarizeSearchAnswer(userPrompt, searchResult, searchQuery, {
+        userName,
+        imagePayloads: loopImagePayloads,
+        hopNote
+      });
+    }
+
+    agentSubgoals.push({ text: 'Task completed successfully', completed: true, status: 'completed' });
+    activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
+    renderChecklist(activeSubgoals);
+
+    replaceProgressStepsOfType(activitySteps, 'SEARCH', {
+      type: 'SEARCH',
+      label: getAgentProgressMessage('SEARCH', { query: `${String(searchQuery).substring(0, 40)} (${searchResult.results?.length || 0} results)` }),
+      isProgress: false
+    });
+
+    const searchExperienceMarkup = searchResult.results && searchResult.results.length > 0
+      ? renderSearchExperience(finalResponse, searchResult)
+      : finalResponse;
+
+    const fullFinalContent = composeAgentFinalContent(showTaskPlan ? agentSubgoals : [], activitySteps, searchExperienceMarkup, Date.now() - loopStartedAt);
+    await typeMessageResponse(aiBubble, fullFinalContent, { instant: true });
+    appendChatMessage('Ultron', fullFinalContent, true, { skipRender: true });
+
+    if (looksLikeAgentQuestion(finalResponse)) {
+      playUltronSound('question');
+    } else {
+      playUltronSound('task_complete');
+    }
+
+    persistTaskMemory(`[SEARCH${useDeepResearch ? '/DEEP' : ''}] Query: "${String(searchQuery).substring(0, 40)}" -> ${finalResponse.substring(0, 60)}...`);
+  } catch (e) {
+    const errCard = `Web search failed: ${e.message}. Please try again.`;
+    await typeMessageResponse(aiBubble, errCard, { instant: true });
+    appendChatMessage('Ultron', errCard, true, { skipRender: true });
+  }
+}
+
 async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayloads = []) {
+  // Content-only requests should never enter the tool/screen loop.
+  if (isContentGenerationRequest(userPrompt) && !hasDesktopActionCues(userPrompt)) {
+    renderMessageContent(aiBubble, composeAgentLiveContent(getAgentShimmerLineHtml('Writing')));
+    const raw = await queryOfflineLLM(userPrompt, [], 'conversation', null, imagePayloads || []);
+    const answer = (isCodeOnlyGenerationRequest(userPrompt)
+      ? sanitizeCodeGenerationResponse(raw || '', userPrompt)
+      : sanitizeResponseText(raw || '', userPrompt)) || "I'm ready to help — could you rephrase that?";
+    const fullFinalContent = composeAgentFinalContent([], [], answer, 0);
+    await typeMessageResponse(aiBubble, fullFinalContent, { instant: true });
+    appendChatMessage('Ultron', fullFinalContent, true, { skipRender: true });
+    return answer;
+  }
+
   if (window.UltronAgentMemory && typeof window.UltronAgentMemory.findWorkflowByPrompt === 'function') {
     const workflow = window.UltronAgentMemory.findWorkflowByPrompt(userPrompt);
     if (workflow && workflow.steps && workflow.steps.length) {
-      userPrompt = `${userPrompt}\n\n[Run workflow "${workflow.name}": ${workflow.steps.join(' then ')}]`;
+      userPrompt = typeof window.UltronAgentMemory.workflowToAgentPrompt === 'function'
+        ? window.UltronAgentMemory.workflowToAgentPrompt(workflow)
+        : `${userPrompt}\n\n[Run workflow "${workflow.name}": ${workflow.steps.join(' then ')}]`;
+      logTrace(`Running saved workflow: ${workflow.name}`, 'system');
+    }
+  }
+
+  if (window.UltronAgentSegmentation && window.UltronAgentSegmentation.isCompoundPrompt(userPrompt)) {
+    const segments = window.UltronAgentSegmentation.segmentUserPrompt(userPrompt);
+    if (segments.length > 1) {
+      userPrompt = window.UltronAgentSegmentation.buildSegmentedAgentPrompt(segments, 0);
+      logTrace(`Multi-step request: running segment 1 of ${segments.length}`, 'system');
+    }
+  }
+
+  if (window.UltronDialogueState && typeof window.UltronDialogueState.updateFromTurn === 'function') {
+    window.UltronDialogueState.updateFromTurn(userPrompt);
+  }
+
+  // Ensure desktop connectors (UIA) are ready before first tool call
+  if (hasDesktopActionCues(userPrompt) || intent === 'action') {
+    const autoReady = await ensureDesktopAutomationReady();
+    if (autoReady.uia && !autoReady.already) {
+      await refreshMcpConnectorBadges();
     }
   }
 
   let steps = 0;
-  const maxSteps = 8;
+  const agentRuntime = getAgentRuntimeSettings();
+  const maxSteps = agentRuntime.maxTurns || 10;
+  if (window.UltronLoopGuard) {
+    window.UltronLoopGuard.configure(agentRuntime.loopGuard || {});
+    window.UltronLoopGuard.reset();
+  }
   const loopStartedAt = Date.now();
   let loopImagePayloads = mergeImagePayloads(imagePayloads || []);
   let hasVisualContext = loopImagePayloads.length > 0;
-  const canCaptureScreen = isScreenCaptureEnabled();
-  let currentPrompt = buildAgentToolPrompt(userPrompt, 1, '', { hasVisualContext, canCaptureScreen });
+  const skillsSnippet = buildAgentSkillsSnippet(userPrompt);
+  const mcpSnippet = (window.UltronMcpTools && typeof window.UltronMcpTools.getMcpToolsSnippet === 'function')
+    ? await window.UltronMcpTools.getMcpToolsSnippet()
+    : '';
+  let currentPrompt = buildAgentToolPrompt(userPrompt, 1, '', { hasVisualContext, canCaptureScreen: isScreenCaptureEnabled() && needsScreenCaptureForTask(userPrompt) });
+  if (skillsSnippet) currentPrompt += skillsSnippet;
+  if (window.UltronDialogueState && typeof window.UltronDialogueState.getPromptSnippet === 'function') {
+    currentPrompt += window.UltronDialogueState.getPromptSnippet();
+  }
+  const sessionFollowUp = getRecentSessionContextSnippet(4);
+  if (sessionFollowUp && isFollowUpAboutPriorTurn(userPrompt)) {
+    currentPrompt = `${sessionFollowUp}\n\n${currentPrompt}`;
+  }
   let accumulatedContext = [];
   let isDone = false;
   let finalResponse = '';
@@ -3776,11 +6072,11 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
   let completionNudges = 0;
   let showTaskPlan = false;
 
-  const userNameEl = document.querySelector('.profile-detail-name');
-  const userName = userNameEl ? userNameEl.textContent.trim() : 'Vedant Wankhade';
+  const userName = getUserFullName();
   const sysEnv = await getSystemContext();
   const realtime = buildRealtimeContext(sysEnv);
   const memorySnippet = getLearnedMemorySnippet();
+  const canCaptureScreen = isScreenCaptureEnabled() && needsScreenCaptureForTask(userPrompt);
 
   let agentSubgoals = [];
   let activitySteps = [];
@@ -3789,14 +6085,14 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
   // until the model has selected its first action.
   activeSubgoals = [];
   renderChecklist([]);
-  ensureRightSidebarVisible();
-  renderMessageContent(aiBubble, composeAgentLiveContent(
-    getAgentShimmerLineHtml('Thinking')
-  ));
+  // Sidebar no longer auto-opens when agent starts — user controls visibility
+  renderAgentLiveContent(aiBubble, {
+    shimmerText: 'Thinking'
+  });
 
   if (loopImagePayloads.length > 0) pushAgentProgressStep(activitySteps, 'MEDIA');
 
-  if (isScreenCaptureEnabled() && intent === 'action') {
+  if (isScreenCaptureEnabled() && intent === 'action' && needsScreenCaptureForTask(userPrompt)) {
     await ensureVisionModelForScreen();
     pushAgentProgressStep(activitySteps, 'SCREEN');
     if (canUseScreenAnalysis()) {
@@ -3831,139 +6127,113 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
   }
 
   const agentSystemPrompt = resolveAgentSystemPrompt(
-    buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet, hasVisualContext)
+    buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet, hasVisualContext, skillsSnippet, mcpSnippet)
   );
 
-  // If intent is 'search', immediately do a web search first
+  // If intent is 'search', run web search (single-hop or deep multi-hop research)
   if (intent === 'search') {
-    pushAgentProgressStep(activitySteps, 'SEARCH', { query: 'strategy' });
-    renderMessageContent(aiBubble, composeAgentLiveContent(
-      renderTaskWidgetHtml(agentSubgoals),
-      renderActivityFeedHtml(activitySteps),
-      getWebSearchCardHtml('Analyzing prompt & formulating search strategy...')
-    ));
-    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-
-    await new Promise(resolve => setTimeout(resolve, 300));
-
-    const searchQuery = await buildWebSearchQuery(userPrompt);
-
-    activitySteps.push({ type: 'SEARCH', label: getAgentProgressMessage('SEARCH', { query: searchQuery }) });
-    renderMessageContent(aiBubble, composeAgentLiveContent(
-      renderTaskWidgetHtml(agentSubgoals),
-      renderActivityFeedHtml(activitySteps),
-      getWebSearchCardHtml(searchQuery)
-    ));
-    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-
-    agentSubgoals.push({ text: `Web Search: "${searchQuery.substring(0, 25)}"`, completed: false, status: 'in_progress' });
-    activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
-    renderChecklist(activeSubgoals);
-    
-    let searchResult = null;
-    try {
-      const rawSearchResult = await window.ultronAPI.searchWeb(searchQuery);
-      searchResult = normalizeSearchPayload(rawSearchResult, searchQuery);
-      
-      agentSubgoals[agentSubgoals.length - 1].completed = true;
-      agentSubgoals[agentSubgoals.length - 1].status = 'completed';
-      activitySteps.push({ type: 'SEARCH', label: getAgentProgressMessage('SEARCH', { query: `results (${searchResult.results?.length || 0})` }) });
-      
-      activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
-      renderChecklist(activeSubgoals);
-
-      renderMessageContent(aiBubble, composeAgentLiveContent(
-        renderTaskWidgetHtml(agentSubgoals),
-        renderActivityFeedHtml(activitySteps),
-        getWebSearchCardHtml('Analyzing live web results...')
-      ));
-      chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-
-      if (shouldAskForSearchClarification(searchResult)) {
-        finalResponse = searchResult.clarification || `I searched for "${searchQuery}", but the results were too thin to answer confidently. Can you add a brand, budget, location, or what kind of result you want?`;
-      } else {
-        const liveContext = searchContextForLLM(searchResult);
-        const summarySystemPrompt = `You are Ultron, an intelligent, helpful AI assistant in a direct 1-on-1 personal conversation with Vedant Wankhade.
-Answer the request directly using the live web information provided.
-
-CRITICAL INSTRUCTIONS:
-- Give a clear, direct, structured answer (with specific product names, recommendations, prices, features, or facts).
-- Speak directly in the first person using "I" and "you".
-- DO NOT output meta-narration or prompt generator instructions (NEVER write "Based on the given user prompt", "Search Query Generator", "Here are keywords", "Live information:").
-- DO NOT include raw URLs inside the body text. Source buttons are displayed separately below your answer.
-- Format lists cleanly with Markdown bullet points and bold titles.`;
-
-        const summaryPrompt = `Original request:
-${userPrompt}
-
-Search query used:
-${searchQuery}
-
-Live information:
-${liveContext}
-
-Write the direct final answer now.`;
-
-        let summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt, loopImagePayloads);
-        if (!summary || summary.trim() === '' || summary.includes('offline model loop failed') || summary.includes('Search Query Generator')) {
-          summary = `I found ${searchResult.results.length} live result${searchResult.results.length === 1 ? '' : 's'} for "${searchQuery}". Open the sources below to inspect the original pages.`;
-        }
-
-        finalResponse = sanitizeResponseText(summary, userPrompt, {
-          allowedUrls: (searchResult.results || []).map(item => item.url).filter(Boolean)
-        });
-      }
-    } catch (e) {
-      finalResponse = `Web search failed: ${e.message}. Please try again.`;
-    }
-
-    agentSubgoals.push({ text: 'Task completed successfully', completed: true, status: 'completed' });
-    activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
-    renderChecklist(activeSubgoals);
-    
-    const searchExperienceMarkup = typeof searchResult !== 'undefined' && searchResult.results && searchResult.results.length > 0
-      ? renderSearchExperience(finalResponse, searchResult)
-      : finalResponse;
-
-    const fullFinalContent = composeAgentFinalContent(showTaskPlan ? agentSubgoals : [], activitySteps, searchExperienceMarkup, Date.now() - loopStartedAt);
-
-    await typeMessageResponse(aiBubble, fullFinalContent, { instant: true });
-    appendChatMessage('Ultron', fullFinalContent, true, { skipRender: true });
-
-    if (looksLikeAgentQuestion(finalResponse)) {
-      playUltronSound('question');
-    } else {
-      playUltronSound('task_complete');
-    }
-
-    persistTaskMemory(`[SEARCH] Query: "${searchQuery.substring(0, 40)}" -> ${finalResponse.substring(0, 60)}...`);
+    await runSearchIntentFlow(userPrompt, aiBubble, loopImagePayloads, activitySteps, agentSubgoals, loopStartedAt, showTaskPlan);
     return;
   }
 
   while (steps < maxSteps && !isDone) {
     steps++;
+
+    // Check if user clicked the stop button
+    if (_activeAbortController && _activeAbortController.signal.aborted) {
+      activitySteps.push({ type: 'STOPPED', label: 'Stopped by user' });
+      finalResponse = 'Generation stopped.';
+      isDone = true;
+      break;
+    }
+
     logTrace(`Agent Loop Step ${steps}/${maxSteps}...`, 'system');
 
     const thinkingStartedAt = Date.now();
+    let toolCall = null;
+    let rawResponse = '';
 
-    renderMessageContent(aiBubble, composeAgentLiveContent(
-      showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : '',
-      renderActivityFeedHtml(activitySteps),
-      getAgentShimmerLineHtml('Thinking')
-    ));
+    // Fast path: rule parser (Vayu) or file/folder creation — skip LLM when deterministic
+    if (steps === 1 && window.UltronCommandParser && window.UltronCommandParser.canUseRuleParser(userPrompt)) {
+      const parsed = window.UltronCommandParser.tryParseToToolCall(userPrompt);
+      if (parsed) {
+        toolCall = parsed;
+        activitySteps.push({
+          type: 'THINKING',
+          label: `Plan: ${humanizeToolCallLabel(toolCall)}`
+        });
+        activitySteps.push({
+          type: 'EXECUTE',
+          label: `Direct: ${humanizeToolCallLabel(toolCall)}`
+        });
+        logTrace(`Rule-based parser handled: ${humanizeToolCallLabel(toolCall)}`, 'system');
+      }
+    }
+    if (steps === 1 && !toolCall) {
+      toolCall = detectFallbackToolCall(userPrompt);
+      if (toolCall) {
+        activitySteps.push({
+          type: 'THINKING',
+          label: `Plan: ${humanizeToolCallLabel(toolCall)}`
+        });
+        activitySteps.push({
+          type: 'EXECUTE',
+          label: `Direct: ${humanizeToolCallLabel(toolCall)}`
+        });
+        logTrace(`Fallback parser handled: ${humanizeToolCallLabel(toolCall)}`, 'system');
+      }
+    }
+
+    if (toolCall && steps === 1) {
+      renderAgentLiveContent(aiBubble, {
+        widgetsHtml: `${showTaskPlan ? renderTaskWidgetHtml(agentSubgoals, deriveTaskPlanTitle(userPrompt)) : ''}${renderActivityFeedHtml(activitySteps)}`,
+        shimmerText: humanizeToolCallLabel(toolCall)
+      });
+    }
+
+    if (!toolCall) {
+    renderAgentLiveContent(aiBubble, {
+      widgetsHtml: `${showTaskPlan ? renderTaskWidgetHtml(agentSubgoals, deriveTaskPlanTitle(userPrompt)) : ''}${renderActivityFeedHtml(activitySteps)}`,
+      shimmerText: 'Thinking'
+    });
 
     // 1. Query LLM for next step/action
-    let rawResponse = await queryOfflineLLM(currentPrompt, accumulatedContext, intent, agentSystemPrompt, loopImagePayloads);
+    try {
+      rawResponse = await queryOfflineLLM(currentPrompt, accumulatedContext, intent, agentSystemPrompt, loopImagePayloads);
+    } catch (llmErr) {
+      if (llmErr.name === 'AbortError' || (_activeAbortController && _activeAbortController.signal.aborted)) {
+        activitySteps.push({ type: 'STOPPED', label: 'Stopped by user' });
+        finalResponse = '';
+        isDone = true;
+        break;
+      }
+      throw llmErr;
+    }
     if (!rawResponse || typeof rawResponse !== 'string') {
       rawResponse = '';
     }
 
     // Replace the live "deciding..." entry with a Cursor-style timed line
-    activitySteps.push({
-      type: 'THINKING',
-      label: `Thought for ${formatWorkDuration(Date.now() - thinkingStartedAt)}`
-    });
+    const agentThought = extractReactThought(rawResponse);
+    if (agentThought) {
+      activitySteps.push({
+        type: 'THINKING',
+        label: agentThought.length > 140 ? `${agentThought.slice(0, 137)}…` : agentThought
+      });
+      renderAgentLiveContent(aiBubble, {
+        widgetsHtml: `${showTaskPlan ? renderTaskWidgetHtml(agentSubgoals, deriveTaskPlanTitle(userPrompt)) : ''}${renderActivityFeedHtml(activitySteps)}`,
+        shimmerText: 'Planning next step'
+      });
+      await new Promise(resolve => setTimeout(resolve, 350));
+    } else {
+      activitySteps.push({
+        type: 'THINKING',
+        label: `Thought for ${formatWorkDuration(Date.now() - thinkingStartedAt)}`
+      });
+    }
+    } // end if (!toolCall) — LLM planning block
 
+    if (!toolCall) {
     // The auto-selected vision model could not load (out of memory): revert to
     // the previous text model and keep the task going without screenshots.
     if (isModelLoadFailureResponse(rawResponse) && revertVisionModelSwitch('out of memory')) {
@@ -3982,8 +6252,78 @@ Write the direct final answer now.`;
 
     rawResponse = rawResponse.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
 
+    if (!toolCall) {
+    const reactFinalAnswer = extractReactFinalAnswer(rawResponse);
+    if (reactFinalAnswer) {
+      const expectsDesktopWork = hasDesktopActionCues(userPrompt) || intent === 'action';
+      const unfinishedWork = hasUnfinishedExplicitTask(userPrompt, executedAppActions);
+      const shouldForceTool = expectsDesktopWork
+        && (executedAppActions.length === 0 || unfinishedWork)
+        && (isInstructionalFinalAnswer(reactFinalAnswer) || unfinishedWork || /\b(open|launch|start|read|write|list|go to|navigate|download|downlaod|create|folder|mkdir|file)\b/i.test(userPrompt));
+
+      if (shouldForceTool && completionNudges < 3) {
+        toolCall = detectFallbackToolCall(userPrompt);
+        if (toolCall) {
+          completionNudges++;
+          activitySteps.push({
+            type: 'EXECUTE',
+            label: humanizeToolCallLabel(toolCall)
+          });
+        } else {
+          isDone = true;
+          finalResponse = sanitizeResponseText(reactFinalAnswer, userPrompt);
+          if (!finalResponse.trim()) finalResponse = "Done. Let me know if you need anything else.";
+          break;
+        }
+      } else if (unfinishedWork && completionNudges < 3) {
+        completionNudges++;
+        toolCall = detectFallbackToolCall(userPrompt);
+        if (!toolCall) {
+          accumulatedContext.push({ role: 'assistant', content: rawResponse });
+          accumulatedContext.push({ role: 'user', content: buildMissingActionInstruction(userPrompt, executedAppActions) });
+          currentPrompt = `${buildAgentToolPrompt(userPrompt, steps + 1, 'Do not give Final Answer until every requested step is done.', { hasVisualContext, canCaptureScreen })}\n\n${buildMissingActionInstruction(userPrompt, executedAppActions)}`;
+          activitySteps.push({ type: 'THINKING', label: 'Continuing the unfinished request' });
+          continue;
+        }
+      } else if (expectsDesktopWork && executedAppActions.length === 0 && completionNudges < 3) {
+        toolCall = detectFallbackToolCall(userPrompt);
+        if (toolCall) {
+          completionNudges++;
+          activitySteps.push({ type: 'EXECUTE', label: humanizeToolCallLabel(toolCall) });
+        } else {
+          isDone = true;
+          finalResponse = "I couldn't run that on your PC — the model answered without executing anything. Try rephrasing, e.g. `create a folder named vedant in downloads`.";
+          break;
+        }
+      } else if (expectsDesktopWork && executedAppActions.length === 0 && claimsDesktopTaskCompleted(reactFinalAnswer)) {
+        isDone = true;
+        finalResponse = "**That didn't actually run on your computer.** The model claimed success without creating anything. Try again — Ultron will run the command directly.";
+        break;
+      } else {
+        isDone = true;
+        finalResponse = sanitizeResponseText(reactFinalAnswer, userPrompt);
+        if (!finalResponse.trim()) finalResponse = "Done. Let me know if you need anything else.";
+        break;
+      }
+    }
+
     // 2. Parse for tool calls (with fallback intent steerer for small models like tinyllama)
-    let toolCall = parseAgentToolCall(rawResponse, steps === 1 ? userPrompt : '');
+    if (!toolCall) {
+      toolCall = parseAgentToolCall(rawResponse, userPrompt);
+    }
+    toolCall = sanitizeParsedToolCall(toolCall, userPrompt);
+
+    if (!toolCall && (!rawResponse || !rawResponse.trim())) {
+      toolCall = detectFallbackToolCall(userPrompt);
+    }
+
+    if (!toolCall) {
+      const expectsDesktopWork = hasDesktopActionCues(userPrompt) || intent === 'action';
+      if (expectsDesktopWork && executedAppActions.length === 0 && completionNudges < 2) {
+        completionNudges++;
+        toolCall = detectFallbackToolCall(userPrompt);
+      }
+    }
 
     if (!toolCall) {
       if (hasUnfinishedExplicitTask(userPrompt, executedAppActions) && completionNudges < 2) {
@@ -3997,16 +6337,59 @@ ${missingInstruction}`;
         activitySteps.push({ type: 'THINKING', label: 'Continuing the unfinished request' });
         continue;
       }
-      // No tool calls and no explicit work remains: task complete.
+      // No tool calls and no explicit work remains
+      if (hasDesktopActionCues(userPrompt) && executedAppActions.length === 0 && completionNudges < 3) {
+        const fallback = detectFallbackToolCall(userPrompt);
+        if (fallback) {
+          completionNudges++;
+          toolCall = fallback;
+          activitySteps.push({ type: 'EXECUTE', label: humanizeToolCallLabel(fallback) });
+        }
+      }
+      if (!toolCall) {
       isDone = true;
-      finalResponse = rawResponse || "Task completed successfully.";
+      finalResponse = sanitizeResponseText(rawResponse || '', userPrompt);
+      if (modelAnsweredWithoutExecuting(userPrompt, finalResponse, executedAppActions, intent)) {
+        finalResponse = "**That didn't actually run on your computer.** The model answered without executing anything. Try again — Ultron will run the command directly.";
+      } else if (!finalResponse.trim()) {
+        if (hasDesktopActionCues(userPrompt) && executedAppActions.length === 0) {
+          finalResponse = "I couldn't complete that desktop task — the model didn't choose a tool. Try rephrasing with explicit steps (e.g. \"open Notepad and type hello\") or switch to **phi3** / **gemma2** in the model dropdown.";
+        } else {
+          finalResponse = "Done. Let me know if you need anything else.";
+        }
+      }
       break;
+      }
     }
+    }
+    } // end if (!toolCall) — parse / fallback block
 
     // 3. Execute tool based on tool type
     await enrichToolCallAppPresentation(toolCall);
     const toolTargetLabel = getToolTargetLabel(toolCall);
     logTrace(`Agent Action Step ${steps}: Executing ${toolCall.type} (${toolTargetLabel.substring(0, 40)}...)`, 'local');
+
+    if (window.UltronLoopGuard) {
+      const guardVerdict = window.UltronLoopGuard.checkCall(toolCall);
+      if (guardVerdict.warned) {
+        activitySteps.push({ type: 'THINKING', label: `Loop warning: ${guardVerdict.reason}` });
+      }
+      if (guardVerdict.blocked) {
+        accumulatedContext.push({ role: 'assistant', content: rawResponse });
+        accumulatedContext.push({
+          role: 'user',
+          content: `[Loop Guard]: ${guardVerdict.reason} Try a different tool or approach, or give the Final Answer if the task is complete.`
+        });
+        if (window.UltronLoopGuard.compressContext) {
+          accumulatedContext = window.UltronLoopGuard.compressContext(
+            accumulatedContext,
+            agentRuntime.contextWindowMessages
+          );
+        }
+        currentPrompt = buildAgentToolPrompt(userPrompt, steps + 1, guardVerdict.reason, { hasVisualContext, canCaptureScreen });
+        continue;
+      }
+    }
 
     if (agentSubgoals.length === 0) {
       showTaskPlan = shouldCreateAgentTaskPlan(userPrompt, toolCall);
@@ -4060,11 +6443,10 @@ ${missingInstruction}`;
     activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
     renderChecklist(activeSubgoals);
 
-    renderMessageContent(aiBubble, composeAgentLiveContent(
-      showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : '',
-      renderActivityFeedHtml(activitySteps),
-      getAgentShimmerLineHtml(humanizeToolCallLabel(toolCall))
-    ));
+    renderAgentLiveContent(aiBubble, {
+      widgetsHtml: `${showTaskPlan ? renderTaskWidgetHtml(agentSubgoals, deriveTaskPlanTitle(userPrompt)) : ''}${renderActivityFeedHtml(activitySteps)}`,
+      shimmerText: humanizeToolCallLabel(toolCall)
+    });
     chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
 
     let toolResult = '';
@@ -4091,17 +6473,19 @@ ${missingInstruction}`;
           sequenceTask.status = 'in_progress';
           activeSubgoals = agentSubgoals.map(task => ({ ...task }));
           renderChecklist(activeSubgoals);
-          renderMessageContent(aiBubble, composeAgentLiveContent(
-            showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : '',
-            renderActivityFeedHtml(activitySteps),
-            getAgentShimmerLineHtml(humanizeToolCallLabel(actionTool))
-          ));
+          renderAgentLiveContent(aiBubble, {
+            widgetsHtml: `${showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : ''}${renderActivityFeedHtml(activitySteps)}`,
+            shimmerText: humanizeToolCallLabel(actionTool)
+          });
         }
         const stepResult = executor
           ? await executor.executeAgentToolCall(actionTool, { withTimeout, canCaptureScreen })
           : schema.normalizeToolResult(await withTimeout(window.ultronAPI.appAction(actionTool), 20000));
         results.push(`${action.action}: ${stepResult.success ? stepResult.message : `failed - ${stepResult.message}`}`);
         if (stepResult.success) executedAppActions.push(String(action.action || '').toUpperCase());
+        if (window.UltronAgentMemory && typeof window.UltronAgentMemory.recordAppOutcome === 'function' && ['OPEN_APP', 'FOCUS_APP'].includes(String(action.action || '').toUpperCase())) {
+          window.UltronAgentMemory.recordAppOutcome(action.appName || action.target, stepResult.success);
+        }
         if (sequenceTask) {
           sequenceTask.completed = stepResult.success;
           sequenceTask.status = stepResult.success ? 'completed' : 'failed';
@@ -4112,41 +6496,61 @@ ${missingInstruction}`;
       const failedResult = results.find(result => result.includes('failed -'));
       finalResponse = failedResult
         ? `I couldn't complete the app workflow. ${failedResult.replace(/^[A-Z_]+:\s*/, '')}`
-        : `Completed the requested actions${_activeAgentApp.name ? ` in **${_activeAgentApp.name}**` : ''}.`;
+        : (resolveFolderTargetFromPrompt(userPrompt)
+          ? `Opened **File Explorer** and navigated to the requested folder.`
+          : `Completed the requested actions${_activeAgentApp.name ? ` in **${_activeAgentApp.name}**` : ''}.`);
       isDone = true;
-    } else if (toolCall.type === 'SEARCH') {
-      const searchTarget = await buildWebSearchQuery(toolCall.target || userPrompt);
+    } else if (toolCall.type === 'WEB_FETCH') {
+      if (executor && typeof executor.isWebSearchEnabled === 'function' && !executor.isWebSearchEnabled()) {
+        finalResponse = renderErrorRecoveryCard('SEARCH_DISABLED', 'Web fetch is disabled. Enable web search from the + menu.');
+        isDone = true;
+      } else {
+      const pageUrl = toolCall.url || toolCall.target || '';
+      pushAgentProgressStep(activitySteps, 'WEB_FETCH', { url: pageUrl });
       renderMessageContent(aiBubble, composeAgentLiveContent(
         showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : '',
         renderActivityFeedHtml(activitySteps),
-        getWebSearchCardHtml(searchTarget)
+        getWebSearchCardHtml(`Fetching ${pageUrl}`)
       ));
       chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+
+      let pageContent = '';
+      if (window.UltronMcpTools && typeof window.UltronMcpTools.fetchPageMarkdown === 'function') {
+        pageContent = await window.UltronMcpTools.fetchPageMarkdown(pageUrl) || '';
+      }
+      if (!pageContent) {
+        finalResponse = `Could not fetch content from ${pageUrl}. Check the URL or your network connection.`;
+      } else {
+        toolResult = pageContent.slice(0, 12000);
+        const summarySystemPrompt = `You are Ultron in a direct 1-on-1 conversation.
+Summarize or answer using ONLY the fetched page content below.
+Never include raw URLs in the body. Be concise and structured.`;
+        const summaryPrompt = `User request:
+${userPrompt}
+
+Page URL:
+${pageUrl}
+
+Fetched content:
+${toolResult}
+
+Write the final answer now.`;
+        const summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt, loopImagePayloads);
+        finalResponse = sanitizeResponseText(summary || toolResult.slice(0, 2000), userPrompt);
+      }
+      isDone = true;
+      }
+    } else if (toolCall.type === 'SEARCH') {
+      const searchTarget = await buildWebSearchQuery(toolCall.target || userPrompt);
+      activitySteps[actionProgressIndex].label = getAgentProgressMessage('SEARCH', { query: searchTarget });
+      renderSearchLiveStatus(aiBubble, agentSubgoals, searchTarget, showTaskPlan);
 
       const searchRes = await withTimeout(window.ultronAPI.searchWeb(searchTarget), 20000);
       const searchPayload = normalizeSearchPayload(searchRes, searchTarget);
       toolResult = searchContextForLLM(searchPayload) || `Web search failed.`;
       if (!shouldAskForSearchClarification(searchPayload)) {
-        const summarySystemPrompt = `You are Ultron in a direct 1-on-1 conversation.
-Use the live information to answer the request naturally.
-Never say "the user", "the user's question", "to answer", "based on the search results", or similar meta narration.
-Only use facts present in the live information. If details are missing, say what is missing and ask one concise follow-up question.
-Do NOT include hyperlinks or raw URLs in your answer. Verified source links are shown separately below your answer.
-Start with the answer itself and keep the tone clear, useful, and concise.`;
-        const summaryPrompt = `Original request:
-${userPrompt}
-
-Search query used:
-${searchTarget}
-
-Live information:
-${toolResult}
-
-Write the final answer now.`;
-
-        const summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt, loopImagePayloads);
-        const answer = sanitizeResponseText(summary || `I found ${searchPayload.results.length} live results for "${searchTarget}".`, userPrompt, {
-          allowedUrls: (searchPayload.results || []).map(item => item.url).filter(Boolean)
+        const answer = await summarizeSearchAnswer(userPrompt, searchPayload, searchTarget, {
+          imagePayloads: loopImagePayloads
         });
         finalResponse = renderSearchExperience(answer, searchPayload);
       } else {
@@ -4158,13 +6562,20 @@ Write the final answer now.`;
       execResult = await executor.executeAgentToolCall(toolCall, {
         withTimeout,
         canCaptureScreen,
-        captureScreenForAgent
+        captureScreenForAgent,
+        activeAppName: _activeAgentApp.name
       });
       toolResult = schema ? schema.toolResultToObservation(execResult) : execResult.message;
 
       if (execResult.success) {
         if (toolCall.type === 'APP_ACTION') {
           executedAppActions.push(String(toolCall.action || '').toUpperCase());
+          if (window.UltronAgentMemory && typeof window.UltronAgentMemory.recordAppOutcome === 'function') {
+            const appName = execResult.resolvedApp || toolCall.appName || toolCall.target;
+            window.UltronAgentMemory.recordAppOutcome(appName, true);
+          }
+        } else if (toolCall.type === 'WRITE_FILE') {
+          executedAppActions.push('WRITE_FILE');
         }
         if (toolCall.type === 'CAPTURE_SCREEN' && execResult.raw && execResult.raw.shot) {
           const shot = execResult.raw.shot;
@@ -4185,31 +6596,87 @@ Write the final answer now.`;
               finalResponse += `\n\n**Execution Output:**\n\`\`\`text\n${execRes.stdout || 'Done'}\n\`\`\``;
             }
           }
-          isDone = !shouldContinueAgentLoopAfterTool(toolCall);
+          isDone = !shouldContinueAgentLoopAfterTool(toolCall, userPrompt);
         } else if (toolCall.type === 'READ_FILE') {
           finalResponse = `**File Content (${toolCall.target}):**\n\`\`\`text\n${execResult.evidence}\n\`\`\``;
-          isDone = !shouldContinueAgentLoopAfterTool(toolCall);
+          isDone = !shouldContinueAgentLoopAfterTool(toolCall, userPrompt);
         } else if (toolCall.type === 'LIST_DIR') {
           finalResponse = `**Directory Contents (${toolCall.target}):**\n\`\`\`text\n${execResult.evidence}\n\`\`\``;
-          isDone = !shouldContinueAgentLoopAfterTool(toolCall);
-        } else if (toolCall.type === 'EXECUTE' && toolCall.target.startsWith('mkdir')) {
-          finalResponse = `Folder created successfully on computer at **${toolCall.target.replace('mkdir ', '').replace(/"/g, '')}**.`;
+          isDone = !shouldContinueAgentLoopAfterTool(toolCall, userPrompt);
+        } else if (toolCall.type === 'EXECUTE') {
+          executedAppActions.push('EXECUTE');
+          if (toolCall.target.startsWith('mkdir')) {
+            const path = toolCall.target.replace(/^mkdir\s+/i, '').replace(/^"|"$/g, '');
+            finalResponse = `Folder created at **${path}**.`;
+          } else {
+            finalResponse = execResult.message || 'Command completed.';
+          }
           isDone = true;
-        } else if (shouldContinueAgentLoopAfterTool(toolCall) || hasUnfinishedExplicitTask(userPrompt, executedAppActions)) {
+        } else if (shouldContinueAgentLoopAfterTool(toolCall, userPrompt, executedAppActions) || hasUnfinishedExplicitTask(userPrompt, executedAppActions)) {
           isDone = false;
+        } else if (toolCall.type === 'APP_ACTION' && toolCall.action === 'OPEN_APP') {
+          if (hasUnfinishedExplicitTask(userPrompt, executedAppActions)) {
+            isDone = false;
+            finalResponse = '';
+          } else {
+            finalResponse = `Opened **${execResult.resolvedApp || toolCall.appName || toolCall.target}**.`;
+            isDone = true;
+          }
+        } else if (toolCall.type === 'APP_ACTION' && toolCall.action === 'OPEN_FILE') {
+          const folderName = (toolCall.path || toolCall.target || '').split(/[\\/]/).filter(Boolean).pop() || 'folder';
+          finalResponse = hasUnfinishedExplicitTask(userPrompt, executedAppActions)
+            ? ''
+            : `Opened **${folderName}**.`;
+          isDone = !hasUnfinishedExplicitTask(userPrompt, executedAppActions);
         } else {
           finalResponse = execResult.message;
           isDone = true;
         }
       } else {
         pushAgentProgressStep(activitySteps, 'ERROR');
+        if (toolCall.type === 'APP_ACTION' && window.UltronAgentMemory && typeof window.UltronAgentMemory.recordAppOutcome === 'function') {
+          window.UltronAgentMemory.recordAppOutcome(toolCall.appName || toolCall.target, false);
+        }
         if (execResult.errorCode === 'APP_AMBIGUOUS') {
           finalResponse = renderClarifyAppCard(toolCall.appName || toolCall.target, execResult.suggestions);
           playUltronSound('question');
+          isDone = true;
+        } else if ((execResult.errorCode === 'APP_NOT_FOUND' || isInvalidAppToolCall(toolCall))
+          && completionNudges < 3) {
+          const fallback = detectFallbackToolCall(userPrompt);
+          if (fallback) {
+            completionNudges++;
+            activitySteps.push({ type: 'THINKING', label: 'Retrying with direct fallback' });
+            execResult = await executor.executeAgentToolCall(fallback, {
+              withTimeout,
+              canCaptureScreen,
+              captureScreenForAgent,
+              activeAppName: _activeAgentApp.name
+            });
+            toolCall = fallback;
+            toolResult = schema ? schema.toolResultToObservation(execResult) : execResult.message;
+            if (execResult.success) {
+              if (fallback.type === 'WRITE_FILE') {
+                executedAppActions.push('WRITE_FILE');
+                finalResponse = `File created successfully at **${execResult.evidence || fallback.targetPath}**.${renderUndoActionCard()}`;
+              } else {
+                finalResponse = execResult.message || 'Action completed.';
+              }
+              currentSubgoal.completed = true;
+              currentSubgoal.status = 'completed';
+              isDone = true;
+            } else {
+              finalResponse = renderErrorRecoveryCard(execResult.errorCode || 'EXEC_FAILED', execResult.message, execResult);
+              isDone = true;
+            }
+          } else {
+            finalResponse = renderErrorRecoveryCard(execResult.errorCode, execResult.message, execResult);
+            isDone = true;
+          }
         } else {
           finalResponse = renderErrorRecoveryCard(execResult.errorCode, execResult.message, execResult);
+          isDone = true;
         }
-        isDone = true;
       }
     } else {
       toolResult = `Unsupported tool type: ${toolCall.type}`;
@@ -4231,7 +6698,7 @@ Write the final answer now.`;
       if (resolvedName) _activeAgentApp = { name: resolvedName, icon: resolvedIcon };
     }
 
-    if (!isDone && shouldContinueAgentLoopAfterTool(toolCall) && toolCall.type !== 'CAPTURE_SCREEN') {
+    if (!isDone && shouldContinueAgentLoopAfterTool(toolCall, userPrompt, executedAppActions) && toolCall.type !== 'CAPTURE_SCREEN') {
       await new Promise(resolve => setTimeout(resolve, 600));
       pushAgentProgressStep(activitySteps, 'VERIFY');
       if (canUseScreenAnalysis()) {
@@ -4260,40 +6727,94 @@ Write the final answer now.`;
     }
 
     // 4. Append observation to context for self-correction feedback loop
-    accumulatedContext.push({ role: 'assistant', content: rawResponse });
-    accumulatedContext.push({ role: 'user', content: `[Observation / System Result]:\n${toolResult}\n\nContinue toward completing the user's task.` });
-    
-    currentPrompt = buildAgentToolPrompt(userPrompt, steps + 1, toolResult, { hasVisualContext, canCaptureScreen });
-    if (hasUnfinishedExplicitTask(userPrompt, executedAppActions)) {
-      currentPrompt += `\n\n${buildMissingActionInstruction(userPrompt, executedAppActions)}`;
+    if (!isDone) {
+      accumulatedContext.push({ role: 'assistant', content: rawResponse });
+      accumulatedContext.push({ role: 'user', content: `[Observation / System Result]:\n${toolResult}\n\nContinue toward completing the user's task.` });
+
+      if (window.UltronLoopGuard && window.UltronLoopGuard.compressContext) {
+        accumulatedContext = window.UltronLoopGuard.compressContext(
+          accumulatedContext,
+          agentRuntime.contextWindowMessages
+        );
+      }
+
+      currentPrompt = buildAgentToolPrompt(userPrompt, steps + 1, toolResult, { hasVisualContext, canCaptureScreen });
+      if (hasUnfinishedExplicitTask(userPrompt, executedAppActions)) {
+        currentPrompt += `\n\n${buildMissingActionInstruction(userPrompt, executedAppActions)}`;
+      }
     }
   }
 
   if (!finalResponse) {
-    finalResponse = isDone
-      ? 'Task completed successfully.'
-      : 'Reached the maximum number of agent steps. Review the activity feed for partial progress.';
+    if (_activeAbortController && _activeAbortController.signal.aborted) {
+      finalResponse = 'Generation stopped.';
+    } else {
+      finalResponse = isDone
+        ? 'Task completed successfully.'
+        : 'Reached the maximum number of agent steps. Review the activity feed for partial progress.';
+    }
+  }
+
+  if (_activeAbortController && _activeAbortController.signal.aborted && !/stopped/i.test(finalResponse)) {
+    finalResponse = `${finalResponse}\n\n⏹ Generation stopped.`;
   }
 
   const anyFailed = agentSubgoals.some(step => step.status === 'failed');
+  const nothingExecuted = hasDesktopActionCues(userPrompt) && executedAppActions.length === 0 && intent === 'action';
+  if (window.UltronAgentCompletion && intent === 'action') {
+    try {
+    const completionCheck = window.UltronAgentCompletion.checkTaskCompletion(userPrompt, {
+      activitySteps,
+      executedAppActions,
+      finalResponse
+    });
+    if (!completionCheck.complete && completionNudges < 2 && steps < maxSteps && !(_activeAbortController && _activeAbortController.signal.aborted)) {
+      completionNudges++;
+      logTrace(`Completion repair: ${completionCheck.suggestedRepair}`, 'system');
+      const fallback = detectFallbackToolCall(userPrompt);
+      const repairExecutor = window.UltronAgentExecutor;
+      if (fallback && repairExecutor) {
+        const repairResult = await repairExecutor.executeAgentToolCall(fallback, { withTimeout: (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r({ success: false, error: 'timeout' }), ms))]), canCaptureScreen: false });
+        if (repairResult && repairResult.success) {
+          activitySteps.push({ type: 'SUCCESS', label: 'Completion repair succeeded' });
+          finalResponse = repairResult.message || finalResponse;
+          if (fallback.type === 'WRITE_FILE' || fallback.type === 'EXECUTE') {
+            executedAppActions.push(fallback.type);
+          }
+        }
+      } else if (!finalResponse.includes('incomplete')) {
+        finalResponse = `${finalResponse}\n\n**Note:** ${completionCheck.suggestedRepair}`;
+      }
+    }
+    } catch (repairErr) {
+      logTrace(`Completion repair skipped: ${repairErr.message}`, 'system');
+    }
+  }
+  if (nothingExecuted && modelAnsweredWithoutExecuting(userPrompt, finalResponse, executedAppActions, intent)) {
+    finalResponse = '**That did not run on your computer.** The model answered without executing anything. Reload and try again — folder/file tasks now run directly without waiting on the model.';
+  }
   agentSubgoals.forEach(step => {
     if (!step.completed && step.status !== 'failed') {
-      step.completed = true;
-      step.status = 'completed';
+      if (anyFailed || nothingExecuted) {
+        step.status = 'failed';
+      } else {
+        step.completed = true;
+        step.status = 'completed';
+      }
     }
   });
-  if (!anyFailed) {
+  if (!anyFailed && !nothingExecuted) {
     agentSubgoals.push({ text: 'Done', completed: true, status: 'completed' });
   }
   activitySteps.push({
-    type: anyFailed ? 'ERROR' : 'SUCCESS',
-    label: anyFailed ? 'Task stopped — one of the steps failed.' : 'Task complete.'
+    type: anyFailed || nothingExecuted ? 'ERROR' : 'SUCCESS',
+    label: anyFailed || nothingExecuted ? 'Task stopped — one or more steps did not run.' : 'Task complete.'
   });
   activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
   renderChecklist(activeSubgoals);
-  ensureRightSidebarVisible();
+  // Sidebar no longer auto-opens when agent finishes — user controls visibility
 
-  const fullFinalContent = composeAgentFinalContent(showTaskPlan ? agentSubgoals : [], activitySteps, finalResponse, Date.now() - loopStartedAt);
+  const fullFinalContent = composeAgentFinalContent(showTaskPlan ? agentSubgoals : [], activitySteps, finalResponse, Date.now() - loopStartedAt, deriveTaskPlanTitle(userPrompt));
 
   await typeMessageResponse(aiBubble, fullFinalContent, { instant: true });
   appendChatMessage('Ultron', fullFinalContent, true, { skipRender: true });
@@ -4306,54 +6827,56 @@ Write the final answer now.`;
 
   const taskSummary = `[${intent.toUpperCase()}] "${userPrompt.substring(0, 40)}" → ${finalResponse.substring(0, 60).replace(/\n/g, ' ')}...`;
   persistTaskMemory(taskSummary);
+  if (window.UltronDialogueState && typeof window.UltronDialogueState.updateFromTurn === 'function') {
+    window.UltronDialogueState.updateFromTurn(userPrompt, finalResponse.slice(0, 120));
+  }
+  if (window.UltronDialogueState && typeof window.UltronDialogueState.recordTaskOutcome === 'function') {
+    const pathMatch = String(finalResponse || '').match(/[A-Z]:\\[^\s<*"']+/i);
+    window.UltronDialogueState.recordTaskOutcome(finalResponse.slice(0, 200), {
+      path: pathMatch ? pathMatch[0] : '',
+      message: finalResponse.slice(0, 200)
+    });
+  }
 }
 
 // Load historical conversation session
 function loadSession(id, title) {
   const chatMain = document.querySelector('.chat-main');
-  
-  try {
-    if (id && conversationsStore[id]) {
-      currentSessionId = id;
-      chatMessagesContainer.innerHTML = '';
-      
-      const savedSession = conversationsStore[id];
-      if (savedSession && Array.isArray(savedSession.messages) && savedSession.messages.length > 0) {
-        if (chatMain) chatMain.classList.remove('empty-state');
-        for (const msg of savedSession.messages) {
-          renderChatMessage(msg.sender, msg.text, msg.sender === 'Ultron');
-        }
-      } else {
-        if (chatMain) chatMain.classList.add('empty-state');
-        updateWelcomeGreeting();
-      }
-    }
-  } catch (err) {
-    logTrace(`Error loading session messages: ${err.message}`, 'system');
-  }
-  
+
   if (activeChatTitle) activeChatTitle.textContent = title;
   setSendingState(false);
-  
+  activeSubgoals = [];
+
   try {
+    if (!id || !conversationsStore[id]) {
+      if (chatMain) chatMain.classList.add('empty-state');
+      chatMessagesContainer.innerHTML = '';
+      updateWelcomeGreeting();
+      renderChecklist([]);
+      return;
+    }
+
+    currentSessionId = id;
+    chatMessagesContainer.innerHTML = '';
+
     const savedSession = conversationsStore[id];
     if (savedSession && Array.isArray(savedSession.messages) && savedSession.messages.length > 0) {
-      // Redraw saved conversation history
-      savedSession.messages.forEach(msg => {
-        renderChatMessage(msg.sender, msg.text, msg.isAi);
-      });
+      if (chatMain) chatMain.classList.remove('empty-state');
+      for (const msg of savedSession.messages) {
+        const isAi = msg.isAi != null ? Boolean(msg.isAi) : msg.sender === 'Ultron';
+        const contentEl = renderChatMessage(msg.sender, msg.text, isAi);
+        if (isAi && contentEl) finalizeAiMessageBubble(contentEl, msg.text, { autoSpeak: false });
+      }
       chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-      
-      activeSubgoals = [];
     } else {
-      // Fallback loading template if empty
-      renderChatMessage('Ultron', 'This chat has no saved messages yet.', true);
-      activeSubgoals = [];
+      if (chatMain) chatMain.classList.add('empty-state');
+      updateWelcomeGreeting();
     }
   } catch (err) {
     logTrace(`Error loading session messages: ${err.message}`, 'system');
     renderChatMessage('Ultron', `Failed to load conversation messages: ${err.message}`, true);
   }
+
   renderChecklist(activeSubgoals);
 }
 
@@ -4552,6 +7075,10 @@ function getSavedAuthorizedAppsMap() {
 
 function saveAuthorizedAppsMap(map) {
   localStorage.setItem('ultron-authorized-apps-map', JSON.stringify(map));
+  // Keep main-process enforcement in sync with the settings UI
+  if (window.ultronAPI && typeof window.ultronAPI.setAuthorizedApps === 'function') {
+    window.ultronAPI.setAuthorizedApps(map).catch(() => {});
+  }
 }
 
 // Populate Apps Settings Checklist list (includes brand SVGs next to names and persistent state)
@@ -4728,6 +7255,10 @@ settingsTabs.forEach(tab => {
         refreshOllamaStatus();
         hasCheckedOllamaOnBoot = true;
       }
+    } else if (targetTab === 'desktop') {
+      if (typeof setConnectorBadgesChecking === 'function') setConnectorBadgesChecking();
+      await refreshMcpConnectorBadges();
+      if (typeof clearConnectorBadgesChecking === 'function') clearConnectorBadgesChecking();
     } else if (targetTab === 'apps') {
       renderSettingsApps();
     } else if (targetTab === 'storage') {
@@ -4735,18 +7266,10 @@ settingsTabs.forEach(tab => {
         const isMemoryEnabled = window.localStorage.getItem('ultron-memory-enabled') !== 'false';
         settingMemoryToggle.checked = isMemoryEnabled;
       }
-      if (settingDataDir) {
-        const defaultPath = await window.ultronAPI.getDefaultDataDir();
-        const storedPath = window.localStorage.getItem('ultron-data-dir');
-        if (storedPath && !storedPath.includes('Roaming\\LocalAgent') && !storedPath.includes('AppData\\Local\\UltronData')) {
-          settingDataDir.value = storedPath;
-        } else {
-          settingDataDir.value = defaultPath;
-          window.localStorage.setItem('ultron-data-dir', defaultPath);
-          await window.ultronAPI.updateDataDir(defaultPath);
-        }
-      }
+      await loadStoragePathsUI();
       updateMemoryUIState();
+    } else if (targetTab === 'account') {
+      await loadAccountDetails({ locationReason: 'account-tab' });
     }
   });
 });
@@ -4775,8 +7298,10 @@ async function initPersistentGeminiKey() {
     } catch (e) {}
   }
   updateGeminiKeyUi();
-  if (key) await connectGemini(key);
-  else updateGeminiConnectionBadge();
+  if (key) {
+    await connectGemini(key);
+    ensureValidActiveGeminiModel();
+  } else updateGeminiConnectionBadge();
 }
 
 function updateGeminiKeyUi() {
@@ -4845,6 +7370,7 @@ if (btnSaveGeminiKey) {
       if (connection.success) {
         isEditingGeminiKey = false;
         updateGeminiKeyUi();
+        refreshTtsModelsUI();
       }
     } else {
       localStorage.removeItem('ultron-gemini-api-key');
@@ -4859,12 +7385,230 @@ if (btnSaveGeminiKey) {
       updateGeminiKeyUi();
       renderModelDropdownList();
       updateModelSelectorLabel();
+      refreshTtsModelsUI();
       if (feedbackGeminiKey) {
         feedbackGeminiKey.textContent = 'Key cleared.';
         feedbackGeminiKey.classList.remove('hidden');
         setTimeout(() => feedbackGeminiKey.classList.add('hidden'), 3000);
       }
     }
+  });
+}
+
+// Windows UIA MCP settings
+const windowsUiaStatusBadge = document.getElementById('windows-uia-status-badge');
+const windowsMcpStatusBadge = document.getElementById('windows-mcp-status-badge');
+const filesystemMcpStatusBadge = document.getElementById('filesystem-mcp-status-badge');
+const windowsMcpFeedback = document.getElementById('windows-mcp-feedback');
+const filesystemMcpFeedback = document.getElementById('filesystem-mcp-feedback');
+const btnInstallWindowsUia = document.getElementById('btn-install-windows-uia');
+const btnRefreshDesktopConnectors = document.getElementById('btn-refresh-desktop-connectors');
+const btnOpenPermissionsFromDesktop = document.getElementById('btn-open-permissions-from-desktop');
+const windowsUiaFeedback = document.getElementById('windows-uia-feedback');
+const windowsUiaProgress = document.getElementById('windows-uia-progress');
+const windowsUiaProgressStatus = document.getElementById('windows-uia-progress-status');
+const windowsUiaProgressStats = document.getElementById('windows-uia-progress-stats');
+const windowsUiaProgressBar = document.getElementById('windows-uia-progress-bar');
+const windowsUiaProgressSpeed = document.getElementById('windows-uia-progress-speed');
+
+function resetWindowsUiaProgress() {
+  if (windowsUiaProgress) windowsUiaProgress.classList.add('hidden');
+  if (windowsUiaProgressBar) windowsUiaProgressBar.style.width = '0%';
+  if (windowsUiaProgressStats) windowsUiaProgressStats.textContent = '0%';
+  if (windowsUiaProgressSpeed) windowsUiaProgressSpeed.textContent = 'Speed: --';
+}
+
+function showWindowsUiaProgress(data = {}) {
+  if (!windowsUiaProgress) return;
+  windowsUiaProgress.classList.remove('hidden');
+  const phase = data.phase || 'download';
+  const percent = Number.isFinite(data.percent) ? data.percent : 0;
+  if (windowsUiaProgressBar) windowsUiaProgressBar.style.width = `${percent}%`;
+  if (windowsUiaProgressStats) {
+    const sizeLabel = data.downloaded && data.total
+      ? `${percent}% (${data.downloaded} / ${data.total})`
+      : `${percent}%`;
+    windowsUiaProgressStats.textContent = sizeLabel;
+  }
+  if (windowsUiaProgressStatus) {
+    windowsUiaProgressStatus.textContent = phase === 'extract'
+      ? 'Extracting mcp-windows server…'
+      : 'Downloading mcp-windows server (~50MB)…';
+  }
+  if (windowsUiaProgressSpeed) {
+    windowsUiaProgressSpeed.textContent = data.speed ? `Speed: ${data.speed}` : 'Speed: --';
+  }
+}
+
+function updateWindowsUiaInstallButton(connected, installing = false) {
+  if (!btnInstallWindowsUia) return;
+  btnInstallWindowsUia.classList.remove('btn-installing', 'btn-installed');
+  if (installing) {
+    btnInstallWindowsUia.disabled = true;
+    btnInstallWindowsUia.textContent = 'Installing…';
+    btnInstallWindowsUia.classList.add('btn-installing');
+    return;
+  }
+  if (connected) {
+    btnInstallWindowsUia.disabled = true;
+    btnInstallWindowsUia.textContent = 'Installed';
+    btnInstallWindowsUia.classList.add('btn-installed');
+    return;
+  }
+  btnInstallWindowsUia.disabled = false;
+  btnInstallWindowsUia.textContent = 'Install / Connect UI Automation';
+}
+
+function setConnectorBadgesChecking() {
+  [windowsUiaStatusBadge, windowsMcpStatusBadge, filesystemMcpStatusBadge].forEach((badge) => {
+    if (!badge) return;
+    badge.textContent = 'Checking…';
+    badge.classList.add('badge-checking');
+  });
+}
+
+function clearConnectorBadgesChecking() {
+  [windowsUiaStatusBadge, windowsMcpStatusBadge, filesystemMcpStatusBadge].forEach((badge) => {
+    badge?.classList.remove('badge-checking');
+  });
+}
+
+async function runDesktopConnectorsRefresh() {
+  if (!btnRefreshDesktopConnectors || btnRefreshDesktopConnectors.classList.contains('is-refreshing')) return;
+
+  const labelEl = btnRefreshDesktopConnectors.querySelector('.connector-refresh-btn-label');
+  const spinnerEl = btnRefreshDesktopConnectors.querySelector('.connector-refresh-btn-spinner');
+
+  btnRefreshDesktopConnectors.disabled = true;
+  btnRefreshDesktopConnectors.classList.add('is-refreshing');
+  btnRefreshDesktopConnectors.classList.remove('is-success');
+  if (spinnerEl) spinnerEl.classList.remove('hidden');
+  if (labelEl) labelEl.textContent = 'Refreshing…';
+  setConnectorBadgesChecking();
+
+  const started = Date.now();
+  try {
+    await refreshMcpConnectorBadges();
+  } finally {
+    const minVisibleMs = 750;
+    const elapsed = Date.now() - started;
+    if (elapsed < minVisibleMs) {
+      await new Promise((r) => setTimeout(r, minVisibleMs - elapsed));
+    }
+    clearConnectorBadgesChecking();
+    if (spinnerEl) spinnerEl.classList.add('hidden');
+    btnRefreshDesktopConnectors.classList.remove('is-refreshing');
+    btnRefreshDesktopConnectors.classList.add('is-success');
+    if (labelEl) labelEl.textContent = 'Updated!';
+    await new Promise((r) => setTimeout(r, 700));
+    btnRefreshDesktopConnectors.classList.remove('is-success');
+    btnRefreshDesktopConnectors.disabled = false;
+    if (labelEl) labelEl.textContent = 'Refresh status';
+  }
+}
+
+async function refreshMcpConnectorBadges() {
+  if (!window.ultronAPI || !window.ultronAPI.getMcpStatus) return;
+  try {
+    const status = await window.ultronAPI.getMcpStatus();
+    const connected = status.connected || [];
+    const tools = status.tools || [];
+
+    const uiaConnected = connected.includes('windows-uia');
+    setConnectorBadge(windowsUiaStatusBadge, uiaConnected ? 'connected' : 'offline');
+    updateWindowsUiaInstallButton(uiaConnected);
+
+    if (windowsUiaFeedback) {
+      if (uiaConnected) {
+        const connectorsRoot = window.ultronAPI.getConnectorsRoot
+          ? await window.ultronAPI.getConnectorsRoot().catch(() => '')
+          : '';
+        windowsUiaFeedback.textContent = connectorsRoot
+          ? `Connected (installed) — ${connectorsRoot}\\mcp-windows-uia`
+          : 'Connected and ready for desktop automation.';
+      } else if (!btnInstallWindowsUia?.classList.contains('btn-installing')) {
+        windowsUiaFeedback.textContent = '';
+      }
+    }
+
+    const windowsMcpOk = connected.includes('windows');
+    setConnectorBadge(windowsMcpStatusBadge, windowsMcpOk ? 'connected' : 'offline', {
+      offline: windowsMcpOk ? 'Connected' : 'Not connected'
+    });
+    if (windowsMcpFeedback) {
+      windowsMcpFeedback.textContent = windowsMcpOk
+        ? `Active tools: ${tools.filter(t => t.startsWith('windows:')).slice(0, 4).join(', ') || 'App, Click, Type…'}`
+        : 'Install uv from astral.sh/uv — Windows-MCP starts automatically when uv is available.';
+    }
+
+    const fsOk = connected.includes('filesystem');
+    const fetchOk = connected.includes('fetch');
+    setConnectorBadge(
+      filesystemMcpStatusBadge,
+      fsOk && fetchOk ? 'connected' : (fsOk || fetchOk ? 'partial' : 'offline'),
+      { partial: 'Partial', connected: 'Connected' }
+    );
+    if (filesystemMcpFeedback) {
+      const parts = [];
+      if (fsOk) parts.push('filesystem (read/write/list files)');
+      if (fetchOk) parts.push('fetch (web pages)');
+      filesystemMcpFeedback.textContent = parts.length
+        ? `Active: ${parts.join('; ')}`
+        : 'Filesystem and fetch MCP connect on startup — restart Ultron if missing.';
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function initMcpConnectorBadges() {
+  await refreshMcpConnectorBadges();
+}
+
+initMcpConnectorBadges();
+
+if (btnRefreshDesktopConnectors) {
+  btnRefreshDesktopConnectors.addEventListener('click', () => {
+    runDesktopConnectorsRefresh();
+  });
+}
+
+if (btnOpenPermissionsFromDesktop) {
+  btnOpenPermissionsFromDesktop.addEventListener('click', () => {
+    document.querySelector('.settings-tab-btn[data-tab="permissions"]')?.click();
+  });
+}
+
+if (btnInstallWindowsUia) {
+  btnInstallWindowsUia.addEventListener('click', async () => {
+    if (!window.ultronAPI || !window.ultronAPI.installMcpWindowsUia) return;
+    if (btnInstallWindowsUia.classList.contains('btn-installed')) return;
+
+    const locationOk = await confirmConnectorDownloadLocation();
+    if (!locationOk) return;
+
+    updateWindowsUiaInstallButton(false, true);
+    if (windowsUiaFeedback) windowsUiaFeedback.textContent = '';
+    resetWindowsUiaProgress();
+    showWindowsUiaProgress({ percent: 0, phase: 'download' });
+
+    const cleanUiaProgress = window.ultronAPI.onDownloadProgress
+      ? window.ultronAPI.onDownloadProgress((data) => {
+          if ((data.modelName || '').toLowerCase() !== 'mcp-windows-uia') return;
+          showWindowsUiaProgress(data);
+        })
+      : null;
+
+    const res = await window.ultronAPI.installMcpWindowsUia().catch(err => ({ success: false, error: err.message }));
+    if (cleanUiaProgress) cleanUiaProgress();
+
+    resetWindowsUiaProgress();
+    await refreshMcpConnectorBadges();
+    if (!res.success) {
+      updateWindowsUiaInstallButton(false, false);
+      if (windowsUiaFeedback) {
+        windowsUiaFeedback.textContent = res.error || 'Install failed.';
+      }
+    }
+    logTrace(res.success ? 'Windows UIA MCP connected.' : `Windows UIA MCP install failed: ${res.error}`, 'system');
   });
 }
 
@@ -5168,6 +7912,18 @@ btnSend.addEventListener('click', (e) => {
   submitPrompt();
 });
 
+// Stop / cancel generation button
+if (btnStop) {
+  btnStop.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (_activeAbortController) {
+      _activeAbortController.abort();
+      logTrace('User clicked Stop — aborting generation.', 'system');
+    }
+  });
+}
+
 // Support Enter to submit, and Shift+Enter to create a new line
 chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -5222,21 +7978,59 @@ const triggerNewChat = () => {
 if (btnNewChat) btnNewChat.addEventListener('click', triggerNewChat);
 if (btnNewSession) btnNewSession.addEventListener('click', triggerNewChat);
 
+function getUserFirstName() {
+  const fn = window.localStorage.getItem('ultron-user-first-name');
+  if (fn && fn.trim()) return fn.trim();
+  const fullName = window.localStorage.getItem('ultron-user-name');
+  if (fullName && fullName.trim()) {
+    const parts = fullName.trim().split(/\s+/);
+    if (parts[0]) return parts[0];
+  }
+  return 'User';
+}
+
+function getUserLastName() {
+  const ln = window.localStorage.getItem('ultron-user-last-name');
+  if (ln && ln.trim()) return ln.trim();
+  const fullName = window.localStorage.getItem('ultron-user-name');
+  if (fullName && fullName.trim()) {
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length > 1) return parts.slice(1).join(' ');
+  }
+  return '';
+}
+
+function getUserFullName() {
+  const fn = getUserFirstName();
+  const ln = getUserLastName();
+  if (fn === 'User' && !ln) return 'User';
+  return `${fn} ${ln}`.trim();
+}
+
+function getUserEmail() {
+  const email = window.localStorage.getItem('ultron-user-email');
+  if (email && email.trim()) return email.trim();
+  return 'user@example.com';
+}
+
 function getUserInitials() {
-  const name = window.localStorage.getItem('ultron-user-name') || 'Vedant Wankhade';
-  const parts = name.split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return 'U';
-  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  const fn = getUserFirstName();
+  const ln = getUserLastName();
+  if (fn !== 'User' && ln) {
+    return (fn[0] + ln[0]).toUpperCase();
+  }
+  if (fn && fn !== 'User') {
+    return fn.slice(0, 2).toUpperCase();
+  }
+  return 'U';
 }
 
 function updateWelcomeGreeting() {
   const welcomeTitle = document.getElementById('welcome-title');
   if (!welcomeTitle) return;
-  
-  const name = window.localStorage.getItem('ultron-user-name') || 'Vedant Wankhade';
-  const firstName = name.split(' ')[0] || 'User';
-  
+
+  const firstName = getUserFirstName();
+
   const hour = new Date().getHours();
   let salutation = 'Good day';
   if (hour < 12) {
@@ -5246,21 +8040,44 @@ function updateWelcomeGreeting() {
   } else {
     salutation = 'Good evening';
   }
-  
+
   welcomeTitle.textContent = `${salutation}, ${firstName}`;
 }
 
-function loadAccountDetails() {
-  const name = window.localStorage.getItem('ultron-user-name') || 'Vedant Wankhade';
-  const email = window.localStorage.getItem('ultron-user-email') || 'vedant@example.com';
+async function loadAccountDetails(options = {}) {
+  if (window.ultronAPI && window.ultronAPI.loadUserProfile) {
+    try {
+      const storedProfile = await window.ultronAPI.loadUserProfile();
+      if (storedProfile) {
+        if (storedProfile.fullName && !window.localStorage.getItem('ultron-user-name')) {
+          window.localStorage.setItem('ultron-user-name', storedProfile.fullName);
+        }
+        if (storedProfile.firstName && !window.localStorage.getItem('ultron-user-first-name')) {
+          window.localStorage.setItem('ultron-user-first-name', storedProfile.firstName);
+        }
+        if (storedProfile.lastName && !window.localStorage.getItem('ultron-user-last-name')) {
+          window.localStorage.setItem('ultron-user-last-name', storedProfile.lastName);
+        }
+        if (storedProfile.birthdate && !window.localStorage.getItem('ultron-user-birthdate')) {
+          window.localStorage.setItem('ultron-user-birthdate', storedProfile.birthdate);
+        }
+        if (storedProfile.email && !window.localStorage.getItem('ultron-user-email')) {
+          window.localStorage.setItem('ultron-user-email', storedProfile.email);
+        }
+      }
+    } catch (e) {}
+  }
+
+  const name = getUserFullName();
+  const email = getUserEmail();
+  const birthdate = window.localStorage.getItem('ultron-user-birthdate') || '';
+  const initials = getUserInitials();
   
   const accountName = document.getElementById('account-name');
   const accountEmail = document.getElementById('account-email');
   const accountAvatar = document.getElementById('account-avatar');
   const sidebarName = document.querySelector('.profile-name');
   const sidebarAvatar = document.querySelector('.avatar-circle');
-  
-  const initials = getUserInitials();
   
   if (accountName) accountName.textContent = name;
   if (accountEmail) accountEmail.textContent = email;
@@ -5270,8 +8087,400 @@ function loadAccountDetails() {
   
   const inputName = document.getElementById('input-account-name');
   const inputEmail = document.getElementById('input-account-email');
+  const inputBirthdate = document.getElementById('input-account-birthdate');
   if (inputName) inputName.value = name;
   if (inputEmail) inputEmail.value = email;
+  if (inputBirthdate) inputBirthdate.value = birthdate;
+
+  const inputHomeLocation = document.getElementById('setting-home-location');
+  const locationStatus = document.getElementById('setting-location-status');
+  const autoLocToggle = document.getElementById('setting-auto-location');
+  const savedLoc = window.UltronLocationContext
+    ? window.UltronLocationContext.getSavedLocation()
+    : (window.localStorage.getItem('ultron-user-location') || '');
+  if (inputHomeLocation && savedLoc) inputHomeLocation.value = savedLoc;
+  if (autoLocToggle) {
+    autoLocToggle.checked = window.localStorage.getItem('ultron-auto-location-enabled') !== 'false';
+  }
+  await autoDetectHomeLocation({
+    silent: true,
+    reason: options.locationReason || 'account-load',
+    forceRefresh: options.forceLocationRefresh || false
+  });
+}
+
+async function checkAndRunFirstTimeOnboarding() {
+  let isCompleted = window.localStorage.getItem('ultron-setup-completed') === 'true';
+  if (!isCompleted && window.ultronAPI && window.ultronAPI.loadSetupStatus) {
+    try {
+      isCompleted = await window.ultronAPI.loadSetupStatus();
+      if (isCompleted) {
+        window.localStorage.setItem('ultron-setup-completed', 'true');
+      }
+    } catch (e) {}
+  }
+
+  if (isCompleted) {
+    return;
+  }
+
+  const onboardingScreen = document.getElementById('onboarding-screen');
+  if (!onboardingScreen) return;
+
+  // Show integrated onboarding screen directly inside the app interface
+  onboardingScreen.classList.remove('hidden');
+
+  let currentStep = 0;
+
+  const step0 = document.getElementById('onboard-step-0');
+  const formShell = document.getElementById('onboard-form-shell');
+  const stepHeading = document.getElementById('onboard-step-heading');
+  const step1 = document.getElementById('onboard-step-1');
+  const step2 = document.getElementById('onboard-step-2');
+  const step3 = document.getElementById('onboard-step-3');
+  const step4 = document.getElementById('onboard-step-4');
+  const step5 = document.getElementById('onboard-step-5');
+  const footerActions = document.getElementById('onboard-footer-actions');
+
+  const fullNameInput = document.getElementById('onboard-full-name');
+  const birthdateInput = document.getElementById('onboard-birthdate');
+  const emailInput = document.getElementById('onboard-email');
+
+  const error1 = document.getElementById('onboard-step-1-error');
+  const error2 = document.getElementById('onboard-step-2-error');
+  const error3 = document.getElementById('onboard-step-3-error');
+
+  const btnStart = document.getElementById('btn-onboard-start');
+  const btnNext = document.getElementById('btn-onboard-next');
+  const btnBack = document.getElementById('btn-onboard-back');
+  const btnFinish = document.getElementById('btn-onboard-finish');
+  const btnInstallOllama = document.getElementById('btn-onboard-install-ollama');
+  const btnRetryOllama = document.getElementById('btn-onboard-retry-ollama');
+
+  let ollamaReady = false;
+  let readyRedirectTimer = null;
+
+  const stepHeadings = {
+    1: 'Your profile',
+    2: 'Date of birth',
+    3: 'Email',
+    4: 'Quick start',
+  };
+
+  function setFinishVisible(visible) {
+    if (!btnFinish) return;
+    btnFinish.classList.toggle('hidden', !visible);
+    btnFinish.disabled = !visible;
+  }
+
+  function setOllamaActionBoxes({ notInstalled = false, notRunning = false } = {}) {
+    const notInstalledBox = document.getElementById('ollama-not-installed-box');
+    const notRunningBox = document.getElementById('ollama-not-running-box');
+    const progressRow = document.getElementById('ollama-install-progress-row');
+
+    if (notInstalledBox) notInstalledBox.classList.toggle('hidden', !notInstalled);
+    if (notRunningBox) notRunningBox.classList.toggle('hidden', !notRunning);
+    if (progressRow && !notInstalled) progressRow.classList.add('hidden');
+  }
+
+  async function finishOnboarding() {
+    window.localStorage.setItem('ultron-setup-completed', 'true');
+    if (window.ultronAPI && window.ultronAPI.saveSetupStatus) {
+      await window.ultronAPI.saveSetupStatus(true);
+    }
+    onboardingScreen.classList.add('hidden');
+
+    await loadAccountDetails();
+    updateWelcomeGreeting();
+    logTrace('First-time setup completed successfully! Welcome to Ultron.', 'system');
+  }
+
+  // Pre-fill existing user info if available
+  const existingName = window.localStorage.getItem('ultron-user-name');
+  const existingFn = window.localStorage.getItem('ultron-user-first-name');
+  const existingLn = window.localStorage.getItem('ultron-user-last-name');
+  const existingBd = window.localStorage.getItem('ultron-user-birthdate');
+  const existingEm = window.localStorage.getItem('ultron-user-email');
+
+  if (fullNameInput) {
+    if (existingName) fullNameInput.value = existingName;
+    else if (existingFn) fullNameInput.value = `${existingFn} ${existingLn || ''}`.trim();
+  }
+  if (birthdateInput && existingBd) birthdateInput.value = existingBd;
+  if (emailInput && existingEm && existingEm !== 'user@example.com') emailInput.value = existingEm;
+
+  if (fullNameInput) {
+    fullNameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (btnNext) btnNext.click();
+      }
+    });
+  }
+
+  if (birthdateInput) {
+    birthdateInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (btnNext) btnNext.click();
+      }
+    });
+  }
+
+  if (emailInput) {
+    emailInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (btnNext) btnNext.click();
+      }
+    });
+  }
+
+  function updateStepUI() {
+    const onWelcome = currentStep === 0;
+
+    if (step0) step0.classList.toggle('hidden', !onWelcome);
+    if (formShell) formShell.classList.toggle('hidden', onWelcome);
+
+    if (onWelcome) return;
+
+    if (stepHeading && stepHeadings[currentStep]) {
+      stepHeading.textContent = stepHeadings[currentStep];
+      stepHeading.classList.remove('hidden');
+    }
+
+    // Hide all form steps
+    if (step1) step1.classList.add('hidden');
+    if (step2) step2.classList.add('hidden');
+    if (step3) step3.classList.add('hidden');
+    if (step4) step4.classList.add('hidden');
+    if (step5) step5.classList.add('hidden');
+    if (footerActions) footerActions.classList.remove('hidden');
+
+    if (currentStep === 1) {
+      if (step1) step1.classList.remove('hidden');
+      if (fullNameInput) setTimeout(() => fullNameInput.focus(), 100);
+      if (btnBack) btnBack.classList.add('hidden');
+      if (btnNext) btnNext.classList.remove('hidden');
+      if (btnFinish) btnFinish.classList.add('hidden');
+    } else if (currentStep === 2) {
+      if (step2) step2.classList.remove('hidden');
+      if (birthdateInput) setTimeout(() => birthdateInput.focus(), 100);
+      if (btnBack) btnBack.classList.remove('hidden');
+      if (btnNext) btnNext.classList.remove('hidden');
+      if (btnFinish) btnFinish.classList.add('hidden');
+    } else if (currentStep === 3) {
+      if (step3) step3.classList.remove('hidden');
+      if (emailInput) setTimeout(() => emailInput.focus(), 100);
+      if (btnBack) btnBack.classList.remove('hidden');
+      if (btnNext) btnNext.classList.remove('hidden');
+      if (btnFinish) btnFinish.classList.add('hidden');
+    } else if (currentStep === 4) {
+      if (step4) step4.classList.remove('hidden');
+      if (btnBack) btnBack.classList.remove('hidden');
+      if (btnNext) btnNext.classList.add('hidden');
+      setFinishVisible(false);
+      runOboardingOllamaCheck();
+    } else if (currentStep === 5) {
+      if (step5) step5.classList.remove('hidden');
+      if (stepHeading) stepHeading.classList.add('hidden');
+      if (footerActions) footerActions.classList.add('hidden');
+    }
+  }
+
+  if (btnStart) {
+    btnStart.onclick = () => {
+      currentStep = 1;
+      updateStepUI();
+    };
+  }
+
+  // Next / Continue button handler
+  if (btnNext) {
+    btnNext.onclick = async () => {
+      if (currentStep === 1) {
+        const rawName = fullNameInput ? fullNameInput.value.trim() : '';
+        if (!rawName) {
+          if (error1) error1.classList.remove('hidden');
+          return;
+        }
+        if (error1) error1.classList.add('hidden');
+
+        const parts = rawName.split(/\s+/);
+        const fn = parts[0] || 'User';
+        const ln = parts.slice(1).join(' ') || '';
+
+        window.localStorage.setItem('ultron-user-name', rawName);
+        window.localStorage.setItem('ultron-user-first-name', fn);
+        window.localStorage.setItem('ultron-user-last-name', ln);
+
+        currentStep = 2;
+        updateStepUI();
+      } else if (currentStep === 2) {
+        const bd = birthdateInput ? birthdateInput.value : '';
+        if (!bd) {
+          if (error2) error2.classList.remove('hidden');
+          return;
+        }
+        if (error2) error2.classList.add('hidden');
+
+        window.localStorage.setItem('ultron-user-birthdate', bd);
+
+        currentStep = 3;
+        updateStepUI();
+      } else if (currentStep === 3) {
+        const em = emailInput ? emailInput.value.trim() : '';
+        if (!em || !em.includes('@')) {
+          if (error3) error3.classList.remove('hidden');
+          return;
+        }
+        if (error3) error3.classList.add('hidden');
+
+        window.localStorage.setItem('ultron-user-email', em);
+
+        const fullName = window.localStorage.getItem('ultron-user-name') || '';
+        const fn = window.localStorage.getItem('ultron-user-first-name') || '';
+        const ln = window.localStorage.getItem('ultron-user-last-name') || '';
+        const bd = window.localStorage.getItem('ultron-user-birthdate') || '';
+
+        if (window.ultronAPI && window.ultronAPI.saveUserProfile) {
+          await window.ultronAPI.saveUserProfile({ fullName, firstName: fn, lastName: ln, birthdate: bd, email: em });
+        }
+
+        await loadAccountDetails();
+        updateWelcomeGreeting();
+
+        currentStep = 4;
+        updateStepUI();
+      }
+    };
+  }
+
+  // Back button handler
+  if (btnBack) {
+    btnBack.onclick = () => {
+      if (currentStep > 1) {
+        currentStep--;
+        updateStepUI();
+      }
+    };
+  }
+
+  // Ollama check — Finish only appears when the engine is connected
+  async function runOboardingOllamaCheck() {
+    ollamaReady = false;
+    setFinishVisible(false);
+    setOllamaActionBoxes();
+
+    const titleEl = document.getElementById('ollama-status-title');
+    const descEl = document.getElementById('ollama-status-desc');
+    const iconWrapper = document.getElementById('ollama-status-icon-wrapper');
+
+    if (titleEl) titleEl.textContent = 'Checking Ollama...';
+    if (descEl) descEl.textContent = 'Verifying your local AI engine before you can finish setup.';
+    if (iconWrapper) {
+      iconWrapper.innerHTML = `<div class="onboard-spinner"></div>`;
+    }
+
+    const conn = await checkOllamaConnection();
+    if (conn.connected) {
+      ollamaReady = true;
+      if (titleEl) titleEl.textContent = 'Ollama is ready';
+      if (descEl) descEl.textContent = 'Your local AI engine is connected and ready to use.';
+      if (iconWrapper) {
+        iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" width="22" height="22"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+      }
+      setOllamaActionBoxes();
+      setFinishVisible(true);
+      return;
+    }
+
+    if (!window.ultronAPI || !window.ultronAPI.checkOllamaInstalled) {
+      if (titleEl) titleEl.textContent = 'Ollama status unknown';
+      if (descEl) descEl.textContent = 'Unable to verify Ollama on this system.';
+      if (iconWrapper) {
+        iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" width="22" height="22"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+      }
+      setOllamaActionBoxes({ notRunning: true });
+      return;
+    }
+
+    const installCheck = await window.ultronAPI.checkOllamaInstalled();
+    if (!installCheck.installed) {
+      if (titleEl) titleEl.textContent = 'Ollama not installed';
+      if (descEl) descEl.textContent = 'Install Ollama to run local models, then finish setup.';
+      if (iconWrapper) {
+        iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" width="22" height="22"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+      }
+      setOllamaActionBoxes({ notInstalled: true });
+      return;
+    }
+
+    if (titleEl) titleEl.textContent = 'Starting Ollama...';
+    if (descEl) descEl.textContent = 'Ollama is installed. Attempting to start the service...';
+    if (iconWrapper) {
+      iconWrapper.innerHTML = `<div class="onboard-spinner"></div>`;
+    }
+
+    await window.ultronAPI.startOllamaService(installCheck.path).catch(() => {});
+
+    for (let i = 0; i < 8; i++) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const retryConn = await checkOllamaConnection();
+      if (retryConn.connected) {
+        ollamaReady = true;
+        if (titleEl) titleEl.textContent = 'Ollama is ready';
+        if (descEl) descEl.textContent = `Connected successfully (${installCheck.source || 'local'}).`;
+        if (iconWrapper) {
+          iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" width="22" height="22"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+        }
+        setOllamaActionBoxes();
+        setFinishVisible(true);
+        return;
+      }
+    }
+
+    if (titleEl) titleEl.textContent = 'Ollama not running';
+    if (descEl) descEl.textContent = 'Ollama is installed but not responding. Retry or launch Ollama manually.';
+    if (iconWrapper) {
+      iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" width="22" height="22"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
+    }
+    setOllamaActionBoxes({ notRunning: true });
+  }
+
+  if (btnInstallOllama) {
+    btnInstallOllama.onclick = async () => {
+      await startOllamaInstallFlow(btnInstallOllama);
+      await runOboardingOllamaCheck();
+    };
+  }
+
+  if (btnRetryOllama) {
+    btnRetryOllama.onclick = async () => {
+      btnRetryOllama.disabled = true;
+      await runOboardingOllamaCheck();
+      btnRetryOllama.disabled = false;
+    };
+  }
+
+  // Finish setup — show ready screen, then redirect to main agent UI
+  if (btnFinish) {
+    btnFinish.onclick = async () => {
+      if (!ollamaReady) return;
+
+      currentStep = 5;
+      updateStepUI();
+
+      if (readyRedirectTimer) clearTimeout(readyRedirectTimer);
+      readyRedirectTimer = setTimeout(async () => {
+        readyRedirectTimer = null;
+        await finishOnboarding();
+      }, 3200);
+    };
+  }
+
+  // Initialize welcome screen
+  updateStepUI();
 }
 
 async function reloadConversationsFromDisk() {
@@ -5477,6 +8686,11 @@ if (chatMessagesContainer) {
           settingsModal.classList.remove('hidden');
           document.querySelector('.settings-tab-btn[data-tab="models"]')?.click();
         }
+      } else if (action === 'open-settings-desktop') {
+        if (btnSettings && settingsModal) {
+          settingsModal.classList.remove('hidden');
+          document.querySelector('.settings-tab-btn[data-tab="desktop"]')?.click();
+        }
       } else if (action === 'open-app' && fixBtn.dataset.appName) {
         chatInput.value = `Open ${fixBtn.dataset.appName}`;
         chatInput.focus();
@@ -5500,8 +8714,21 @@ document.querySelectorAll('.trace-filter-btn').forEach(btn => {
     document.querySelectorAll('.trace-filter-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     _traceLogFilter = btn.dataset.traceFilter || 'all';
+    window.localStorage.setItem('ultron-trace-filter', _traceLogFilter);
   });
 });
+
+// Restore persisted trace log filter
+(function restoreTraceFilter() {
+  const saved = window.localStorage.getItem('ultron-trace-filter');
+  if (!saved || saved === 'all') return;
+  const btn = document.querySelector(`.trace-filter-btn[data-trace-filter="${saved}"]`);
+  if (btn) {
+    document.querySelectorAll('.trace-filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    _traceLogFilter = saved;
+  }
+})();
 
 let _liveMetricsTimer = null;
 async function refreshLiveMetrics() {
@@ -5583,8 +8810,7 @@ function renderAttachmentPreviews(hasImageWarning = false) {
     if (switchBtn) {
       switchBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        activeModel = ONLINE_GEMINI_MODELS.find(model => model.name.includes('flash'))?.name
-          || ONLINE_GEMINI_MODELS[0]?.name
+        activeModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name
           || activeModel;
         updateModelSelectorLabel();
         renderAttachmentPreviews();
@@ -5627,6 +8853,7 @@ function renderAttachmentPreviews(hasImageWarning = false) {
 // VOICE RECORDING & SPEECH-TO-TEXT ENGINE
 // ==========================================
 let isRecordingVoice = false;
+let voiceCaptureActive = false;
 let mediaStream = null;
 let audioContext = null;
 let analyserNode = null;
@@ -5634,7 +8861,11 @@ let animFrameId = null;
 let speechRecognition = null;
 let mediaRecorder = null;
 let recordedAudioChunks = [];
+let pcmProcessor = null;
+let recordedPcmChunks = [];
+let pcmCaptureRate = 48000;
 let accumulatedTranscript = '';
+let finalVoiceTranscript = '';
 let initialInputValue = '';
 let voiceTimerInterval = null;
 let voiceStartTime = 0;
@@ -5648,6 +8879,8 @@ const voiceRecordingTimer = document.getElementById('voice-recording-timer');
 const voiceBtnAdd = document.getElementById('voice-btn-add');
 const voiceBtnCancel = document.getElementById('voice-btn-cancel');
 const voiceBtnDone = document.getElementById('voice-btn-done');
+const voiceLiveTranscript = document.getElementById('voice-live-transcript');
+const voiceVisualizerWrapper = document.querySelector('.voice-visualizer-wrapper');
 
 if (btnMic) {
   btnMic.addEventListener('click', (e) => {
@@ -5692,18 +8925,344 @@ function updateVoiceTimer() {
   }
 }
 
+function isBrowserSpeechRecognitionAvailable() {
+  return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+
+function isElectronVoiceEnvironment() {
+  return Boolean(window.ultronAPI);
+}
+
+function shouldUseBrowserSpeechRecognition() {
+  if (!isBrowserSpeechRecognitionAvailable()) return false;
+  // Chromium Web Speech is unreliable in Electron (network + NOTREACHED crashes)
+  if (isElectronVoiceEnvironment()) return false;
+  return true;
+}
+
+async function ensureVoiceModelForMic() {
+  if (!window.ultronAPI?.getVoiceModelStatus) return { ready: true };
+  try {
+    const status = await window.ultronAPI.getVoiceModelStatus();
+    if (status?.installed) return { ready: true, status };
+    return {
+      ready: false,
+      status,
+      message: 'Download the Voice Input Model in Settings → Agent Sounds (~40 MB, offline Whisper).'
+    };
+  } catch (e) {
+    return { ready: false, message: 'Could not check voice model status.' };
+  }
+}
+
+function updateVoiceLiveTranscript(text, { processing = false } = {}) {
+  if (!voiceLiveTranscript) return;
+  const trimmed = String(text || '').trim();
+  if (processing) {
+    voiceLiveTranscript.textContent = trimmed || 'Transcribing…';
+    voiceLiveTranscript.classList.add('visible', 'processing');
+    if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.add('has-transcript');
+    return;
+  }
+  voiceLiveTranscript.classList.remove('processing');
+  if (trimmed) {
+    voiceLiveTranscript.textContent = trimmed;
+    voiceLiveTranscript.classList.add('visible');
+    if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.add('has-transcript');
+  } else {
+    voiceLiveTranscript.textContent = '';
+    voiceLiveTranscript.classList.remove('visible');
+    if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.remove('has-transcript');
+  }
+}
+
+function clearVoiceLiveTranscript() {
+  updateVoiceLiveTranscript('');
+}
+
+function getPcmRms(samples) {
+  if (!samples || !samples.length) return 0;
+  let sum = 0;
+  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+  return Math.sqrt(sum / samples.length);
+}
+
+function normalizePcmForWhisper(samples) {
+  if (!samples || !samples.length) return samples;
+  const rms = getPcmRms(samples);
+  if (rms >= 0.02 || rms <= 0.00001) return samples;
+  const gain = Math.min(12, 0.08 / rms);
+  const boosted = new Float32Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    boosted[i] = Math.max(-1, Math.min(1, samples[i] * gain));
+  }
+  return boosted;
+}
+
+function mergePcmChunks(chunks) {
+  if (!chunks || !chunks.length) return new Float32Array(0);
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const merged = new Float32Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return merged;
+}
+
+async function resamplePcmTo16k(float32Samples, sourceRate = 48000) {
+  if (!float32Samples || !float32Samples.length) return null;
+  if (Math.round(sourceRate) === 16000) {
+    return float32Samples instanceof Float32Array ? float32Samples : Float32Array.from(float32Samples);
+  }
+
+  const offline = new OfflineAudioContext(
+    1,
+    Math.ceil(float32Samples.length * 16000 / sourceRate),
+    16000
+  );
+  const buffer = offline.createBuffer(1, float32Samples.length, sourceRate);
+  const channel = float32Samples instanceof Float32Array
+    ? float32Samples
+    : Float32Array.from(float32Samples);
+  buffer.copyToChannel(channel, 0);
+  const source = offline.createBufferSource();
+  source.buffer = buffer;
+  source.connect(offline.destination);
+  source.start(0);
+  const rendered = await offline.startRendering();
+  return rendered.getChannelData(0);
+}
+
+function captureRecordedPcm() {
+  if (!recordedPcmChunks.length) return { samples: null, sampleRate: pcmCaptureRate };
+  const samples = mergePcmChunks(recordedPcmChunks);
+  recordedPcmChunks = [];
+  return { samples, sampleRate: pcmCaptureRate || 48000 };
+}
+
+function teardownPcmCapture() {
+  if (pcmProcessor) {
+    pcmProcessor.onaudioprocess = null;
+    try { pcmProcessor.disconnect(); } catch (e) { /* ignore */ }
+    pcmProcessor = null;
+  }
+}
+
+async function decodeAudioBlobToMono16k(blob) {
+  if (!blob || !blob.size) return null;
+  try {
+    const arrayBuffer = await blob.arrayBuffer();
+    const decodeCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const decoded = await decodeCtx.decodeAudioData(arrayBuffer.slice(0));
+    await decodeCtx.close();
+
+    const targetRate = 16000;
+    const offline = new OfflineAudioContext(1, Math.ceil(decoded.duration * targetRate), targetRate);
+    const source = offline.createBufferSource();
+    source.buffer = decoded;
+    source.connect(offline.destination);
+    source.start(0);
+    const rendered = await offline.startRendering();
+    return rendered.getChannelData(0);
+  } catch (e) {
+    console.warn('Audio decode error:', e);
+    return null;
+  }
+}
+
+function encodeWavBase64(float32Samples, sampleRate = 16000) {
+  if (!float32Samples || !float32Samples.length) return '';
+  const samples = float32Samples instanceof Float32Array
+    ? float32Samples
+    : Float32Array.from(float32Samples);
+  const numSamples = samples.length;
+  const buffer = new ArrayBuffer(44 + numSamples * 2);
+  const view = new DataView(buffer);
+
+  const writeString = (offset, text) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + numSamples * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, numSamples * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < numSamples; i++) {
+    const sample = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+    offset += 2;
+  }
+
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function flushSpeechRecognition(timeoutMs = 900) {
+  if (!speechRecognition) return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    const prevOnEnd = speechRecognition.onend;
+
+    speechRecognition.onend = () => {
+      clearTimeout(timer);
+      finish();
+    };
+
+    try {
+      speechRecognition.stop();
+    } catch (e) {
+      clearTimeout(timer);
+      finish();
+    }
+  });
+}
+
+async function blobToBase64Data(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(String(reader.result || '').split(',')[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function transcribeAudioWithGemini(audioBlob) {
+  const apiKey = localStorage.getItem('ultron-gemini-api-key') || '';
+  if (!apiKey || !audioBlob || !audioBlob.size) return '';
+
+  try {
+    const base64Audio = await blobToBase64Data(audioBlob);
+    const speechModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name;
+    if (!speechModel) return '';
+
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${speechModel}:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: 'Transcribe the following spoken voice audio recording into plain text verbatim. Return ONLY the spoken words with zero quotes, headers, or commentary.' },
+            { inlineData: { mimeType: audioBlob.type || 'audio/webm', data: base64Audio } }
+          ]
+        }]
+      })
+    });
+
+    if (!res.ok) return '';
+    const jsonRes = await res.json();
+    return jsonRes.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+  } catch (e) {
+    console.warn('Gemini audio transcribe error:', e);
+    return '';
+  }
+}
+
+async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcmSampleRate = 48000 } = {}) {
+  let samples = null;
+
+  if (pcmSamples && pcmSamples.length > 0) {
+    samples = await resamplePcmTo16k(pcmSamples, pcmSampleRate);
+  } else if (audioBlob && audioBlob.size > 0) {
+    samples = await decodeAudioBlobToMono16k(audioBlob);
+  }
+
+  // Primary: local offline Whisper (reliable in Electron)
+  if (samples && samples.length > 800 && window.ultronAPI?.transcribeAudio) {
+    updateVoiceLiveTranscript('Transcribing locally…', { processing: true });
+
+    const rms = getPcmRms(samples);
+    const durationSec = (samples.length / 16000).toFixed(1);
+    logTrace(`Mic captured ${durationSec}s (level ${rms.toFixed(4)}).`, 'system');
+    if (rms < 0.002) {
+      logTrace('Mic audio too quiet — raise Windows mic volume or move closer to the microphone.', 'system');
+    }
+
+    const normalized = normalizePcmForWhisper(samples);
+
+    try {
+      const wavBase64 = encodeWavBase64(normalized, 16000);
+      const result = await window.ultronAPI.transcribeAudio({ wavBase64, sampleRate: 16000 });
+      if (result?.success && result.text) return result.text.trim();
+      if (result?.error) {
+        logTrace(result.error, 'system');
+      } else if (result?.needsDownload) {
+        logTrace('Download the voice model in Settings → Agent Sounds, then try the mic again.', 'system');
+      } else {
+        logTrace('No speech detected. Speak clearly for 2–3 seconds and try again.', 'system');
+      }
+    } catch (e) {
+      console.warn('Local STT error:', e);
+      logTrace('Voice transcription failed. Restart Ultron and try again.', 'system');
+    }
+  } else if ((pcmSamples && pcmSamples.length > 0) || (audioBlob && audioBlob.size > 0)) {
+    logTrace(samples ? 'Recording too short — speak for at least 1 second.' : 'Could not capture mic audio. Check microphone permissions.', 'system');
+  }
+
+  const live = (accumulatedTranscript || finalVoiceTranscript || '').trim();
+  if (live) return live;
+
+  // Optional cloud fallback when Gemini key is configured
+  if (audioBlob && audioBlob.size > 0) {
+    updateVoiceLiveTranscript('Transcribing…', { processing: true });
+    const geminiText = await transcribeAudioWithGemini(audioBlob);
+    if (geminiText) return geminiText;
+  }
+
+  return '';
+}
+
 async function startVoiceRecording() {
   try {
-    const apiKey = localStorage.getItem('ultron-gemini-api-key') || '';
-    if (!apiKey) {
-      alert('Speech-to-Text requires a Gemini API Key. Please save your API key in Settings > Models first.');
+    const modelCheck = await ensureVoiceModelForMic();
+    if (!modelCheck.ready) {
+      logTrace(modelCheck.message || 'Voice model required for offline mic.', 'system');
+      const openSettings = confirm(`${modelCheck.message || 'Voice input model is not installed.'}\n\nOpen Settings → Agent Sounds now to download it?`);
+      if (openSettings) {
+        settingsModal?.classList.remove('hidden');
+        document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.click();
+      }
       return;
     }
 
     accumulatedTranscript = '';
+    finalVoiceTranscript = '';
     initialInputValue = chatInput ? chatInput.value : '';
     recordedAudioChunks = [];
+    recordedPcmChunks = [];
+    pcmCaptureRate = 48000;
     isRecordingVoice = true;
+    voiceCaptureActive = true;
+    clearVoiceLiveTranscript();
+    updateVoiceLiveTranscript('Listening…', { processing: false });
+
+    if (!shouldUseBrowserSpeechRecognition()) {
+      logTrace('Using offline Whisper for mic transcription.', 'system');
+    }
 
     // Smooth animated transition from main prompt pill to voice capsule pill
     if (mainInputPill) {
@@ -5728,11 +9287,19 @@ async function startVoiceRecording() {
     voiceTimerInterval = setInterval(updateVoiceTimer, 200);
 
     // Initialize microphone audio stream
-    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1
+      }
+    });
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     if (audioContext.state === 'suspended') {
       await audioContext.resume();
     }
+    pcmCaptureRate = audioContext.sampleRate || 48000;
     analyserNode = audioContext.createAnalyser();
     analyserNode.fftSize = 256;
     analyserNode.smoothingTimeConstant = 0.7;
@@ -5740,25 +9307,49 @@ async function startVoiceRecording() {
     const source = audioContext.createMediaStreamSource(mediaStream);
     source.connect(analyserNode);
 
+    // Direct PCM capture — more reliable than WebM decode in Electron
+    try {
+      pcmProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+      const silentGain = audioContext.createGain();
+      silentGain.gain.value = 0;
+      source.connect(pcmProcessor);
+      pcmProcessor.connect(silentGain);
+      silentGain.connect(audioContext.destination);
+      pcmProcessor.onaudioprocess = (event) => {
+        if (!voiceCaptureActive) return;
+        const input = event.inputBuffer.getChannelData(0);
+        recordedPcmChunks.push(new Float32Array(input));
+      };
+    } catch (pcmErr) {
+      console.warn('PCM capture init notice:', pcmErr);
+    }
+
     // Start animated audio level waveform synced to pitch & intensity
     drawWaveform();
 
-    // MediaRecorder Audio Data Capture for 100% reliable Multimodal Transcribe
+    // MediaRecorder — primary audio capture for offline Whisper
     try {
-      mediaRecorder = new MediaRecorder(mediaStream);
+      const preferredMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+          : (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus') ? 'audio/ogg;codecs=opus' : ''));
+      mediaRecorder = preferredMime
+        ? new MediaRecorder(mediaStream, { mimeType: preferredMime })
+        : new MediaRecorder(mediaStream);
       recordedAudioChunks = [];
       mediaRecorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) {
-          recordedAudioChunks.push(e.data);
-        }
+        if (e.data && e.data.size > 0) recordedAudioChunks.push(e.data);
       };
       mediaRecorder.start(100);
     } catch (mErr) {
-      console.warn('MediaRecorder init notice:', mErr);
+      console.warn('MediaRecorder init failed:', mErr);
+      throw new Error('Could not start audio recording on this device.');
     }
 
-    // Web Speech API
-    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    // Optional live captions in browser only (disabled in Electron)
+    const SpeechRec = shouldUseBrowserSpeechRecognition()
+      ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+      : null;
     if (SpeechRec) {
       speechRecognition = new SpeechRec();
       speechRecognition.continuous = true;
@@ -5766,13 +9357,18 @@ async function startVoiceRecording() {
       speechRecognition.lang = navigator.language || 'en-US';
 
       speechRecognition.onresult = (event) => {
-        let currentTranscript = '';
-        for (let i = 0; i < event.results.length; i++) {
-          currentTranscript += event.results[i][0].transcript;
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const piece = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalVoiceTranscript += piece;
+          } else {
+            interim += piece;
+          }
         }
-        accumulatedTranscript = currentTranscript;
+        accumulatedTranscript = (finalVoiceTranscript + interim).trim();
+        updateVoiceLiveTranscript(accumulatedTranscript);
 
-        // Live transcribe into prompt input in real time
         if (chatInput && isRecordingVoice) {
           const prefix = initialInputValue ? initialInputValue.trim() + ' ' : '';
           chatInput.value = prefix + accumulatedTranscript;
@@ -5783,6 +9379,9 @@ async function startVoiceRecording() {
 
       speechRecognition.onerror = (err) => {
         console.warn('Speech recognition notice:', err.error);
+        if (err.error === 'not-allowed') {
+          alert('Microphone speech recognition is blocked. Allow microphone access in Windows Settings → Privacy → Microphone.');
+        }
       };
 
       speechRecognition.onend = () => {
@@ -5795,12 +9394,21 @@ async function startVoiceRecording() {
     }
   } catch (err) {
     console.error('Microphone access error:', err);
-    alert('Unable to access microphone. Please check Windows system recording permissions.');
+    const msg = err.name === 'NotAllowedError'
+      ? 'Microphone access denied. Open Windows Settings → Privacy → Microphone and allow Ultron.'
+      : (err.message || 'Unable to access microphone.');
+    alert(msg);
     stopVoiceRecording(false);
   }
 }
 
 async function stopVoiceRecording(saveTranscript = true) {
+  // Stop PCM capture last — keep recording until we flush buffers
+  voiceCaptureActive = false;
+  await new Promise(r => setTimeout(r, 220));
+  const { samples: capturedPcm, sampleRate: capturedPcmRate } = captureRecordedPcm();
+  teardownPcmCapture();
+
   isRecordingVoice = false;
 
   if (voiceTimerInterval) {
@@ -5814,6 +9422,7 @@ async function stopVoiceRecording(saveTranscript = true) {
 
   // Show clean white spinner on done checkmark button while processing
   if (saveTranscript && voiceBtnDone) {
+    updateVoiceLiveTranscript('Transcribing…', { processing: true });
     voiceBtnDone.innerHTML = `
       <svg class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
         <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
@@ -5823,7 +9432,12 @@ async function stopVoiceRecording(saveTranscript = true) {
     if (voiceBtnCancel) voiceBtnCancel.style.pointerEvents = 'none';
   }
 
-  // Stop MediaRecorder and grab audio blob
+  // Flush live speech results before stopping recognition
+  if (speechRecognition) {
+    await flushSpeechRecognition();
+  }
+
+  // Stop MediaRecorder and grab audio blob (fallback path)
   let finalAudioBlob = null;
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     await new Promise((resolve) => {
@@ -5833,7 +9447,12 @@ async function stopVoiceRecording(saveTranscript = true) {
         }
         resolve();
       };
-      try { mediaRecorder.stop(); } catch (e) { resolve(); }
+      try {
+        if (mediaRecorder.state === 'recording') {
+          mediaRecorder.requestData();
+        }
+        mediaRecorder.stop();
+      } catch (e) { resolve(); }
     });
   }
 
@@ -5854,52 +9473,11 @@ async function stopVoiceRecording(saveTranscript = true) {
   }
 
   if (saveTranscript) {
-    let textToInsert = (accumulatedTranscript || '').trim();
-    
-    // If Web Speech API didn't populate transcript, convert recorded WebM audio blob to text via Gemini Multimodal Audio API
-    if (!textToInsert && finalAudioBlob && finalAudioBlob.size > 0) {
-      const apiKey = localStorage.getItem('ultron-gemini-api-key') || '';
-      if (apiKey) {
-        try {
-          const base64Audio = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result.split(',')[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(finalAudioBlob);
-          });
-
-          const speechModel = ONLINE_GEMINI_MODELS.find(model => model.name.includes('flash'))?.name
-            || ONLINE_GEMINI_MODELS[0]?.name;
-          if (!speechModel) throw new Error('No compatible Gemini model is connected.');
-          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${speechModel}:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
-          const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [
-                  { text: 'Transcribe the following spoken voice audio recording into plain text verbatim. Return ONLY the spoken words with zero quotes, headers, or commentary.' },
-                  { inlineData: { mimeType: finalAudioBlob.type || 'audio/webm', data: base64Audio } }
-                ]
-              }]
-            })
-          });
-
-          if (res.ok) {
-            const jsonRes = await res.json();
-            const transcribed = jsonRes.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-            if (transcribed) {
-              textToInsert = transcribed;
-            }
-          } else {
-            const errJson = await res.json().catch(() => ({}));
-            console.warn('Gemini Audio Transcribe error:', errJson);
-          }
-        } catch (tErr) {
-          console.warn('Audio transcribe error:', tErr);
-        }
-      }
-    }
+    let textToInsert = await resolveVoiceTranscript({
+      audioBlob: finalAudioBlob,
+      pcmSamples: capturedPcm,
+      pcmSampleRate: capturedPcmRate
+    });
 
     // Restore original checkmark icon
     if (voiceBtnDone) {
@@ -5911,6 +9489,8 @@ async function stopVoiceRecording(saveTranscript = true) {
       voiceBtnDone.style.pointerEvents = '';
     }
     if (voiceBtnCancel) voiceBtnCancel.style.pointerEvents = '';
+
+    clearVoiceLiveTranscript();
 
     // Smooth animated transition back to main prompt pill once transcription is ready
     if (voiceRecordingPill) {
@@ -5932,8 +9512,12 @@ async function stopVoiceRecording(saveTranscript = true) {
       const prefix = initialInputValue ? initialInputValue.trim() + ' ' : '';
       if (textToInsert) {
         chatInput.value = prefix + textToInsert;
+        updateVoiceLiveTranscript(textToInsert);
       } else {
         chatInput.value = initialInputValue;
+        if (saveTranscript) {
+          logTrace('No speech detected. Speak clearly for 1–2 seconds, then tap the checkmark.', 'system');
+        }
       }
       chatInput.focus();
       chatInput.style.height = 'auto';
@@ -5961,11 +9545,17 @@ async function stopVoiceRecording(saveTranscript = true) {
       chatInput.style.height = 'auto';
       chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
     }
+    clearVoiceLiveTranscript();
   }
 
   accumulatedTranscript = '';
+  finalVoiceTranscript = '';
   initialInputValue = '';
   recordedAudioChunks = [];
+  recordedPcmChunks = [];
+  pcmCaptureRate = 48000;
+  voiceCaptureActive = false;
+  teardownPcmCapture();
 }
 
 function drawWaveform() {
@@ -6077,43 +9667,362 @@ function hideSkeletonLoader() {
 }
 
 // Immediate boot sequence: Keep skeleton loader visible while background diagnostics run
-async function bootSystem() {
-  if (window.UltronAgentPrompt && typeof window.UltronAgentPrompt.loadUltronAgentConfig === 'function') {
-    try {
-      await window.UltronAgentPrompt.loadUltronAgentConfig();
-      if (typeof window.UltronAgentPrompt.startUltronAgentConfigHotReload === 'function') {
-        window.UltronAgentPrompt.startUltronAgentConfigHotReload();
-      }
-    } catch (err) {
-      console.warn('Ultron agent config preload failed:', err);
+function isLegacyAppDataStoragePath(dirPath) {
+  if (!dirPath) return false;
+  const normalized = String(dirPath).replace(/\//g, '\\').toLowerCase();
+  if (normalized.includes('\\appdata\\') && (normalized.includes('ultrondatadev') || normalized.includes('ultrondata'))) return true;
+  if (/\\ultron$/.test(normalized.replace(/\\+$/, '')) && !/\\ultron-local$/.test(normalized) && !/\\ultron-ai$/.test(normalized)) return true;
+  return false;
+}
+
+async function loadStoragePathsUI() {
+  if (window.ultronAPI?.ensureUltronStorage) {
+    await window.ultronAPI.ensureUltronStorage().catch(() => {});
+  }
+  if (!window.ultronAPI?.getStoragePaths) return;
+  const paths = await window.ultronAPI.getStoragePaths().catch(() => null);
+  if (!paths) return;
+
+  if (storageUltronRootLabel) {
+    const folderLabel = paths.storageFolderName || (paths.ultronRoot?.includes('Ultron-AI') ? 'Ultron-AI' : 'Ultron-local');
+    storageUltronRootLabel.textContent = `${folderLabel}: ${paths.ultronRoot || paths.defaultUltronRoot || ''}`;
+  }
+  if (storageInstallRootLabel) {
+    storageInstallRootLabel.textContent = `App install: ${paths.installRoot}`;
+  }
+  if (settingDataDir) {
+    settingDataDir.value = paths.agentDataDir || paths.defaultAgentDataDir || '';
+    window.localStorage.setItem('ultron-data-dir', settingDataDir.value);
+  }
+  if (settingConnectorsDir) {
+    settingConnectorsDir.value = paths.connectorsDir || paths.defaultConnectorsDir || '';
+    window.localStorage.setItem('ultron-connectors-dir', settingConnectorsDir.value);
+  }
+  if (settingOllamaModelsDir) {
+    settingOllamaModelsDir.value = paths.modelsDir || paths.defaultModelsDir || paths.ollamaModelsDir || 'Not configured';
+  }
+  const ollamaNote = document.getElementById('setting-ollama-install-note');
+  if (ollamaNote) {
+    const modelsPath = paths.modelsDir || paths.defaultModelsDir || '';
+    const folderName = paths.storageFolderName || 'Ultron-local';
+    ollamaNote.textContent = paths.ollamaInstallPath
+      ? `Ollama: ${paths.ollamaInstallPath}. Models → ${modelsPath || `${folderName}\\models`}.`
+      : `Models → ${modelsPath || `${folderName}\\models`} when Ollama is installed.`;
+  }
+}
+
+async function syncStoragePathOnBoot() {
+  if (!window.ultronAPI?.ensureUltronStorage) return;
+  try {
+    await window.ultronAPI.ensureUltronStorage();
+    const paths = await window.ultronAPI.getStoragePaths?.().catch(() => null);
+    if (!paths) return;
+
+    let agentPath = window.localStorage.getItem('ultron-data-dir')?.trim();
+    let connectorsPath = window.localStorage.getItem('ultron-connectors-dir')?.trim();
+
+    if (!agentPath || isLegacyAppDataStoragePath(agentPath)) {
+      agentPath = paths.agentDataDir || paths.defaultAgentDataDir;
     }
+    if (!connectorsPath || isLegacyAppDataStoragePath(connectorsPath)) {
+      connectorsPath = paths.connectorsDir || paths.defaultConnectorsDir;
+    }
+
+    if (agentPath && window.ultronAPI.updateDataDir) {
+      await window.ultronAPI.updateDataDir(agentPath);
+      window.localStorage.setItem('ultron-data-dir', agentPath);
+    }
+    if (connectorsPath && window.ultronAPI.updateConnectorsDir) {
+      await window.ultronAPI.updateConnectorsDir(connectorsPath);
+      window.localStorage.setItem('ultron-connectors-dir', connectorsPath);
+    }
+    if (paths.ultronRoot) {
+      window.localStorage.setItem('ultron-root', paths.ultronRoot);
+    }
+  } catch (e) { /* ignore */ }
+}
+
+async function confirmConnectorDownloadLocation() {
+  if (!window.ultronAPI?.getStoragePaths) return true;
+  const paths = await window.ultronAPI.getStoragePaths().catch(() => null);
+  const target = paths?.connectorsDir || paths?.defaultConnectorsDir || 'connectors folder';
+  const proceed = confirm(
+    `Download connector to:\n${target}\n\nClick OK to install here, or Cancel to choose a different folder.`
+  );
+  if (proceed) return true;
+
+  const result = await window.ultronAPI.selectDirectory();
+  if (result.canceled || !result.filePaths?.length) return false;
+
+  const chosen = result.filePaths[0];
+  const updateResult = await window.ultronAPI.updateConnectorsDir(chosen);
+  if (!updateResult.success) {
+    alert(`Could not set connectors folder: ${updateResult.error || 'Unknown error'}`);
+    return false;
+  }
+  if (settingConnectorsDir) settingConnectorsDir.value = chosen;
+  window.localStorage.setItem('ultron-connectors-dir', chosen);
+  logTrace(`Connectors download location set to: "${chosen}"`, 'system');
+  return true;
+}
+
+function renderWorkflowsListUI() {
+  const list = document.getElementById('workflows-list');
+  if (!list || !window.UltronAgentMemory) return;
+  const workflows = window.UltronAgentMemory.loadWorkflows();
+  list.innerHTML = '';
+  if (!workflows.length) {
+    list.innerHTML = '<p class="text-xs text-muted">No workflows yet. Add one or say: save workflow called My Task: OPEN_APP Notepad</p>';
+    return;
+  }
+  workflows.forEach(wf => {
+    const row = document.createElement('div');
+    row.className = 'workflow-row';
+    row.innerHTML = `
+      <div class="workflow-row-info">
+        <div class="workflow-row-name">${escapeHtml(wf.name)}</div>
+        <div class="workflow-row-steps">${wf.steps.map(s => escapeHtml(s)).join(' → ')}</div>
+      </div>
+      <div class="workflow-row-actions">
+        <button type="button" class="sound-preview-btn btn-run-workflow" data-id="${escapeHtml(wf.id)}">Run</button>
+        <button type="button" class="sound-preview-btn btn-delete-workflow" data-id="${escapeHtml(wf.id)}">Delete</button>
+      </div>`;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('.btn-run-workflow').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const wf = window.UltronAgentMemory.loadWorkflows().find(w => w.id === btn.dataset.id);
+      if (wf) submitPrompt(`run ${wf.name}`);
+    });
+  });
+  list.querySelectorAll('.btn-delete-workflow').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (window.UltronAgentMemory.deleteWorkflow) window.UltronAgentMemory.deleteWorkflow(btn.dataset.id);
+      renderWorkflowsListUI();
+      populateScheduleWorkflowPick();
+    });
+  });
+}
+
+function populateScheduleWorkflowPick() {
+  const pick = document.getElementById('schedule-workflow-pick');
+  if (!pick || !window.UltronAgentMemory) return;
+  const workflows = window.UltronAgentMemory.loadWorkflows();
+  pick.innerHTML = workflows.map(w => `<option value="${escapeHtml(w.id)}">${escapeHtml(w.name)}</option>`).join('')
+    || '<option value="">No workflows</option>';
+}
+
+function renderSchedulesListUI() {
+  const list = document.getElementById('schedules-list');
+  if (!list || !window.UltronAgentScheduler) return;
+  const schedules = window.UltronAgentScheduler.loadSchedules();
+  list.innerHTML = '';
+  if (!schedules.length) {
+    list.innerHTML = '<p class="text-xs text-muted">No schedules. Pick a workflow and time above.</p>';
+    return;
+  }
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  schedules.forEach(entry => {
+    const row = document.createElement('div');
+    row.className = 'workflow-row';
+    const days = (entry.days || []).map(d => dayNames[d]).join(', ');
+    row.innerHTML = `
+      <div class="workflow-row-info">
+        <div class="workflow-row-name">${escapeHtml(entry.label || entry.workflowId)}</div>
+        <div class="workflow-row-steps">${String(entry.hour).padStart(2, '0')}:${String(entry.minute).padStart(2, '0')} · ${days || 'Every day'}</div>
+      </div>
+      <div class="workflow-row-actions">
+        <button type="button" class="sound-preview-btn btn-remove-schedule" data-id="${escapeHtml(entry.id)}">Remove</button>
+      </div>`;
+    list.appendChild(row);
+  });
+  list.querySelectorAll('.btn-remove-schedule').forEach(btn => {
+    btn.addEventListener('click', () => {
+      window.UltronAgentScheduler.removeSchedule(btn.dataset.id);
+      renderSchedulesListUI();
+    });
+  });
+}
+
+function renderCapabilityGatesUI() {
+  const list = document.getElementById('capability-gates-list');
+  const caps = window.UltronAgentCapabilities;
+  if (!list || !caps) return;
+  list.innerHTML = '';
+  Object.entries(caps.CAPABILITY_GROUPS).forEach(([id, group]) => {
+    const row = document.createElement('div');
+    row.className = 'capability-row';
+    const select = document.createElement('select');
+    select.className = 'capability-mode-select';
+    select.dataset.group = id;
+    ['off', 'ask', 'always'].forEach(mode => {
+      const opt = document.createElement('option');
+      opt.value = mode;
+      opt.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+      if (caps.getCapabilityMode(id) === mode) opt.selected = true;
+      select.appendChild(opt);
+    });
+    select.addEventListener('change', () => {
+      caps.setCapabilityMode(id, select.value);
+      logTrace(`Capability ${group.label}: ${select.value}`, 'system');
+    });
+    row.innerHTML = `
+      <div class="capability-row-info">
+        <div class="capability-row-label">${escapeHtml(group.label)}</div>
+        <div class="capability-row-desc">${escapeHtml(group.description)}</div>
+      </div>`;
+    row.appendChild(select);
+    list.appendChild(row);
+  });
+}
+
+function renderAuditLogUI() {
+  const list = document.getElementById('audit-log-list');
+  const audit = window.UltronAgentAudit;
+  if (!list || !audit) return;
+  const entries = audit.getAuditLog(40);
+  list.innerHTML = '';
+  if (!entries.length) {
+    list.innerHTML = '<p class="text-xs text-muted">No agent actions recorded yet.</p>';
+    return;
+  }
+  entries.forEach(entry => {
+    const row = document.createElement('div');
+    row.className = 'audit-row';
+    const time = new Date(entry.ts).toLocaleString();
+    const summary = audit.formatAuditSummary(entry);
+    const outcomeClass = entry.approved === false ? 'denied' : (entry.success ? 'ok' : 'fail');
+    const outcomeLabel = entry.outcome || (entry.success ? 'completed' : 'failed');
+    row.innerHTML = `
+      <div class="audit-row-info">
+        <div class="audit-row-time">${escapeHtml(time)}</div>
+        <div class="audit-row-summary">${escapeHtml(summary)}</div>
+        <div class="audit-row-outcome ${outcomeClass}">${escapeHtml(outcomeLabel)}</div>
+      </div>`;
+    list.appendChild(row);
+  });
+}
+
+function initAutomationSettingsUI() {
+  try {
+  const localAiMode = document.getElementById('setting-local-ai-mode');
+  if (localAiMode) {
+    localAiMode.value = getLocalAiMode();
+    localAiMode.addEventListener('change', () => {
+      window.localStorage.setItem('ultron-ai-mode', localAiMode.value);
+      updateLocalAiModeStatus();
+      logTrace(`Local AI mode: ${localAiMode.value}`, 'system');
+    });
+    updateLocalAiModeStatus();
   }
 
-  loadAccountDetails();
-  updateWelcomeGreeting();
-  setSendingState(false);
-  initTraceEmptyState();
-  renderChecklist([]);
-  syncPlusMenuToggles();
-  startLiveMetricsPolling();
+  document.getElementById('btn-add-workflow')?.addEventListener('click', () => {
+    const name = window.prompt('Workflow name');
+    if (!name) return;
+    const stepsRaw = window.prompt('Steps (separate with commas or "then")', 'OPEN_APP: Notepad');
+    if (!stepsRaw || !window.UltronAgentMemory) return;
+    const steps = stepsRaw.split(/\s*(?:,|\bthen\b)\s*/i).map(s => s.trim()).filter(Boolean);
+    window.UltronAgentMemory.addWorkflow(name, steps);
+    renderWorkflowsListUI();
+    populateScheduleWorkflowPick();
+  });
 
-  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.loadTaskMemory === 'function') {
-    _learnedTaskMemory = window.UltronAgentMemory.loadTaskMemory().map(item => item.text || item);
+  document.getElementById('btn-add-schedule')?.addEventListener('click', () => {
+    const wfId = document.getElementById('schedule-workflow-pick')?.value;
+    const timeVal = document.getElementById('schedule-time-pick')?.value;
+    if (!wfId || !timeVal || !window.UltronAgentScheduler) return;
+    const [hour, minute] = timeVal.split(':').map(Number);
+    window.UltronAgentScheduler.addSchedule({ workflowId: wfId, hour, minute });
+    renderSchedulesListUI();
+    logTrace(`Scheduled workflow at ${timeVal}`, 'system');
+  });
+
+  document.getElementById('btn-clear-audit-log')?.addEventListener('click', () => {
+    if (window.UltronAgentAudit) window.UltronAgentAudit.clearAuditLog();
+    renderAuditLogUI();
+  });
+
+  document.querySelector('.settings-tab-btn[data-tab="desktop"]')?.addEventListener('click', () => {
+    renderWorkflowsListUI();
+    populateScheduleWorkflowPick();
+    renderSchedulesListUI();
+    updateLocalAiModeStatus();
+  });
+
+  document.querySelector('.settings-tab-btn[data-tab="permissions"]')?.addEventListener('click', () => {
+    renderCapabilityGatesUI();
+    renderAuditLogUI();
+  });
+
+  renderWorkflowsListUI();
+  populateScheduleWorkflowPick();
+  renderSchedulesListUI();
+  renderCapabilityGatesUI();
+  renderAuditLogUI();
+
+  if (window.UltronAgentScheduler && typeof window.UltronAgentScheduler.startScheduler === 'function') {
+    window.UltronAgentScheduler.startScheduler((entry) => {
+      const wf = window.UltronAgentMemory?.loadWorkflows()?.find(w => w.id === entry.workflowId);
+      if (!wf) return;
+      logTrace(`Running scheduled workflow: ${wf.name}`, 'system');
+      playUltronSound?.('task_complete');
+      submitPrompt(`run ${wf.name}`);
+    });
   }
-  reloadConversationsFromDisk().catch(err => {
-    console.error('Conversation reload error:', err);
-  });
+  } catch (initErr) {
+    console.warn('Automation settings init failed:', initErr);
+  }
+}
 
-  // Background health check & profiler — calls hideSkeletonLoader() when finished
-  checkOllamaStartup().then(() => {
-    return runOnboardingProfiler();
-  }).catch((err) => {
-    console.error('Ollama startup check error:', err);
-    hideSkeletonLoader();
-  });
-
-  // Safety fallback: reveal UI after max 3s even if diagnostics delay
+async function bootSystem() {
+  // Always dismiss skeleton — even if boot throws or a step hangs
   setTimeout(hideSkeletonLoader, 3000);
+
+  try {
+    if (window.UltronAgentPrompt && typeof window.UltronAgentPrompt.loadUltronAgentConfig === 'function') {
+      try {
+        await window.UltronAgentPrompt.loadUltronAgentConfig();
+        if (typeof window.UltronAgentPrompt.startUltronAgentConfigHotReload === 'function') {
+          window.UltronAgentPrompt.startUltronAgentConfigHotReload();
+        }
+      } catch (err) {
+        console.warn('Ultron agent config preload failed:', err);
+      }
+    }
+
+    await syncStoragePathOnBoot();
+    await loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: true });
+    updateWelcomeGreeting();
+    await checkAndRunFirstTimeOnboarding();
+    setSendingState(false);
+    initTraceEmptyState();
+    renderChecklist([]);
+    syncPlusMenuToggles();
+    initAutomationSettingsUI();
+    startLiveMetricsPolling();
+
+    if (window.UltronAgentMemory && typeof window.UltronAgentMemory.loadTaskMemory === 'function') {
+      _learnedTaskMemory = window.UltronAgentMemory.loadTaskMemory().map(item => item.text || item);
+    }
+
+    const bootAllowlist = getSavedAuthorizedAppsMap();
+    if (bootAllowlist && window.ultronAPI && typeof window.ultronAPI.setAuthorizedApps === 'function') {
+      window.ultronAPI.setAuthorizedApps(bootAllowlist).catch(() => {});
+    }
+    reloadConversationsFromDisk().catch(err => {
+      console.error('Conversation reload error:', err);
+    });
+
+    checkOllamaStartup().then(() => {
+      return runOnboardingProfiler();
+    }).catch((err) => {
+      console.error('Ollama startup check error:', err);
+      hideSkeletonLoader();
+    });
+  } catch (err) {
+    console.error('Boot sequence error:', err);
+    hideSkeletonLoader();
+  }
 }
 
 bootSystem();
@@ -6129,13 +10038,19 @@ if (btnToggleLeftSidebar && leftSidebar) {
   });
 }
 
-// Bind right sidebar collapsible sections
+// Bind right sidebar collapsible sections (collapse state persisted per section)
 const rightSections = document.querySelectorAll('.right-section.collapsible');
 rightSections.forEach((section) => {
+  if (section.id && window.localStorage.getItem(`ultron-section-collapsed-${section.id}`) === 'true') {
+    section.classList.add('collapsed');
+  }
   const header = section.querySelector('.section-header-clickable');
   if (header) {
     header.addEventListener('click', () => {
       section.classList.toggle('collapsed');
+      if (section.id) {
+        window.localStorage.setItem(`ultron-section-collapsed-${section.id}`, section.classList.contains('collapsed') ? 'true' : 'false');
+      }
       const title = section.querySelector('.section-title').textContent;
       logTrace(`Right panel section "${title}" toggled.`, 'system');
     });
@@ -6277,6 +10192,1260 @@ function initSoundSettingsUI() {
 
 initSoundSettingsUI();
 
+// ==========================================
+// TEXT-TO-SPEECH (TTS) — read AI responses aloud
+// ==========================================
+let activeTtsUtterance = null;
+let activeNeuralAudio = null;
+let ttsVoicesCache = [];
+let ttsKeepAliveTimer = null;
+
+function isTtsAutoSpeakEnabled() {
+  return window.localStorage.getItem('ultron-tts-auto-speak') === 'true';
+}
+
+function getTtsRate() {
+  const raw = window.localStorage.getItem('ultron-tts-rate');
+  const val = raw != null ? parseFloat(raw) : 1;
+  return Number.isFinite(val) ? Math.max(0.5, Math.min(2, val)) : 1;
+}
+
+function getTtsPitch() {
+  const raw = window.localStorage.getItem('ultron-tts-pitch');
+  const val = raw != null ? parseFloat(raw) : 1;
+  return Number.isFinite(val) ? Math.max(0.5, Math.min(2, val)) : 1;
+}
+
+function getTtsPersona() {
+  return window.localStorage.getItem('ultron-tts-persona') || 'neutral';
+}
+
+function getSelectedTtsVoiceUri() {
+  return window.localStorage.getItem('ultron-tts-voice-uri') || '';
+}
+
+function normalizeTextForSpeech(text) {
+  let cleaned = extractPlainTextFromMessage(text) || String(text || '');
+  cleaned = cleaned
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]+`/g, ' ')
+    .replace(/\*\*|__|\*|_/g, '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^[-*•]\s+/gm, '')
+    .replace(/^-{3,}$|^\*{3,}$/gm, ' ')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return cleaned;
+}
+
+function loadTtsVoices() {
+  if (!window.speechSynthesis) return [];
+  const voices = window.speechSynthesis.getVoices() || [];
+  if (voices.length) ttsVoicesCache = voices;
+  return ttsVoicesCache;
+}
+
+function ensureTtsVoicesReady(timeoutMs = 1200) {
+  return new Promise((resolve) => {
+    loadTtsVoices();
+    if (ttsVoicesCache.length) {
+      resolve(ttsVoicesCache);
+      return;
+    }
+    const finish = () => {
+      loadTtsVoices();
+      resolve(ttsVoicesCache);
+    };
+    if (!window.speechSynthesis) {
+      finish();
+      return;
+    }
+    const onVoicesChanged = () => {
+      loadTtsVoices();
+      if (ttsVoicesCache.length) {
+        window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+        resolve(ttsVoicesCache);
+      }
+    };
+    window.speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
+    setTimeout(() => {
+      window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
+      finish();
+    }, timeoutMs);
+  });
+}
+
+function clearTtsKeepAlive() {
+  if (ttsKeepAliveTimer) {
+    clearInterval(ttsKeepAliveTimer);
+    ttsKeepAliveTimer = null;
+  }
+}
+
+function startTtsKeepAlive() {
+  clearTtsKeepAlive();
+  if (!window.speechSynthesis) return;
+  ttsKeepAliveTimer = setInterval(() => {
+    if (!activeTtsUtterance) {
+      clearTtsKeepAlive();
+      return;
+    }
+    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+  }, 250);
+}
+
+function getEnglishTtsVoices() {
+  loadTtsVoices();
+  const english = ttsVoicesCache.filter(v => /^en(-|_)?/i.test(v.lang || ''));
+  return english.length ? english : ttsVoicesCache;
+}
+
+function resolveTtsVoice() {
+  loadTtsVoices();
+  const preferredUri = getSelectedTtsVoiceUri();
+  if (preferredUri) {
+    const exact = ttsVoicesCache.find(v => v.voiceURI === preferredUri);
+    if (exact) return exact;
+  }
+
+  const voices = getEnglishTtsVoices();
+  const persona = getTtsPersona();
+
+  const scoreVoice = (voice) => {
+    const name = (voice.name || '').toLowerCase();
+    let score = 0;
+    if (/natural|neural|online/i.test(name)) score += 12;
+    if (/microsoft|google/i.test(name)) score += 2;
+    if (persona === 'female' && /female|zira|jenny|aria|samantha|susan|hazel|emma|natasha|michelle|sonia|libby/i.test(name)) score += 6;
+    if (persona === 'male' && /male|david|mark|guy|ryan|james|george|andrew|brian|christopher|thomas|william/i.test(name)) score += 6;
+    if (persona === 'neutral' && !/robot|legacy|compact/i.test(name)) score += 1;
+    return score;
+  };
+
+  const ranked = [...voices].sort((a, b) => scoreVoice(b) - scoreVoice(a));
+  return ranked[0] || ttsVoicesCache[0] || null;
+}
+
+function stopNeuralAudio() {
+  if (activeNeuralAudio) {
+    try {
+      activeNeuralAudio.pause();
+      activeNeuralAudio.src = '';
+    } catch (e) { /* ignore */ }
+    activeNeuralAudio = null;
+  }
+}
+
+function playNeuralAudio(audioBase64, { mimeType = 'audio/wav', onStart, onEnd, allowOverlap = false } = {}) {
+  return new Promise((resolve) => {
+    if (!allowOverlap) stopNeuralAudio();
+    const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
+    activeNeuralAudio = audio;
+    audio.onplay = () => {
+      if (typeof onStart === 'function') onStart();
+    };
+    audio.onended = () => {
+      activeNeuralAudio = null;
+      if (typeof onEnd === 'function') onEnd();
+      resolve(true);
+    };
+    audio.onerror = () => {
+      activeNeuralAudio = null;
+      if (typeof onEnd === 'function') onEnd();
+      resolve(false);
+    };
+    audio.play().catch(() => {
+      activeNeuralAudio = null;
+      if (typeof onEnd === 'function') onEnd();
+      resolve(false);
+    });
+  });
+}
+
+function resetStreamingAutoSpeak() {
+  streamingAutoSpeakState.generation += 1;
+  streamingAutoSpeakState.spokenUpTo = 0;
+  streamingAutoSpeakState.queue = [];
+  streamingAutoSpeakState.busy = false;
+  streamingAutoSpeakState.started = false;
+  streamingAutoSpeakState.mode = null;
+  streamingAutoSpeakState.onFirstAudio = null;
+  streamingAutoSpeakState.activeButton = null;
+}
+
+function stopTtsSpeech() {
+  const btn = streamingAutoSpeakState.activeButton;
+  resetStreamingAutoSpeak();
+  if (btn) setSpeakButtonState(btn, 'idle');
+  document.querySelectorAll('.btn-speak-msg.is-loading, .btn-speak-msg.speaking').forEach((el) => {
+    setSpeakButtonState(el, 'idle');
+  });
+  clearTtsKeepAlive();
+  stopNeuralAudio();
+  if (window.speechSynthesis) {
+    window.speechSynthesis.cancel();
+  }
+  activeTtsUtterance = null;
+}
+
+let cachedActiveTtsModelKey = null;
+const streamingAutoSpeakState = {
+  generation: 0,
+  spokenUpTo: 0,
+  queue: [],
+  busy: false,
+  started: false,
+  mode: null,
+  onIdle: null,
+  onFirstAudio: null,
+  activeButton: null
+};
+
+function yieldToUi() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+  });
+}
+
+function setSpeakButtonState(btn, state) {
+  if (!btn) return;
+  const span = btn.querySelector('span');
+  const icon = btn.querySelector('svg');
+  btn.classList.remove('speaking', 'is-loading');
+  btn.disabled = false;
+  btn.style.pointerEvents = '';
+
+  if (state === 'loading') {
+    btn.classList.add('is-loading');
+    btn.disabled = true;
+    if (span) span.textContent = 'Loading…';
+    btn.style.color = '#93c5fd';
+    if (icon) icon.style.opacity = '0.35';
+  } else if (state === 'speaking') {
+    btn.classList.add('speaking');
+    if (span) span.textContent = 'Stop';
+    btn.style.color = '#a5b4fc';
+    if (icon) icon.style.opacity = '1';
+  } else {
+    if (span) span.textContent = 'Speak';
+    btn.style.color = 'var(--text-muted)';
+    if (icon) icon.style.opacity = '1';
+  }
+}
+
+function setAutoSpeakButtonState(state) {
+  const btn = streamingAutoSpeakState.activeButton
+    || ensureLatestMessageSpeakControls()
+    || document.querySelector('.chat-bubble.ai:last-child .btn-speak-msg');
+  if (!btn) return;
+  if (state === true) state = 'speaking';
+  if (state === false) state = 'idle';
+  setSpeakButtonState(btn, state);
+}
+
+function notifyStreamingAutoSpeakIdle() {
+  const btn = streamingAutoSpeakState.activeButton;
+  setSpeakButtonState(btn, 'idle');
+  streamingAutoSpeakState.activeButton = null;
+  clearTtsKeepAlive();
+  if (typeof streamingAutoSpeakState.onIdle === 'function') {
+    const cb = streamingAutoSpeakState.onIdle;
+    streamingAutoSpeakState.onIdle = null;
+    cb();
+  }
+}
+
+function markStreamingSpeechStarted() {
+  if (!streamingAutoSpeakState.started) {
+    streamingAutoSpeakState.started = true;
+    startTtsKeepAlive();
+    if (typeof streamingAutoSpeakState.onFirstAudio === 'function') {
+      streamingAutoSpeakState.onFirstAudio();
+      streamingAutoSpeakState.onFirstAudio = null;
+    } else {
+      setAutoSpeakButtonState('speaking');
+    }
+  }
+}
+
+function splitTextForSpeechQueue(text, maxLen = 260) {
+  const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return [];
+  if (cleaned.length <= maxLen) return [cleaned];
+
+  const chunks = [];
+  let rest = cleaned;
+  while (rest.length > maxLen) {
+    let cut = rest.lastIndexOf(' ', maxLen);
+    if (cut < Math.floor(maxLen * 0.35)) cut = maxLen;
+    const piece = rest.slice(0, cut).trim();
+    if (piece) chunks.push(piece);
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) chunks.push(rest);
+  return chunks;
+}
+
+function getLatestAiMessageText() {
+  const bubbles = chatMessagesContainer?.querySelectorAll('.chat-bubble.ai');
+  if (!bubbles?.length) return '';
+  const last = bubbles[bubbles.length - 1];
+  const content = last.querySelector('.message-content');
+  if (!content) return '';
+  return extractPlainTextFromMessage(content.innerHTML || content.textContent || '') || content.textContent || '';
+}
+
+function ensureLatestMessageSpeakControls() {
+  const bubbles = chatMessagesContainer?.querySelectorAll('.chat-bubble.ai');
+  if (!bubbles?.length) return null;
+  const last = bubbles[bubbles.length - 1];
+  const wrapper = last.querySelector('.message-wrapper');
+  if (!wrapper) return null;
+  const actionsDiv = wrapper.querySelector('.message-actions');
+  if (!actionsDiv) return null;
+  actionsDiv.style.display = 'flex';
+
+  let btnSpeak = actionsDiv.querySelector('.btn-speak-msg');
+  if (!btnSpeak) {
+    btnSpeak = createSpeakMessageButton(() => getLatestAiMessageText());
+    actionsDiv.appendChild(btnSpeak);
+  }
+  return btnSpeak;
+}
+
+function extractNewSpeechUnits(cleaned, fromIndex) {
+  const slice = cleaned.slice(fromIndex);
+  if (!slice.trim()) return { units: [], consumed: 0 };
+
+  const units = [];
+  let consumed = 0;
+  const sentenceRe = /[^.!?\n]+[.!?]+(?:\s+|\n|$)/g;
+  let match;
+  while ((match = sentenceRe.exec(slice)) !== null) {
+    const unit = match[0].trim();
+    if (unit.length >= 4) {
+      units.push(unit);
+      consumed = match.index + match[0].length;
+    }
+  }
+
+  if (!units.length && slice.length >= 90) {
+    const cut = slice.lastIndexOf(' ', 90);
+    if (cut >= 40) {
+      units.push(slice.slice(0, cut).trim());
+      consumed = cut + 1;
+    }
+  }
+
+  return { units, consumed };
+}
+
+function enqueueSpeechUnits(units) {
+  for (const unit of units) {
+    streamingAutoSpeakState.queue.push(...splitTextForSpeechQueue(unit));
+  }
+}
+
+async function resolveActiveTtsModelKey() {
+  if (cachedActiveTtsModelKey) return cachedActiveTtsModelKey;
+  if (!window.ultronAPI?.getTtsCatalog) return null;
+  try {
+    const catalogRes = await window.ultronAPI.getTtsCatalog();
+    const models = catalogRes?.models || [];
+    const activeKey = window.localStorage.getItem('ultron-tts-neural-model')
+      || models.find(m => m.isActive)?.key
+      || models.find(m => m.installed)?.key;
+    const active = models.find(m => m.key === activeKey);
+    if (active?.installed) {
+      cachedActiveTtsModelKey = active.key;
+      return active.key;
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+async function synthesizeSpeechChunk(text) {
+  const modelKey = await resolveActiveTtsModelKey();
+  if (!modelKey || !window.ultronAPI?.synthesizeSpeech) return null;
+  try {
+    const res = await window.ultronAPI.synthesizeSpeech(text, modelKey);
+    if (res?.success && res.wavBase64) {
+      return { wavBase64: res.wavBase64, mimeType: res.mimeType || 'audio/wav' };
+    }
+    if (res?.error) logTrace(`Voice: ${res.error}`, 'system');
+  } catch (e) {
+    logTrace(`Voice failed: ${e.message}`, 'system');
+  }
+  return null;
+}
+
+function speakWithBrowserTts(text) {
+  return new Promise((resolve) => {
+    if (!window.speechSynthesis) {
+      resolve(false);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voice = resolveTtsVoice();
+    if (voice) utterance.voice = voice;
+    utterance.rate = getTtsRate();
+    utterance.pitch = getTtsPitch();
+    utterance.volume = getSoundVolume();
+    utterance.lang = voice?.lang || 'en-US';
+    utterance.onend = () => resolve(true);
+    utterance.onerror = () => resolve(false);
+    activeTtsUtterance = utterance;
+    window.speechSynthesis.speak(utterance);
+  });
+}
+
+async function drainStreamingAutoSpeak() {
+  if (streamingAutoSpeakState.busy) return;
+  streamingAutoSpeakState.busy = true;
+  const gen = streamingAutoSpeakState.generation;
+  let playedAny = false;
+
+  while (streamingAutoSpeakState.queue.length && gen === streamingAutoSpeakState.generation) {
+    const chunk = streamingAutoSpeakState.queue.shift();
+    await yieldToUi();
+    const audio = await synthesizeSpeechChunk(chunk);
+    if (gen !== streamingAutoSpeakState.generation) break;
+
+    if (audio?.wavBase64) {
+      playedAny = true;
+      markStreamingSpeechStarted();
+      await playNeuralAudio(audio.wavBase64, { mimeType: audio.mimeType || 'audio/wav' });
+    } else {
+      markStreamingSpeechStarted();
+      const spoke = await speakWithBrowserTts(chunk);
+      if (spoke) playedAny = true;
+    }
+    await yieldToUi();
+  }
+
+  streamingAutoSpeakState.busy = false;
+  if (gen === streamingAutoSpeakState.generation && !streamingAutoSpeakState.queue.length) {
+    if (!playedAny) {
+      logTrace('Voice audio failed. Fully restart Ultron, then try Preview in Settings → Agent Sounds.', 'system');
+    }
+    notifyStreamingAutoSpeakIdle();
+  }
+  if (streamingAutoSpeakState.queue.length && gen === streamingAutoSpeakState.generation) {
+    drainStreamingAutoSpeak();
+  }
+}
+
+function beginSpeechPlayback(fullText) {
+  return beginUnifiedSpeechPlayback(fullText);
+}
+
+async function beginUnifiedSpeechPlayback(fullText) {
+  const cleaned = normalizeTextForSpeech(fullText);
+  if (!cleaned) return false;
+
+  streamingAutoSpeakState.mode = 'unified';
+  streamingAutoSpeakState.spokenUpTo = cleaned.length;
+  streamingAutoSpeakState.queue.length = 0;
+
+  const modelKey = await resolveActiveTtsModelKey();
+  if (!modelKey || !window.ultronAPI?.synthesizeSpeech) return false;
+
+  const gen = streamingAutoSpeakState.generation;
+  setTimeout(async () => {
+    if (gen !== streamingAutoSpeakState.generation) return;
+    await yieldToUi();
+    try {
+      const res = await window.ultronAPI.synthesizeSpeech(cleaned, modelKey);
+      if (gen !== streamingAutoSpeakState.generation) return;
+      if (res?.success && res.wavBase64) {
+        markStreamingSpeechStarted();
+        await playNeuralAudio(res.wavBase64, { mimeType: res.mimeType || 'audio/wav' });
+      } else {
+        if (res?.error) logTrace(`Voice: ${res.error}`, 'system');
+        logTrace('Voice audio failed. Try Preview in Settings → Agent Sounds.', 'system');
+      }
+    } catch (e) {
+      logTrace(`Voice failed: ${e.message}`, 'system');
+    }
+    if (gen === streamingAutoSpeakState.generation) {
+      notifyStreamingAutoSpeakIdle();
+    }
+  }, 0);
+
+  return true;
+}
+
+function feedStreamingAutoSpeak(fullText) {
+  if (!isTtsAutoSpeakEnabled()) return;
+  const cleaned = normalizeTextForSpeech(fullText);
+  if (!cleaned || isThinkingMarkup(fullText)) return;
+
+  const btn = ensureLatestMessageSpeakControls();
+  if (btn && !streamingAutoSpeakState.activeButton) {
+    streamingAutoSpeakState.activeButton = btn;
+    if (!streamingAutoSpeakState.started) setSpeakButtonState(btn, 'loading');
+  }
+
+  streamingAutoSpeakState.mode = 'chunked';
+
+  const { units, consumed } = extractNewSpeechUnits(cleaned, streamingAutoSpeakState.spokenUpTo);
+  if (!units.length) return;
+
+  streamingAutoSpeakState.spokenUpTo += consumed;
+  enqueueSpeechUnits(units);
+  setTimeout(() => drainStreamingAutoSpeak(), 0);
+}
+
+function finishStreamingAutoSpeak(fullText) {
+  if (!isTtsAutoSpeakEnabled()) return;
+  if (streamingAutoSpeakState.mode === 'unified') return;
+
+  feedStreamingAutoSpeak(fullText);
+  const cleaned = normalizeTextForSpeech(fullText);
+  if (!cleaned) return;
+  if (streamingAutoSpeakState.spokenUpTo >= cleaned.length) return;
+
+  const tail = cleaned.slice(streamingAutoSpeakState.spokenUpTo).trim();
+  if (tail.length >= 2) {
+    streamingAutoSpeakState.mode = 'unified';
+    streamingAutoSpeakState.spokenUpTo = cleaned.length;
+    streamingAutoSpeakState.queue.length = 0;
+    beginUnifiedSpeechPlayback(tail);
+  }
+}
+
+async function warmupActiveTtsEngine() {
+  cachedActiveTtsModelKey = null;
+  const modelKey = await resolveActiveTtsModelKey();
+  if (modelKey && window.ultronAPI?.warmupTtsModel) {
+    window.ultronAPI.warmupTtsModel(modelKey).catch(() => {});
+  }
+}
+
+async function speakTextAloud(text, { force = false, button = null, onStart, onEnd } = {}) {
+  const cleaned = normalizeTextForSpeech(text);
+  if (!cleaned) return false;
+  if (!force && !isTtsAutoSpeakEnabled()) return false;
+
+  const speakBtn = button || null;
+  stopTtsSpeech();
+  if (speakBtn) {
+    streamingAutoSpeakState.activeButton = speakBtn;
+    setSpeakButtonState(speakBtn, 'loading');
+  }
+
+  const modelKey = await resolveActiveTtsModelKey();
+  if (modelKey && window.ultronAPI?.synthesizeSpeech) {
+    return new Promise((resolve) => {
+      streamingAutoSpeakState.onFirstAudio = () => {
+        if (speakBtn) setSpeakButtonState(speakBtn, 'speaking');
+        if (typeof onStart === 'function') onStart();
+      };
+      streamingAutoSpeakState.onIdle = () => {
+        if (speakBtn) setSpeakButtonState(speakBtn, 'idle');
+        streamingAutoSpeakState.activeButton = null;
+        if (typeof onEnd === 'function') onEnd();
+        resolve(true);
+      };
+      const queued = beginSpeechPlayback(text);
+      if (!queued) {
+        if (speakBtn) setSpeakButtonState(speakBtn, 'idle');
+        streamingAutoSpeakState.onIdle = null;
+        resolve(false);
+      }
+    });
+  }
+
+  if (!window.speechSynthesis) {
+    logTrace('Text-to-speech is not available in this environment.', 'system');
+    return false;
+  }
+
+  await ensureTtsVoicesReady();
+
+  const utterance = new SpeechSynthesisUtterance(cleaned);
+  const voice = resolveTtsVoice();
+  if (voice) utterance.voice = voice;
+  utterance.rate = getTtsRate();
+  utterance.pitch = getTtsPitch();
+  utterance.volume = getSoundVolume();
+  utterance.lang = voice?.lang || 'en-US';
+
+  utterance.onstart = () => {
+    startTtsKeepAlive();
+    if (typeof onStart === 'function') onStart();
+  };
+  utterance.onend = () => {
+    clearTtsKeepAlive();
+    activeTtsUtterance = null;
+    if (typeof onEnd === 'function') onEnd();
+  };
+  utterance.onerror = () => {
+    clearTtsKeepAlive();
+    activeTtsUtterance = null;
+    if (typeof onEnd === 'function') onEnd();
+  };
+
+  activeTtsUtterance = utterance;
+  window.speechSynthesis.speak(utterance);
+  return true;
+}
+
+function applyMessageActionButtonStyles(btn) {
+  if (!btn) return;
+  btn.type = 'button';
+}
+
+function createSpeakMessageButton(getText) {
+  const btnSpeak = document.createElement('button');
+  btnSpeak.className = 'btn-speak-msg message-action-btn';
+  btnSpeak.title = 'Read aloud';
+  applyMessageActionButtonStyles(btnSpeak);
+  btnSpeak.innerHTML = `
+    <svg class="message-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+      <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+      <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+    </svg>
+    <span>Speak</span>
+  `;
+
+  btnSpeak.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const text = typeof getText === 'function' ? getText() : getText;
+    if (btnSpeak.classList.contains('speaking')) {
+      stopTtsSpeech();
+      return;
+    }
+    if (btnSpeak.classList.contains('is-loading')) return;
+
+    setSpeakButtonState(btnSpeak, 'loading');
+    const started = await speakTextAloud(text, {
+      force: true,
+      button: btnSpeak,
+      onStart: () => setSpeakButtonState(btnSpeak, 'speaking'),
+      onEnd: () => setSpeakButtonState(btnSpeak, 'idle')
+    });
+    if (!started) {
+      setSpeakButtonState(btnSpeak, 'idle');
+      logTrace('Nothing to read aloud in this message.', 'system');
+    }
+  });
+
+  btnSpeak.addEventListener('mouseenter', () => {
+    if (!btnSpeak.classList.contains('speaking') && !btnSpeak.classList.contains('is-loading')) {
+      btnSpeak.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+      btnSpeak.style.color = 'var(--accent-white)';
+    }
+  });
+  btnSpeak.addEventListener('mouseleave', () => {
+    if (!btnSpeak.classList.contains('speaking') && !btnSpeak.classList.contains('is-loading')) {
+      btnSpeak.style.backgroundColor = 'transparent';
+      btnSpeak.style.color = 'var(--text-muted)';
+    }
+  });
+
+  return btnSpeak;
+}
+
+function wireMessageActionButtons(actionsDiv, fullText) {
+  if (!actionsDiv || !fullText || isThinkingMarkup(fullText)) return;
+
+  actionsDiv.style.display = 'flex';
+  actionsDiv.style.visibility = 'visible';
+  actionsDiv.style.opacity = '1';
+
+  let btnCopy = actionsDiv.querySelector('.btn-copy-msg');
+  if (!btnCopy) {
+    btnCopy = document.createElement('button');
+    btnCopy.className = 'btn-copy-msg message-action-btn';
+    btnCopy.innerHTML = `
+      <svg class="message-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </svg>
+      <span>Copy</span>
+    `;
+    actionsDiv.appendChild(btnCopy);
+  }
+  applyMessageActionButtonStyles(btnCopy);
+
+  btnCopy.onclick = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(extractPlainTextFromMessage(fullText) || fullText);
+    const span = btnCopy.querySelector('span');
+    if (span) span.textContent = 'Copied!';
+    btnCopy.style.color = '#34d399';
+    setTimeout(() => {
+      if (span) span.textContent = 'Copy';
+      btnCopy.style.color = 'var(--text-muted)';
+    }, 2000);
+  };
+
+  let btnSpeak = actionsDiv.querySelector('.btn-speak-msg');
+  if (!btnSpeak) {
+    btnSpeak = createSpeakMessageButton(() => fullText);
+    actionsDiv.appendChild(btnSpeak);
+  } else {
+    btnSpeak.replaceWith(createSpeakMessageButton(() => fullText));
+  }
+}
+
+function maybeAutoSpeakResponse(fullText) {
+  resetStreamingAutoSpeak();
+  finishStreamingAutoSpeak(fullText);
+}
+
+if (window.speechSynthesis) {
+  window.speechSynthesis.onvoiceschanged = () => loadTtsVoices();
+  loadTtsVoices();
+}
+
+// Voice input model (Whisper STT) settings
+const voiceModelStatusBadge = document.getElementById('voice-model-status-badge');
+const voiceModelSizeLabel = document.getElementById('voice-model-size-label');
+const btnDownloadVoiceModel = document.getElementById('btn-download-voice-model');
+const btnCancelVoiceModel = document.getElementById('btn-cancel-voice-model');
+const btnDeleteVoiceModel = document.getElementById('btn-delete-voice-model');
+const voiceModelDownloadProgress = document.getElementById('voice-model-download-progress');
+const voiceModelProgressStatus = document.getElementById('voice-model-progress-status');
+const voiceModelProgressStats = document.getElementById('voice-model-progress-stats');
+const voiceModelProgressBar = document.getElementById('voice-model-progress-bar');
+const voiceModelProgressDetail = document.getElementById('voice-model-progress-detail');
+const VOICE_MODEL_PROGRESS_KEY = 'voice-whisper-tiny';
+let voiceModelDownloadListenerCleanup = null;
+
+function setVoiceModelProgressVisible(visible) {
+  if (!voiceModelDownloadProgress) return;
+  voiceModelDownloadProgress.classList.toggle('hidden', !visible);
+}
+
+function resetVoiceModelProgressUI() {
+  setVoiceModelProgressVisible(false);
+  if (voiceModelProgressStatus) voiceModelProgressStatus.textContent = 'Downloading voice model…';
+  if (voiceModelProgressStats) voiceModelProgressStats.textContent = '0%';
+  if (voiceModelProgressBar) voiceModelProgressBar.style.width = '0%';
+  if (voiceModelProgressDetail) voiceModelProgressDetail.textContent = 'Speed: --';
+}
+
+function showVoiceModelProgress(data = {}) {
+  setVoiceModelProgressVisible(true);
+  const percent = Math.max(0, Math.min(100, Number(data.percent) || 0));
+  if (voiceModelProgressStatus) {
+    voiceModelProgressStatus.textContent = data.status || 'Downloading voice model…';
+  }
+  if (voiceModelProgressStats) {
+    const stats = data.downloaded && data.total
+      ? `${percent}% (${data.downloaded} / ${data.total})`
+      : `${percent}%`;
+    voiceModelProgressStats.textContent = stats;
+  }
+  if (voiceModelProgressBar) voiceModelProgressBar.style.width = `${percent}%`;
+  if (voiceModelProgressDetail) {
+    voiceModelProgressDetail.textContent = data.speed
+      ? `Speed: ${data.speed}`
+      : (data.phase === 'complete' ? 'Ready for offline mic transcription.' : 'Downloading model files…');
+  }
+}
+
+function updateVoiceModelSettingsUI(status) {
+  if (!status) return;
+
+  if (voiceModelSizeLabel) {
+    voiceModelSizeLabel.textContent = status.installed
+      ? `${status.cacheSize || status.sizeEstimate} · offline`
+      : `${status.sizeEstimate} · offline`;
+  }
+
+  if (voiceModelStatusBadge) {
+    voiceModelStatusBadge.classList.remove('installed', 'missing', 'downloading');
+    if (status.downloading) {
+      voiceModelStatusBadge.textContent = 'Downloading';
+      voiceModelStatusBadge.classList.add('downloading');
+    } else if (status.installed) {
+      voiceModelStatusBadge.textContent = 'Installed';
+      voiceModelStatusBadge.classList.add('installed');
+    } else {
+      voiceModelStatusBadge.textContent = 'Not installed';
+      voiceModelStatusBadge.classList.add('missing');
+    }
+  }
+
+  if (btnDownloadVoiceModel) {
+    btnDownloadVoiceModel.classList.toggle('hidden', status.installed || status.downloading);
+    btnDownloadVoiceModel.disabled = Boolean(status.downloading);
+  }
+  if (btnCancelVoiceModel) {
+    btnCancelVoiceModel.classList.toggle('hidden', !status.downloading);
+  }
+  if (btnDeleteVoiceModel) {
+    btnDeleteVoiceModel.classList.toggle('hidden', !status.installed || status.downloading);
+  }
+}
+
+async function refreshVoiceModelSettingsUI() {
+  if (!window.ultronAPI?.getVoiceModelStatus) return;
+  try {
+    const status = await window.ultronAPI.getVoiceModelStatus();
+    updateVoiceModelSettingsUI(status);
+  } catch (e) {
+    if (voiceModelStatusBadge) {
+      voiceModelStatusBadge.textContent = 'Unavailable';
+      voiceModelStatusBadge.classList.add('missing');
+    }
+  }
+}
+
+function bindVoiceModelDownloadProgressListener() {
+  if (voiceModelDownloadListenerCleanup) {
+    voiceModelDownloadListenerCleanup();
+    voiceModelDownloadListenerCleanup = null;
+  }
+  if (!window.ultronAPI?.onDownloadProgress) return;
+  voiceModelDownloadListenerCleanup = window.ultronAPI.onDownloadProgress((data) => {
+    if ((data.modelName || '').toLowerCase() !== VOICE_MODEL_PROGRESS_KEY) return;
+    showVoiceModelProgress(data);
+  });
+}
+
+async function startVoiceModelDownload() {
+  if (!window.ultronAPI?.downloadVoiceModel) return;
+
+  bindVoiceModelDownloadProgressListener();
+  updateVoiceModelSettingsUI({ installed: false, downloading: true, sizeEstimate: '~40 MB' });
+  resetVoiceModelProgressUI();
+  showVoiceModelProgress({ percent: 0, status: 'Starting download…' });
+
+  const result = await window.ultronAPI.downloadVoiceModel().catch(err => ({
+    success: false,
+    error: err.message || 'Download failed.'
+  }));
+
+  if (voiceModelDownloadListenerCleanup) {
+    voiceModelDownloadListenerCleanup();
+    voiceModelDownloadListenerCleanup = null;
+  }
+
+  resetVoiceModelProgressUI();
+  await refreshVoiceModelSettingsUI();
+
+  if (result.success) {
+    logTrace('Voice input model installed. Mic transcription is ready offline.', 'system');
+  } else if (!result.cancelled) {
+    logTrace(result.error || 'Voice model download failed.', 'system');
+  }
+}
+
+function initVoiceModelSettingsUI() {
+  refreshVoiceModelSettingsUI();
+
+  if (btnDownloadVoiceModel) {
+    btnDownloadVoiceModel.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await startVoiceModelDownload();
+    });
+  }
+
+  if (btnCancelVoiceModel) {
+    btnCancelVoiceModel.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (window.ultronAPI?.cancelVoiceModelDownload) {
+        await window.ultronAPI.cancelVoiceModelDownload();
+      }
+      resetVoiceModelProgressUI();
+      await refreshVoiceModelSettingsUI();
+      logTrace('Voice model download cancelled.', 'system');
+    });
+  }
+
+  if (btnDeleteVoiceModel) {
+    btnDeleteVoiceModel.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (!window.ultronAPI?.deleteVoiceModel) return;
+      const result = await window.ultronAPI.deleteVoiceModel();
+      await refreshVoiceModelSettingsUI();
+      if (result?.success) {
+        logTrace('Voice input model removed.', 'system');
+      } else {
+        logTrace(result?.error || 'Could not remove voice model.', 'system');
+      }
+    });
+  }
+
+  document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.addEventListener('click', () => {
+    refreshVoiceModelSettingsUI();
+  });
+}
+
+initVoiceModelSettingsUI();
+
+// Neural TTS models (offline natural voices + optional Gemini Live cloud)
+const ttsModelsListEl = document.getElementById('tts-models-list');
+const ttsCloudModelsListEl = document.getElementById('tts-cloud-models-list');
+const ttsModelStatusBadge = document.getElementById('tts-model-status-badge');
+const ttsCloudStatusBadge = document.getElementById('tts-cloud-status-badge');
+const ttsModelFeedback = document.getElementById('tts-model-feedback');
+let ttsCatalogCache = [];
+let ttsDownloadingModelKey = null;
+
+function normalizeTtsModelsForDisplay(models) {
+  const showDownloading = Boolean(ttsDownloadingModelKey) || models.some(m => m.downloading);
+  return models.map(model => ({
+    ...model,
+    downloading: !model.installed && !model.cloud && showDownloading
+  }));
+}
+
+function getTtsDownloadButtonState(model) {
+  if (model.cloud) {
+    if (model.installed) {
+      return { label: 'Ready', className: 'is-cloud-ready', disabled: true };
+    }
+    return { label: 'Needs key', className: 'is-cloud-missing', disabled: true };
+  }
+  if (model.installed) {
+    return { label: 'Downloaded', className: 'is-downloaded', disabled: true };
+  }
+  if (model.downloading) {
+    return { label: 'Downloading…', className: 'is-downloading', disabled: true };
+  }
+  return { label: 'Download', className: '', disabled: false };
+}
+
+function updateTtsSectionBadge(models = [], badgeEl = ttsModelStatusBadge, { cloud = false } = {}) {
+  if (!badgeEl) return;
+  const installed = models.some(m => m.installed);
+  const downloading = models.some(m => m.downloading);
+  badgeEl.classList.remove('installed', 'missing', 'downloading');
+  if (downloading) {
+    badgeEl.textContent = 'Downloading';
+    badgeEl.classList.add('downloading');
+  } else if (installed) {
+    badgeEl.textContent = cloud ? 'Connected' : 'Ready';
+    badgeEl.classList.add('installed');
+  } else {
+    badgeEl.textContent = cloud ? 'No API key' : 'Not installed';
+    badgeEl.classList.add('missing');
+  }
+}
+
+function buildTtsModelCard(model) {
+  const dl = getTtsDownloadButtonState(model);
+  const sizeLabel = model.cloud
+    ? 'Cloud · Gemini Live API'
+    : (model.installed
+      ? `${model.cacheSize || model.sizeEstimate} · offline`
+      : `${model.sizeEstimate} · offline`);
+
+  const card = document.createElement('div');
+  card.className = `tts-model-card${model.isActive ? ' is-active' : ''}${model.cloud ? ' is-cloud' : ''}`;
+  card.dataset.modelKey = model.key;
+  card.innerHTML = `
+    <div class="tts-model-card-header">
+      <div>
+        <div class="tts-model-card-title">${model.label}${model.isActive ? ' · Active' : ''}</div>
+        <div class="tts-model-card-desc">${model.description || ''}</div>
+        <div class="tts-model-card-meta">${sizeLabel}</div>
+      </div>
+      <div class="tts-model-card-actions">
+        ${model.cloud
+    ? `<button type="button" class="sound-preview-btn btn-tts-cloud-status ${dl.className}" disabled>${dl.label}</button>`
+    : `<button type="button" class="sound-preview-btn btn-tts-download ${dl.className}" data-key="${model.key}" ${dl.disabled ? 'disabled' : ''}>${dl.label}</button>`}
+        <button type="button" class="sound-preview-btn btn-tts-preview" data-key="${model.key}" ${model.installed ? '' : 'disabled'}>Preview</button>
+        <button type="button" class="sound-preview-btn btn-tts-use ${model.isActive ? 'is-active-voice' : ''}" data-key="${model.key}" ${model.installed ? '' : 'disabled'}>${model.isActive ? 'Active' : 'Use'}</button>
+      </div>
+    </div>
+  `;
+  return card;
+}
+
+function bindTtsModelCardActions(container) {
+  if (!container) return;
+
+  container.querySelectorAll('.btn-tts-download').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (btn.disabled || btn.classList.contains('is-downloaded')) return;
+      await startTtsModelDownload(btn.dataset.key);
+    });
+  });
+
+  container.querySelectorAll('.btn-tts-use').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      if (!window.ultronAPI?.setActiveTtsModel) return;
+      const result = await window.ultronAPI.setActiveTtsModel(btn.dataset.key);
+      if (result?.success) {
+        window.localStorage.setItem('ultron-tts-neural-model', btn.dataset.key);
+        cachedActiveTtsModelKey = btn.dataset.key;
+        warmupActiveTtsEngine();
+        await refreshTtsModelsUI();
+        logTrace(`Active voice: ${btn.dataset.key}`, 'system');
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-tts-preview').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await previewTtsModel(btn.dataset.key, btn);
+    });
+  });
+}
+
+function renderTtsModelsList(models = []) {
+  const displayModels = normalizeTtsModelsForDisplay(models);
+  ttsCatalogCache = displayModels;
+
+  const offlineModels = displayModels.filter(m => !m.cloud);
+  const cloudModels = displayModels.filter(m => m.cloud);
+
+  if (ttsModelsListEl) {
+    ttsModelsListEl.innerHTML = '';
+    if (!offlineModels.length && !models.length) {
+      ttsModelsListEl.innerHTML = '<p class="text-xs text-muted">Neural voice API unavailable — fully restart Ultron (close app, then npm run start).</p>';
+      if (ttsModelStatusBadge) {
+        ttsModelStatusBadge.textContent = 'Restart required';
+        ttsModelStatusBadge.classList.add('missing');
+      }
+    } else {
+      offlineModels.forEach(model => ttsModelsListEl.appendChild(buildTtsModelCard(model)));
+      bindTtsModelCardActions(ttsModelsListEl);
+      updateTtsSectionBadge(offlineModels, ttsModelStatusBadge);
+    }
+  }
+
+  if (ttsCloudModelsListEl) {
+    ttsCloudModelsListEl.innerHTML = '';
+    cloudModels.forEach(model => ttsCloudModelsListEl.appendChild(buildTtsModelCard(model)));
+    bindTtsModelCardActions(ttsCloudModelsListEl);
+    updateTtsSectionBadge(cloudModels, ttsCloudStatusBadge, { cloud: true });
+  }
+}
+
+async function previewTtsModel(modelKey, btn) {
+  const model = ttsCatalogCache.find(m => m.key === modelKey);
+  if (!model) return;
+
+  if (!model.installed) {
+    if (ttsModelFeedback) {
+      ttsModelFeedback.textContent = model.cloud
+        ? 'Add your Gemini API key in Settings → Connectors first.'
+        : `Download “${model.label}” first, then preview.`;
+    }
+    return;
+  }
+
+  const previewText = model.previewText || "Hello, I'm Ultron.";
+  const originalLabel = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Playing…';
+  }
+
+  stopTtsSpeech();
+
+  try {
+    const res = await window.ultronAPI.synthesizeSpeech(previewText, modelKey);
+    if (res?.success && res.wavBase64) {
+      await playNeuralAudio(res.wavBase64, { mimeType: res.mimeType || 'audio/wav' });
+      if (ttsModelFeedback) ttsModelFeedback.textContent = `Preview: ${model.label}`;
+    } else if (ttsModelFeedback) {
+      ttsModelFeedback.textContent = res?.error || 'Preview failed.';
+    }
+  } catch (err) {
+    if (ttsModelFeedback) ttsModelFeedback.textContent = err.message || 'Preview failed.';
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || 'Preview';
+    }
+  }
+}
+
+async function refreshTtsModelsUI() {
+  if (!window.ultronAPI?.getTtsCatalog) {
+    renderTtsModelsList([]);
+    return;
+  }
+
+  try {
+    const result = await window.ultronAPI.getTtsCatalog();
+    const models = result?.models || [];
+    const storedActive = window.localStorage.getItem('ultron-tts-neural-model');
+    if (storedActive && models.some(m => m.key === storedActive && m.installed)) {
+      await window.ultronAPI.setActiveTtsModel?.(storedActive);
+    }
+    const refreshed = await window.ultronAPI.getTtsCatalog();
+    renderTtsModelsList(refreshed?.models || models);
+  } catch (e) {
+    renderTtsModelsList([]);
+    if (ttsModelStatusBadge) {
+      ttsModelStatusBadge.textContent = 'Unavailable';
+      ttsModelStatusBadge.classList.add('missing');
+    }
+    if (ttsModelFeedback) ttsModelFeedback.textContent = 'Voice API not loaded — quit Ultron completely and start again.';
+  }
+}
+
+async function startTtsModelDownload(modelKey) {
+  if (!window.ultronAPI?.downloadTtsModel || !modelKey) return;
+
+  ttsDownloadingModelKey = modelKey;
+  await refreshTtsModelsUI();
+
+  const result = await window.ultronAPI.downloadTtsModel(modelKey).catch(err => ({
+    success: false,
+    error: err.message || 'Download failed.'
+  }));
+
+  ttsDownloadingModelKey = null;
+
+  if (result.success) {
+    window.localStorage.setItem('ultron-tts-neural-model', modelKey);
+    await window.ultronAPI.setActiveTtsModel?.(modelKey);
+    if (ttsModelFeedback) ttsModelFeedback.textContent = 'Voice engine ready — tap Preview on any voice.';
+    logTrace('Neural voice engine installed.', 'system');
+  } else if (!result.cancelled) {
+    if (ttsModelFeedback) ttsModelFeedback.textContent = result.error || 'Download failed.';
+    logTrace(result.error || 'Neural voice download failed.', 'system');
+  }
+
+  await refreshTtsModelsUI();
+}
+
+function initTtsModelsUI() {
+  refreshTtsModelsUI();
+  warmupActiveTtsEngine();
+
+  document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.addEventListener('click', () => {
+    refreshTtsModelsUI();
+    warmupActiveTtsEngine();
+  });
+}
+
+initTtsModelsUI();
+
+const settingTtsAutoSpeak = document.getElementById('setting-tts-auto-speak');
+const settingTtsPersona = document.getElementById('setting-tts-persona');
+const settingTtsVoice = document.getElementById('setting-tts-voice');
+const settingTtsRate = document.getElementById('setting-tts-rate');
+const settingTtsRateLabel = document.getElementById('setting-tts-rate-label');
+const btnPreviewTts = document.getElementById('btn-preview-tts');
+
+function populateTtsVoiceSelect() {
+  if (!settingTtsVoice) return;
+  const current = getSelectedTtsVoiceUri();
+  const voices = getEnglishTtsVoices();
+  settingTtsVoice.innerHTML = '<option value="">Auto (persona)</option>';
+  voices.forEach(voice => {
+    const opt = document.createElement('option');
+    opt.value = voice.voiceURI;
+    opt.textContent = `${voice.name} (${voice.lang})`;
+    settingTtsVoice.appendChild(opt);
+  });
+  settingTtsVoice.value = current && voices.some(v => v.voiceURI === current) ? current : '';
+}
+
+function updateTtsRateLabel() {
+  if (!settingTtsRate || !settingTtsRateLabel) return;
+  settingTtsRateLabel.textContent = `${Number(settingTtsRate.value).toFixed(2)}×`;
+}
+
+function initTtsSettingsUI() {
+  if (settingTtsAutoSpeak) {
+    settingTtsAutoSpeak.checked = isTtsAutoSpeakEnabled();
+    settingTtsAutoSpeak.addEventListener('change', () => {
+      window.localStorage.setItem('ultron-tts-auto-speak', settingTtsAutoSpeak.checked ? 'true' : 'false');
+      if (!settingTtsAutoSpeak.checked) stopTtsSpeech();
+    });
+  }
+
+  if (settingTtsPersona) {
+    settingTtsPersona.value = getTtsPersona();
+    settingTtsPersona.addEventListener('change', () => {
+      window.localStorage.setItem('ultron-tts-persona', settingTtsPersona.value);
+      if (settingTtsVoice) settingTtsVoice.value = '';
+      window.localStorage.setItem('ultron-tts-voice-uri', '');
+    });
+  }
+
+  if (settingTtsVoice) {
+    ensureTtsVoicesReady().then(() => populateTtsVoiceSelect());
+    settingTtsVoice.addEventListener('change', () => {
+      window.localStorage.setItem('ultron-tts-voice-uri', settingTtsVoice.value || '');
+    });
+  }
+
+  if (settingTtsRate) {
+    const savedRate = window.localStorage.getItem('ultron-tts-rate');
+    if (savedRate != null) settingTtsRate.value = savedRate;
+    updateTtsRateLabel();
+    settingTtsRate.addEventListener('input', () => {
+      window.localStorage.setItem('ultron-tts-rate', settingTtsRate.value);
+      updateTtsRateLabel();
+    });
+  }
+
+  if (btnPreviewTts) {
+    btnPreviewTts.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const originalLabel = btnPreviewTts.textContent;
+      btnPreviewTts.disabled = true;
+      btnPreviewTts.textContent = 'Speaking…';
+
+      const activeKey = window.localStorage.getItem('ultron-tts-neural-model')
+        || ttsCatalogCache.find(m => m.isActive)?.key
+        || ttsCatalogCache.find(m => m.installed)?.key;
+
+      let started = false;
+      if (activeKey && window.ultronAPI?.synthesizeSpeech) {
+        const model = ttsCatalogCache.find(m => m.key === activeKey);
+        if (model?.installed) {
+          const res = await window.ultronAPI.synthesizeSpeech(
+            "Hello, I'm Ultron. I'll read my responses aloud when you enable auto speak.",
+            activeKey
+          );
+          if (res?.success && res.wavBase64) {
+            started = await playNeuralAudio(res.wavBase64, {
+              onEnd: () => {
+                btnPreviewTts.disabled = false;
+                btnPreviewTts.textContent = originalLabel;
+              }
+            });
+          }
+        }
+      }
+
+      if (!started) {
+        started = await speakTextAloud("Hello, I'm Ultron. I'll read my responses aloud when you enable auto speak.", {
+          force: true,
+          onEnd: () => {
+            btnPreviewTts.disabled = false;
+            btnPreviewTts.textContent = originalLabel;
+          }
+        });
+      }
+
+      if (!started) {
+        btnPreviewTts.disabled = false;
+        btnPreviewTts.textContent = 'No voice';
+        setTimeout(() => { btnPreviewTts.textContent = originalLabel; }, 1800);
+      }
+    });
+  }
+
+  document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.addEventListener('click', () => {
+    ensureTtsVoicesReady().then(() => populateTtsVoiceSelect());
+    refreshTtsModelsUI();
+  });
+}
+
+initTtsSettingsUI();
+
 if (btnSettings && settingsModal && btnCloseSettings) {
   btnSettings.addEventListener('click', async () => {
     // Open Account tab by default
@@ -6299,18 +11468,7 @@ if (btnSettings && settingsModal && btnCloseSettings) {
       settingNeverCaptureApps.value = window.localStorage.getItem('ultron-never-capture-apps') || '';
     }
     
-    // Initialize Data Storage Location input path
-    if (settingDataDir) {
-      const storedPath = window.localStorage.getItem('ultron-data-dir');
-      if (storedPath) {
-        settingDataDir.value = storedPath;
-      } else {
-        const defaultPath = await window.ultronAPI.getDefaultDataDir();
-        settingDataDir.value = defaultPath;
-        window.localStorage.setItem('ultron-data-dir', defaultPath);
-        await window.ultronAPI.updateDataDir(defaultPath);
-      }
-    }
+    await loadStoragePathsUI();
     
     // Restore direct download trigger state
     const btnShowDownload = document.getElementById('btn-show-download-fields');
@@ -6366,22 +11524,73 @@ if (settingDataDir) {
   });
 }
 
-// Reset storage directory to default path
+// Reset agent storage directory to default path
 const btnResetStorage = document.getElementById('btn-reset-storage');
 if (btnResetStorage && settingDataDir) {
   btnResetStorage.addEventListener('click', async () => {
     logTrace('Resetting agent storage directory to default...', 'system');
-    const defaultPath = await window.ultronAPI.getDefaultDataDir();
+    const paths = await window.ultronAPI.getStoragePaths?.().catch(() => null);
+    const defaultPath = paths?.defaultAgentDataDir || await window.ultronAPI.getDefaultDataDir();
     settingDataDir.value = defaultPath;
     window.localStorage.setItem('ultron-data-dir', defaultPath);
     const updateResult = await window.ultronAPI.updateDataDir(defaultPath);
     if (updateResult.success) {
       logTrace(`Agent storage and memory location reset to default: "${defaultPath}"`, 'system');
       await reloadConversationsFromDisk();
-      alert(`Storage reset and migrated to default path:\n${defaultPath}`);
+      alert(`Agent storage reset to install default:\n${defaultPath}`);
     } else {
       logTrace(`Failed to reset storage path: ${updateResult.error}`, 'system');
       alert(`Failed to reset storage path: ${updateResult.error}`);
+    }
+  });
+}
+
+const btnBrowseConnectors = document.getElementById('btn-browse-connectors');
+if (btnBrowseConnectors && settingConnectorsDir) {
+  btnBrowseConnectors.addEventListener('click', async () => {
+    const result = await window.ultronAPI.selectDirectory();
+    if (!result.canceled && result.filePaths.length > 0) {
+      const selectedPath = result.filePaths[0];
+      settingConnectorsDir.value = selectedPath;
+      window.localStorage.setItem('ultron-connectors-dir', selectedPath);
+      const updateResult = await window.ultronAPI.updateConnectorsDir(selectedPath);
+      if (updateResult.success) {
+        logTrace(`Connectors download location updated to: "${selectedPath}"`, 'system');
+      } else {
+        logTrace(`Failed to update connectors path: ${updateResult.error}`, 'system');
+      }
+    }
+  });
+}
+
+if (settingConnectorsDir) {
+  settingConnectorsDir.addEventListener('change', async () => {
+    const customPath = settingConnectorsDir.value.trim();
+    if (!customPath) return;
+    window.localStorage.setItem('ultron-connectors-dir', customPath);
+    const updateResult = await window.ultronAPI.updateConnectorsDir(customPath);
+    if (updateResult.success) {
+      logTrace(`Connectors download location updated manually to: "${customPath}"`, 'system');
+    } else {
+      logTrace(`Failed to update connectors path: ${updateResult.error}`, 'system');
+    }
+  });
+}
+
+const btnResetConnectors = document.getElementById('btn-reset-connectors');
+if (btnResetConnectors && settingConnectorsDir) {
+  btnResetConnectors.addEventListener('click', async () => {
+    const paths = await window.ultronAPI.getStoragePaths?.().catch(() => null);
+    const defaultPath = paths?.defaultConnectorsDir || '';
+    if (!defaultPath) return;
+    settingConnectorsDir.value = defaultPath;
+    window.localStorage.setItem('ultron-connectors-dir', defaultPath);
+    const updateResult = await window.ultronAPI.updateConnectorsDir(defaultPath);
+    if (updateResult.success) {
+      logTrace(`Connectors location reset to default: "${defaultPath}"`, 'system');
+      alert(`Connectors folder reset to install default:\n${defaultPath}`);
+    } else {
+      alert(`Failed to reset connectors path: ${updateResult.error}`);
     }
   });
 }
@@ -6426,28 +11635,83 @@ if (btnCancelEditAccount && accountEditForm) {
   });
 }
 
+// Home location settings
+const settingHomeLocation = document.getElementById('setting-home-location');
+const btnDetectLocation = document.getElementById('btn-detect-location');
+const settingAutoLocation = document.getElementById('setting-auto-location');
+
+if (settingHomeLocation) {
+  settingHomeLocation.addEventListener('change', () => {
+    window.localStorage.setItem(MANUAL_LOCATION_KEY, 'true');
+    persistHomeLocation(settingHomeLocation.value);
+    loadAccountDetails();
+    logTrace(`Home location ${settingHomeLocation.value.trim() ? 'set manually' : 'cleared'}: "${settingHomeLocation.value.trim()}"`, 'system');
+  });
+}
+
+if (settingAutoLocation) {
+  settingAutoLocation.addEventListener('change', async () => {
+    const enabled = settingAutoLocation.checked;
+    window.localStorage.setItem(AUTO_LOCATION_KEY, enabled ? 'true' : 'false');
+    if (enabled) {
+      window.localStorage.setItem(MANUAL_LOCATION_KEY, 'false');
+      await autoDetectHomeLocation({ forceRefresh: true, reason: 'auto-enabled' });
+    } else {
+      const statusEl = document.getElementById('setting-location-status');
+      const saved = settingHomeLocation?.value?.trim() || '';
+      if (statusEl) {
+        statusEl.textContent = saved
+          ? `Using saved home city: ${saved} (auto-detect off)`
+          : 'Auto-detect off. Enter your city or click Detect.';
+      }
+    }
+  });
+}
+
+if (btnDetectLocation) {
+  btnDetectLocation.addEventListener('click', async () => {
+    window.localStorage.setItem(MANUAL_LOCATION_KEY, 'false');
+    await autoDetectHomeLocation({ forceRefresh: true, reason: 'manual', allowManualOverride: true });
+  });
+}
+
 // Save account changes button listener
 const btnSaveAccount = document.getElementById('btn-save-account');
 if (btnSaveAccount) {
-  btnSaveAccount.addEventListener('click', () => {
+  btnSaveAccount.addEventListener('click', async () => {
     const inputName = document.getElementById('input-account-name');
     const inputEmail = document.getElementById('input-account-email');
+    const inputBirthdate = document.getElementById('input-account-birthdate');
     if (inputName && inputEmail) {
       const name = inputName.value.trim();
       const email = inputEmail.value.trim();
+      const birthdate = inputBirthdate ? inputBirthdate.value : '';
       if (!name) {
         alert('Please enter your full name.');
         return;
       }
+      const parts = name.split(/\s+/);
+      const fn = parts[0] || 'User';
+      const ln = parts.slice(1).join(' ') || '';
+
+      window.localStorage.setItem('ultron-user-first-name', fn);
+      window.localStorage.setItem('ultron-user-last-name', ln);
       window.localStorage.setItem('ultron-user-name', name);
       window.localStorage.setItem('ultron-user-email', email || 'user@example.com');
+      if (birthdate) {
+        window.localStorage.setItem('ultron-user-birthdate', birthdate);
+      }
       
-      loadAccountDetails();
+      if (window.ultronAPI && window.ultronAPI.saveUserProfile) {
+        await window.ultronAPI.saveUserProfile({ fullName: name, firstName: fn, lastName: ln, birthdate: birthdate, email: email || 'user@example.com' });
+      }
+
+      await loadAccountDetails();
       updateWelcomeGreeting();
       if (accountEditForm) {
         accountEditForm.classList.add('hidden');
       }
-      logTrace(`Local account details updated to: "${name}" (${email || 'no email'})`, 'system');
+      logTrace(`Local account details updated to: "${name}" (${email || 'no email'}, DOB: ${birthdate || 'not set'})`, 'system');
       alert('Your local account details have been updated successfully.');
     }
   });
@@ -6917,5 +12181,7 @@ function setupAutoUpdaterUI() {
 }
 
 setupAutoUpdaterUI();
+
+
 
 

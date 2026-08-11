@@ -1,60 +1,106 @@
 /**
- * Agent loop unit tests (tool parsing + widget markup detection).
+ * Agent loop guard + ReAct parser unit tests.
  */
 const assert = require('assert');
 
-function parseJsonToolCall(text) {
-  const candidates = [];
-  const fencedJson = text.match(/```json\s*([\s\S]*?)```/i);
-  if (fencedJson) candidates.push(fencedJson[1]);
-  const objectMatch = text.match(/\{[\s\S]*\}/);
-  if (objectMatch) candidates.push(objectMatch[0]);
+function parseReactToolCall(text) {
+  if (!text || typeof text !== 'string') return null;
 
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate);
-      const tool = String(parsed.tool || parsed.type || parsed.action || '').toUpperCase();
-      const args = parsed.args || parsed.arguments || parsed;
-      if (!tool) continue;
-      if (['OPEN_APP', 'FOCUS_APP', 'CLICK', 'DOUBLE_CLICK', 'SCROLL'].includes(tool)) {
-        return { type: 'APP_ACTION', action: tool, appName: args.appName, x: args.x, y: args.y, delta: args.delta };
-      }
-    } catch (e) {}
+  const finalMatch = text.match(/Final Answer:\s*([\s\S]+)/i);
+  if (finalMatch && finalMatch[1].trim()) {
+    return { type: 'FINAL_ANSWER', content: finalMatch[1].trim() };
   }
-  return null;
+
+  const actionMatch = text.match(/Action:\s*([^\n]+)/i);
+  if (!actionMatch) return null;
+
+  const actionName = actionMatch[1].trim().replace(/^["']|["']$/g, '').toUpperCase();
+  const inputMatch = text.match(/Action Input:\s*([\s\S]*?)(?=\n\n|\nThought:|\nAction:|\nFinal Answer:|$)/i);
+  let actionInput = inputMatch ? inputMatch[1].trim() : '';
+
+  let args = {};
+  if (actionInput) {
+    try {
+      args = JSON.parse(actionInput);
+    } catch (e) {
+      args = { appName: actionInput.replace(/^["']|["']$/g, '') };
+    }
+  }
+
+  return { type: 'APP_ACTION', action: actionName, appName: args.appName };
 }
 
-function isAgentWidgetMarkup(text) {
-  return typeof text === 'string' && (
-    text.includes('task-execution-widget') ||
-    text.includes('ai-activity-live-box') ||
-    text.includes('agent-final-response')
-  );
+function createLoopGuard(config = {}) {
+  const settings = {
+    enabled: true,
+    maxIdenticalCalls: 3,
+    pingPongWindow: 6,
+    pollToolBudget: 5,
+    warnBeforeBlock: false,
+    ...config
+  };
+  const callCounts = new Map();
+  const toolSequence = [];
+  const perToolCounts = new Map();
+
+  function checkCall(toolCall) {
+    if (!settings.enabled) return { blocked: false, reason: '' };
+    const label = toolCall.action || toolCall.type;
+    const key = JSON.stringify(toolCall);
+    const count = (callCounts.get(key) || 0) + 1;
+    callCounts.set(key, count);
+    if (count > settings.maxIdenticalCalls) {
+      return { blocked: true, reason: 'identical' };
+    }
+    const perTool = (perToolCounts.get(label) || 0) + 1;
+    perToolCounts.set(label, perTool);
+    toolSequence.push(label);
+    return { blocked: false, reason: '' };
+  }
+
+  return { checkCall };
 }
 
 function runAgentTests() {
-  const openApp = parseJsonToolCall('{"tool":"OPEN_APP","args":{"appName":"Notepad"}}');
+  const openApp = parseReactToolCall(`Thought: I should open Notepad.
+Action: OPEN_APP
+Action Input: Notepad`);
   assert.ok(openApp);
   assert.strictEqual(openApp.action, 'OPEN_APP');
   assert.strictEqual(openApp.appName, 'Notepad');
 
-  const click = parseJsonToolCall('```json\n{"tool":"CLICK","args":{"x":100,"y":200}}\n```');
-  assert.ok(click);
-  assert.strictEqual(click.action, 'CLICK');
-  assert.strictEqual(click.x, 100);
+  const final = parseReactToolCall('Thought: done\nFinal Answer: Notepad is open.');
+  assert.ok(final);
+  assert.strictEqual(final.type, 'FINAL_ANSWER');
+  assert.match(final.content, /Notepad is open/);
 
-  const scroll = parseJsonToolCall('{"tool":"SCROLL","args":{"delta":-120}}');
-  assert.ok(scroll);
-  assert.strictEqual(scroll.delta, -120);
+  const guard = createLoopGuard({ maxIdenticalCalls: 2 });
+  const tool = { type: 'APP_ACTION', action: 'OPEN_APP', appName: 'Notepad' };
+  assert.strictEqual(guard.checkCall(tool).blocked, false);
+  assert.strictEqual(guard.checkCall(tool).blocked, false);
+  assert.strictEqual(guard.checkCall(tool).blocked, true);
 
-  assert.strictEqual(isAgentWidgetMarkup('<div class="task-execution-widget"></div>'), true);
-  assert.strictEqual(isAgentWidgetMarkup('plain text answer'), false);
+  // Deep research merge dedupes URLs
+  function mergeSearchPayloads(base, incoming) {
+    const merged = { results: [], answerContext: '', query: incoming.query || base.query || '' };
+    const seen = new Set();
+    for (const item of [...(base.results || []), ...(incoming.results || [])]) {
+      const url = String(item.url || '').trim();
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      merged.results.push(item);
+    }
+    return merged;
+  }
 
-  const indented = '    <div class="task-execution-widget"></div>\n\nAnswer here';
-  assert.strictEqual(isAgentWidgetMarkup(indented), true);
+  const hop1 = { results: [{ url: 'https://a.com', title: 'A' }] };
+  const hop2 = { results: [{ url: 'https://a.com', title: 'A dup' }, { url: 'https://b.com', title: 'B' }] };
+  const merged = mergeSearchPayloads(hop1, hop2);
+  assert.strictEqual(merged.results.length, 2);
+  assert.strictEqual(merged.results[1].title, 'B');
 }
 
-module.exports = { runAgentTests };
+module.exports = { runAgentTests, parseReactToolCall, createLoopGuard };
 
 if (require.main === module) {
   runAgentTests();

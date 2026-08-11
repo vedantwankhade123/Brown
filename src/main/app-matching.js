@@ -31,6 +31,8 @@ const APP_ALIASES = {
   calc: 'Calculator',
   calculator: 'Calculator',
   paint: 'Paint',
+  obs: 'OBS Studio',
+  'obs studio': 'OBS Studio',
   obsidian: 'Obsidian',
   'samsung browser': 'Samsung Internet',
   'samsung internet': 'Samsung Internet',
@@ -78,8 +80,15 @@ function resolveAlias(query) {
   const normalized = normalizeAppQuery(query);
   if (!normalized) return null;
   if (APP_ALIASES[normalized]) return APP_ALIASES[normalized];
-  for (const [alias, target] of Object.entries(APP_ALIASES)) {
-    if (normalized.includes(alias) || alias.includes(normalized)) return target;
+
+  const entries = Object.entries(APP_ALIASES).sort((a, b) => b[0].length - a[0].length);
+  for (const [alias, target] of entries) {
+    if (alias.length <= 3) {
+      const re = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+      if (re.test(normalized)) return target;
+    } else if (normalized === alias || normalized.includes(alias)) {
+      return target;
+    }
   }
   return null;
 }

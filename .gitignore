@@ -12,6 +12,12 @@ Assets/
 __pycache__/
 *.pyc
 
+# Local development / testing data (models, caches, experiments)
+Ultron-local/
+kokoro-cpu-result.txt
+.research/
+portfolio-builder/
+
 # Ignore all markdown files except README.md
 *.md
 !README.md

@@ -8,10 +8,51 @@ const { verifyAndResolvePath, isPathBlacklisted, isCommandBlacklisted } = requir
 const { profileHardware, queryLocalOllamaModels, getModelRecommendation } = require('./hardware');
 const { launchWindowsSandbox } = require('./sandbox');
 const { findInstalledAppSmart } = require('./app-matching');
+const { fetchWebPage } = require('./web-fetch');
+const mcpManager = require('./mcp-manager');
+const { getWindowsNativeLocation } = require('./windows-geolocation');
+const { getUltronRuntimeRoot, getConnectorsRoot, getDefaultAgentDataDir, getStoragePathsSnapshot, updateAgentDataDir, updateConnectorsDir, getOllamaModelsDir, getOllamaInstallPath, provisionUltronFolderForOllama, ensureUltronStorageLayout } = require('./paths');
+
+function loadUltronConfigFile() {
+  try {
+    const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
+    if (fs.existsSync(configPath)) {
+      return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+  } catch (e) { /* ignore */ }
+  return {};
+}
+
+function saveUltronConfigPatch(patch) {
+  const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
+  let config = loadUltronConfigFile();
+  config = { ...config, ...patch };
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  return config;
+}
+
+function formatDownloadBytes(bytes) {
+  if (!bytes || bytes <= 0) return '0 MB';
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+  return `${mb.toFixed(1)} MB`;
+}
 
 // Active security mode state
 let activeSecurityMode = 'Adaptive'; // Default to Adaptive Auto Mode for smooth computer task execution
 let pendingPermissions = new Map(); // Store pending human-in-the-loop validation promises
+
+// Authorized apps allowlist, synced from renderer settings.
+// null = never configured → all apps allowed (matches renderer default).
+let authorizedAppsMap = null;
+
+function isAppAuthorizedInMain(appName) {
+  if (!authorizedAppsMap || !appName) return true;
+  const entry = Object.keys(authorizedAppsMap).find(
+    key => key.toLowerCase() === String(appName).toLowerCase()
+  );
+  return entry === undefined ? true : authorizedAppsMap[entry] !== false;
+}
 
 // Keep reference to the main window
 let mainWindow = null;
@@ -20,12 +61,27 @@ let cachedGeoLocation = null;
 let cachedGeoLocationAt = 0;
 const GEO_LOCATION_TTL_MS = 30 * 60 * 1000;
 
-async function resolveGeoLocation() {
-  if (cachedGeoLocation && Date.now() - cachedGeoLocationAt < GEO_LOCATION_TTL_MS) {
+async function resolveGeoLocation(options = {}) {
+  const forceRefresh = Boolean(options.forceRefresh);
+  if (!forceRefresh && cachedGeoLocation && Date.now() - cachedGeoLocationAt < GEO_LOCATION_TTL_MS) {
     return cachedGeoLocation;
   }
 
-  // Multi-provider fallback cascade for maximum reliability
+  // 1. Windows native GPS / Wi‑Fi location (most accurate when enabled)
+  if (process.platform === 'win32') {
+    try {
+      const native = await getWindowsNativeLocation(runPowerShellScript);
+      if (native && native.latitude != null) {
+        cachedGeoLocation = native;
+        cachedGeoLocationAt = Date.now();
+        return cachedGeoLocation;
+      }
+    } catch (e) {
+      // fall through to IP providers
+    }
+  }
+
+  // 2. IP geolocation providers
   const providers = [
     {
       url: 'https://ipwho.is/',
@@ -162,6 +218,107 @@ function escapePowerShellSingleQuoted(value) {
   return String(value || '').replace(/'/g, "''");
 }
 
+const JUNK_APP_NAME_RE = /\b(what('s| is) new|release notes?|readme|read me|documentation|user manual|quick start|getting started|welcome to|learn more|visit (our )?website|online help|tip of the day|eula|license agreement|privacy (policy|statement)|product information|how to use|tutorial|support center|customer service|release note|about this|overview|introduction|information|help topics?|view (the )?manual|software license|activation|register (your )?product|buy now|upgrade now|try premium|subscribe|newsletter|survey|feedback form)\b/i;
+
+const NON_APP_FOLDER_TOKENS = [
+  'startup', 'maintenance', 'system tools', 'administrative tools',
+  'desktop', 'documents', 'downloads', 'uninstall', 'accessories',
+  'windows powershell', 'windows tools', 'startup folder'
+];
+
+function resolveAppTargetPath(appPath) {
+  if (!appPath) return '';
+  let target = appPath;
+  if (target.toLowerCase().endsWith('.lnk')) {
+    try {
+      const shortcut = shell.readShortcutLink(target);
+      if (shortcut && shortcut.target) target = shortcut.target;
+    } catch (e) { /* ignore bad shortcuts */ }
+  }
+  return target;
+}
+
+function isLaunchableExecutable(targetPath) {
+  if (!targetPath) return false;
+  const ext = path.extname(targetPath).toLowerCase();
+  if (['.exe', '.bat', '.cmd', '.com'].includes(ext)) {
+    return fs.existsSync(targetPath);
+  }
+  if (targetPath.toLowerCase().includes('\\windowsapps\\')) {
+    return fs.existsSync(targetPath);
+  }
+  return false;
+}
+
+function isDocumentOrLinkTarget(targetPath) {
+  const ext = path.extname(String(targetPath || '')).toLowerCase();
+  return ['.txt', '.html', '.htm', '.pdf', '.md', '.chm', '.url', '.doc', '.docx', '.rtf', '.xml', '.json', '.ini', '.log'].includes(ext);
+}
+
+function isRealApplication(appItem) {
+  const name = String(appItem?.name || '').trim();
+  if (!name || name.length < 2) return false;
+
+  const lowerName = name.toLowerCase();
+  if (JUNK_APP_NAME_RE.test(lowerName)) return false;
+  if (NON_APP_FOLDER_TOKENS.some(token => lowerName.includes(token))) return false;
+  if (/^(help|support|readme|documentation|license|uninstall|repair|modify)$/i.test(lowerName)) return false;
+
+  const rawPath = appItem.path;
+  if (!rawPath || !fs.existsSync(rawPath)) return false;
+
+  const target = resolveAppTargetPath(rawPath);
+  if (isDocumentOrLinkTarget(target)) return false;
+
+  if (rawPath.toLowerCase().endsWith('.lnk')) {
+    return isLaunchableExecutable(target);
+  }
+
+  return isLaunchableExecutable(target);
+}
+
+function getBuiltInAppsList() {
+  const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Local');
+  return [
+    { name: 'Google Chrome', path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
+    { name: 'Microsoft Edge', path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' },
+    { name: 'Visual Studio Code', path: path.join(process.env.USERPROFILE, 'AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe') },
+    { name: 'Obsidian', path: path.join(process.env.USERPROFILE, 'AppData\\Local\\Obsidian\\Obsidian.exe') },
+    { name: 'Git Bash', path: 'C:\\Program Files\\Git\\git-bash.exe' },
+    { name: 'OBS Studio', path: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe' },
+    { name: 'OBS Studio', path: 'C:\\Program Files (x86)\\obs-studio\\bin\\64bit\\obs64.exe' },
+    { name: 'File Explorer', path: 'C:\\Windows\\explorer.exe' },
+    { name: 'Notepad', path: 'C:\\Windows\\System32\\notepad.exe' },
+    { name: 'Calculator', path: 'C:\\Windows\\System32\\calc.exe' },
+    { name: 'Paint', path: 'C:\\Windows\\System32\\mspaint.exe' },
+    { name: 'WhatsApp', path: path.join(localAppData, 'WhatsApp', 'WhatsApp.exe') },
+    { name: 'Notepad++', path: 'C:\\Program Files\\Notepad++\\notepad++.exe' },
+    { name: 'Command Prompt', path: 'C:\\Windows\\System32\\cmd.exe' },
+    { name: 'PowerShell', path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    { name: 'Python', path: 'C:\\Windows\\py.exe' }
+  ];
+}
+
+function scanStartMenuShortcuts(dir, depth = 0) {
+  if (!fs.existsSync(dir) || depth > 2) return [];
+  const list = [];
+  try {
+    const items = fs.readdirSync(dir);
+    for (const item of items) {
+      const fullPath = path.join(dir, item);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.isDirectory()) {
+          list.push(...scanStartMenuShortcuts(fullPath, depth + 1));
+        } else if (item.toLowerCase().endsWith('.lnk')) {
+          list.push({ name: item.replace(/\.lnk$/i, ''), path: fullPath });
+        }
+      } catch (e) { /* skip unreadable entries */ }
+    }
+  } catch (e) { /* skip unreadable dirs */ }
+  return list;
+}
+
 function discoverInstalledApps() {
   const startMenuPath = 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs';
   const userStartMenuPath = path.join(
@@ -169,54 +326,19 @@ function discoverInstalledApps() {
     'Microsoft\\Windows\\Start Menu\\Programs'
   );
 
-  const defaultApps = [
-    { name: 'Google Chrome', path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
-    { name: 'Microsoft Edge', path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' },
-    { name: 'Visual Studio Code', path: path.join(process.env.USERPROFILE, 'AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe') },
-    { name: 'Obsidian', path: path.join(process.env.USERPROFILE, 'AppData\\Local\\Obsidian\\Obsidian.exe') },
-    { name: 'Git Bash', path: 'C:\\Program Files\\Git\\git-bash.exe' },
-    { name: 'Notepad', path: 'C:\\Windows\\System32\\notepad.exe' },
-    { name: 'Notepad++', path: 'C:\\Program Files\\Notepad++\\notepad++.exe' },
-    { name: 'Command Prompt', path: 'C:\\Windows\\System32\\cmd.exe' },
-    { name: 'PowerShell', path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
-    { name: 'Python', path: 'C:\\Windows\\py.exe' }
-  ];
-
-  const scanDir = (dir) => {
-    if (!fs.existsSync(dir)) return [];
-    let list = [];
-    try {
-      const items = fs.readdirSync(dir);
-      for (const item of items) {
-        const fullPath = path.join(dir, item);
-        try {
-          const stat = fs.statSync(fullPath);
-          if (stat.isDirectory()) {
-            const subItems = fs.readdirSync(fullPath);
-            for (const sub of subItems) {
-              if (sub.toLowerCase().endsWith('.lnk')) {
-                list.push({ name: sub.replace(/\.lnk$/i, ''), path: path.join(fullPath, sub) });
-              }
-            }
-          } else if (item.toLowerCase().endsWith('.lnk')) {
-            list.push({ name: item.replace(/\.lnk$/i, ''), path: fullPath });
-          }
-        } catch (e) {}
-      }
-    } catch (e) {}
-    return list;
-  };
-
   const seen = new Set();
   const mergedApps = [];
-  for (const appItem of [...defaultApps, ...scanDir(startMenuPath), ...scanDir(userStartMenuPath)]) {
+
+  for (const appItem of [
+    ...getBuiltInAppsList(),
+    ...scanStartMenuShortcuts(startMenuPath),
+    ...scanStartMenuShortcuts(userStartMenuPath)
+  ]) {
     const lowerName = appItem.name.toLowerCase();
     if (seen.has(lowerName)) continue;
-    if (['startup', 'maintenance', 'system tools', 'administrative tools', 'desktop', 'documents', 'downloads', 'uninstall'].some(k => lowerName.includes(k))) continue;
-    if (appItem.path && fs.existsSync(appItem.path)) {
-      seen.add(lowerName);
-      mergedApps.push(appItem);
-    }
+    if (!isRealApplication(appItem)) continue;
+    seen.add(lowerName);
+    mergedApps.push(appItem);
   }
 
   return mergedApps.sort((a, b) => a.name.localeCompare(b.name));
@@ -339,6 +461,30 @@ Write-Output 'PASTE_VERIFIED'
     appName: match ? match.name : appName,
     verified: String(result.stdout || '').includes('PASTE_VERIFIED')
   };
+}
+
+async function getActiveWindowAppName() {
+  try {
+    const script = `
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class UltronWin {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+}
+"@
+$h = [UltronWin]::GetForegroundWindow()
+$sb = New-Object System.Text.StringBuilder 512
+[void][UltronWin]::GetWindowText($h, $sb, 512)
+$title = $sb.ToString()
+if ($title) { Write-Output $title }
+`;
+    return String(await runPowerShellScript(script) || '').trim();
+  } catch (e) {
+    return '';
+  }
 }
 
 const SENSITIVE_CAPTURE_RE = /password|sign.?in|login|bank|paypal|stripe|auth|2fa|otp|credential|bitwarden|lastpass|1password/i;
@@ -521,11 +667,179 @@ function runCommandWithTimeout(command, options = {}) {
 }
 
 /**
+ * Voice STT + neural TTS IPC — registered first so mic/TTS work even if later setup throws.
+ */
+function registerAudioIpcHandlers() {
+  if (registerAudioIpcHandlers._done) return;
+  registerAudioIpcHandlers._done = true;
+
+  ipcMain.handle('transcribe-audio', async (_event, payload = {}) => {
+    try {
+      const { transcribeAudioWavBase64, transcribeAudioFloat32 } = require('./voice-stt');
+      if (payload.wavBase64) {
+        return await transcribeAudioWavBase64(payload.wavBase64);
+      }
+      const samples = payload.samples || payload.audio || [];
+      const sampleRate = Number(payload.sampleRate) || 16000;
+      return await transcribeAudioFloat32(samples, sampleRate);
+    } catch (err) {
+      console.error('[ipc] transcribe-audio error:', err);
+      return { success: false, error: err.message || 'Transcription failed.' };
+    }
+  });
+
+  ipcMain.handle('get-voice-model-status', async () => {
+    try {
+      const { getVoiceModelStatus } = require('./voice-stt');
+      return getVoiceModelStatus();
+    } catch (err) {
+      return { installed: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('download-voice-model', async (event) => {
+    try {
+      const { downloadVoiceModel, VOICE_MODEL_KEY } = require('./voice-stt');
+      const sendProgress = (data) => {
+        if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('download-progress', {
+            modelName: VOICE_MODEL_KEY,
+            percent: data.percent ?? 0,
+            downloaded: data.downloaded || '',
+            total: data.total || '',
+            speed: data.speed || '',
+            phase: data.phase || 'download',
+            status: data.status || ''
+          });
+        }
+      };
+      return await downloadVoiceModel(sendProgress);
+    } catch (err) {
+      console.error('[ipc] download-voice-model error:', err);
+      return { success: false, error: err.message || 'Voice model download failed.' };
+    }
+  });
+
+  ipcMain.handle('cancel-voice-model-download', async () => {
+    const { cancelVoiceModelDownload } = require('./voice-stt');
+    return cancelVoiceModelDownload();
+  });
+
+  ipcMain.handle('delete-voice-model', async () => {
+    const { deleteVoiceModel } = require('./voice-stt');
+    return deleteVoiceModel();
+  });
+
+  ipcMain.handle('get-tts-catalog', async () => {
+    try {
+      const { getTtsCatalog } = require('./voice-tts');
+      return { success: true, models: getTtsCatalog() };
+    } catch (err) {
+      return { success: false, error: err.message, models: [] };
+    }
+  });
+
+  ipcMain.handle('get-tts-model-status', async (_event, modelKey) => {
+    try {
+      const { getTtsModelStatus } = require('./voice-tts');
+      return getTtsModelStatus(modelKey);
+    } catch (err) {
+      return { installed: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('get-active-tts-model', async () => {
+    try {
+      const { getActiveTtsModelKey } = require('./voice-tts');
+      return { success: true, modelKey: getActiveTtsModelKey() };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('set-active-tts-model', async (_event, modelKey) => {
+    try {
+      const { setActiveTtsModelKey } = require('./voice-tts');
+      return setActiveTtsModelKey(modelKey);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('synthesize-speech', async (_event, payload = {}) => {
+    try {
+      const { synthesizeSpeech, synthesizeWithModel } = require('./voice-tts');
+      const text = String(payload.text || payload.content || '');
+      const modelKey = payload.modelKey || null;
+      if (modelKey) return await synthesizeWithModel(modelKey, text);
+      return await synthesizeSpeech(text);
+    } catch (err) {
+      console.error('[ipc] synthesize-speech error:', err);
+      return { success: false, error: err.message || 'Speech synthesis failed.' };
+    }
+  });
+
+  ipcMain.handle('download-tts-model', async (event, modelKey) => {
+    try {
+      const { downloadTtsModel } = require('./voice-tts');
+      const key = modelKey || 'mms-eng';
+      const sendProgress = (data) => {
+        if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('download-progress', {
+            modelName: data.modelName || `tts-${key}`,
+            modelKey: data.modelKey || key,
+            percent: data.percent ?? 0,
+            downloaded: data.downloaded || '',
+            total: data.total || '',
+            speed: data.speed || '',
+            phase: data.phase || 'download',
+            status: data.status || ''
+          });
+        }
+      };
+      return await downloadTtsModel(key, sendProgress);
+    } catch (err) {
+      console.error('[ipc] download-tts-model error:', err);
+      return { success: false, error: err.message || 'Neural voice download failed.' };
+    }
+  });
+
+  ipcMain.handle('cancel-tts-model-download', async (_event, modelKey) => {
+    const { cancelTtsModelDownload } = require('./voice-tts');
+    return cancelTtsModelDownload(modelKey || null);
+  });
+
+  ipcMain.handle('delete-tts-model', async (_event, modelKey) => {
+    const { deleteTtsModel } = require('./voice-tts');
+    return deleteTtsModel(modelKey || undefined);
+  });
+
+  ipcMain.handle('warmup-tts-model', async (_event, modelKey) => {
+    try {
+      const { warmupTtsEngine } = require('./voice-tts');
+      return await warmupTtsEngine(modelKey || undefined);
+    } catch (err) {
+      return { success: false, error: err.message || 'TTS warmup failed.' };
+    }
+  });
+
+  console.log('[ipc] Audio handlers registered (STT + TTS).');
+}
+
+/**
  * Setup IPC handlers for the main Electron process.
  */
 function setupIpcHandlers() {
+  registerAudioIpcHandlers();
   // Proactively pre-fetch device location in background as soon as main process starts
   resolveGeoLocation().catch(() => {});
+
+  ipcMain.handle('refresh-geo-location', async () => {
+    cachedGeoLocation = null;
+    cachedGeoLocationAt = 0;
+    const geoLocation = await resolveGeoLocation({ forceRefresh: true });
+    return { success: Boolean(geoLocation), geoLocation };
+  });
 
   // System Hardware Profiling
   ipcMain.handle('profile-system', async () => {
@@ -669,10 +983,16 @@ function setupIpcHandlers() {
     return { success: false, error: 'Invalid security mode' };
   });
 
+  // Authorized apps allowlist sync (renderer settings → main enforcement)
+  ipcMain.handle('set-authorized-apps', (event, map) => {
+    authorizedAppsMap = (map && typeof map === 'object') ? map : null;
+    return { success: true, count: authorizedAppsMap ? Object.keys(authorizedAppsMap).length : 0 };
+  });
+
   // Sandbox Launcher Hook
   ipcMain.handle('launch-sandbox', async (event, hostPath) => {
     try {
-      const activeDataDir = process.env.ULTRON_DATA_DIR || path.join(app.getPath('userData'), 'data');
+      const activeDataDir = process.env.ULTRON_DATA_DIR || getDefaultAgentDataDir();
       const localAgentTemp = path.join(activeDataDir, 'temp');
       if (!fs.existsSync(localAgentTemp)) {
         fs.mkdirSync(localAgentTemp, { recursive: true });
@@ -686,116 +1006,18 @@ function setupIpcHandlers() {
     }
   });
 
-  // Get Installed Apps list (scans Windows registry or program shortcuts)
+  // Get Installed Apps list — real launchable apps only (no readme/docs shortcuts)
   ipcMain.handle('get-installed-apps', async () => {
     try {
-      const startMenuPath = 'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs';
-      const userStartMenuPath = path.join(
-        process.env.APPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Roaming'),
-        'Microsoft\\Windows\\Start Menu\\Programs'
-      );
-      
-      let defaultApps = [
-        { name: 'Google Chrome', path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
-        { name: 'Visual Studio Code', path: path.join(process.env.USERPROFILE, 'AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe') },
-        { name: 'Obsidian', path: path.join(process.env.USERPROFILE, 'AppData\\Local\\Obsidian\\Obsidian.exe') },
-        { name: 'Git Bash', path: 'C:\\Program Files\\Git\\git-bash.exe' },
-        { name: 'Notepad++', path: 'C:\\Program Files\\Notepad++\\notepad++.exe' },
-        { name: 'Command Prompt', path: 'C:\\Windows\\System32\\cmd.exe' },
-        { name: 'PowerShell', path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
-        { name: 'Python', path: 'C:\\Windows\\py.exe' }
-      ];
-      
-      const scanDir = (dir) => {
-        if (!fs.existsSync(dir)) return [];
-        let list = [];
-        try {
-          const items = fs.readdirSync(dir);
-          for (const item of items) {
-            const fullPath = path.join(dir, item);
-            try {
-              const stat = fs.statSync(fullPath);
-              if (stat.isDirectory()) {
-                try {
-                  const subItems = fs.readdirSync(fullPath);
-                  for (const sub of subItems) {
-                    if (sub.toLowerCase().endsWith('.lnk')) {
-                      list.push({ name: sub.replace(/\.lnk$/i, ''), path: path.join(fullPath, sub) });
-                    }
-                  }
-                } catch (subErr) {}
-              } else if (item.toLowerCase().endsWith('.lnk')) {
-                list.push({ name: item.replace(/\.lnk$/i, ''), path: fullPath });
-              }
-            } catch (statErr) {}
-          }
-        } catch (dirErr) {}
-        return list;
-      };
-      
-      const systemLnk = scanDir(startMenuPath);
-      const userLnk = scanDir(userStartMenuPath);
-      const allLnks = [...systemLnk, ...userLnk];
-      
-      const seen = new Set();
-      let mergedApps = [];
-      
-      defaultApps.forEach(appItem => {
-        if (fs.existsSync(appItem.path)) {
-          seen.add(appItem.name.toLowerCase());
-          mergedApps.push(appItem);
-        }
-      });
-      
-      allLnks.forEach(lnk => {
-        const lowerName = lnk.name.toLowerCase();
-        if (!seen.has(lowerName) && !['startup', 'maintenance', 'system tools', 'administrative tools', 'desktop', 'documents', 'downloads', 'uninstall'].some(k => lowerName.includes(k))) {
-          seen.add(lowerName);
-          mergedApps.push({ name: lnk.name, path: lnk.path });
-        }
-      });
-      
-      mergedApps.sort((a, b) => a.name.localeCompare(b.name));
-      
-      // Parallel icon loading for ALL apps to retrieve real native application logos
+      const mergedApps = discoverInstalledApps();
+
       const results = await Promise.all(
         mergedApps.map(async (appItem) => {
-          let iconDataUrl = '';
-          try {
-            let targetPath = appItem.path;
-            
-            // Resolve shortcut link target if ends with .lnk
-            if (targetPath.toLowerCase().endsWith('.lnk')) {
-              try {
-                const shortcut = shell.readShortcutLink(targetPath);
-                if (shortcut && shortcut.target && fs.existsSync(shortcut.target)) {
-                  targetPath = shortcut.target;
-                }
-              } catch (shortcutErr) {}
-            }
-            
-            // Forcefully extract real native brand icon PNG data URL
-            if (fs.existsSync(targetPath)) {
-              const nativeImg = await app.getFileIcon(targetPath, { size: 'normal' });
-              if (nativeImg && !nativeImg.isEmpty()) {
-                iconDataUrl = nativeImg.toDataURL();
-              }
-            }
-            
-            // Fallback: If targetPath image was empty, try extracting icon from the .lnk shortcut file directly
-            if (!iconDataUrl && fs.existsSync(appItem.path)) {
-              const lnkImg = await app.getFileIcon(appItem.path, { size: 'normal' });
-              if (lnkImg && !lnkImg.isEmpty()) {
-                iconDataUrl = lnkImg.toDataURL();
-              }
-            }
-          } catch (e) {
-            console.error(`Failed to load native icon for ${appItem.name}:`, e);
-          }
+          const iconDataUrl = await getInstalledAppIcon(appItem);
           return { name: appItem.name, icon: iconDataUrl };
         })
       );
-      
+
       return { success: true, apps: results };
     } catch (err) {
       return { success: false, error: err.message, apps: [] };
@@ -888,6 +1110,13 @@ function setupIpcHandlers() {
             ambiguous: lookup.ambiguous
           };
         }
+        if (!isAppAuthorizedInMain(match.name)) {
+          return {
+            success: false,
+            error: `"${match.name}" is not in your authorized apps list. Enable it in Settings → Applications.`,
+            errorCode: 'APP_NOT_AUTHORIZED'
+          };
+        }
         const icon = await getInstalledAppIcon(match);
         const launchError = await shell.openPath(match.path);
         if (launchError) return { success: false, error: launchError };
@@ -898,6 +1127,13 @@ function setupIpcHandlers() {
         const lookup = findInstalledAppResult(payload.appName || payload.target);
         const appName = lookup.match ? lookup.match.name : (payload.appName || payload.target);
         if (!appName) return { success: false, error: 'No app name provided.' };
+        if (!isAppAuthorizedInMain(appName)) {
+          return {
+            success: false,
+            error: `"${appName}" is not in your authorized apps list. Enable it in Settings → Applications.`,
+            errorCode: 'APP_NOT_AUTHORIZED'
+          };
+        }
         await runPowerShellScript(`$ws = New-Object -ComObject WScript.Shell; $ok = $ws.AppActivate('${escapePowerShellSingleQuoted(appName)}'); if (-not $ok) { exit 2 }`);
         const icon = lookup.match ? await getInstalledAppIcon(lookup.match) : '';
         return { success: true, message: `Focused ${appName}`, app: appName, resolvedApp: appName, appIcon: icon };
@@ -930,9 +1166,12 @@ function setupIpcHandlers() {
         if (!text) return { success: false, error: 'No text provided.' };
         if (text.length > 10000) return { success: false, error: 'Text is too long for direct app typing.' };
         clipboard.writeText(text);
-        const targetApp = String(payload.appName || '').trim();
+        let targetApp = String(payload.appName || payload.targetApp || '').trim();
         if (!targetApp) {
-          return { success: false, error: 'Cannot type safely because the target app is unknown.' };
+          targetApp = await getActiveWindowAppName();
+        }
+        if (!targetApp) {
+          return { success: false, error: 'Cannot type safely because the target app is unknown. Open or focus an app first, or include the app name in your request.' };
         }
         const pasteResult = await pasteTextIntoApp(targetApp);
         if (!pasteResult.verified) {
@@ -1000,7 +1239,11 @@ function setupIpcHandlers() {
   ipcMain.handle('download-model', async (event, modelName) => {
     return new Promise((resolve) => {
       const { spawn } = require('child_process');
-      const child = spawn('ollama', ['pull', modelName], { windowsHide: true });
+      const modelsDir = getOllamaModelsDir();
+      const child = spawn('ollama', ['pull', modelName], {
+        windowsHide: true,
+        env: { ...process.env, OLLAMA_MODELS: modelsDir, ULTRON_MODELS_DIR: modelsDir }
+      });
       
       activePullProcesses.set(modelName.toLowerCase(), child);
       let lastPercent = 0;
@@ -1103,7 +1346,8 @@ function setupIpcHandlers() {
 
       for (const p of defaultPaths) {
         if (fs.existsSync(p)) {
-          return { installed: true, source: 'filepath', path: p };
+          provisionUltronFolderForOllama(p);
+          return { installed: true, source: 'filepath', path: p, ultronRoot: process.env.ULTRON_ROOT };
         }
       }
 
@@ -1119,7 +1363,8 @@ function setupIpcHandlers() {
 
       const inPath = await checkPath();
       if (inPath) {
-        return { installed: true, source: 'path' };
+        provisionUltronFolderForOllama(getOllamaInstallPath());
+        return { installed: true, source: 'path', ultronRoot: process.env.ULTRON_ROOT };
       }
 
       return { installed: false };
@@ -1132,6 +1377,8 @@ function setupIpcHandlers() {
   ipcMain.handle('start-ollama-service', async (event, exePath) => {
     try {
       const { exec } = require('child_process');
+      provisionUltronFolderForOllama(exePath || getOllamaInstallPath());
+      const modelsDir = getOllamaModelsDir();
       const userLocal = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Local');
       const ollamaCliExe = path.join(userLocal, 'Programs', 'Ollama', 'ollama.exe');
       
@@ -1142,8 +1389,8 @@ function setupIpcHandlers() {
         targetExe = `"${exePath}"`;
       }
 
-      // Launch headless serve process using PowerShell WindowStyle Hidden for 0 terminal/GUI windows
-      const psCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath ${targetExe} -ArgumentList 'serve' -WindowStyle Hidden"`;
+      const modelsEnv = modelsDir.replace(/'/g, "''");
+      const psCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:OLLAMA_MODELS='${modelsEnv}'; Start-Process -FilePath ${targetExe} -ArgumentList 'serve' -WindowStyle Hidden"`;
 
       return new Promise((resolve) => {
         exec(psCmd, { windowsHide: true }, (error) => {
@@ -1188,6 +1435,115 @@ function setupIpcHandlers() {
     }
   });
 
+  ipcMain.handle('install-mcp-windows-uia', async (event) => {
+    try {
+      const userDataPath = getConnectorsRoot();
+      const sendProgress = (data) => {
+        if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('download-progress', {
+            modelName: 'mcp-windows-uia',
+            percent: data.percent ?? 0,
+            downloaded: data.downloaded != null ? formatDownloadBytes(data.downloaded) : '',
+            total: data.total != null ? formatDownloadBytes(data.total) : '',
+            speed: data.speed || '',
+            phase: data.phase || 'download'
+          });
+        }
+      };
+      const installed = await mcpManager.ensureWindowsUiaInstalled({
+        userDataPath,
+        onProgress: sendProgress
+      });
+      if (!installed.success) return installed;
+      const reconnect = await mcpManager.reconnectWindowsUia({
+        userDataPath,
+        autoInstall: false,
+        exePath: installed.exePath
+      });
+      return {
+        success: true,
+        exePath: installed.exePath,
+        installed: installed.installed,
+        windowsUia: reconnect.windowsUia,
+        tools: reconnect.tools
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Persistent User Profile Storage across app restarts
+  ipcMain.handle('save-user-profile', async (event, profile) => {
+    try {
+      const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
+      let config = {};
+      if (fs.existsSync(configPath)) {
+        try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch (e) {}
+      }
+      const rawFullName = (profile && (profile.fullName || profile.name)) ? (profile.fullName || profile.name).trim() : '';
+      let firstName = (profile && profile.firstName) ? profile.firstName.trim() : '';
+      let lastName = (profile && profile.lastName) ? profile.lastName.trim() : '';
+      if (!firstName && rawFullName) {
+        const parts = rawFullName.split(/\s+/);
+        firstName = parts[0] || '';
+        lastName = parts.slice(1).join(' ') || '';
+      }
+      config.userProfile = {
+        fullName: rawFullName || `${firstName} ${lastName}`.trim(),
+        firstName: firstName,
+        lastName: lastName,
+        birthdate: (profile && profile.birthdate) ? profile.birthdate.trim() : '',
+        email: (profile && profile.email) ? profile.email.trim() : ''
+      };
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('load-user-profile', async () => {
+    try {
+      const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        return config.userProfile || null;
+      }
+      return null;
+    } catch (err) {
+      return null;
+    }
+  });
+
+  // First-Time Setup Status Storage
+  ipcMain.handle('save-setup-status', async (event, completed) => {
+    try {
+      const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
+      let config = {};
+      if (fs.existsSync(configPath)) {
+        try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch (e) {}
+      }
+      config.setupCompleted = Boolean(completed);
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('load-setup-status', async () => {
+    try {
+      const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        return Boolean(config.setupCompleted);
+      }
+      return false;
+    } catch (err) {
+      return false;
+    }
+  });
+
   // Install Ollama using winget package manager
   ipcMain.handle('install-ollama', async () => {
     try {
@@ -1197,10 +1553,21 @@ function setupIpcHandlers() {
           if (error) {
             resolve({ success: false, error: stderr || error.message });
           } else {
-            resolve({ success: true, stdout });
+            const ollamaPath = getOllamaInstallPath();
+            const layout = provisionUltronFolderForOllama(ollamaPath);
+            resolve({ success: true, stdout, ultronRoot: layout.ultronRoot, modelsDir: layout.modelsDir });
           }
         });
       });
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('ensure-ultron-storage', async () => {
+    try {
+      const layout = ensureUltronStorageLayout();
+      return { success: true, ...layout };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -1231,66 +1598,33 @@ function setupIpcHandlers() {
   });
 
 function getInstallationDefaultDataDir() {
-  if (app.isPackaged) {
-    const installDir = path.dirname(app.getPath('exe'));
-    const installDataDir = path.join(installDir, 'data');
-    try {
-      if (!fs.existsSync(installDataDir)) {
-        fs.mkdirSync(installDataDir, { recursive: true });
-      }
-      return installDataDir;
-    } catch (e) {
-      console.warn('[IPC] Cannot write to install data dir, fallback to userData:', e);
-    }
-  }
-  const fallbackDir = path.join(app.getPath('userData'), 'data');
-  if (!fs.existsSync(fallbackDir)) {
-    fs.mkdirSync(fallbackDir, { recursive: true });
-  }
-  return fallbackDir;
+  return getDefaultAgentDataDir();
 }
 
   // Update persistent agent memory data directory
   ipcMain.handle('update-data-dir', async (event, customPath) => {
     try {
-      const defaultDir = getInstallationDefaultDataDir();
-      const configFile = path.join(defaultDir, 'config.json');
-      
       const oldPath = process.env.ULTRON_DATA_DIR;
-      
-      if (!fs.existsSync(defaultDir)) {
-        fs.mkdirSync(defaultDir, { recursive: true });
-      }
-      
-      // Write custom path configuration
-      fs.writeFileSync(configFile, JSON.stringify({ customDataDir: customPath }, null, 2), 'utf8');
-      
-      // Update environment variable
-      process.env.ULTRON_DATA_DIR = customPath;
-      
-      // Create path directories if needed
-      const tempDir = path.join(customPath, 'temp');
-      const memoryDir = path.join(customPath, 'memory');
-      if (!fs.existsSync(customPath)) {
-        fs.mkdirSync(customPath, { recursive: true });
-      }
-      if (!fs.existsSync(memoryDir)) {
-        fs.mkdirSync(memoryDir, { recursive: true });
-      }
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir, { recursive: true });
-      }
-      
-      // Migrate conversations.json from old path to new path if it exists
+      updateAgentDataDir(customPath);
+
       if (oldPath && oldPath !== customPath) {
         const oldFile = path.join(oldPath, 'conversations.json');
         const newFile = path.join(customPath, 'conversations.json');
-        if (fs.existsSync(oldFile)) {
+        if (fs.existsSync(oldFile) && !fs.existsSync(newFile)) {
           fs.copyFileSync(oldFile, newFile);
         }
       }
-      
+
       return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('update-connectors-dir', async (event, customPath) => {
+    try {
+      updateConnectorsDir(customPath);
+      return { success: true, connectorsDir: getConnectorsRoot() };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -1299,6 +1633,18 @@ function getInstallationDefaultDataDir() {
   // Get default app memory data directory location
   ipcMain.handle('get-default-data-dir', () => {
     return getInstallationDefaultDataDir();
+  });
+
+  ipcMain.handle('get-runtime-data-root', () => {
+    return getUltronRuntimeRoot();
+  });
+
+  ipcMain.handle('get-connectors-root', () => {
+    return getConnectorsRoot();
+  });
+
+  ipcMain.handle('get-storage-paths', () => {
+    return getStoragePathsSnapshot();
   });
 
   // Save conversation history to local data directory path
@@ -1441,6 +1787,19 @@ function getInstallationDefaultDataDir() {
       if (hadFile) {
         const previousContent = fs.readFileSync(resolvedPath, 'utf8');
         undo = { type: 'restore_file', path: resolvedPath, previousContent };
+        // Shadow copy to disk so the original survives app restarts / undo-stack loss
+        try {
+          const backupDir = path.join(
+            process.env.ULTRON_DATA_DIR || getDefaultAgentDataDir(),
+            'backups'
+          );
+          if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+          const backupPath = path.join(backupDir, `${path.basename(resolvedPath)}.${Date.now()}.bak`);
+          fs.copyFileSync(resolvedPath, backupPath);
+          undo.backupPath = backupPath;
+        } catch (backupErr) {
+          // Backup is best-effort; the in-memory undo record still holds previousContent
+        }
       } else {
         undo = { type: 'delete_file', path: resolvedPath };
       }
@@ -1693,7 +2052,17 @@ function getInstallationDefaultDataDir() {
   }
 
   function isShoppingQuery(query) {
-    return /\b(best|top|buy|price|under|cheap|deal|deals|sale|shop|shopping|product|products|shoes|sneakers|phone|laptop|headphones|earbuds|watch|camera|bag)\b/i.test(query || '');
+    const q = String(query || '').toLowerCase();
+    if (/\b(buy|purchase|shop|shopping|deal|deals|sale|price|cart|checkout|amazon|flipkart|ebay|meesho|myntra)\b/i.test(q)) return true;
+    if (/\b(under|below|less than|within|around)\s+[\d,.]+\b/i.test(q)
+      && /\b(monitor|laptop|phone|headphone|earbuds|keyboard|mouse|tablet|tv|television|gpu|graphics card|processor|cpu|ssd|hard drive|speaker|watch|smartwatch|camera|fridge|refrigerator|shoes|sneakers|bag)\b/i.test(q)) {
+      return true;
+    }
+    if (/\b(best|top|cheap|budget|affordable|recommended)\b/i.test(q)
+      && /\b(monitor|laptop|phone|headphone|earbuds|keyboard|mouse|tablet|tv|gpu|processor|smartwatch|camera|shoes|sneakers|buy|price|deal)\b/i.test(q)) {
+      return true;
+    }
+    return false;
   }
 
   function extractPrice(text) {
@@ -1743,7 +2112,7 @@ function getInstallationDefaultDataDir() {
   }
 
   // Robust multi-source Web Search handler (DuckDuckGo API + Wiki API + DDG Organic POST)
-  ipcMain.handle('search-web', async (event, query) => {
+  ipcMain.handle('search-web', async (event, query, options = {}) => {
     let cleanQuery = query ? query.replace(/["']/g, '').trim() : '';
     // Strip common prompt prefixes
     cleanQuery = cleanQuery
@@ -1758,66 +2127,67 @@ function getInstallationDefaultDataDir() {
 
     const resultBlocks = [];
 
-    // 1. Query DuckDuckGo Instant Answer JSON API
-    try {
-      const ddgApiUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(cleanQuery)}&format=json&no_html=1&skip_disambig=1`;
-      const res = await fetch(ddgApiUrl);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.AbstractText && data.AbstractURL && isValidResultUrl(data.AbstractURL)) {
-          resultBlocks.push({
-            title: data.Heading || cleanQuery,
-            url: data.AbstractURL,
-            snippet: decodeHTMLEntities(data.AbstractText),
-            source: getHostname(data.AbstractURL)
-          });
-        } else if (data.RelatedTopics && data.RelatedTopics.length > 0) {
-          data.RelatedTopics
-            .flatMap(t => t.Topics || [t])
-            .filter(t => t.Text && t.FirstURL && isValidResultUrl(t.FirstURL))
-            .slice(0, 4)
-            .forEach((topic) => {
-              resultBlocks.push({
-                title: topic.Text.split(' - ')[0] || cleanQuery,
-                url: topic.FirstURL,
-                snippet: decodeHTMLEntities(topic.Text),
-                source: getHostname(topic.FirstURL)
-              });
+    // 1+2. DuckDuckGo Instant Answer + Wikipedia in parallel (free, no API key)
+    await Promise.all([
+      (async () => {
+        try {
+          const ddgApiUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(cleanQuery)}&format=json&no_html=1&skip_disambig=1`;
+          const res = await fetch(ddgApiUrl, { signal: AbortSignal.timeout(4500) });
+          if (!res.ok) return;
+          const data = await res.json();
+          if (data.AbstractText && data.AbstractURL && isValidResultUrl(data.AbstractURL)) {
+            resultBlocks.push({
+              title: data.Heading || cleanQuery,
+              url: data.AbstractURL,
+              snippet: decodeHTMLEntities(data.AbstractText),
+              source: getHostname(data.AbstractURL)
             });
+          } else if (data.RelatedTopics && data.RelatedTopics.length > 0) {
+            data.RelatedTopics
+              .flatMap(t => t.Topics || [t])
+              .filter(t => t.Text && t.FirstURL && isValidResultUrl(t.FirstURL))
+              .slice(0, 4)
+              .forEach((topic) => {
+                resultBlocks.push({
+                  title: topic.Text.split(' - ')[0] || cleanQuery,
+                  url: topic.FirstURL,
+                  snippet: decodeHTMLEntities(topic.Text),
+                  source: getHostname(topic.FirstURL)
+                });
+              });
+          }
+        } catch (e) {
+          console.error('DDG API error:', e.message);
         }
-      }
-    } catch (e) {
-      console.error('DDG API error:', e.message);
-    }
-
-    // 2. Query Wikipedia API for facts/overview
-    try {
-      const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles=${encodeURIComponent(cleanQuery)}&format=json&origin=*`;
-      const wikiRes = await fetch(wikiUrl);
-      if (wikiRes.ok) {
-        const wikiData = await wikiRes.json();
-        const pages = wikiData.query ? wikiData.query.pages : null;
-        if (pages) {
+      })(),
+      (async () => {
+        try {
+          const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles=${encodeURIComponent(cleanQuery)}&format=json&origin=*`;
+          const wikiRes = await fetch(wikiUrl, { signal: AbortSignal.timeout(4500) });
+          if (!wikiRes.ok) return;
+          const wikiData = await wikiRes.json();
+          const pages = wikiData.query ? wikiData.query.pages : null;
+          if (!pages) return;
           const pageId = Object.keys(pages)[0];
           if (pageId !== '-1' && pages[pageId].extract) {
             const wikiText = pages[pageId].extract.substring(0, 450);
-            const wikiUrl = buildWikipediaUrl(pages[pageId].title);
-            if (wikiUrl) {
+            const builtWikiUrl = buildWikipediaUrl(pages[pageId].title);
+            if (builtWikiUrl) {
               resultBlocks.push({
                 title: `Wikipedia: ${pages[pageId].title}`,
-                url: wikiUrl,
+                url: builtWikiUrl,
                 snippet: `${decodeHTMLEntities(wikiText)}...`,
                 source: 'wikipedia.org'
               });
             }
           }
+        } catch (e) {
+          console.error('Wikipedia API error:', e.message);
         }
-      }
-    } catch (e) {
-      console.error('Wikipedia API error:', e.message);
-    }
+      })()
+    ]);
 
-    // 3. Fallback / Organic: DuckDuckGo HTML Search POST
+    // 3. DuckDuckGo HTML organic results when instant answers are thin
     if (resultBlocks.length < 6) {
       try {
         const ddgHtmlUrl = `https://html.duckduckgo.com/html/`;
@@ -1879,19 +2249,31 @@ function getInstallationDefaultDataDir() {
     const verifications = await Promise.all(candidateResults.map(item => verifyUrl(item.url)));
     candidateResults.forEach((item, index) => {
       const verification = verifications[index];
-      if (!verification.ok) return;
-      verifiedResults.push({
-        ...item,
-        url: verification.finalUrl || item.url,
-        source: getHostname(verification.finalUrl || item.url),
-        status: verification.status,
-        verified: true
-      });
+      if (verification.ok) {
+        verifiedResults.push({
+          ...item,
+          url: verification.finalUrl || item.url,
+          source: getHostname(verification.finalUrl || item.url),
+          status: verification.status,
+          verified: true
+        });
+        return;
+      }
+      // Keep unverified results with a warning — strict verify was dropping good DDG/Wikipedia hits
+      if (item.url && isValidResultUrl(item.url)) {
+        verifiedResults.push({
+          ...item,
+          url: item.url,
+          source: getHostname(item.url),
+          status: verification.status || 0,
+          verified: false
+        });
+      }
     });
 
     const results = verifiedResults.slice(0, 8);
 
-    const previewTargets = results.slice(0, 4);
+    const previewTargets = results.slice(0, 2);
     const previews = await Promise.all(previewTargets.map(item => fetchPagePreview(item.url)));
     previews.forEach((preview, index) => {
       if (!preview) return;
@@ -1899,6 +2281,19 @@ function getInstallationDefaultDataDir() {
       if (preview.description && preview.description.length > results[index].snippet.length) results[index].snippet = preview.description;
       if (preview.image) results[index].image = preview.image;
     });
+
+    const fetchCount = Math.min(Math.max(Number(options.fetchCount) || 2, 1), 3);
+
+    await Promise.all(results.slice(0, fetchCount).map(async (item) => {
+      const page = await fetchWebPage(item.url, { maxChars: 3500, timeoutMs: 8000 });
+      if (page.success && page.markdown && page.markdown.length > 120) {
+        item.pageContent = page.markdown;
+        if (page.title && page.title.length > 2) item.title = page.title;
+        if (!item.snippet || item.snippet.length < 80) {
+          item.snippet = page.plain.slice(0, 280);
+        }
+      }
+    }));
 
     const shopping = isShoppingQuery(cleanQuery);
     const products = shopping
@@ -1916,7 +2311,10 @@ function getInstallationDefaultDataDir() {
       : [];
 
     const answerContext = results.map((item, index) => {
-      return `[${index + 1}] ${item.title}\nURL: ${item.url}\nSource: ${item.source}\nSnippet: ${item.snippet || 'No snippet available.'}`;
+      const body = item.pageContent
+        ? `Content excerpt:\n${item.pageContent.slice(0, 2500)}`
+        : `Snippet: ${item.snippet || 'No snippet available.'}`;
+      return `[${index + 1}] ${item.title}\nURL: ${item.url}\nSource: ${item.source}${item.verified === false ? ' (unverified link)' : ''}\n${body}`;
     }).join('\n\n');
 
     if (results.length === 0) {
@@ -1931,15 +2329,51 @@ function getInstallationDefaultDataDir() {
       };
     }
 
+    const hasRichResult = results.some(item =>
+      (item.snippet || '').trim().length > 40 || (item.pageContent || '').trim().length > 80
+    );
+
     return {
       success: true,
       query: cleanQuery,
       results,
       products,
       answerContext,
-      needsClarification: results.length < 2,
-      clarification: results.length < 2 ? `I only found one useful result for "${cleanQuery}". A little more detail would help me search better.` : ''
+      searchProvider: 'duckduckgo',
+      needsClarification: results.length === 0 || !hasRichResult,
+      clarification: results.length === 0
+        ? `I could not find web results for "${cleanQuery}". Try adding a brand, location, budget, or date range.`
+        : (!hasRichResult ? `I found links for "${cleanQuery}" but could not extract enough detail. Try a more specific query.` : '')
     };
+  });
+
+  ipcMain.handle('fetch-web-page', async (_event, url) => {
+    try {
+      const mcpStatus = mcpManager.getMcpStatus();
+      if (mcpStatus.connected.includes('fetch')) {
+        const mcpResult = await mcpManager.callMcpTool('fetch', 'fetch_markdown', { url: String(url || '') });
+        if (mcpResult.success && mcpResult.text) {
+          return { success: true, markdown: mcpResult.text, source: 'mcp-fetch-server' };
+        }
+      }
+    } catch (e) { /* fall through to native fetch */ }
+    return fetchWebPage(url);
+  });
+
+  ipcMain.handle('get-mcp-status', async () => mcpManager.getMcpStatus());
+
+  ipcMain.handle('mcp-call-tool', async (_event, payload) => {
+    const serverId = payload && payload.serverId;
+    const toolName = payload && payload.toolName;
+    const args = (payload && payload.args) || {};
+    if (!serverId || !toolName) {
+      return { success: false, error: 'serverId and toolName are required.' };
+    }
+    try {
+      return await mcpManager.callMcpTool(serverId, toolName, args);
+    } catch (err) {
+      return { success: false, error: err.message || 'MCP tool call failed.' };
+    }
   });
 }
 
