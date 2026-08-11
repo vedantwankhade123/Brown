@@ -36,12 +36,12 @@ Download pre-built ready-to-run Windows binaries directly from the official webs
   <tbody>
     <tr>
       <td><b>Installer</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.6/Ultron%20AI%20Setup%201.0.6.exe"><code>Ultron AI Setup 1.0.6.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.6/Ultron.AI.Setup.1.0.6.exe"><code>Ultron.AI.Setup.1.0.6.exe</code></a></td>
       <td>Standard Windows setup wizard with Start Menu and Desktop shortcuts. AI voice models download on first use (~130 MB).</td>
     </tr>
     <tr>
       <td><b>Portable</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.6/Ultron%20AI%201.0.6.exe"><code>Ultron AI 1.0.6.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.6/Ultron.AI.1.0.6.exe"><code>Ultron.AI.1.0.6.exe</code></a></td>
       <td>Standalone executable. Runs immediately on Windows without installation.</td>
     </tr>
   </tbody>
