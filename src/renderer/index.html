@@ -82,9 +82,9 @@
     <!-- Settings Gear Footer -->
     <div class="sidebar-footer">
       <div class="profile-block">
-        <div class="avatar-circle">VW</div>
+        <div class="avatar-circle" id="sidebar-avatar">U</div>
         <div class="profile-info">
-          <span class="profile-name">Vedant Wankhade</span>
+          <span class="profile-name" id="sidebar-profile-name">User</span>
         </div>
       </div>
       <div class="settings-trigger" id="btn-settings" title="Toggle settings">
@@ -185,8 +185,9 @@
         </div>
 
         <div class="permission-actions">
-          <button id="btn-perm-deny" class="btn-deny">Deny Action</button>
-          <button id="btn-perm-accept" class="btn-accept">Accept & Run</button>
+          <button id="btn-perm-deny" class="btn-deny">Deny</button>
+          <button id="btn-perm-accept" class="btn-accept">Allow once</button>
+          <button id="btn-perm-accept-session" class="btn-accept btn-accept-session">Allow for session</button>
         </div>
       </div>
     </div>
@@ -258,21 +259,38 @@
                 <div class="plus-menu-divider"></div>
                 <div class="plus-menu-section-label">Agent options</div>
                 <button type="button" class="plus-menu-item toggle-option" id="plus-toggle-agent-tools" role="menuitemcheckbox" aria-checked="true">
-                  <span class="mode-radio"></span>
+                  <span class="plus-menu-option-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+                    </svg>
+                  </span>
                   <div class="plus-menu-item-text">
                     <span class="plus-menu-item-title">Agent tools</span>
                     <span class="plus-menu-item-desc">Run desktop actions & file ops</span>
                   </div>
                 </button>
                 <button type="button" class="plus-menu-item toggle-option" id="plus-toggle-screen-aware" role="menuitemcheckbox" aria-checked="true">
-                  <span class="mode-radio"></span>
+                  <span class="plus-menu-option-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+                      <line x1="8" y1="21" x2="16" y2="21"></line>
+                      <line x1="12" y1="17" x2="12" y2="21"></line>
+                      <circle cx="12" cy="10" r="2.5"></circle>
+                    </svg>
+                  </span>
                   <div class="plus-menu-item-text">
                     <span class="plus-menu-item-title">Screen aware</span>
                     <span class="plus-menu-item-desc">Capture desktop for vision tasks</span>
                   </div>
                 </button>
                 <button type="button" class="plus-menu-item toggle-option" id="plus-toggle-web-search" role="menuitemcheckbox" aria-checked="true">
-                  <span class="mode-radio"></span>
+                  <span class="plus-menu-option-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="2" y1="12" x2="22" y2="12"></line>
+                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                    </svg>
+                  </span>
                   <div class="plus-menu-item-text">
                     <span class="plus-menu-item-title">Web search</span>
                     <span class="plus-menu-item-desc">Allow live web lookups</span>
@@ -304,7 +322,7 @@
             </div>
           </div>
           <div class="input-actions-right">
-            <button id="btn-mic" class="input-action-btn" title="Voice Input">
+            <button id="btn-mic" class="input-action-btn" title="Voice input (free — uses your microphone, no API key)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
                 <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
@@ -314,6 +332,11 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
                 <line x1="12" y1="19" x2="12" y2="5"></line>
                 <polyline points="5 12 12 5 19 12"></polyline>
+              </svg>
+            </button>
+            <button id="btn-stop" class="btn-stop" title="Stop generating">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
+                <rect x="5" y="5" width="14" height="14" rx="2"></rect>
               </svg>
             </button>
           </div>
@@ -330,9 +353,10 @@
           </svg>
         </button>
 
-        <!-- Center Audio Waveform Visualizer Canvas -->
+        <!-- Center Audio Waveform + live transcript -->
         <div class="voice-visualizer-wrapper">
           <canvas id="voice-waveform-canvas" class="voice-waveform-canvas" width="600" height="32"></canvas>
+          <span id="voice-live-transcript" class="voice-live-transcript" aria-live="polite"></span>
         </div>
 
         <!-- Right Controls & Timer -->
@@ -522,6 +546,14 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
             Models
           </div>
+          <div class="settings-tab-btn" data-tab="desktop">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            Desktop Automation
+          </div>
+          <div class="settings-tab-btn" data-tab="sounds">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+            Agent Sounds
+          </div>
           <div class="settings-tab-btn" data-tab="storage">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path></svg>
             Storage & Memory
@@ -544,10 +576,10 @@
         <main class="settings-tab-content">
           <!-- Account Tab -->
           <div id="tab-account" class="tab-pane">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-              <h4 style="margin: 0;">User Account</h4>
-              <button id="btn-toggle-edit-account" style="background: transparent !important; border: none !important; color: #a1a1aa; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 4px; transition: color 0.2s;" title="Edit account details">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+            <div class="account-tab-header">
+              <h4>User Account</h4>
+              <button id="btn-toggle-edit-account" type="button" class="account-edit-btn" title="Edit account details">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
                   <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                 </svg>
@@ -555,34 +587,55 @@
               </button>
             </div>
             
-            <div class="profile-details-card" style="margin-bottom: 20px;">
-              <div style="display: flex; align-items: center; gap: 20px;">
-                <div class="avatar-large" id="account-avatar">VW</div>
+            <div class="profile-details-card account-profile-card">
+              <div class="account-profile-row">
+                <div class="avatar-large" id="account-avatar">U</div>
                 <div class="profile-text">
-                  <span class="profile-detail-name" id="account-name">Vedant Wankhade</span>
-                  <span class="profile-detail-email" id="account-email">vedant@example.com</span>
-                  <span class="profile-badge">Developer Sandbox Mode</span>
+                  <span class="profile-detail-name" id="account-name">User</span>
+                  <span class="profile-detail-email" id="account-email">user@example.com</span>
+                  <span class="profile-badge">Local AI Engine</span>
                 </div>
               </div>
             </div>
             
-            <div id="account-edit-form" class="hidden" style="border: 1px solid var(--border-color); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-              <h5 style="margin-top: 0; margin-bottom: 12px; font-size: 13px; font-weight: 600; color: var(--accent-white);">Edit Account Details</h5>
-              <div class="setting-item" style="margin-top: 8px;">
-                <label style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Full Name</label>
-                <input type="text" id="input-account-name" class="override-input" style="width: 100%; box-sizing: border-box; padding: 6px 12px; border-radius: 6px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: var(--text-primary); font-size: 12px; margin-bottom: 12px;" placeholder="e.g. Vedant Wankhade" />
-                
-                <label style="display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">Email Address</label>
-                <input type="email" id="input-account-email" class="override-input" style="width: 100%; box-sizing: border-box; padding: 6px 12px; border-radius: 6px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); color: var(--text-primary); font-size: 12px; margin-bottom: 14px;" placeholder="e.g. name@example.com" />
-                
-                <div style="display: flex; gap: 10px;">
-                  <button id="btn-save-account" class="btn-accept" style="padding: 6px 16px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer;">Save Account Changes</button>
-                  <button id="btn-cancel-edit-account" class="btn-faint" style="padding: 6px 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer;">Cancel</button>
+            <div id="account-edit-form" class="account-edit-card hidden">
+              <h5 class="account-edit-title">Edit Account Details</h5>
+              <div class="setting-item">
+                <label class="account-field-label">Full Name (Name &amp; Surname)</label>
+                <input type="text" id="input-account-name" class="override-input account-input" placeholder="e.g. Vedant Wankhade" />
+                <label class="account-field-label">Date of Birth</label>
+                <input type="date" id="input-account-birthdate" class="override-input account-input account-input-date" />
+                <label class="account-field-label">Email Address</label>
+                <input type="email" id="input-account-email" class="override-input account-input" placeholder="e.g. alex@example.com" />
+                <div class="account-edit-actions">
+                  <button id="btn-save-account" type="button" class="btn-accept account-save-btn">Save Account Changes</button>
+                  <button id="btn-cancel-edit-account" type="button" class="btn-faint account-cancel-btn">Cancel</button>
                 </div>
               </div>
             </div>
+
+            <div class="account-location-card">
+              <div class="account-location-card-header">
+                <div>
+                  <label for="setting-home-location" class="account-section-label">Home city</label>
+                  <p class="account-section-hint">For weather, local search, and “near me” results.</p>
+                </div>
+                <label class="account-auto-location-toggle" title="Detect location on startup and keep it updated">
+                  <input type="checkbox" id="setting-auto-location" checked>
+                  <span>Auto-detect</span>
+                </label>
+              </div>
+              <div class="account-location-row">
+                <input type="text" id="setting-home-location" class="override-input account-input account-location-input" placeholder="e.g. Mumbai, India" />
+                <button id="btn-detect-location" type="button" class="btn-faint account-detect-btn">
+                  <span class="account-detect-spinner hidden" aria-hidden="true"></span>
+                  <span class="account-detect-label">Detect</span>
+                </button>
+              </div>
+              <p id="setting-location-status" class="text-xs text-muted account-location-status">Detecting location…</p>
+            </div>
             
-            <p class="text-xs text-muted" style="margin-top: 20px; margin-bottom: 20px;">Google OAuth authentication will be connected here for secure loopbacks.</p>
+            <p class="text-xs text-muted account-footer-note">Google OAuth authentication will be connected here for secure loopbacks.</p>
           </div>
           
           <!-- Models Tab -->
@@ -697,66 +750,300 @@
                 <div id="download-progress-speed" style="font-size: 10px; color: var(--text-muted); margin-top: 4px; text-align: right;">Speed: --</div>
               </div>
             </div>
+          </div>
 
-            <div class="connector-row models-sound-section" style="margin-top: 24px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px;">
-                <div style="display: flex; align-items: center; gap: 14px;">
-                  <div class="models-sound-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
-                  </div>
+          <!-- Agent Sounds Tab -->
+          <div id="tab-sounds" class="tab-pane hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <h4 style="margin: 0;">Agent Sounds</h4>
+                <span class="models-sound-badge">Audio feedback</span>
+              </div>
+              <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
+                <input type="checkbox" id="setting-sound-enabled" checked style="opacity: 0; width: 0; height: 0;">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+
+            <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.45;">Play audio when tasks complete, permissions are needed, or Ultron asks a clarifying question. Use the default sounds in Assets/sounds/ or pick a custom file for each event.</p>
+
+            <div class="models-sound-grid">
+              <div class="models-sound-row">
+                <label class="models-sound-row-label">
+                  <input type="checkbox" id="setting-sound-task-complete" checked style="accent-color: #fff;">
+                  <span>Task complete</span>
+                </label>
+                <div class="models-sound-row-actions">
+                  <button type="button" class="sound-preview-btn" data-sound-kind="task_complete">Preview</button>
+                  <button type="button" class="sound-file-picker" data-sound-kind="task_complete">Choose file</button>
+                </div>
+              </div>
+              <div class="models-sound-row">
+                <label class="models-sound-row-label">
+                  <input type="checkbox" id="setting-sound-permission" checked style="accent-color: #fff;">
+                  <span>Permission prompt</span>
+                </label>
+                <div class="models-sound-row-actions">
+                  <button type="button" class="sound-preview-btn" data-sound-kind="permission">Preview</button>
+                  <button type="button" class="sound-file-picker" data-sound-kind="permission">Choose file</button>
+                </div>
+              </div>
+              <div class="models-sound-row">
+                <label class="models-sound-row-label">
+                  <input type="checkbox" id="setting-sound-question" checked style="accent-color: #fff;">
+                  <span>Clarifying question</span>
+                </label>
+                <div class="models-sound-row-actions">
+                  <button type="button" class="sound-preview-btn" data-sound-kind="question">Preview</button>
+                  <button type="button" class="sound-file-picker" data-sound-kind="question">Choose file</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="models-sound-volume-row">
+              <span class="text-xs text-muted">Volume</span>
+              <input type="range" id="setting-sound-volume" min="0" max="100" value="55">
+              <span id="setting-sound-volume-label" class="text-xs text-muted">55%</span>
+            </div>
+
+            <div class="models-sound-section voice-model-section">
+              <div class="voice-model-section-header">
+                <div class="voice-model-section-title">
+                  <span class="models-sound-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                      <line x1="12" y1="19" x2="12" y2="23"></line>
+                      <line x1="8" y1="23" x2="16" y2="23"></line>
+                    </svg>
+                  </span>
                   <div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Agent Sounds</span>
-                      <span class="models-sound-badge">Audio feedback</span>
-                    </div>
-                    <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Play audio when tasks complete, permissions are needed, or Ultron asks a clarifying question.</p>
+                    <h5 class="voice-model-heading">Voice input model</h5>
+                    <p class="text-xs text-muted voice-model-desc">Offline speech-to-text for the mic button. Works without an API key once downloaded.</p>
+                  </div>
+                </div>
+                <span id="voice-model-status-badge" class="voice-model-status-badge">Checking…</span>
+              </div>
+
+              <div class="models-sound-row voice-model-row">
+                <div class="voice-model-row-info">
+                  <span class="voice-model-name">Whisper Tiny (English)</span>
+                  <span id="voice-model-size-label" class="text-xs text-muted">~40 MB · offline</span>
+                </div>
+                <div class="models-sound-row-actions">
+                  <button type="button" id="btn-download-voice-model" class="sound-preview-btn">Download</button>
+                  <button type="button" id="btn-cancel-voice-model" class="sound-file-picker hidden">Cancel</button>
+                  <button type="button" id="btn-delete-voice-model" class="sound-file-picker hidden">Remove</button>
+                </div>
+              </div>
+
+              <div id="voice-model-download-progress" class="connector-download-progress hidden">
+                <div class="connector-download-progress-header">
+                  <span id="voice-model-progress-status">Downloading voice model…</span>
+                  <span id="voice-model-progress-stats">0%</span>
+                </div>
+                <div class="connector-download-progress-track">
+                  <div id="voice-model-progress-bar" class="connector-download-progress-fill"></div>
+                </div>
+                <div id="voice-model-progress-detail" class="connector-download-progress-speed">Speed: --</div>
+              </div>
+            </div>
+
+            <div class="models-sound-section tts-settings-section">
+              <div class="voice-model-section-header">
+                <div class="voice-model-section-title">
+                  <span class="models-sound-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                    </svg>
+                  </span>
+                  <div>
+                    <h5 class="voice-model-heading">AI voice output</h5>
+                    <p class="text-xs text-muted voice-model-desc">Natural offline neural voice (recommended) or Windows system voices. Skips code blocks and markdown.</p>
                   </div>
                 </div>
                 <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
-                  <input type="checkbox" id="setting-sound-enabled" checked style="opacity: 0; width: 0; height: 0;">
+                  <input type="checkbox" id="setting-tts-auto-speak" style="opacity: 0; width: 0; height: 0;">
                   <span class="switch-slider"></span>
                 </label>
               </div>
 
-              <p class="text-xs text-muted" style="margin: 0 0 14px 0; line-height: 1.45;">Use the default sounds in Assets/sounds/ or pick a custom file for each event.</p>
-
               <div class="models-sound-grid">
-                <div class="models-sound-row">
-                  <label class="models-sound-row-label">
-                    <input type="checkbox" id="setting-sound-task-complete" checked style="accent-color: #fff;">
-                    <span>Task complete</span>
-                  </label>
-                  <div class="models-sound-row-actions">
-                    <button type="button" class="sound-preview-btn" data-sound-kind="task_complete">Preview</button>
-                    <button type="button" class="sound-file-picker" data-sound-kind="task_complete">Choose file</button>
+                <div class="models-sound-row voice-model-row">
+                  <div class="voice-model-row-info">
+                    <span class="voice-model-name">Voice persona</span>
+                    <span class="text-xs text-muted">Neutral, female, or male system voice</span>
                   </div>
+                  <select id="setting-tts-persona" class="tts-select">
+                    <option value="neutral">Neutral</option>
+                    <option value="female">Female</option>
+                    <option value="male">Male</option>
+                  </select>
                 </div>
-                <div class="models-sound-row">
-                  <label class="models-sound-row-label">
-                    <input type="checkbox" id="setting-sound-permission" checked style="accent-color: #fff;">
-                    <span>Permission prompt</span>
-                  </label>
-                  <div class="models-sound-row-actions">
-                    <button type="button" class="sound-preview-btn" data-sound-kind="permission">Preview</button>
-                    <button type="button" class="sound-file-picker" data-sound-kind="permission">Choose file</button>
+                <div class="models-sound-row voice-model-row">
+                  <div class="voice-model-row-info">
+                    <span class="voice-model-name">Specific voice</span>
+                    <span class="text-xs text-muted">Optional override</span>
                   </div>
-                </div>
-                <div class="models-sound-row">
-                  <label class="models-sound-row-label">
-                    <input type="checkbox" id="setting-sound-question" checked style="accent-color: #fff;">
-                    <span>Clarifying question</span>
-                  </label>
-                  <div class="models-sound-row-actions">
-                    <button type="button" class="sound-preview-btn" data-sound-kind="question">Preview</button>
-                    <button type="button" class="sound-file-picker" data-sound-kind="question">Choose file</button>
-                  </div>
+                  <select id="setting-tts-voice" class="tts-select">
+                    <option value="">Auto (persona)</option>
+                  </select>
                 </div>
               </div>
 
               <div class="models-sound-volume-row">
-                <span class="text-xs text-muted">Volume</span>
-                <input type="range" id="setting-sound-volume" min="0" max="100" value="55">
-                <span id="setting-sound-volume-label" class="text-xs text-muted">55%</span>
+                <span class="text-xs text-muted">Speech rate</span>
+                <input type="range" id="setting-tts-rate" min="0.7" max="1.4" step="0.05" value="1">
+                <span id="setting-tts-rate-label" class="text-xs text-muted">1.0×</span>
+              </div>
+
+              <div class="models-sound-row voice-model-row" style="margin-top: 8px;">
+                <div class="voice-model-row-info">
+                  <span class="voice-model-name">Preview voice</span>
+                  <span class="text-xs text-muted">"Hello, I'm Ultron."</span>
+                </div>
+                <div class="models-sound-row-actions">
+                  <button type="button" id="btn-preview-tts" class="sound-preview-btn">Preview</button>
+                </div>
+              </div>
+
+              <div class="models-sound-section voice-model-section" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                <div class="voice-model-section-header">
+                  <div class="voice-model-section-title">
+                    <span class="models-sound-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                        <path d="M9 18V5l12-2v13"></path>
+                        <circle cx="6" cy="18" r="3"></circle>
+                        <circle cx="18" cy="16" r="3"></circle>
+                      </svg>
+                    </span>
+                    <div>
+                      <h5 class="voice-model-heading">Offline neural voices</h5>
+                      <p class="text-xs text-muted voice-model-desc">100% offline after download — no internet needed. 5 English voices (3 female, 2 male). Download once, preview, then tap Use.</p>
+                    </div>
+                  </div>
+                  <span id="tts-model-status-badge" class="voice-model-status-badge">Checking…</span>
+                </div>
+
+                <div id="tts-models-list" class="tts-models-list"></div>
+
+                <div class="voice-model-section-header" style="margin-top: 20px;">
+                  <div class="voice-model-section-title">
+                    <span class="models-sound-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" x2="12" y1="19" y2="22"></line>
+                      </svg>
+                    </span>
+                    <div>
+                      <h5 class="voice-model-heading">Gemini Live cloud voices</h5>
+                      <p class="text-xs text-muted voice-model-desc">Online only — requires internet + Gemini API key. Optional upgrade over the offline voices above.</p>
+                    </div>
+                  </div>
+                  <span id="tts-cloud-status-badge" class="voice-model-status-badge">Checking…</span>
+                </div>
+                <div id="tts-cloud-models-list" class="tts-models-list"></div>
+                <p id="tts-model-feedback" class="text-xs text-muted connector-feedback" style="margin-top: 8px;"></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Desktop Automation Tab -->
+          <div id="tab-desktop" class="tab-pane hidden">
+            <h4>Desktop Automation</h4>
+            <p class="text-xs text-muted settings-section-intro">
+              Connectors that let Ultron open apps, read/write files, click UI elements, and navigate File Explorer. Install and connect all three for the most reliable desktop tasks.
+            </p>
+
+            <div id="windows-uia-connector" class="connector-row" style="border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); border-radius: 8px;">
+              <div class="connector-title-row" style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="connector-name">Windows UI Automation</span>
+                    <span id="windows-uia-status-badge" class="connector-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Not connected</span>
+                  </div>
+                  <p class="text-xs text-muted connector-desc" style="margin: 2px 0 0 0;">Click, type, and find elements by name — File Explorer, Save dialogs, Settings</p>
+                </div>
+              </div>
+              <p class="text-xs text-muted connector-desc" style="margin: 0; line-height: 1.4;">
+                Priority #1 for desktop tasks. One-time download (~50MB). Auto-installs on first desktop task if not connected.
+              </p>
+              <div class="connector-actions">
+                <button id="btn-install-windows-uia" class="btn-faint" style="height: 34px; padding: 0 14px; font-size: 12px; border-radius: 6px; cursor: pointer;">Install / Connect</button>
+                <button id="btn-refresh-desktop-connectors" type="button" class="btn-faint connector-refresh-btn" style="height: 34px; padding: 0 14px; font-size: 12px; border-radius: 6px; cursor: pointer;">
+                  <span class="connector-refresh-btn-spinner hidden" aria-hidden="true"></span>
+                  <span class="connector-refresh-btn-label">Refresh status</span>
+                </button>
+              </div>
+              <div id="windows-uia-progress" class="connector-download-progress hidden">
+                <div class="connector-download-progress-header">
+                  <span id="windows-uia-progress-status">Downloading mcp-windows server…</span>
+                  <span id="windows-uia-progress-stats">0%</span>
+                </div>
+                <div class="connector-download-progress-track">
+                  <div id="windows-uia-progress-bar" class="connector-download-progress-fill"></div>
+                </div>
+                <div id="windows-uia-progress-speed" class="connector-download-progress-speed">Speed: --</div>
+              </div>
+              <p id="windows-uia-feedback" class="text-xs text-muted connector-feedback" style="margin: 4px 0 0;"></p>
+            </div>
+
+            <div id="windows-mcp-connector" class="connector-row" style="border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); border-radius: 8px;">
+              <div class="connector-title-row" style="display: flex; align-items: center; gap: 8px;">
+                <span class="connector-name">Windows-MCP (CursorTouch)</span>
+                <span id="windows-mcp-status-badge" class="connector-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Checking…</span>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0; line-height: 1.4;">Launches apps, mouse/keyboard control via <code style="font-size:11px; color:#fff;">uvx windows-mcp</code>. Requires <a href="https://astral.sh/uv" target="_blank" style="color:#93c5fd;">uv</a> installed.</p>
+              <p id="windows-mcp-feedback" class="text-xs text-muted" style="margin: 4px 0 0;"></p>
+            </div>
+
+            <div id="filesystem-mcp-connector" class="connector-row" style="border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); border-radius: 8px;">
+              <div class="connector-title-row" style="display: flex; align-items: center; gap: 8px;">
+                <span class="connector-name">File &amp; Web Access</span>
+                <span id="filesystem-mcp-status-badge" class="connector-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Checking…</span>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0; line-height: 1.4;">Read, write, and list files on your PC; fetch web pages for parsing. Used when you ask to read documents or parse files.</p>
+              <p id="filesystem-mcp-feedback" class="text-xs text-muted" style="margin: 4px 0 0;"></p>
+            </div>
+
+            <div class="setting-item desktop-footer-section" style="border-top: 1px solid var(--border-color);">
+              <p class="text-xs text-muted desktop-footer-note">
+                <strong style="color: #ffffff; font-weight: 600;">Priority order:</strong> UI Automation → Windows-MCP → native PowerShell / IPC fallback.
+              </p>
+              <button type="button" id="btn-open-permissions-from-desktop" class="btn-faint" style="height: 34px; padding: 0 14px; font-size: 12px; border-radius: 6px; cursor: pointer;">Screen capture &amp; permissions →</button>
+            </div>
+
+            <div class="automation-section local-ai-section">
+              <h5 class="automation-section-title">Local AI routing</h5>
+              <p class="text-xs text-muted settings-section-intro">Prefer Ollama on your PC for automations and chat. Inspired by Vayu / Monaw local-first mode.</p>
+              <select id="setting-local-ai-mode" class="security-dropdown" style="max-width: 100%;">
+                <option value="local-first">Local first — Ollama for tasks; cloud only if you pick Gemini</option>
+                <option value="local-only">Local only — never use cloud APIs</option>
+                <option value="cloud-allowed">Use selected model — Ollama or Gemini as chosen</option>
+              </select>
+              <p id="local-ai-mode-status" class="text-xs text-muted" style="margin-top: 8px;"></p>
+            </div>
+
+            <div class="automation-section">
+              <div class="automation-section-header">
+                <h5 class="automation-section-title">Saved workflows</h5>
+                <button type="button" id="btn-add-workflow" class="sound-preview-btn">Add</button>
+              </div>
+              <p class="text-xs text-muted settings-section-intro">Multi-step routines Ultron can run on command. Say <em>run morning routine</em> or <em>save workflow called Backup: LIST_DIR Downloads then OPEN_APP Explorer</em>.</p>
+              <div id="workflows-list" class="workflows-list"></div>
+            </div>
+
+            <div class="automation-section">
+              <h5 class="automation-section-title">Scheduled workflows</h5>
+              <p class="text-xs text-muted settings-section-intro">Run a saved workflow automatically at a set time (checks every minute while Ultron is open).</p>
+              <div id="schedules-list" class="workflows-list"></div>
+              <div class="schedule-add-row">
+                <select id="schedule-workflow-pick" class="tts-select" style="flex:1; max-width:none;"></select>
+                <input type="time" id="schedule-time-pick" class="override-input schedule-time-input">
+                <button type="button" id="btn-add-schedule" class="sound-preview-btn">Schedule</button>
               </div>
             </div>
           </div>
@@ -764,31 +1051,56 @@
           <!-- Storage & Memory Tab -->
           <div id="tab-storage" class="tab-pane hidden">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
-              <h4 style="margin: 0;">Agent Memory & Storage</h4>
+              <h4 style="margin: 0;">Storage Locations</h4>
               <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0;">
                 <input type="checkbox" id="setting-memory-toggle" style="opacity: 0; width: 0; height: 0;">
                 <span class="switch-slider"></span>
               </label>
             </div>
-            <div class="setting-item" style="margin-top: 8px;">
 
-              
-              <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Agent Storage & Memory Location</label>
+            <p class="text-xs text-muted settings-section-intro" style="margin: 0 0 12px 0;">
+              Development uses <code style="font-size:11px;">Ultron-local</code> (e.g. <code style="font-size:11px;">D:\Ultron-local</code>). Installed apps use <code style="font-size:11px;">Ultron-AI</code> on the install drive. All downloads, memory, and models live inside that folder.
+            </p>
+            <p id="storage-ultron-root-label" class="text-xs text-muted" style="margin: 0 0 6px 0; line-height: 1.45; font-weight: 600; color: rgba(255,255,255,0.82);"></p>
+            <p id="storage-install-root-label" class="text-xs text-muted" style="margin: 0 0 14px 0; line-height: 1.45;"></p>
+
+            <div class="setting-item" style="margin-top: 4px;">
+              <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Agent Storage &amp; Memory</label>
               <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
                 <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. D:\Ultron\data">
                 <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
-                <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset Path</button>
+                <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
               </div>
               <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                This folder stores all persistent agent memories, conversation logs, and session vectors. If turned off, memory features are disabled and nothing will be saved.
+                Conversations, agent memory, and session data. Defaults to <code style="font-size:11px;">{Ultron-local or Ultron-AI}\data</code>.
+              </p>
+            </div>
+
+            <div class="setting-item" style="margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+              <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Connectors &amp; Downloads</label>
+              <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" id="setting-connectors-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. D:\Ultron\connectors">
+                <button id="btn-browse-connectors" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
+                <button id="btn-reset-connectors" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
+              </div>
+              <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
+                Desktop automation connectors (UI Automation, MCP servers). Defaults to <code style="font-size:11px;">{Ultron-local or Ultron-AI}\connectors</code>.
+              </p>
+            </div>
+
+            <div class="setting-item" style="margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+              <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Ollama Models</label>
+              <input type="text" id="setting-ollama-models-dir" class="override-input" readonly style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); color: rgba(255,255,255,0.55); font-size: 12px; box-sizing: border-box; cursor: default;" placeholder="Detecting Ollama…">
+              <p id="setting-ollama-install-note" class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
+                Stored in <code style="font-size:11px;">{Ultron-local or Ultron-AI}\models</code>. Created when Ollama is installed.
               </p>
             </div>
             
-            <div class="setting-item" style="margin-top: 24px; border-top: 1px solid var(--border-color); padding-top: 16px;">
-              <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Clear Data</label>
-              <div style="display: flex; align-items: center; justify-content: space-between;">
-                <span class="text-xs text-muted" style="line-height: 1.4; max-width: 70%;">Permanently delete all conversations, chat history, and message logs from storage.</span>
-                <button id="btn-clear-chats" class="btn-primary-sm" style="padding: 6px 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ef4444 !important; color: #ffffff !important;">Clear All Chats</button>
+            <div class="setting-item storage-clear-section">
+              <label class="account-section-label">Clear Data</label>
+              <div class="storage-clear-row">
+                <span class="text-xs text-muted storage-clear-copy">Permanently delete all conversations, chat history, and message logs from storage.</span>
+                <button id="btn-clear-chats" type="button" class="btn-primary-sm storage-clear-btn">Clear All Chats</button>
               </div>
             </div>
           </div>
@@ -806,6 +1118,21 @@
               </select>
             </div>
             <p class="text-xs text-muted">This establishes the validation container mode when initiating new chat threads.</p>
+
+            <div class="automation-section capability-section">
+              <h5 class="automation-section-title">Capability gates</h5>
+              <p class="text-xs text-muted settings-section-intro">Per-group control (Sir Thaddeus-style): <strong>Off</strong> blocks, <strong>Ask</strong> prompts, <strong>Always</strong> allows without a popup.</p>
+              <div id="capability-gates-list" class="capability-gates-list"></div>
+            </div>
+
+            <div class="automation-section">
+              <div class="automation-section-header">
+                <h5 class="automation-section-title">Agent audit log</h5>
+                <button type="button" id="btn-clear-audit-log" class="sound-preview-btn">Clear</button>
+              </div>
+              <p class="text-xs text-muted settings-section-intro">Local record of tool calls and permission decisions (Vayu-style). Stored only on your PC.</p>
+              <div id="audit-log-list" class="audit-log-list"></div>
+            </div>
 
             <div class="setting-item" style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 16px;">
               <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
@@ -905,21 +1232,180 @@
     </div>
   </div>
 
-  <!-- Custom Delete Confirmation Dialog Popup Modal -->
-  <div id="delete-confirm-modal" class="settings-modal hidden" style="background-color: rgba(0,0,0,0.6); z-index: 10001; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; right: 0; bottom: 0;">
-    <div class="settings-modal-content" style="width: 320px; max-width: 90%; padding: 20px; border-radius: 12px; background-color: #202124; border: 1px solid var(--border-color); box-shadow: 0 10px 30px rgba(0,0,0,0.5); transform: none; display: flex; flex-direction: column; height: auto;">
-      <h4 style="margin-top: 0; color: var(--accent-white); font-size: 14px; font-weight: 600;">Confirm Delete</h4>
-      <p id="delete-confirm-text" style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin-bottom: 20px;">Are you sure you want to delete this model?</p>
-      <div style="display: flex; gap: 8px; justify-content: flex-end;">
-        <button id="btn-delete-cancel" class="btn-primary-sm btn-faint" style="padding: 6px 14px; font-size: 12px; height: 30px; border-radius: 6px; cursor: pointer;">Cancel</button>
-        <button id="btn-delete-confirm" class="btn-accept" style="padding: 6px 16px; font-size: 12px; height: 30px; border-radius: 6px; cursor: pointer; background-color: #ef4444 !important; color: #ffffff !important;">Delete</button>
+  <!-- First-Time Setup & Onboarding View (Cursor-inspired) -->
+  <div id="onboarding-screen" class="onboarding-screen hidden">
+    <div class="onboarding-container">
+      <img src="../../Assets/ultron-logo.png" class="onboarding-logo-img" alt="Ultron Logo" />
+
+      <!-- Step 0: Welcome -->
+      <div id="onboard-step-0" class="onboard-step onboard-welcome">
+        <h1 class="onboarding-title">Welcome to Ultron AI</h1>
+        <p class="onboarding-tagline">The Autonomous AI Agent for Windows</p>
+        <div class="onboard-btn-stack">
+          <button id="btn-onboard-start" type="button" class="btn-onboard-primary btn-onboard-full">Get Started</button>
+        </div>
       </div>
+
+      <!-- Steps 1–4: Profile + engine setup -->
+      <div id="onboard-form-shell" class="onboard-form-shell hidden">
+        <h2 id="onboard-step-heading" class="onboard-step-heading">Your profile</h2>
+
+        <div class="onboard-step-body">
+          <div id="onboard-step-1" class="onboard-step hidden">
+            <div class="onboard-form-group">
+              <div class="onboard-field">
+                <input type="text" id="onboard-full-name" class="onboard-input" placeholder=" " autocomplete="name" />
+                <label for="onboard-full-name">Name</label>
+              </div>
+            </div>
+            <div id="onboard-step-1-error" class="onboard-error-msg hidden">Please enter your name.</div>
+          </div>
+
+          <div id="onboard-step-2" class="onboard-step hidden">
+            <div class="onboard-form-group">
+              <div class="onboard-field">
+                <input type="date" id="onboard-birthdate" class="onboard-input onboard-date-input" placeholder=" " />
+                <label for="onboard-birthdate">Date of birth</label>
+              </div>
+            </div>
+            <div id="onboard-step-2-error" class="onboard-error-msg hidden">Please select a valid date of birth.</div>
+          </div>
+
+          <div id="onboard-step-3" class="onboard-step hidden">
+            <div class="onboard-form-group">
+              <div class="onboard-field">
+                <input type="email" id="onboard-email" class="onboard-input" placeholder=" " autocomplete="email" />
+                <label for="onboard-email">Email</label>
+              </div>
+            </div>
+            <div id="onboard-step-3-error" class="onboard-error-msg hidden">Please enter a valid email address.</div>
+          </div>
+
+          <div id="onboard-step-4" class="onboard-step hidden">
+            <div class="onboard-quick-layout">
+              <div class="onboard-quick-list" role="list">
+                <div class="onboard-quick-item is-active" role="listitem">
+                  <div class="onboard-quick-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                  </div>
+                  <div class="onboard-quick-copy">
+                    <span class="onboard-quick-title">Local models</span>
+                    <span class="onboard-quick-desc">Run AI offline with Ollama</span>
+                  </div>
+                </div>
+                <div class="onboard-quick-item" role="listitem">
+                  <div class="onboard-quick-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7L12 16.8 5.7 21.1 8 13.6 2 9.4h7.6z"></path></svg>
+                  </div>
+                  <div class="onboard-quick-copy">
+                    <span class="onboard-quick-title">Cloud models</span>
+                    <span class="onboard-quick-desc">Connect Gemini in Settings later</span>
+                  </div>
+                </div>
+                <div class="onboard-quick-item" role="listitem">
+                  <div class="onboard-quick-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                  </div>
+                  <div class="onboard-quick-copy">
+                    <span class="onboard-quick-title">Private by default</span>
+                    <span class="onboard-quick-desc">Your data stays on this PC</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="onboard-quick-preview">
+                <div class="onboard-preview-panel">
+                  <div class="ollama-status-card" id="ollama-status-card">
+                    <div class="ollama-status-icon-wrapper" id="ollama-status-icon-wrapper">
+                      <div id="ollama-status-spinner" class="onboard-spinner"></div>
+                    </div>
+                    <div class="ollama-status-info">
+                      <h4 id="ollama-status-title" class="ollama-status-h4">Checking Ollama...</h4>
+                      <p id="ollama-status-desc" class="ollama-status-p">Verifying your local AI engine before finishing setup.</p>
+                    </div>
+                  </div>
+
+                  <div id="ollama-not-installed-box" class="onboard-preview-action hidden">
+                    <button id="btn-onboard-install-ollama" type="button" class="btn-onboard-secondary btn-onboard-full">
+                      Install Ollama
+                    </button>
+                    <div id="ollama-install-progress-row" class="ollama-install-progress-row hidden">
+                      <div class="onboard-spinner"></div>
+                      <span id="ollama-install-status-label">Downloading and installing Ollama...</span>
+                    </div>
+                  </div>
+
+                  <div id="ollama-not-running-box" class="onboard-preview-action hidden">
+                    <button id="btn-onboard-retry-ollama" type="button" class="btn-onboard-secondary btn-onboard-full">
+                      Retry connection
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div id="onboard-step-5" class="onboard-step onboard-ready-step hidden">
+            <div class="onboard-ready-icon-wrap" aria-hidden="true">
+              <div class="onboard-ready-ring"></div>
+              <div class="onboard-ready-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="42" height="42">
+                  <path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7L12 16.8 5.7 21.1 8 13.6 2 9.4h7.6z"></path>
+                </svg>
+              </div>
+              <div class="onboard-ready-check">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="28" height="28">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+              </div>
+            </div>
+            <h2 class="onboard-ready-title">Ultron is ready</h2>
+            <p class="onboard-ready-subtitle">Your profile is set and your local AI engine is online.</p>
+            <div class="onboard-ready-pills">
+              <span class="onboard-ready-pill">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                Profile created
+              </span>
+              <span class="onboard-ready-pill">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                Ollama connected
+              </span>
+              <span class="onboard-ready-pill">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                Agent online
+              </span>
+            </div>
+            <p class="onboard-ready-redirect">Opening your agent workspace...</p>
+          </div>
+        </div>
+
+        <div id="onboard-footer-actions" class="onboard-footer-actions">
+          <button id="btn-onboard-next" type="button" class="btn-onboard-primary btn-onboard-full">Continue</button>
+          <button id="btn-onboard-finish" type="button" class="btn-onboard-primary btn-onboard-full hidden">Finish</button>
+          <button id="btn-onboard-back" type="button" class="btn-onboard-link hidden">Back</button>
+        </div>
+      </div>
+
     </div>
   </div>
 
   <script src="../agent/app-registry.js"></script>
+  <script src="../agent/agent-automation-safety.js"></script>
+  <script src="../agent/agent-session-permissions.js"></script>
+  <script src="../agent/agent-command-parser.js"></script>
+  <script src="../agent/agent-dialogue-state.js"></script>
+  <script src="../agent/agent-completion.js"></script>
+  <script src="../agent/agent-segmentation.js"></script>
+  <script src="../agent/agent-capabilities.js"></script>
+  <script src="../agent/agent-audit.js"></script>
+  <script src="../agent/agent-scheduler.js"></script>
   <script src="../agent/agent-policy.js"></script>
   <script src="../agent/tool-schema.js"></script>
+  <script src="../agent/agent-loop-guard.js"></script>
+  <script src="../agent/agent-skills.js"></script>
+  <script src="../agent/location-context.js"></script>
+  <script src="../agent/agent-research.js"></script>
+  <script src="../agent/agent-mcp-tools.js"></script>
   <script src="../agent/agent-memory.js"></script>
   <script src="../agent/agent-executor.js"></script>
   <script src="../agent/agent-prompt.js"></script>

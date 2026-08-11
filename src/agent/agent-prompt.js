@@ -92,7 +92,8 @@ function buildUltronAgentSystemPrompt(context = {}) {
   if (sp.tool_usage) {
     sections.push(section('TOOL USAGE', [
       sp.tool_usage.principle,
-      formatBulletList(sp.tool_usage.tool_selection_rules)
+      formatBulletList(sp.tool_usage.tool_selection_rules),
+      'Never output tool JSON, OPEN_APP plans, or screen-capture steps as the user-facing answer.'
     ].join('\n\n')));
   }
 
@@ -142,7 +143,9 @@ function buildUltronAgentSystemPrompt(context = {}) {
   sections.push(section('VOICE & PERSONA', [
     `Speak directly to ${userName} in the first person ("I", "me", "my").`,
     `Address ${userName} as "you". Never refer to yourself as "the AI" or ${userName} as "the user".`,
-    'Be concise, accurate, and action-oriented. Do not describe what the user could do — do the work when tools are available.'
+    'Be concise and accurate. For essays, explanations, and other content requests, answer directly in chat without tools.',
+    'For desktop/file/web tasks, do the work with tools when available — do not merely describe what the user could do.',
+    'Never show raw tool JSON, planned tool steps, or internal execution plans as the user-facing answer.'
   ].join('\n')));
 
   if (context.realtime || context.sysEnv) {
@@ -162,6 +165,14 @@ function buildUltronAgentSystemPrompt(context = {}) {
     sections.push(context.memorySnippet.trim());
   }
 
+  if (context.skillsSnippet) {
+    sections.push(context.skillsSnippet.trim());
+  }
+
+  if (context.mcpSnippet) {
+    sections.push(context.mcpSnippet.trim());
+  }
+
   return sections.filter(Boolean).join('\n\n');
 }
 
@@ -175,12 +186,64 @@ function buildFallbackAgentPrompt(context = {}) {
   ].filter(Boolean).join('\n\n');
 }
 
+function getAgentRuntimeConfig() {
+  const cfg = _ultronAgentConfig || {};
+  const runtime = cfg.agent_runtime || {};
+  const loopGuard = runtime.loop_guard || {};
+  const research = runtime.research || {};
+  return {
+    maxTurns: Number(runtime.max_turns) > 0 ? Number(runtime.max_turns) : 10,
+    reactFormatEnabled: runtime.react_format_enabled !== false,
+    skillsEnabled: runtime.skills_enabled !== false,
+    contextWindowMessages: Number(runtime.context_window_messages) > 0 ? Number(runtime.context_window_messages) : 12,
+    loopGuard: {
+      enabled: loopGuard.enabled !== false,
+      maxIdenticalCalls: Number(loopGuard.max_identical_calls) > 0 ? Number(loopGuard.max_identical_calls) : 3,
+      pingPongWindow: Number(loopGuard.ping_pong_window) > 0 ? Number(loopGuard.ping_pong_window) : 6,
+      pollToolBudget: Number(loopGuard.poll_tool_budget) > 0 ? Number(loopGuard.poll_tool_budget) : 5,
+      searchHopBudget: Number(loopGuard.search_hop_budget) > 0 ? Number(loopGuard.search_hop_budget) : 4,
+      warnBeforeBlock: loopGuard.warn_before_block !== false
+    },
+    research: {
+      enabled: research.enabled !== false,
+      maxHops: Number(research.max_hops) > 0 ? Number(research.max_hops) : 3,
+      fetchTopN: Number(research.fetch_top_n) > 0 ? Number(research.fetch_top_n) : 3,
+      minUsefulResults: Number(research.min_useful_results) > 0 ? Number(research.min_useful_results) : 2,
+      synthesizeOnComplete: research.synthesize_on_complete !== false
+    },
+    windowsMcp: {
+      enabled: (runtime.windows_mcp || {}).enabled !== false,
+      excludeTools: (runtime.windows_mcp || {}).exclude_tools || 'PowerShell,Registry'
+    }
+  };
+}
+
+function getResearchConfig() {
+  return getAgentRuntimeConfig().research;
+}
+
 function buildAgentToolExecutionPrompt(userPrompt, step, observation = '', options = {}) {
+  const runtime = getAgentRuntimeConfig();
+  const reactBlock = runtime.reactFormatEnabled ? `
+
+REACT FORMAT (alternative — small local models often handle this better than raw JSON):
+Thought: <brief reasoning>
+Action: <TOOL_NAME>
+Action Input: <JSON args or plain text>
+
+When the task is complete:
+Thought: <brief reasoning>
+Final Answer: <natural language answer to the user>
+
+Use either one JSON object OR one ReAct block per step — not both.` : '';
+
   const captureLines = options.canCaptureScreen
     ? `\n{"tool":"CAPTURE_SCREEN","args":{"mode":"screen"}}\n{"tool":"CAPTURE_SCREEN","args":{"mode":"window","windowTitle":"Notepad"}}`
     : '';
 
-  const toolBlock = `AVAILABLE TOOLS — When an action is needed, output exactly one JSON object and nothing else:
+  const toolBlock = `AVAILABLE TOOLS — Use a tool ONLY when the user needs a desktop, file, or web action. If they asked for text, an essay, explanation, or ideas and did NOT ask to open an app or write a file, answer in natural language with NO tools and NO JSON.
+
+When an action is needed, output exactly one JSON object and nothing else:
 {"tool":"OPEN_APP","args":{"appName":"Notepad"}}
 {"tool":"FOCUS_APP","args":{"appName":"Google Chrome"}}
 {"tool":"OPEN_URL","args":{"url":"https://example.com"}}
@@ -192,14 +255,18 @@ function buildAgentToolExecutionPrompt(userPrompt, step, observation = '', optio
 {"tool":"WRITE_FILE","args":{"path":"C:\\\\path\\\\file.txt","content":"file content"}}
 {"tool":"LIST_DIR","args":{"path":"C:\\\\path"}}
 {"tool":"SEARCH","args":{"query":"web search query"}}
+{"tool":"WEB_FETCH","args":{"url":"https://example.com/page"}}
 {"tool":"EXECUTE","args":{"command":"safe command"}}${captureLines}
 
-TOOL RULES:
-- Do one step at a time unless a simple open-and-type sequence is obvious.
-- After each tool result, re-evaluate before choosing the next action.
+PLANNING (required before every action step):
+1. Output Thought: — one or two sentences: what the user wants, what already happened, why the next step is correct.
+2. Then output Action/JSON (or Final Answer when done).
+Never skip Thought on action steps. Never act without re-reading the latest observation.
+
+- Only use CAPTURE_SCREEN when you must see the UI to complete a desktop task — never for essays, chat, or pure content requests.
 - When the task is complete, respond in natural language without JSON. Keep the final answer short and direct.
-- Never fabricate tool output or claim success without observation evidence.
-- Never output HTML, code blocks, or markup unless the user explicitly asked for code.`;
+- Never narrate planned tool calls, never show JSON/tool plans to the user as the answer, and never fabricate tool output.
+- Never output HTML, code blocks, or markup unless the user explicitly asked for code.${reactBlock}`;
 
   const parts = [
     `USER TASK:\n${userPrompt}`,
@@ -209,7 +276,7 @@ TOOL RULES:
   if (observation) {
     parts.push(`LATEST OBSERVATION:\n${observation}\n\nContinue from this observation. Choose the next tool or give the final answer.`);
   } else {
-    parts.push(`This is step ${step}. Decide the next best tool call or final answer.`);
+    parts.push(`This is step ${step}. If no desktop/file/web action is needed, answer in natural language now. Otherwise choose the next tool call.`);
   }
 
   if (options.hasVisualContext) {
@@ -278,6 +345,7 @@ function getDefaultProgressMessage(category, context = {}) {
     HOTKEY: context.keys ? `Sending hotkey ${context.keys}...` : 'Sending keyboard shortcut...',
     WAIT: 'Waiting for the application to respond...',
     READ_FILE: context.path ? `Reading ${context.path}...` : 'Reading file contents...',
+    WEB_FETCH: context.url ? `Fetching ${context.url}...` : 'Fetching web page...',
     WRITE_FILE: context.path ? `Writing to ${context.path}...` : 'Writing file...',
     EXECUTE: context.command ? `Running: ${context.command}` : 'Executing system command...',
     VERIFY: 'Verifying that the change was applied...',
@@ -332,6 +400,8 @@ window.UltronAgentPrompt = {
   loadUltronAgentConfig,
   startUltronAgentConfigHotReload,
   getUltronAgentConfig,
+  getAgentRuntimeConfig,
+  getResearchConfig,
   buildUltronAgentSystemPrompt,
   buildAgentToolExecutionPrompt,
   getAgentProgressMessage,

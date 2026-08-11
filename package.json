@@ -24,13 +24,33 @@
         "provider": "github",
         "owner": "vedantwankhade123",
         "repo": "Ultron",
-        "releaseType": "release"
+        "releaseType": "release",
+        "draft": false
       }
     ],
     "files": [
       "src/**/*",
       "Assets/**/*",
-      "package.json"
+      "package.json",
+      "node_modules/@modelcontextprotocol/**/*",
+      "node_modules/mcp-fetch-server/**/*",
+      "node_modules/zod/**/*",
+      "node_modules/eventsource/**/*",
+      "node_modules/eventsource-parser/**/*",
+      "node_modules/cross-spawn/**/*",
+      "node_modules/which/**/*",
+      "node_modules/path-key/**/*",
+      "node_modules/shebang-command/**/*",
+      "node_modules/shebang-regex/**/*",
+      "node_modules/isexe/**/*",
+      "node_modules/@xenova/**/*",
+      "node_modules/kokoro-js/**/*",
+      "node_modules/@huggingface/**/*",
+      "node_modules/phonemizer/**/*",
+      "node_modules/onnxruntime-node/**/*",
+      "node_modules/onnxruntime-common/**/*",
+      "node_modules/sharp/**/*",
+      "node_modules/onnx-proto/**/*"
     ],
     "compression": "normal",
     "win": {
@@ -80,14 +100,24 @@
     }
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server-filesystem": "^2026.7.10",
+    "@xenova/transformers": "^2.17.2",
     "electron-updater": "^6.3.9",
+    "kokoro-js": "^1.2.1",
     "marked": "^18.0.6",
+    "mcp-fetch-server": "^1.1.2",
+    "onnxruntime-common": "1.21.0",
+    "onnxruntime-node": "1.21.0",
     "systeminformation": "^5.23.5",
     "ws": "^8.21.1"
   },
   "devDependencies": {
     "electron": "^31.0.0",
     "electron-builder": "^24.13.3"
+  },
+  "overrides": {
+    "onnxruntime-common": "1.21.0"
   },
   "private": true
 }

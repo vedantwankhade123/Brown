@@ -30,6 +30,13 @@ function isInteractiveAppAction(toolCall) {
 
 function requiresPermissionPrompt(mode, toolCall) {
   const resolvedMode = mode || getCurrentSecurityMode();
+  const caps = window.UltronAgentCapabilities;
+  if (caps && typeof caps.evaluateCapabilityGate === 'function') {
+    const gate = caps.evaluateCapabilityGate(toolCall);
+    if (gate === 'blocked') return 'blocked';
+    if (gate === true && resolvedMode !== 'Trusted') return true;
+  }
+
   if (resolvedMode === 'Trusted') return false;
   if (resolvedMode === 'Review') return true;
   if (resolvedMode === 'Containment') {

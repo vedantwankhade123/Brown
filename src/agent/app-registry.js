@@ -35,6 +35,8 @@ const APP_ALIASES = {
   calc: 'Calculator',
   calculator: 'Calculator',
   paint: 'Paint',
+  obs: 'OBS Studio',
+  'obs studio': 'OBS Studio',
   obsidian: 'Obsidian',
   'samsung browser': 'Samsung Internet',
   'samsung internet': 'Samsung Internet',
@@ -82,8 +84,15 @@ function resolveAlias(query) {
   const normalized = normalizeAppQuery(query);
   if (!normalized) return null;
   if (APP_ALIASES[normalized]) return APP_ALIASES[normalized];
-  for (const [alias, target] of Object.entries(APP_ALIASES)) {
-    if (normalized.includes(alias) || alias.includes(normalized)) return target;
+
+  const entries = Object.entries(APP_ALIASES).sort((a, b) => b[0].length - a[0].length);
+  for (const [alias, target] of entries) {
+    if (alias.length <= 3) {
+      const re = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+      if (re.test(normalized)) return target;
+    } else if (normalized === alias || normalized.includes(alias)) {
+      return target;
+    }
   }
   return null;
 }
@@ -143,16 +152,16 @@ function isAppNameAuthorized(appName, resolvedName) {
 
   const candidates = [appName, resolvedName].filter(Boolean);
   for (const candidate of candidates) {
-    if (map[candidate] === true) return true;
     const lower = String(candidate).toLowerCase();
     for (const [key, allowed] of Object.entries(map)) {
-      if (allowed && key.toLowerCase() === lower) return true;
-      if (allowed && (key.toLowerCase().includes(lower) || lower.includes(key.toLowerCase()))) {
-        return true;
-      }
+      const keyLower = String(key).toLowerCase();
+      const isMatch = keyLower === lower
+        || (lower.length >= 3 && (keyLower.includes(lower) || lower.includes(keyLower)));
+      if (isMatch) return allowed !== false;
     }
   }
-  return false;
+  // Not explicitly listed — allow (matches main-process behavior)
+  return true;
 }
 
 window.UltronAppRegistry = {

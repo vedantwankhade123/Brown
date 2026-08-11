@@ -15,10 +15,12 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   // Profiling & setup queries
   profileSystem: () => ipcRenderer.invoke('profile-system'),
   getSystemEnvironment: () => ipcRenderer.invoke('system-environment'),
+  refreshGeoLocation: () => ipcRenderer.invoke('refresh-geo-location'),
   
   // Security state operations
   getSecurityMode: () => ipcRenderer.invoke('get-security-mode'),
   setSecurityMode: (mode) => ipcRenderer.invoke('set-security-mode', mode),
+  setAuthorizedApps: (map) => ipcRenderer.invoke('set-authorized-apps', map),
   
   // Action execution loops
   executeAction: (payload) => ipcRenderer.invoke('execute-action', payload),
@@ -33,9 +35,10 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   ocrScreen: (payload) => ipcRenderer.invoke('ocr-screen', payload || {}),
   getLiveMetrics: () => ipcRenderer.invoke('get-live-metrics'),
   restoreFileBackup: (payload) => ipcRenderer.invoke('restore-file-backup', payload),
-  searchWeb: (query) => ipcRenderer.invoke('search-web', query),
-  
-  // Apps & connector installs
+  searchWeb: (query, options) => ipcRenderer.invoke('search-web', query, options),
+  fetchWebPage: (url) => ipcRenderer.invoke('fetch-web-page', url),
+  getMcpStatus: () => ipcRenderer.invoke('get-mcp-status'),
+  mcpCallTool: (payload) => ipcRenderer.invoke('mcp-call-tool', payload),
   getInstalledApps: () => ipcRenderer.invoke('get-installed-apps'),
   downloadModel: (modelName) => ipcRenderer.invoke('download-model', modelName),
   cancelDownloadModel: (modelName) => ipcRenderer.invoke('cancel-download-model', modelName),
@@ -46,12 +49,21 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   selectSoundFile: () => ipcRenderer.invoke('select-sound-file'),
   updateDataDir: (customPath) => ipcRenderer.invoke('update-data-dir', customPath),
   getDefaultDataDir: () => ipcRenderer.invoke('get-default-data-dir'),
+  getRuntimeDataRoot: () => ipcRenderer.invoke('get-runtime-data-root'),
+  getConnectorsRoot: () => ipcRenderer.invoke('get-connectors-root'),
+  getStoragePaths: () => ipcRenderer.invoke('get-storage-paths'),
+  ensureUltronStorage: () => ipcRenderer.invoke('ensure-ultron-storage'),
   saveConversations: (dataStr) => ipcRenderer.invoke('save-conversations', dataStr),
   loadConversations: () => ipcRenderer.invoke('load-conversations'),
   saveGeminiKey: (key) => ipcRenderer.invoke('save-gemini-key', key),
   loadGeminiKey: () => ipcRenderer.invoke('load-gemini-key'),
+  installMcpWindowsUia: () => ipcRenderer.invoke('install-mcp-windows-uia'),
+  saveUserProfile: (profile) => ipcRenderer.invoke('save-user-profile', profile),
+  loadUserProfile: () => ipcRenderer.invoke('load-user-profile'),
+  saveSetupStatus: (completed) => ipcRenderer.invoke('save-setup-status', completed),
+  loadSetupStatus: () => ipcRenderer.invoke('load-setup-status'),
   deleteModel: (modelName) => ipcRenderer.invoke('delete-model', modelName),
-  searchWeb: (query) => ipcRenderer.invoke('search-web', query),
+  searchWeb: (query, options) => ipcRenderer.invoke('search-web', query, options),
   onDownloadProgress: (callback) => {
     ipcRenderer.on('download-progress', (event, data) => callback(data));
     return () => ipcRenderer.removeAllListeners('download-progress');
@@ -73,5 +85,27 @@ contextBridge.exposeInMainWorld('ultronAPI', {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('update-status', subscription);
     return () => ipcRenderer.removeListener('update-status', subscription);
-  }
+  },
+
+  // Offline speech-to-text (Whisper via main process)
+  transcribeAudio: (payload) => {
+    if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+      return ipcRenderer.invoke('transcribe-audio', payload);
+    }
+    return ipcRenderer.invoke('transcribe-audio', { samples: payload, sampleRate: 16000 });
+  },
+  getVoiceModelStatus: () => ipcRenderer.invoke('get-voice-model-status'),
+  downloadVoiceModel: () => ipcRenderer.invoke('download-voice-model'),
+  cancelVoiceModelDownload: () => ipcRenderer.invoke('cancel-voice-model-download'),
+  deleteVoiceModel: () => ipcRenderer.invoke('delete-voice-model'),
+
+  synthesizeSpeech: (text, modelKey) => ipcRenderer.invoke('synthesize-speech', { text, modelKey }),
+  getTtsCatalog: () => ipcRenderer.invoke('get-tts-catalog'),
+  getTtsModelStatus: (modelKey) => ipcRenderer.invoke('get-tts-model-status', modelKey),
+  getActiveTtsModel: () => ipcRenderer.invoke('get-active-tts-model'),
+  setActiveTtsModel: (modelKey) => ipcRenderer.invoke('set-active-tts-model', modelKey),
+  downloadTtsModel: (modelKey) => ipcRenderer.invoke('download-tts-model', modelKey),
+  cancelTtsModelDownload: (modelKey) => ipcRenderer.invoke('cancel-tts-model-download', modelKey),
+  deleteTtsModel: (modelKey) => ipcRenderer.invoke('delete-tts-model', modelKey),
+  warmupTtsModel: (modelKey) => ipcRenderer.invoke('warmup-tts-model', modelKey)
 });
