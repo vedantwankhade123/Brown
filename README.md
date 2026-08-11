@@ -5,6 +5,16 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D4?logo=windows)](https://github.com/vedantwankhade123/Ultron/releases)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+<p align="center">
+  <a href="https://ultron-brown-mu.vercel.app/">
+    <img src="Assets/landing.png" alt="Ultron official website — download and product overview" width="100%" />
+  </a>
+</p>
+
+<p align="center">
+  <strong><a href="https://ultron-brown-mu.vercel.app/">ultron-brown-mu.vercel.app</a></strong> — Official website with setup guides, docs, and direct downloads.
+</p>
+
 Ultron is a premium, high-fidelity offline AI desktop assistant built specifically for Windows. Utilizing local LLMs powered by Ollama, Ultron serves as an autonomous interface agent capable of scanning configurations, executing system commands inside controlled sandbox parameters, and performing natural language operations—all while keeping your data entirely local and private.
 
 ---
@@ -26,25 +36,28 @@ Download pre-built ready-to-run Windows binaries directly from the official webs
   <tbody>
     <tr>
       <td><b>Installer</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.1.0/Ultron%20AI%20Setup%201.1.0.exe"><code>Ultron AI Setup 1.1.0.exe</code></a></td>
-      <td>Standard Windows setup installer wizard with Start Menu and Desktop shortcuts.</td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.6/Ultron%20AI%20Setup%201.0.6.exe"><code>Ultron AI Setup 1.0.6.exe</code></a></td>
+      <td>Standard Windows setup wizard with Start Menu and Desktop shortcuts. AI voice models download on first use (~130 MB).</td>
     </tr>
     <tr>
       <td><b>Portable</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.1.0/Ultron%20AI%201.1.0.exe"><code>Ultron AI 1.1.0.exe</code></a></td>
-      <td>Standalone executable file. Runs immediately on Windows without installation.</td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.6/Ultron%20AI%201.0.6.exe"><code>Ultron AI 1.0.6.exe</code></a></td>
+      <td>Standalone executable. Runs immediately on Windows without installation.</td>
     </tr>
   </tbody>
 </table>
 
-> 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.1.0).
+> 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases/latest) (**Ultron v1.0.6**).
 
 ---
 
 ## Key Features
 
-- **Seamless Free Auto-Updates:** Integrates `electron-updater` directly with GitHub Releases. Automatically checks for updates on launch, downloads patches in the background, and prompts to restart & install seamlessly.
-- **Local AI recommendation Engine:** Automatically profiles host hardware specs (CPU threads, total RAM size, active GPU adapter) on boot to recommend and allocate the optimal local quantized LLM footprint (e.g. `phi4`).
+- **Offline Kokoro TTS & Whisper STT:** Five local English voices plus on-device speech recognition—download models from Settings → Agent Sounds after install.
+- **Gemini Cloud Voices:** Optional Google cloud text-to-speech when a Gemini API key is configured.
+- **Slim Windows Installers:** Smaller setup/portable builds; heavy AI model files are fetched on the user's PC when needed.
+- **Seamless Auto-Updates:** Integrates `electron-updater` with GitHub Releases. Checks for updates on launch and prompts to restart when a new build is available.
+- **Local AI Recommendation Engine:** Profiles host hardware (CPU threads, RAM, GPU) on boot to recommend the optimal local quantized LLM footprint (e.g. `phi4`).
 - **One-Click Ollama Installer:** Silent background winget orchestration that detects, downloads, and boots local Ollama binding instances on the fly.
 - **Spotlight command Overlay:** A premium, blur-backdrop full-screen command search overlay (`width: 100vw; height: 100vh`) supporting debounced natural language indexing queries over historical chat memory.
 - **Dynamic AI-Driven Session Summarizer:** Automatically analyzes incoming prompt requests to summarize conversations into a concise 2-3 word topic header inside sidebar list feeds in real-time.

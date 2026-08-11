@@ -8,7 +8,10 @@ dist/
 CVS/
 .DS_Store
 memory/
-Assets/
+Assets/*
+!Assets/landing.png
+!Assets/ollama-logo.png
+!Assets/ultron-logo.png
 __pycache__/
 *.pyc
 
