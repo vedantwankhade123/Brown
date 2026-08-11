@@ -41,7 +41,7 @@ async function connectServer(id, { command, args, env = spawnEnv() }) {
     stderr: 'pipe'
   });
 
-  const client = new Client({ name: 'ultron', version: '1.0.8' }, { capabilities: {} });
+  const client = new Client({ name: 'ultron', version: '1.0.6' }, { capabilities: {} });
   try {
     await client.connect(transport);
   } catch (err) {
