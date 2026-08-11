@@ -25,6 +25,14 @@
       "repo": "Ultron",
       "releaseType": "prerelease"
     },
+    "compression": "maximum",
+    "electronLanguages": [
+      "en-US"
+    ],
+    "asarUnpack": [
+      "**/node_modules/onnxruntime-node/**",
+      "**/*.node"
+    ],
     "files": [
       "src/**/*",
       "Assets/**/*",
@@ -47,9 +55,20 @@
       "node_modules/onnxruntime-node/**/*",
       "node_modules/onnxruntime-common/**/*",
       "node_modules/sharp/**/*",
-      "node_modules/onnx-proto/**/*"
+      "node_modules/onnx-proto/**/*",
+      "!node_modules/@huggingface/**/.cache{,/**}",
+      "!node_modules/@xenova/**/.cache{,/**}",
+      "!node_modules/**/types{,/**}",
+      "!node_modules/**/*.map",
+      "!node_modules/**/test{,/**}",
+      "!node_modules/**/tests{,/**}",
+      "!node_modules/**/__tests__{,/**}",
+      "!node_modules/onnxruntime-web{,/**}",
+      "!node_modules/**/onnxruntime-web{,/**}",
+      "!node_modules/onnxruntime-node/bin/napi-v3/darwin{,/**}",
+      "!node_modules/onnxruntime-node/bin/napi-v3/linux{,/**}",
+      "!node_modules/onnxruntime-node/bin/napi-v3/win32/arm64{,/**}"
     ],
-    "compression": "normal",
     "win": {
       "target": [
         {

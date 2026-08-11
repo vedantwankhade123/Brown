@@ -109,13 +109,20 @@ function getKokoroCacheDir() {
 }
 
 function getEffectiveKokoroCacheDir() {
+  const custom = getKokoroCacheDir();
+  try {
+    const { app } = require('electron');
+    if (app.isPackaged) return custom;
+  } catch (e) {
+    /* worker / tests */
+  }
+
   const defaultCache = getDefaultTransformersCacheDir();
   const hasDefaultModel = walkDir(defaultCache, fp => /\.onnx$/i.test(fp) && /kokoro/i.test(fp)).length > 0;
   if (hasDefaultModel) return defaultCache;
-  const custom = getKokoroCacheDir();
   const hasCustomModel = walkDir(custom, fp => /\.onnx$/i.test(fp)).length > 0;
   if (hasCustomModel) return custom;
-  return defaultCache;
+  return custom;
 }
 
 function getDefaultTransformersCacheDir() {
@@ -192,9 +199,10 @@ function writeKokoroInstalledMarker() {
 }
 
 function isKokoroEngineInstalled() {
-  const marker = path.join(getKokoroCacheDir(), KOKORO_MARKER);
+  const cacheDir = getKokoroCacheDir();
+  const marker = path.join(cacheDir, KOKORO_MARKER);
   if (fs.existsSync(marker)) return true;
-  return findKokoroOnnxFiles().length > 0;
+  return walkDir(cacheDir, fp => /\.onnx$/i.test(fp)).length > 0;
 }
 
 function isKokoroDownloading() {
