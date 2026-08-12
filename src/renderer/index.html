@@ -36,7 +36,7 @@
   </div>
 
   <!-- LEFT SIDEBAR: GEMINI SYSTEM MATRIX -->
-  <aside id="left-sidebar" class="sidebar">
+  <aside id="left-sidebar" class="sidebar collapsed">
     <div class="sidebar-top">
       <!-- Title Header -->
       <div class="brand-header">
@@ -693,16 +693,27 @@
                   <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: http://127.0.0.1:11434</p>
                 </div>
               </div>
-              <p class="text-xs text-muted" style="margin-bottom: 14px; line-height: 1.4;">
-                Ollama runs large language models locally on your machine. You can visit the official website at 
-                <a href="https://ollama.com" target="_blank" class="ollama-link" style="color: #60a5fa; text-decoration: underline; font-weight: 500;">ollama.com</a> 
-                to download it manually or inspect the project documentation.
+              <p class="text-xs text-muted" style="margin-bottom: 10px; line-height: 1.4;">
+                Ollama runs models locally on your machine. Visit
+                <a href="https://ollama.com" target="_blank" class="ollama-link" style="color: #60a5fa; text-decoration: underline; font-weight: 500;">ollama.com</a>
+                to install manually.
               </p>
+              <div id="ollama-cloud-auth-row" class="ollama-cloud-auth-card">
+                <div class="ollama-cloud-auth-main">
+                  <div class="ollama-cloud-auth-title-row">
+                    <span class="ollama-cloud-auth-title">Ollama Cloud</span>
+                    <span id="ollama-cloud-auth-badge" class="ollama-cloud-auth-badge is-checking">Checking…</span>
+                  </div>
+                  <p class="ollama-cloud-auth-desc">Sign in once, then pull <code>-cloud</code> models below — free tier, runs on Ollama servers.</p>
+                </div>
+                <button type="button" id="btn-ollama-signin" class="btn-primary-sm ollama-cloud-signin-btn">Sign in</button>
+              </div>
               <button id="btn-install-ollama" class="btn-primary-sm hidden" style="height: 36px; box-sizing: border-box;">Download & Install Ollama</button>
             </div>
             
             <div class="models-section">
               <h5>Available Models</h5>
+              <div id="installed-model-filters" class="model-type-filters" role="tablist" aria-label="Filter installed models"></div>
               <div id="settings-models-list" class="models-list-container">
                 <!-- dynamically populated -->
               </div>
@@ -721,6 +732,7 @@
               </button>
               
               <div id="download-inputs-row" class="download-row hidden" style="display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 10px;">
+                <div id="catalog-model-filters" class="model-type-filters" role="tablist" aria-label="Filter model catalog"></div>
                 <div style="position: relative; width: 100%; display: flex; align-items: center;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="position: absolute; left: 10px; color: rgba(255, 255, 255, 0.4); pointer-events: none;">
                     <circle cx="11" cy="11" r="8"></circle>
@@ -928,6 +940,16 @@
                 </div>
 
                 <div id="tts-models-list" class="tts-models-list"></div>
+                <div id="tts-model-download-progress" class="connector-download-progress hidden">
+                  <div class="connector-download-progress-header">
+                    <span id="tts-model-progress-status">Downloading voice engine…</span>
+                    <span id="tts-model-progress-stats">0%</span>
+                  </div>
+                  <div class="connector-download-progress-track">
+                    <div id="tts-model-progress-bar" class="connector-download-progress-fill"></div>
+                  </div>
+                  <div id="tts-model-progress-detail" class="connector-download-progress-speed">Preparing…</div>
+                </div>
 
                 <div class="voice-model-section-header" style="margin-top: 20px;">
                   <div class="voice-model-section-title">
