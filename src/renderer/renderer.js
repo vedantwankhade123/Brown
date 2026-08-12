@@ -1622,16 +1622,39 @@ function rebuildSessionHistoryList() {
     .forEach(id => {
     const session = conversationsStore[id];
     const item = document.createElement('div');
-    item.className = `nav-item font-small${id === currentSessionId ? ' active' : ''}`;
+    item.className = `nav-item font-small session-history-item${id === currentSessionId ? ' active' : ''}`;
     item.setAttribute('data-session-id', id);
-    item.innerHTML = `
-      <span class="session-row-text">
-        <span class="nav-text text-truncate">${session.title}</span>
-        <span class="session-timestamp">${formatSidebarTimestamp(session.updatedAt || session.createdAt)}</span>
-      </span>
-    `;
+    item.innerHTML = buildSessionHistoryItemMarkup(id, session);
+
+    const deleteBtn = item.querySelector('.session-delete-btn');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        await deleteSession(id);
+      });
+    }
+
     sessionHistoryList.appendChild(item);
   });
+}
+
+function buildSessionHistoryItemMarkup(id, session) {
+  const title = session?.title || 'New chat';
+  return `
+    <span class="session-row-text">
+      <span class="nav-text text-truncate">${escapeHtml(title)}</span>
+      <span class="session-timestamp">${formatSidebarTimestamp(session.updatedAt || session.createdAt)}</span>
+    </span>
+    <button type="button" class="session-delete-btn" data-session-id="${escapeHtml(id)}" title="Delete chat" aria-label="Delete chat">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        <line x1="10" y1="11" x2="10" y2="17"></line>
+        <line x1="14" y1="11" x2="14" y2="17"></line>
+      </svg>
+    </button>
+  `;
 }
 
 // Stopwords to filter out during semantic search parses
@@ -4935,22 +4958,7 @@ function addSessionToHistory(title) {
   };
   saveConversationsToDisk();
   
-  const item = document.createElement('div');
-  item.className = 'nav-item font-small active';
-  item.setAttribute('data-session-id', currentSessionId);
-  item.innerHTML = `
-    <span class="session-row-text">
-      <span class="nav-text text-truncate">${title}</span>
-      <span class="session-timestamp">${formatSidebarTimestamp(conversationsStore[currentSessionId].updatedAt)}</span>
-    </span>
-  `;
-  
-  // Remove active highlight from all other history items
-  const items = sessionHistoryList.querySelectorAll('.nav-item');
-  items.forEach(i => i.classList.remove('active'));
-  
-  // Insert at the top of the history list
-  sessionHistoryList.insertBefore(item, sessionHistoryList.firstChild);
+  rebuildSessionHistoryList();
   
   // Update header title
   if (activeChatTitle) activeChatTitle.textContent = title;
@@ -7085,42 +7093,100 @@ function loadSession(id, title) {
   renderChecklist(activeSubgoals);
 }
 
-// Promise-based Delete Confirmation Dialog Modal popup
-function showDeleteConfirmation(modelName) {
+function showConfirmDialog({
+  title = 'Confirm action',
+  message = 'Are you sure?',
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
+  destructive = false
+} = {}) {
   return new Promise((resolve) => {
-    const modal = document.getElementById('delete-confirm-modal');
-    const confirmText = document.getElementById('delete-confirm-text');
-    const btnConfirm = document.getElementById('btn-delete-confirm');
-    const btnCancel = document.getElementById('btn-delete-cancel');
-    
-    if (!modal || !confirmText || !btnConfirm || !btnCancel) {
-      resolve(confirm(`Are you sure you want to delete "${modelName}" model weights?`));
+    const modal = document.getElementById('confirm-action-modal');
+    const titleEl = document.getElementById('confirm-action-title');
+    const messageEl = document.getElementById('confirm-action-message');
+    const btnConfirm = document.getElementById('btn-confirm-action-confirm');
+    const btnCancel = document.getElementById('btn-confirm-action-cancel');
+    const backdrop = modal?.querySelector('[data-confirm-dismiss="true"]');
+
+    if (!modal || !titleEl || !messageEl || !btnConfirm || !btnCancel) {
+      resolve(window.confirm(message));
       return;
     }
-    
-    confirmText.textContent = `Are you sure you want to delete the offline model weights for "${modelName}"? This action cannot be undone.`;
+
+    titleEl.textContent = title;
+    messageEl.textContent = message;
+    btnConfirm.textContent = confirmText;
+    btnCancel.textContent = cancelText;
+    btnConfirm.classList.toggle('confirm-action-btn-danger', destructive);
+    btnConfirm.classList.toggle('confirm-action-btn-primary', !destructive);
     modal.classList.remove('hidden');
-    
+
     const onConfirm = (e) => {
-      e.stopPropagation();
+      e?.stopPropagation?.();
       cleanup();
       resolve(true);
     };
-    
+
     const onCancel = (e) => {
-      e.stopPropagation();
+      e?.stopPropagation?.();
       cleanup();
       resolve(false);
     };
-    
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') onCancel(e);
+    };
+
     const cleanup = () => {
       modal.classList.add('hidden');
       btnConfirm.removeEventListener('click', onConfirm);
       btnCancel.removeEventListener('click', onCancel);
+      backdrop?.removeEventListener('click', onCancel);
+      document.removeEventListener('keydown', onKeyDown);
     };
-    
+
     btnConfirm.addEventListener('click', onConfirm);
     btnCancel.addEventListener('click', onCancel);
+    backdrop?.addEventListener('click', onCancel);
+    document.addEventListener('keydown', onKeyDown);
+    btnCancel.focus();
+  });
+}
+
+async function deleteSession(sessionId) {
+  const session = conversationsStore[sessionId];
+  if (!session) return;
+
+  const confirmed = await showConfirmDialog({
+    title: 'Delete chat?',
+    message: `Permanently delete "${session.title || 'this chat'}"? All messages in this conversation will be removed. This cannot be undone.`,
+    confirmText: 'Delete chat',
+    cancelText: 'Cancel',
+    destructive: true
+  });
+
+  if (!confirmed) return;
+
+  const deletedTitle = session.title || 'Chat';
+  delete conversationsStore[sessionId];
+  saveConversationsToDisk();
+
+  if (currentSessionId === sessionId) {
+    triggerNewChat();
+  }
+
+  rebuildSessionHistoryList();
+  logTrace(`Deleted conversation: "${deletedTitle}"`, 'system');
+}
+
+// Promise-based Delete Confirmation Dialog Modal popup
+function showDeleteConfirmation(modelName) {
+  return showConfirmDialog({
+    title: 'Delete model?',
+    message: `Are you sure you want to delete the offline model weights for "${modelName}"? This action cannot be undone.`,
+    confirmText: 'Delete model',
+    cancelText: 'Cancel',
+    destructive: true
   });
 }
 
@@ -8306,7 +8372,7 @@ const triggerNewChat = () => {
   // Remove active highlight from all history items
   const sessionHistoryList = document.getElementById('session-history-list');
   if (sessionHistoryList) {
-    const items = sessionHistoryList.querySelectorAll('.nav-item');
+    const items = sessionHistoryList.querySelectorAll('.session-history-item');
     items.forEach(i => i.classList.remove('active'));
   }
 };
@@ -12020,16 +12086,28 @@ if (btnResetConnectors && settingConnectorsDir) {
 const btnClearChats = document.getElementById('btn-clear-chats');
 if (btnClearChats) {
   btnClearChats.addEventListener('click', async () => {
-    const confirmed = confirm('Are you sure you want to permanently clear all chats? This cannot be undone.');
-    if (confirmed) {
-      logTrace('Clearing all conversation histories...', 'system');
-      conversationsStore = {};
-      rebuildSessionHistoryList();
-      saveConversationsToDisk();
+    const chatCount = Object.keys(conversationsStore).length;
+    if (chatCount === 0) {
       triggerNewChat();
-      logTrace('All conversation history successfully cleared.', 'system');
-      alert('All conversations have been cleared.');
+      return;
     }
+
+    const confirmed = await showConfirmDialog({
+      title: 'Clear all chats?',
+      message: `Permanently delete all ${chatCount} conversation${chatCount === 1 ? '' : 's'} and their messages? This cannot be undone.`,
+      confirmText: 'Clear all chats',
+      cancelText: 'Cancel',
+      destructive: true
+    });
+
+    if (!confirmed) return;
+
+    logTrace('Clearing all conversation histories...', 'system');
+    conversationsStore = {};
+    rebuildSessionHistoryList();
+    saveConversationsToDisk();
+    triggerNewChat();
+    logTrace('All conversation history successfully cleared.', 'system');
   });
 }
 
@@ -12154,14 +12232,16 @@ if (downloadPill && downloadInput) {
 const sessionHistoryList = document.getElementById('session-history-list');
 if (sessionHistoryList) {
   sessionHistoryList.addEventListener('click', (e) => {
-    const item = e.target.closest('.nav-item');
+    if (e.target.closest('.session-delete-btn')) return;
+
+    const item = e.target.closest('.session-history-item');
     if (item) {
-      const sessionItems = sessionHistoryList.querySelectorAll('.nav-item');
+      const sessionItems = sessionHistoryList.querySelectorAll('.session-history-item');
       sessionItems.forEach(i => i.classList.remove('active'));
       item.classList.add('active');
       
       const sessionId = item.getAttribute('data-session-id');
-      const title = item.querySelector('.nav-text').textContent;
+      const title = item.querySelector('.nav-text')?.textContent || 'Chat';
       currentSessionId = sessionId;
       loadSession(sessionId, title);
     }

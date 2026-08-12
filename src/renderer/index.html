@@ -1411,6 +1411,27 @@
     </div>
   </div>
 
+  <!-- Shared confirmation modal (delete chat, delete model, clear all, etc.) -->
+  <div id="confirm-action-modal" class="confirm-action-modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-action-title">
+    <div class="confirm-action-backdrop" data-confirm-dismiss="true"></div>
+    <div class="confirm-action-card">
+      <div class="confirm-action-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          <line x1="10" y1="11" x2="10" y2="17"></line>
+          <line x1="14" y1="11" x2="14" y2="17"></line>
+        </svg>
+      </div>
+      <h4 id="confirm-action-title" class="confirm-action-title">Confirm action</h4>
+      <p id="confirm-action-message" class="confirm-action-message">Are you sure?</p>
+      <div class="confirm-action-buttons">
+        <button type="button" id="btn-confirm-action-cancel" class="confirm-action-btn confirm-action-btn-cancel">Cancel</button>
+        <button type="button" id="btn-confirm-action-confirm" class="confirm-action-btn confirm-action-btn-danger">Delete</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../agent/app-registry.js"></script>
   <script src="../agent/agent-automation-safety.js"></script>
   <script src="../agent/agent-session-permissions.js"></script>
