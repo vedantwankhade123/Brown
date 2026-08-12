@@ -10,6 +10,7 @@
     "build:portable": "electron-builder --win portable",
     "build:store": "electron-builder --win appx",
     "dist": "electron-builder --win",
+    "dist:ci": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always",
     "test": "node tests/run.js"
   },
