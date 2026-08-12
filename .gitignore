@@ -12,6 +12,8 @@ Assets/*
 !Assets/landing.png
 !Assets/ollama-logo.png
 !Assets/ultron-logo.png
+!Assets/ultron-logo.ico
+!Assets/gemini-logo.png
 __pycache__/
 *.pyc
 
