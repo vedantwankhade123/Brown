@@ -1,32 +1,26 @@
 const { autoUpdater } = require('electron-updater');
 const { ipcMain, app } = require('electron');
-const https = require('https');
 
 let mainWindowRef = null;
 
-function fetchLatestGitHubRelease() {
-  return new Promise((resolve) => {
-    const options = {
-      hostname: 'api.github.com',
-      path: '/repos/vedantwankhade123/Ultron/releases/latest',
-      headers: { 'User-Agent': 'Ultron-AI-App' }
-    };
-    https.get(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
-        try {
-          if (res.statusCode === 200) {
-            resolve(JSON.parse(data));
-          } else {
-            resolve(null);
-          }
-        } catch (e) {
-          resolve(null);
-        }
-      });
-    }).on('error', () => resolve(null));
-  });
+function sendToRenderer(channel, data) {
+  if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+    mainWindowRef.webContents.send(channel, data);
+  }
+}
+
+function mapUpdateInfo(info) {
+  if (!info) return null;
+  const notes = info.releaseNotes;
+  const releaseNotes = Array.isArray(notes)
+    ? notes.map(entry => entry.note || '').filter(Boolean).join('\n\n')
+    : (notes || 'New features and bug fixes available.');
+  return {
+    status: 'available',
+    version: info.version,
+    releaseDate: info.releaseDate,
+    releaseNotes
+  };
 }
 
 /**
@@ -36,25 +30,23 @@ function fetchLatestGitHubRelease() {
 function initAutoUpdater(mainWindow) {
   mainWindowRef = mainWindow;
 
-  // Configure autoUpdater settings
-  autoUpdater.autoDownload = false; // Prompt user before downloading
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowDowngrade = false;
 
-  // Explicitly set GitHub provider feed URL
   try {
     autoUpdater.setFeedURL({
       provider: 'github',
       owner: 'vedantwankhade123',
-      repo: 'Ultron'
+      repo: 'Ultron',
+      releaseType: 'release'
     });
   } catch (e) {
     console.error('[AUTO-UPDATER] setFeedURL error:', e);
   }
 
-  // Log updater activity
   autoUpdater.logger = console;
 
-  // 1. Check for updates event handlers
   autoUpdater.on('checking-for-update', () => {
     console.log('[AUTO-UPDATER] Checking for update...');
     sendToRenderer('update-status', { status: 'checking' });
@@ -62,15 +54,10 @@ function initAutoUpdater(mainWindow) {
 
   autoUpdater.on('update-available', (info) => {
     console.log('[AUTO-UPDATER] Update available:', info.version);
-    sendToRenderer('update-status', {
-      status: 'available',
-      version: info.version,
-      releaseDate: info.releaseDate,
-      releaseNotes: info.releaseNotes || 'New features and bug fixes available.'
-    });
+    sendToRenderer('update-status', mapUpdateInfo(info));
   });
 
-  autoUpdater.on('update-not-available', (info) => {
+  autoUpdater.on('update-not-available', () => {
     console.log('[AUTO-UPDATER] Up to date (v' + app.getVersion() + ')');
     sendToRenderer('update-status', {
       status: 'not-available',
@@ -81,12 +68,12 @@ function initAutoUpdater(mainWindow) {
   autoUpdater.on('error', (err) => {
     console.error('[AUTO-UPDATER] Error:', err ? err.message : err);
     sendToRenderer('update-status', {
-      status: 'not-available',
-      version: app.getVersion()
+      status: 'error',
+      version: app.getVersion(),
+      error: err?.message || 'Update check failed.'
     });
   });
 
-  // 2. Download progress handler
   autoUpdater.on('download-progress', (progressObj) => {
     sendToRenderer('update-status', {
       status: 'downloading',
@@ -97,7 +84,6 @@ function initAutoUpdater(mainWindow) {
     });
   });
 
-  // 3. Download complete handler
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[AUTO-UPDATER] Update downloaded:', info.version);
     sendToRenderer('update-status', {
@@ -106,43 +92,35 @@ function initAutoUpdater(mainWindow) {
     });
   });
 
-  // Setup IPC channels for Renderer UI to invoke
+  async function checkForUpdatesQuietly() {
+    if (!app.isPackaged) return { status: 'dev-mode', version: app.getVersion() };
+    const result = await autoUpdater.checkForUpdates();
+    const info = result?.updateInfo;
+    if (info?.version && info.version !== app.getVersion()) {
+      const payload = mapUpdateInfo(info);
+      sendToRenderer('update-status', payload);
+      return payload;
+    }
+    const payload = { status: 'not-available', version: app.getVersion() };
+    sendToRenderer('update-status', payload);
+    return payload;
+  }
+
   ipcMain.handle('check-for-updates', async () => {
     try {
       if (!app.isPackaged) {
         console.log('[AUTO-UPDATER] App running in dev mode; skipping remote check.');
         return { status: 'dev-mode', version: app.getVersion() };
       }
-
       sendToRenderer('update-status', { status: 'checking' });
-
-      // Direct GitHub API query for maximum reliability
-      const latest = await fetchLatestGitHubRelease();
-      const currentVersion = app.getVersion();
-
-      if (latest && latest.tag_name) {
-        const latestTag = latest.tag_name.replace(/^v/, ''); // e.g. "1.0.3"
-        if (latestTag > currentVersion) {
-          const resObj = {
-            status: 'available',
-            version: latestTag,
-            releaseNotes: latest.body || 'New features and bug fixes available.'
-          };
-          sendToRenderer('update-status', resObj);
-          return resObj;
-        } else {
-          const resObj = { status: 'not-available', version: currentVersion };
-          sendToRenderer('update-status', resObj);
-          return resObj;
-        }
-      }
-
-      // Fallback check
-      await autoUpdater.checkForUpdates();
-      return { status: 'not-available', version: currentVersion };
+      return await checkForUpdatesQuietly();
     } catch (error) {
       console.error('[AUTO-UPDATER] Check failed:', error);
-      const resObj = { status: 'not-available', version: app.getVersion() };
+      const resObj = {
+        status: 'error',
+        version: app.getVersion(),
+        error: error.message || 'Update check failed.'
+      };
       sendToRenderer('update-status', resObj);
       return resObj;
     }
@@ -151,7 +129,8 @@ function initAutoUpdater(mainWindow) {
   ipcMain.handle('download-update', async () => {
     try {
       console.log('[AUTO-UPDATER] Starting update download...');
-      return await autoUpdater.downloadUpdate();
+      await autoUpdater.downloadUpdate();
+      return { status: 'downloading' };
     } catch (error) {
       console.error('[AUTO-UPDATER] Download failed:', error);
       return { status: 'error', error: error.message };
@@ -163,35 +142,12 @@ function initAutoUpdater(mainWindow) {
     autoUpdater.quitAndInstall(false, true);
   });
 
-  // Automatically check for updates 10 seconds after launch in production
   if (app.isPackaged) {
-    setTimeout(async () => {
-      try {
-        const latest = await fetchLatestGitHubRelease();
-        const currentVersion = app.getVersion();
-        if (latest && latest.tag_name) {
-          const latestTag = latest.tag_name.replace(/^v/, '');
-          if (latestTag > currentVersion) {
-            sendToRenderer('update-status', {
-              status: 'available',
-              version: latestTag,
-              releaseNotes: latest.body || 'New features and bug fixes available.'
-            });
-          }
-        }
-      } catch (err) {
+    setTimeout(() => {
+      checkForUpdatesQuietly().catch((err) => {
         console.error('[AUTO-UPDATER] Background check failed:', err);
-      }
+      });
     }, 10000);
-  }
-}
-
-/**
- * Send status update safely to the renderer window
- */
-function sendToRenderer(channel, data) {
-  if (mainWindowRef && !mainWindowRef.isDestroyed()) {
-    mainWindowRef.webContents.send(channel, data);
   }
 }
 

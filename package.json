@@ -10,6 +10,7 @@
     "build:portable": "electron-builder --win portable",
     "build:store": "electron-builder --win appx",
     "dist": "electron-builder --win",
+    "release": "electron-builder --win --publish always",
     "test": "node tests/run.js"
   },
   "build": {
@@ -23,7 +24,7 @@
       "provider": "github",
       "owner": "vedantwankhade123",
       "repo": "Ultron",
-      "releaseType": "prerelease"
+      "releaseType": "release"
     },
     "compression": "maximum",
     "electronLanguages": [
@@ -88,6 +89,9 @@
       "certificateFile": null,
       "cscLink": null
     },
+    "portable": {
+      "artifactName": "Ultron.AI.${version}.${ext}"
+    },
     "appx": {
       "applicationId": "UltronAI",
       "identityName": "YOUR_PUBLISHER_IDENTITY_NAME",
@@ -110,7 +114,7 @@
       "installerIcon": "Assets/ultron-logo.ico",
       "uninstallerIcon": "Assets/ultron-logo.ico",
       "installerHeaderIcon": "Assets/ultron-logo.ico",
-      "artifactName": "${productName} Setup ${version}.${ext}",
+      "artifactName": "Ultron.AI.Setup.${version}.${ext}",
       "runAfterFinish": true,
       "include": "build/installer.nsh"
     }

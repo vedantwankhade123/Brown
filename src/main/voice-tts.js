@@ -410,7 +410,8 @@ async function synthesizeSpeech(text, modelKey = activeModelKey) {
 }
 
 function getTtsCatalog() {
-  const { isKokoroDownloading } = require('./voice-kokoro');
+  const { isKokoroDownloading, pruneIncompleteKokoroCacheIfIdle } = require('./voice-kokoro');
+  pruneIncompleteKokoroCacheIfIdle();
   return TTS_MODEL_CATALOG.map(entry => {
     const cacheBytes = entry.cloud ? 0 : getModelCacheBytes(entry.key);
     const state = getDownloadState(entry.key);
@@ -475,7 +476,7 @@ async function downloadTtsModel(modelKey = DEFAULT_TTS_MODEL_KEY, sendProgress) 
       if (typeof sendProgress === 'function') {
         sendProgress({
           modelKey: entry.key,
-          modelName: `tts-${entry.key}`,
+          modelName: 'tts-kokoro-engine',
           ...payload
         });
       }

@@ -1406,6 +1406,105 @@ function setupIpcHandlers() {
     }
   });
 
+  function resolveOllamaCliPath() {
+    const userLocal = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
+    const candidates = [
+      path.join(userLocal, 'Programs', 'Ollama', 'ollama.exe'),
+      'C:\\Program Files\\Ollama\\ollama.exe',
+      'C:\\Program Files (x86)\\Ollama\\ollama.exe'
+    ];
+    for (const candidate of candidates) {
+      if (candidate && fs.existsSync(candidate)) return candidate;
+    }
+    return 'ollama';
+  }
+
+  function extractOllamaSigninUrl(text) {
+    const match = String(text || '').match(/https:\/\/[^\s"'<>]+/i);
+    return match ? match[0].replace(/[),.]+$/, '') : null;
+  }
+
+  ipcMain.handle('ollama-auth-status', async () => {
+    const config = loadUltronConfigFile();
+    return {
+      signedIn: Boolean(config.ollamaCloudSignedIn),
+      signedInAt: config.ollamaCloudSignedInAt || null,
+      email: config.ollamaCloudEmail || null
+    };
+  });
+
+  ipcMain.handle('ollama-signin', async () => {
+    try {
+      const { spawn } = require('child_process');
+      const ollamaExe = resolveOllamaCliPath();
+      if (!fs.existsSync(ollamaExe) && ollamaExe === 'ollama') {
+        return { success: false, error: 'Ollama is not installed. Install Ollama first, then sign in for cloud models.' };
+      }
+
+      return await new Promise((resolve) => {
+        let output = '';
+        let openedUrl = false;
+        const child = spawn(ollamaExe, ['signin'], {
+          windowsHide: false,
+          env: { ...process.env }
+        });
+
+        const handleChunk = (chunk) => {
+          output += chunk.toString();
+          const url = extractOllamaSigninUrl(output);
+          if (url && !openedUrl) {
+            openedUrl = true;
+            shell.openExternal(url).catch(() => {});
+          }
+        };
+
+        child.stdout.on('data', handleChunk);
+        child.stderr.on('data', handleChunk);
+        child.on('error', (err) => {
+          resolve({ success: false, error: err.message || 'Could not start ollama signin.' });
+        });
+        child.on('close', (code) => {
+          const text = output.trim();
+          const signedIn = code === 0 || /signed in|already signed|success/i.test(text);
+          if (signedIn) {
+            saveUltronConfigPatch({
+              ollamaCloudSignedIn: true,
+              ollamaCloudSignedInAt: new Date().toISOString()
+            });
+          }
+          resolve({
+            success: signedIn,
+            output: text,
+            authUrl: extractOllamaSigninUrl(text) || null,
+            error: signedIn ? undefined : (text || 'Ollama sign-in did not complete.')
+          });
+        });
+      });
+    } catch (err) {
+      return { success: false, error: err.message || 'Ollama sign-in failed.' };
+    }
+  });
+
+  ipcMain.handle('ollama-signout', async () => {
+    try {
+      const { spawn } = require('child_process');
+      const ollamaExe = resolveOllamaCliPath();
+      await new Promise((resolve) => {
+        const child = spawn(ollamaExe, ['signout'], { windowsHide: true, env: { ...process.env } });
+        child.on('close', () => resolve());
+        child.on('error', () => resolve());
+      });
+      saveUltronConfigPatch({
+        ollamaCloudSignedIn: false,
+        ollamaCloudSignedInAt: null,
+        ollamaCloudEmail: null
+      });
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message || 'Ollama sign-out failed.' };
+    }
+  });
+
   // Persistent Gemini API Key Storage across app restarts
   ipcMain.handle('save-gemini-key', async (event, key) => {
     try {

@@ -539,7 +539,38 @@ function formatWorkDuration(ms) {
 }
 
 function isOllamaMemoryError(detail) {
-  return /cudaMalloc failed|out[-\s]?of[-\s]?memory|not enough memory|memory limit|allocate compute|requires more (system )?memory|failed to allocate|alloc(?:ate)?[_\s-]*(?:tensor|buffer)|cpu buffer|ggml_assert\(buffer\)|projector cpu offload|stack buffer overrun|stack-based buffer overrun/i.test(detail || '');
+  return /cudaMalloc failed|out[-\s]?of[-\s]?memory|not enough memory|memory limit|allocate compute|requires more (system )?memory|failed to allocate|alloc(?:ate)?[_\s-]*(?:tensor|buffer)|cpu buffer|ggml_assert\(buffer\)|projector cpu offload|stack buffer overrun|stack-based buffer|0xc0000409|cuda error|shared object initialization failed|llama-server process has terminated|exit status 0x/i.test(detail || '');
+}
+
+function isOllamaRecoverableError(detail) {
+  return isOllamaMemoryError(detail);
+}
+
+async function trySameModelCpuFallback({ endpoint, bodyData, modelName, prompt }) {
+  const cpuBody = buildOllamaRecoveryBody(bodyData, endpoint, modelName, bodyData.system || '', 'conversation');
+  cpuBody.options = {
+    ...cpuBody.options,
+    num_gpu: 0,
+    num_ctx: 1024,
+    num_predict: 768,
+  };
+
+  logTrace(`GPU/CUDA error on ${modelName}. Retrying same model on CPU...`, 'system');
+  const retryRes = await fetch(`http://127.0.0.1:11434${endpoint}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cpuBody),
+    signal: _activeAbortController ? _activeAbortController.signal : undefined,
+  });
+
+  if (!retryRes.ok) return null;
+
+  const retryData = await retryRes.json();
+  const text = endpoint === '/api/chat'
+    ? (retryData.message ? retryData.message.content : '')
+    : retryData.response;
+  const cleaned = sanitizeResponseText(text, prompt);
+  return cleaned && !isIrrelevantModelResponse(cleaned, prompt) ? cleaned : null;
 }
 
 let _lastOllamaModel = '';
@@ -1927,7 +1958,113 @@ async function refreshOllamaStatus() {
     const svg = refreshBtn.querySelector('svg');
     if (svg) svg.classList.remove('animate-spin');
   }
+
+  await refreshOllamaCloudAuthUI();
 }
+
+async function refreshOllamaCloudAuthUI() {
+  const badge = document.getElementById('ollama-cloud-auth-badge');
+  const btnSignin = document.getElementById('btn-ollama-signin');
+  if (!badge || !window.ultronAPI?.getOllamaAuthStatus) return;
+
+  badge.classList.remove('is-signed-in', 'is-signed-out', 'is-checking');
+
+  try {
+    const status = await window.ultronAPI.getOllamaAuthStatus();
+    if (status.signedIn) {
+      badge.textContent = 'Signed in';
+      badge.classList.add('is-signed-in');
+      if (btnSignin) {
+        btnSignin.textContent = 'Sign out';
+        btnSignin.classList.remove('btn-primary-sm');
+        btnSignin.classList.add('btn-secondary-sm');
+      }
+    } else {
+      badge.textContent = 'Not signed in';
+      badge.classList.add('is-signed-out');
+      if (btnSignin) {
+        btnSignin.textContent = 'Sign in';
+        btnSignin.classList.add('btn-primary-sm');
+        btnSignin.classList.remove('btn-secondary-sm');
+      }
+    }
+  } catch (e) {
+    badge.textContent = 'Unavailable';
+    badge.classList.add('is-signed-out');
+  }
+}
+
+async function ensureOllamaCloudAuthForPull(modelName) {
+  if (!modelName || !String(modelName).toLowerCase().endsWith('-cloud')) return true;
+  if (!window.ultronAPI?.getOllamaAuthStatus) return true;
+
+  const status = await window.ultronAPI.getOllamaAuthStatus();
+  if (status.signedIn) return true;
+
+  const proceed = window.confirm(
+    'Ollama Cloud models require signing in with your Ollama account.\n\nOpen the sign-in page in your browser now?'
+  );
+  if (!proceed) return false;
+
+  return runOllamaSigninFlow();
+}
+
+async function runOllamaSigninFlow() {
+  const btnSignin = document.getElementById('btn-ollama-signin');
+  const badge = document.getElementById('ollama-cloud-auth-badge');
+  if (btnSignin) {
+    btnSignin.disabled = true;
+    btnSignin.textContent = 'Signing in…';
+  }
+  if (badge) badge.textContent = 'Waiting for browser…';
+
+  const result = await window.ultronAPI.ollamaSignin().catch(err => ({
+    success: false,
+    error: err.message || 'Sign-in failed.'
+  }));
+
+  if (btnSignin) btnSignin.disabled = false;
+  await refreshOllamaCloudAuthUI();
+
+  if (result.success) {
+    logTrace('Signed in to Ollama Cloud.', 'system');
+    return true;
+  }
+
+  logTrace(result.error || 'Ollama Cloud sign-in did not complete.', 'system');
+  alert(result.error || 'Ollama Cloud sign-in did not complete. Finish sign-in in your browser, then try again.');
+  return false;
+}
+
+function initOllamaCloudAuthUI() {
+  const btnSignin = document.getElementById('btn-ollama-signin');
+  if (!btnSignin) return;
+
+  refreshOllamaCloudAuthUI();
+
+  btnSignin.addEventListener('click', async (e) => {
+    e.preventDefault();
+    if (!window.ultronAPI?.getOllamaAuthStatus) return;
+
+    const status = await window.ultronAPI.getOllamaAuthStatus();
+    if (status.signedIn && window.ultronAPI.ollamaSignout) {
+      btnSignin.disabled = true;
+      await window.ultronAPI.ollamaSignout();
+      btnSignin.disabled = false;
+      await refreshOllamaCloudAuthUI();
+      logTrace('Signed out of Ollama Cloud.', 'system');
+      return;
+    }
+
+    await runOllamaSigninFlow();
+  });
+
+  document.querySelector('.settings-tab-btn[data-tab="models"]')?.addEventListener('click', () => {
+    refreshOllamaCloudAuthUI();
+  });
+}
+
+initOllamaCloudAuthUI();
 
 // Trace Logger utility
 // ==========================================
@@ -3793,6 +3930,28 @@ async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMess
   }
 }
 
+function isOllamaCloudPulledModel(modelName) {
+  return String(modelName || '').toLowerCase().endsWith('-cloud');
+}
+
+function getInstalledCloudModels() {
+  const map = new Map();
+  (installedModelsList || []).forEach((model) => {
+    const name = typeof model === 'string' ? model : model.name;
+    if (name && isOllamaCloudPulledModel(name)) map.set(name, typeof model === 'string' ? { name, size: 0 } : model);
+  });
+  return Array.from(map.values());
+}
+
+function getInstalledOfflineModels() {
+  const map = new Map();
+  (installedModelsList || []).forEach((model) => {
+    const name = typeof model === 'string' ? model : model.name;
+    if (name && !isOllamaCloudPulledModel(name)) map.set(name, typeof model === 'string' ? { name, size: 0 } : model);
+  });
+  return Array.from(map.values());
+}
+
 // Offline inference helper querying local servers or Online Cloud APIs
 async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null, customSystemPromptOverride = null, imagePayloads = [], streamCallbacks = null) {
   // Direct Ollama / Gemini API generate/chat loop.
@@ -4116,9 +4275,23 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
 
       let recoveryResult = null;
 
-      // If Ollama hits GPU/system memory pressure, release resident models and
-      // retry every installed model on CPU before surfacing an error.
-      if (isOllamaMemoryError(errDetail)) {
+      // GPU/CUDA crash: retry same model on CPU first, then full recovery across installed models.
+      if (isOllamaRecoverableError(errDetail)) {
+        try {
+          const cpuRetry = await trySameModelCpuFallback({
+            endpoint,
+            bodyData,
+            modelName: activeModel,
+            prompt,
+          });
+          if (cpuRetry) {
+            logTrace(`Recovered ${activeModel} on CPU after GPU/CUDA error.`, 'system');
+            return cpuRetry;
+          }
+        } catch (cpuErr) {
+          logTrace(`Same-model CPU retry failed: ${cpuErr.message}`, 'system');
+        }
+
         logTrace(`Ollama model allocation failed for ${activeModel}. Running full memory recovery across installed models...`, 'system');
         recoveryResult = await tryOllamaMemoryRecovery({
           endpoint,
@@ -4158,13 +4331,13 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       }
 
       logTrace(`Local LLM response HTTP error (${response.status}): ${errDetail}`, 'error');
-      if (!isOllamaMemoryError(errDetail)) {
-        return `Warning: **Ollama Model Error (${activeModel})**\n\nOllama returned an error before generating a response:\n\n` + '`' + `${errDetail || 'Unknown error'}` + '`' + `\n\nTry selecting another installed model from the model dropdown, or restart Ollama and send the prompt again.`;
+      if (!isOllamaRecoverableError(errDetail)) {
+        return `Warning: **Ollama Model Error (${activeModel})**\n\nOllama returned an error before generating a response:\n\n` + '`' + `${errDetail || 'Unknown error'}` + '`' + `\n\nTry another model from the dropdown, pull an **Ollama Cloud** model (Settings → Models → Sign in to Ollama Cloud), or restart Ollama.`;
       }
       const triedModels = (recoveryResult && recoveryResult.triedModels && recoveryResult.triedModels.length)
         ? recoveryResult.triedModels.join(', ')
         : 'your installed models';
-      return `⚠️ **Ollama Memory Limit Exceeded (${activeModel})**\n\n**${activeModel}** could not load because your PC did not have enough free RAM/VRAM at that moment. Ultron already tried these installed models on CPU with compact settings: ${triedModels}.\n\n**What usually fixes this:**\n1. Close memory-heavy apps (browsers, games) and send again.\n2. Restart Ollama from the system tray.\n3. Pick **tinyllama:latest** or **gemma2:2b** from the model dropdown.\n4. Or connect **Google Gemini** in Settings → Models for cloud inference with no local RAM use.`;
+      return `⚠️ **Ollama Memory Limit Exceeded (${activeModel})**\n\n**${activeModel}** could not load because your PC did not have enough free RAM/VRAM at that moment. Ultron already tried these installed models on CPU with compact settings: ${triedModels}.\n\n**What usually fixes this:**\n1. Close memory-heavy apps (browsers, games) and send again.\n2. Restart Ollama from the system tray.\n3. Pick **tinyllama:latest** or **gemma2:2b** from the model dropdown.\n4. Pull an **Ollama Cloud** model (e.g. \`gpt-oss:20b-cloud\`) — runs on Ollama servers, not your GPU.\n5. Or connect **Google Gemini** in Settings → Models.`;
     }
   } catch (e) {
     if (typeof restoredActiveModel === 'string' && restoredActiveModel) {
@@ -4457,6 +4630,38 @@ function renderModelDropdownList() {
     }
   }
 
+  const cloudModels = getInstalledCloudModels();
+  if (cloudModels.length > 0) {
+    const cloudHeader = document.createElement('div');
+    cloudHeader.className = 'model-dropdown-section-title';
+    cloudHeader.style.cssText = 'padding: 10px 12px 4px 12px; font-size: 11px; font-weight: 600; color: #34d399; letter-spacing: 0.02em; text-transform: none; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;';
+    cloudHeader.textContent = 'Ollama Cloud';
+    modelDropdownList.appendChild(cloudHeader);
+
+    cloudModels.forEach((model) => {
+      const item = document.createElement('div');
+      item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
+      item.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="../../Assets/ollama-logo.png" alt="Ollama Cloud" style="width: 16px; height: 16px; object-fit: contain;" />
+          <span class="model-name-text">${model.name}</span>
+        </div>
+        <span class="model-badge" style="background: transparent !important; color: #34d399 !important; border: none !important; padding: 0; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">CLOUD</span>
+      `;
+      item.addEventListener('click', async () => {
+        await unloadOllamaModelsExcept(model.name);
+        activeModel = model.name;
+        updateModelSelectorLabel();
+        modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
+        item.classList.add('active');
+        modelDropdown.classList.add('hidden');
+        modelSelectorWrapper.classList.remove('open');
+        logTrace(`Chat context model shifted to Ollama Cloud: "${activeModel}"`, 'local');
+      });
+      modelDropdownList.appendChild(item);
+    });
+  }
+
   // Render Local Ollama Models section
   const localHeader = document.createElement('div');
   localHeader.className = 'model-dropdown-section-title';
@@ -4465,7 +4670,7 @@ function renderModelDropdownList() {
   modelDropdownList.appendChild(localHeader);
 
   const map = new Map();
-  (installedModelsList || []).forEach(m => map.set(m.name, m));
+  getInstalledOfflineModels().forEach(m => map.set(m.name, m));
   const uniqueModels = Array.from(map.values());
 
   if (uniqueModels.length === 0) {
@@ -6920,8 +7125,88 @@ function showDeleteConfirmation(modelName) {
 }
 
 // Populate Models Settings list
+function inferModelTags(modelName = '', desc = '') {
+  const n = String(modelName).toLowerCase();
+  const d = String(desc).toLowerCase();
+  const tags = new Set();
+
+  if (n.endsWith('-cloud') || d.includes('ollama cloud') || d.includes('cloud inference')) {
+    tags.add('cloud');
+  } else {
+    tags.add('offline');
+  }
+
+  if (/llava|vision|moondream|bakllava|multimodal/i.test(n + d)) tags.add('vision');
+  if (/deepseek-r1|deepseek-v3|wizardlm|orca|qwq|thinking|reason|chain-of-thought/i.test(n + d)) tags.add('thinking');
+  if (/codellama|starcoder|qwen3-coder|code assistant|code generation/i.test(n + d)) tags.add('code');
+  if (/embed|nomic-embed|retrieval/i.test(n + d)) tags.add('embedding');
+
+  return Array.from(tags);
+}
+
+function modelMatchesFilter(modelName, desc, tags = [], filter = 'all') {
+  if (filter === 'all') return true;
+  const resolvedTags = tags.length ? tags : inferModelTags(modelName, desc);
+  return resolvedTags.includes(filter);
+}
+
+const MODEL_CATALOG_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'cloud', label: 'Cloud' },
+  { id: 'offline', label: 'Offline' },
+  { id: 'thinking', label: 'Thinking' },
+  { id: 'vision', label: 'Vision' },
+  { id: 'code', label: 'Code' },
+  { id: 'embedding', label: 'Embedding' }
+];
+
+let activeModelCatalogFilter = 'all';
+
+function renderModelTypeFilterBar(container) {
+  if (!container) return;
+  container.innerHTML = '';
+  MODEL_CATALOG_FILTERS.forEach(({ id, label }) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `model-filter-chip${activeModelCatalogFilter === id ? ' active' : ''}`;
+    btn.dataset.filter = id;
+    btn.textContent = label;
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', activeModelCatalogFilter === id ? 'true' : 'false');
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (activeModelCatalogFilter === id) return;
+      activeModelCatalogFilter = id;
+      document.querySelectorAll('.model-type-filters').forEach(renderModelTypeFilterBar);
+      renderSettingsModels();
+      renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+    });
+    container.appendChild(btn);
+  });
+}
+
+function initModelCatalogFilters() {
+  renderModelTypeFilterBar(document.getElementById('installed-model-filters'));
+  renderModelTypeFilterBar(document.getElementById('catalog-model-filters'));
+}
+
+function renderCatalogTagBadges(tags = []) {
+  if (!tags.length) return '';
+  const ordered = ['cloud', 'offline', 'thinking', 'vision', 'code', 'embedding'].filter(t => tags.includes(t));
+  return `<div class="catalog-model-tags-row">${ordered.map(tag => {
+    const label = tag.charAt(0).toUpperCase() + tag.slice(1);
+    return `<span class="catalog-model-tag tag-${tag}">${label}</span>`;
+  }).join('')}</div>`;
+}
+
 function renderSettingsModels() {
   settingsModelsList.innerHTML = '';
+  renderModelTypeFilterBar(document.getElementById('installed-model-filters'));
+
+  const filteredInstalled = (installedModelsList || []).filter(model => {
+    const name = typeof model === 'string' ? model : model.name;
+    return modelMatchesFilter(name, '', [], activeModelCatalogFilter);
+  });
   
   // 2. Render downloaded models
   if (installedModelsList.length === 0) {
@@ -6953,8 +7238,17 @@ function renderSettingsModels() {
     }, 0);
     return;
   }
+
+  if (filteredInstalled.length === 0) {
+    settingsModelsList.innerHTML = `
+      <div style="border: 1px dashed var(--border-color); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 14px; text-align: center; margin-bottom: 8px;">
+        <p style="font-size: 12px; color: var(--text-muted); margin: 0;">No installed models match the <strong>${escapeHtml(activeModelCatalogFilter)}</strong> filter.</p>
+      </div>
+    `;
+    return;
+  }
   
-  installedModelsList.forEach(model => {
+  filteredInstalled.forEach(model => {
     const item = document.createElement('div');
     item.className = 'model-list-item';
     
@@ -7646,6 +7940,9 @@ let activeDownloadingModel = null;
 btnDownloadModel.addEventListener('click', async () => {
   const modelName = inputDownloadModel.value.trim();
   if (!modelName) return;
+
+  const cloudOk = await ensureOllamaCloudAuthForPull(modelName);
+  if (!cloudOk) return;
   
   activeDownloadingModel = modelName;
   const inputsRow = document.getElementById('download-inputs-row');
@@ -7766,72 +8063,78 @@ if (btnCancelDownload) {
 // ==========================================
 // POPULAR OLLAMA MODELS CATALOG DATA & CONTROLLER
 // ==========================================
+const OLLAMA_CLOUD_PULL_MODELS = [
+  { name: 'gpt-oss:20b-cloud', size: '20B', downloadSize: 'Cloud', desc: 'Fast general tasks on Ollama Cloud (free tier — sign in in Settings → Models)', tags: ['cloud', 'thinking'] },
+  { name: 'gpt-oss:120b-cloud', size: '120B', downloadSize: 'Cloud', desc: 'Large reasoning model — runs on Ollama servers, not your GPU', tags: ['cloud', 'thinking'] },
+  { name: 'deepseek-v3.1:671b-cloud', size: '671B', downloadSize: 'Cloud', desc: 'DeepSeek v3.1 cloud inference via Ollama', tags: ['cloud', 'thinking'] },
+  { name: 'qwen3-coder:480b-cloud', size: '480B', downloadSize: 'Cloud', desc: 'Heavy code generation on Ollama Cloud', tags: ['cloud', 'code'] },
+  { name: 'minimax-m2.7-cloud', size: 'CLOUD', downloadSize: 'Cloud', desc: 'MiniMax M2.7 cloud model', tags: ['cloud'] },
+];
+
 const OLLAMA_POPULAR_MODELS = [
-  { name: 'llama3:latest', size: '8B', downloadSize: '4.7 GB', desc: 'Meta flagship open model for general AI tasks' },
-  { name: 'mistral:latest', size: '7B', downloadSize: '4.1 GB', desc: 'Fast, high-accuracy general AI model by Mistral AI' },
-  { name: 'phi3:latest', size: '3.8B', downloadSize: '2.2 GB', desc: 'Microsoft high-efficiency reasoning & logic model' },
-  { name: 'gemma2:2b', size: '2B', downloadSize: '1.6 GB', desc: 'Google Gemma 2 compact model for low VRAM systems' },
-  { name: 'gemma2:latest', size: '9B', downloadSize: '5.4 GB', desc: 'Google state-of-the-art open model with high precision' },
-  { name: 'qwen2.5:latest', size: '7B', downloadSize: '4.7 GB', desc: 'Alibaba top-tier reasoning, math, and code model' },
-  { name: 'deepseek-r1:latest', size: '7B', downloadSize: '4.7 GB', desc: 'DeepSeek advanced reasoning & chain-of-thought model' },
-  { name: 'llava:latest', size: '7B', downloadSize: '4.5 GB', desc: 'Multimodal vision + text model for analyzing images' },
-  { name: 'nomic-embed-text:latest', size: '137M', downloadSize: '274 MB', desc: 'High performance text embedding & retrieval model' },
-  { name: 'codellama:latest', size: '7B', downloadSize: '3.8 GB', desc: 'Meta specialized model for code generation & debugging' },
-  { name: 'tinyllama:latest', size: '1.1B', downloadSize: '637 MB', desc: 'Ultra lightweight model for low resource PCs' },
-  { name: 'llama3.2:1b', size: '1B', downloadSize: '1.3 GB', desc: 'Meta ultra-fast 1B model for rapid responses' },
-  { name: 'llama3.2:3b', size: '3B', downloadSize: '2.0 GB', desc: 'Meta balanced 3B compact model' },
-  { name: 'qwen2:7b', size: '7B', downloadSize: '4.4 GB', desc: 'Alibaba Qwen2 general intelligence model' },
-  { name: 'starcoder2:latest', size: '3B', downloadSize: '1.7 GB', desc: 'BigCode high-speed code assistant' },
-  { name: 'vicuna:latest', size: '7B', downloadSize: '3.8 GB', desc: 'LMSYS chat & conversation fine-tuned model' },
-  { name: 'wizardlm2:latest', size: '7B', downloadSize: '4.1 GB', desc: 'Microsoft WizardLM2 complex reasoning model' },
-  { name: 'orca-mini:latest', size: '3B', downloadSize: '1.9 GB', desc: 'Compact reasoning model for lightweight hardware' },
-  { name: 'zephyr:latest', size: '7B', downloadSize: '4.1 GB', desc: 'HuggingFace direct preference optimized chat model' },
-  { name: 'dolphin-mixtral:latest', size: '8x7B', downloadSize: '26 GB', desc: 'Dolphin uncensored conversational model' }
+  { name: 'llama3:latest', size: '8B', downloadSize: '4.7 GB', desc: 'Meta flagship open model for general AI tasks', tags: ['offline'] },
+  { name: 'mistral:latest', size: '7B', downloadSize: '4.1 GB', desc: 'Fast, high-accuracy general AI model by Mistral AI', tags: ['offline'] },
+  { name: 'phi3:latest', size: '3.8B', downloadSize: '2.2 GB', desc: 'Microsoft high-efficiency reasoning & logic model', tags: ['offline', 'thinking'] },
+  { name: 'gemma2:2b', size: '2B', downloadSize: '1.6 GB', desc: 'Google Gemma 2 compact model for low VRAM systems', tags: ['offline'] },
+  { name: 'gemma2:latest', size: '9B', downloadSize: '5.4 GB', desc: 'Google state-of-the-art open model with high precision', tags: ['offline'] },
+  { name: 'qwen2.5:latest', size: '7B', downloadSize: '4.7 GB', desc: 'Alibaba top-tier reasoning, math, and code model', tags: ['offline', 'thinking'] },
+  { name: 'deepseek-r1:latest', size: '7B', downloadSize: '4.7 GB', desc: 'DeepSeek advanced reasoning & chain-of-thought model', tags: ['offline', 'thinking'] },
+  { name: 'llava:latest', size: '7B', downloadSize: '4.5 GB', desc: 'Multimodal vision + text model for analyzing images', tags: ['offline', 'vision'] },
+  { name: 'nomic-embed-text:latest', size: '137M', downloadSize: '274 MB', desc: 'High performance text embedding & retrieval model', tags: ['offline', 'embedding'] },
+  { name: 'codellama:latest', size: '7B', downloadSize: '3.8 GB', desc: 'Meta specialized model for code generation & debugging', tags: ['offline', 'code'] },
+  { name: 'tinyllama:latest', size: '1.1B', downloadSize: '637 MB', desc: 'Ultra lightweight model for low resource PCs', tags: ['offline'] },
+  { name: 'llama3.2:1b', size: '1B', downloadSize: '1.3 GB', desc: 'Meta ultra-fast 1B model for rapid responses', tags: ['offline'] },
+  { name: 'llama3.2:3b', size: '3B', downloadSize: '2.0 GB', desc: 'Meta balanced 3B compact model', tags: ['offline'] },
+  { name: 'qwen2:7b', size: '7B', downloadSize: '4.4 GB', desc: 'Alibaba Qwen2 general intelligence model', tags: ['offline'] },
+  { name: 'starcoder2:latest', size: '3B', downloadSize: '1.7 GB', desc: 'BigCode high-speed code assistant', tags: ['offline', 'code'] },
+  { name: 'vicuna:latest', size: '7B', downloadSize: '3.8 GB', desc: 'LMSYS chat & conversation fine-tuned model', tags: ['offline'] },
+  { name: 'wizardlm2:latest', size: '7B', downloadSize: '4.1 GB', desc: 'Microsoft WizardLM2 complex reasoning model', tags: ['offline', 'thinking'] },
+  { name: 'orca-mini:latest', size: '3B', downloadSize: '1.9 GB', desc: 'Compact reasoning model for lightweight hardware', tags: ['offline', 'thinking'] },
+  { name: 'zephyr:latest', size: '7B', downloadSize: '4.1 GB', desc: 'HuggingFace direct preference optimized chat model', tags: ['offline'] },
+  { name: 'dolphin-mixtral:latest', size: '8x7B', downloadSize: '26 GB', desc: 'Dolphin uncensored conversational model', tags: ['offline'] }
 ];
 
 let catalogLimit = 10;
+
+function filterCatalogModels(models, filterQuery = '') {
+  const query = filterQuery.toLowerCase().trim();
+  return models.filter(m => {
+    const tags = m.tags || inferModelTags(m.name, m.desc);
+    const matchesType = modelMatchesFilter(m.name, m.desc, tags, activeModelCatalogFilter);
+    const matchesQuery = !query || m.name.toLowerCase().includes(query) || m.desc.toLowerCase().includes(query);
+    return matchesType && matchesQuery;
+  });
+}
 
 function renderOllamaCatalog(filterQuery = '') {
   const catalogListEl = document.getElementById('ollama-catalog-list');
   const btnLoadMore = document.getElementById('btn-load-more-models');
   if (!catalogListEl) return;
 
+  renderModelTypeFilterBar(document.getElementById('catalog-model-filters'));
+
   catalogListEl.innerHTML = '';
   const query = filterQuery.toLowerCase().trim();
-
-  // Filter models if user is typing search query
-  let filtered = OLLAMA_POPULAR_MODELS.filter(m => 
-    !query || m.name.toLowerCase().includes(query) || m.desc.toLowerCase().includes(query)
-  );
-
-  // If user searched for a custom model tag not in standard catalog, add a custom pull card!
-  if (query && filtered.length === 0 && !query.includes(' ')) {
-    filtered = [{
-      name: query,
-      size: 'Custom Tag',
-      downloadSize: 'Ollama Library',
-      desc: `Pull custom model "${query}" directly from Ollama repository`
-    }];
-  }
-
-  const visible = query ? filtered : filtered.slice(0, catalogLimit);
-
-  if (visible.length === 0) {
-    catalogListEl.innerHTML = `
-      <div style="font-size: 12px; color: var(--text-muted); padding: 8px 0; text-align: center;">
-        No catalog match for "${escapeHtml(query)}". Type a valid model tag (e.g. <b>gemma:2b</b>) and click <b>Pull Tag</b>.
-      </div>
-    `;
-    if (btnLoadMore) btnLoadMore.style.display = 'none';
-    return;
-  }
-
-  // Check installed model names
   const installedNames = new Set((installedModelsList || []).map(m => (typeof m === 'string' ? m : m.name).toLowerCase()));
 
-  visible.forEach(model => {
-    const isInstalled = installedNames.has(model.name.toLowerCase());
+  function appendCatalogSection(title, titleColor, models, limitSlice = true) {
+    const filtered = filterCatalogModels(models, filterQuery);
+    if (filtered.length === 0) return false;
 
+    const header = document.createElement('div');
+    header.className = 'catalog-section-title';
+    header.style.cssText = `padding: 10px 2px 6px; font-size: 11px; font-weight: 600; color: ${titleColor}; letter-spacing: 0.02em;`;
+    header.textContent = title;
+    catalogListEl.appendChild(header);
+
+    const visible = query ? filtered : (limitSlice ? filtered.slice(0, catalogLimit) : filtered);
+    visible.forEach(model => appendCatalogCard(model, installedNames));
+    return true;
+  }
+
+  function appendCatalogCard(model, installedSet) {
+    const isInstalled = installedSet.has(model.name.toLowerCase());
+    const tags = model.tags || inferModelTags(model.name, model.desc);
     const card = document.createElement('div');
     card.className = 'catalog-model-card';
     card.innerHTML = `
@@ -7842,35 +8145,67 @@ function renderOllamaCatalog(filterQuery = '') {
           <span class="catalog-model-size-badge">📦 ${escapeHtml(model.downloadSize || 'Est. ~4 GB')}</span>
         </div>
         <div class="catalog-model-desc">${escapeHtml(model.desc)}</div>
+        ${renderCatalogTagBadges(tags)}
       </div>
-      ${isInstalled 
-        ? `<span class="badge-installed">INSTALLED</span>` 
+      ${isInstalled
+        ? `<span class="badge-installed">INSTALLED</span>`
         : `<button class="btn-catalog-pull" data-model="${escapeHtml(model.name)}">Download</button>`
       }
     `;
-
     const pullBtn = card.querySelector('.btn-catalog-pull');
     if (pullBtn) {
-      pullBtn.addEventListener('click', (e) => {
+      pullBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
+        const ok = await ensureOllamaCloudAuthForPull(model.name);
+        if (!ok) return;
         if (inputDownloadModel) {
           inputDownloadModel.value = model.name;
           btnDownloadModel.click();
         }
       });
     }
-
     catalogListEl.appendChild(card);
-  });
+  }
+
+  const showCloudSection = activeModelCatalogFilter === 'all' || activeModelCatalogFilter === 'cloud';
+  const showLocalSection = activeModelCatalogFilter !== 'cloud';
+
+  const hasCloud = showCloudSection
+    ? appendCatalogSection('Ollama Cloud — pull & run via local Ollama (free tier)', '#34d399', OLLAMA_CLOUD_PULL_MODELS, false)
+    : false;
+  const hasLocal = showLocalSection
+    ? appendCatalogSection('Local Models — run on your PC', 'var(--text-muted)', OLLAMA_POPULAR_MODELS, true)
+    : false;
+
+  const filteredLocalCount = filterCatalogModels(OLLAMA_POPULAR_MODELS, filterQuery).length;
+
+  if (!hasCloud && !hasLocal && query && !query.includes(' ')) {
+    appendCatalogCard({
+      name: query,
+      size: 'Custom Tag',
+      downloadSize: 'Ollama Library',
+      desc: `Pull custom model "${query}" directly from Ollama repository`,
+    }, installedNames);
+  } else if (!hasCloud && !hasLocal) {
+    catalogListEl.innerHTML = `
+      <div style="font-size: 12px; color: var(--text-muted); padding: 8px 0; text-align: center;">
+        No catalog match for "${escapeHtml(query)}". Type a valid model tag (e.g. <b>gemma2:2b</b> or <b>gpt-oss:20b-cloud</b>).
+      </div>
+    `;
+    if (btnLoadMore) btnLoadMore.style.display = 'none';
+    return;
+  }
 
   if (btnLoadMore) {
-    if (!query && catalogLimit < OLLAMA_POPULAR_MODELS.length) {
+    if (!query && showLocalSection && catalogLimit < filteredLocalCount) {
       btnLoadMore.style.display = 'block';
     } else {
       btnLoadMore.style.display = 'none';
     }
   }
 }
+
+initModelCatalogFilters();
 
 // Bind show download fields trigger
 const btnShowDownloadFields = document.getElementById('btn-show-download-fields');
@@ -7881,6 +8216,7 @@ if (btnShowDownloadFields) {
     if (inputsRow) {
       inputsRow.classList.remove('hidden');
       catalogLimit = 10;
+      renderModelTypeFilterBar(document.getElementById('catalog-model-filters'));
       renderOllamaCatalog();
       inputDownloadModel.focus();
     }
@@ -10032,8 +10368,15 @@ syncSecurityMode();
 const btnToggleLeftSidebar = document.getElementById('btn-toggle-left-sidebar');
 const leftSidebar = document.getElementById('left-sidebar');
 if (btnToggleLeftSidebar && leftSidebar) {
+  if (localStorage.getItem('ultron-left-sidebar-collapsed') !== 'false') {
+    leftSidebar.classList.add('collapsed');
+  }
   btnToggleLeftSidebar.addEventListener('click', () => {
     leftSidebar.classList.toggle('collapsed');
+    localStorage.setItem(
+      'ultron-left-sidebar-collapsed',
+      leftSidebar.classList.contains('collapsed') ? 'true' : 'false'
+    );
     logTrace('Left navigation menu width toggled.', 'system');
   });
 }
@@ -11087,14 +11430,81 @@ const ttsCloudModelsListEl = document.getElementById('tts-cloud-models-list');
 const ttsModelStatusBadge = document.getElementById('tts-model-status-badge');
 const ttsCloudStatusBadge = document.getElementById('tts-cloud-status-badge');
 const ttsModelFeedback = document.getElementById('tts-model-feedback');
+const ttsModelDownloadProgress = document.getElementById('tts-model-download-progress');
+const ttsModelProgressStatus = document.getElementById('tts-model-progress-status');
+const ttsModelProgressStats = document.getElementById('tts-model-progress-stats');
+const ttsModelProgressBar = document.getElementById('tts-model-progress-bar');
+const ttsModelProgressDetail = document.getElementById('tts-model-progress-detail');
+const TTS_KOKORO_PROGRESS_KEY = 'tts-kokoro-engine';
 let ttsCatalogCache = [];
 let ttsDownloadingModelKey = null;
+let ttsDownloadListenerCleanup = null;
+
+function setTtsModelProgressVisible(visible) {
+  if (!ttsModelDownloadProgress) return;
+  ttsModelDownloadProgress.classList.toggle('hidden', !visible);
+}
+
+function resetTtsModelProgressUI() {
+  setTtsModelProgressVisible(false);
+  if (ttsModelProgressStatus) ttsModelProgressStatus.textContent = 'Downloading voice engine…';
+  if (ttsModelProgressStats) ttsModelProgressStats.textContent = '0%';
+  if (ttsModelProgressBar) ttsModelProgressBar.style.width = '0%';
+  if (ttsModelProgressDetail) ttsModelProgressDetail.textContent = 'Preparing…';
+}
+
+function showTtsModelProgress(data = {}) {
+  setTtsModelProgressVisible(true);
+  const percent = Math.max(0, Math.min(100, Number(data.percent) || 0));
+  if (ttsModelProgressStatus) {
+    ttsModelProgressStatus.textContent = data.status || 'Downloading voice engine…';
+  }
+  if (ttsModelProgressStats) {
+    const stats = data.downloaded && data.total
+      ? `${percent}% (${data.downloaded} / ${data.total})`
+      : `${percent}%`;
+    ttsModelProgressStats.textContent = stats;
+  }
+  if (ttsModelProgressBar) ttsModelProgressBar.style.width = `${percent}%`;
+  if (ttsModelProgressDetail) {
+    ttsModelProgressDetail.textContent = data.speed
+      ? `Speed: ${data.speed}`
+      : (data.phase === 'complete' ? 'Voice engine ready.' : 'Downloading model files…');
+  }
+}
+
+function bindTtsModelDownloadProgressListener(modelKey) {
+  if (ttsDownloadListenerCleanup) {
+    ttsDownloadListenerCleanup();
+    ttsDownloadListenerCleanup = null;
+  }
+  if (!window.ultronAPI?.onDownloadProgress) return;
+
+  const catalogEntry = () => ttsCatalogCache.find(m => m.key === modelKey);
+  ttsDownloadListenerCleanup = window.ultronAPI.onDownloadProgress((data) => {
+    const progressName = String(data.modelName || '').toLowerCase();
+    const isKokoro = progressName === TTS_KOKORO_PROGRESS_KEY;
+    const isDirect = progressName === `tts-${modelKey}`.toLowerCase();
+    if (!isKokoro && !isDirect) return;
+
+    showTtsModelProgress(data);
+
+    if (isKokoro && ttsModelsListEl) {
+      ttsModelsListEl.querySelectorAll('.btn-tts-download').forEach(btn => {
+        if (btn.dataset.key === modelKey || catalogEntry()?.engine === 'kokoro') {
+          btn.textContent = 'Downloading…';
+          btn.classList.add('is-downloading');
+          btn.disabled = true;
+        }
+      });
+    }
+  });
+}
 
 function normalizeTtsModelsForDisplay(models) {
-  const showDownloading = Boolean(ttsDownloadingModelKey) || models.some(m => m.downloading);
   return models.map(model => ({
     ...model,
-    downloading: !model.installed && !model.cloud && showDownloading
+    downloading: Boolean(model.downloading) || ttsDownloadingModelKey === model.key
   }));
 }
 
@@ -11137,7 +11547,9 @@ function buildTtsModelCard(model) {
     ? 'Cloud · Gemini Live API'
     : (model.installed
       ? `${model.cacheSize || model.sizeEstimate} · offline`
-      : `${model.sizeEstimate} · offline`);
+      : (model.downloading
+        ? `${model.sizeEstimate} · downloading…`
+        : `${model.sizeEstimate} · offline`));
 
   const card = document.createElement('div');
   card.className = `tts-model-card${model.isActive ? ' is-active' : ''}${model.cloud ? ' is-cloud' : ''}`;
@@ -11294,6 +11706,9 @@ async function startTtsModelDownload(modelKey) {
   if (!window.ultronAPI?.downloadTtsModel || !modelKey) return;
 
   ttsDownloadingModelKey = modelKey;
+  bindTtsModelDownloadProgressListener(modelKey);
+  resetTtsModelProgressUI();
+  showTtsModelProgress({ percent: 0, status: 'Starting download…' });
   await refreshTtsModelsUI();
 
   const result = await window.ultronAPI.downloadTtsModel(modelKey).catch(err => ({
@@ -11301,7 +11716,13 @@ async function startTtsModelDownload(modelKey) {
     error: err.message || 'Download failed.'
   }));
 
+  if (ttsDownloadListenerCleanup) {
+    ttsDownloadListenerCleanup();
+    ttsDownloadListenerCleanup = null;
+  }
+
   ttsDownloadingModelKey = null;
+  resetTtsModelProgressUI();
 
   if (result.success) {
     window.localStorage.setItem('ultron-tts-neural-model', modelKey);

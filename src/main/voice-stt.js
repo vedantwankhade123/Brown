@@ -5,6 +5,7 @@ const VOICE_MODEL_ID = 'Xenova/whisper-tiny.en';
 const VOICE_MODEL_KEY = 'voice-whisper-tiny';
 const VOICE_MODEL_LABEL = 'Whisper Tiny (English)';
 const VOICE_MODEL_SIZE_EST = '~40 MB';
+const WHISPER_MIN_MODEL_BYTES = 30 * 1024 * 1024;
 
 let transcriberPromise = null;
 let transformersPromise = null;
@@ -49,10 +50,27 @@ function walkDir(dir, matcher, results = []) {
   return results;
 }
 
-function isVoiceModelInstalled() {
+function isValidWhisperOnnxFile(filePath) {
+  try {
+    const stat = fs.statSync(filePath);
+    return stat.isFile() && stat.size >= WHISPER_MIN_MODEL_BYTES;
+  } catch (e) {
+    return false;
+  }
+}
+
+function findWhisperModelOnnxPath() {
   const cacheDir = getWhisperCacheDir();
-  const onnxFiles = walkDir(cacheDir, (filePath) => /\.onnx$/i.test(filePath));
-  return onnxFiles.length > 0;
+  const preferred = walkDir(cacheDir, (filePath) => /model_quantized\.onnx$/i.test(filePath));
+  const validPreferred = preferred.find((fp) => isValidWhisperOnnxFile(fp));
+  if (validPreferred) return validPreferred;
+  const anyOnnx = walkDir(cacheDir, (filePath) => /\.onnx$/i.test(filePath));
+  return anyOnnx.find((fp) => isValidWhisperOnnxFile(fp)) || null;
+}
+
+function isVoiceModelInstalled() {
+  if (downloadInProgress) return false;
+  return Boolean(findWhisperModelOnnxPath());
 }
 
 function getVoiceModelStatus() {
@@ -157,10 +175,25 @@ async function downloadVoiceModel(sendProgress) {
 
     transcriberPromise = null;
     await getTranscriber();
+
+    if (downloadCancelled) {
+      clearWhisperCacheDir();
+      return { success: false, cancelled: true, error: 'Download cancelled.' };
+    }
+
+    if (!findWhisperModelOnnxPath()) {
+      clearWhisperCacheDir();
+      return {
+        success: false,
+        error: 'Voice model download finished but files are incomplete. Please retry the download.'
+      };
+    }
+
     emit({ phase: 'complete', percent: 100, status: 'Voice model ready.' });
     return { success: true, installed: true };
   } catch (err) {
     transcriberPromise = null;
+    clearWhisperCacheDir();
     if (downloadCancelled) {
       return { success: false, cancelled: true, error: 'Download cancelled.' };
     }
@@ -178,6 +211,9 @@ function cancelVoiceModelDownload() {
   }
   downloadCancelled = true;
   transcriberPromise = null;
+  setTimeout(() => {
+    if (!downloadInProgress) clearWhisperCacheDir();
+  }, 500);
   return { success: true, cancelled: true };
 }
 
@@ -185,17 +221,19 @@ function deleteVoiceModel() {
   if (downloadInProgress) {
     return { success: false, error: 'Cannot remove voice model while downloading.' };
   }
+  clearWhisperCacheDir();
+  return { success: true };
+}
+
+function clearWhisperCacheDir() {
   transcriberPromise = null;
   transformersPromise = null;
   const cacheDir = getWhisperCacheDir();
   try {
-    if (fs.existsSync(cacheDir)) {
-      fs.rmSync(cacheDir, { recursive: true, force: true });
-    }
+    if (fs.existsSync(cacheDir)) fs.rmSync(cacheDir, { recursive: true, force: true });
     fs.mkdirSync(cacheDir, { recursive: true });
-    return { success: true };
   } catch (err) {
-    return { success: false, error: err.message || 'Failed to remove voice model.' };
+    console.warn('[voice-stt] could not reset whisper cache:', err.message);
   }
 }
 
