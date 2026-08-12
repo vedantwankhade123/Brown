@@ -1,6 +1,6 @@
 {
   "name": "ultron",
-  "version": "1.0.6",
+  "version": "1.0.7-beta.5",
   "description": "Local offline privacy-focused Windows AI Agent framework",
   "author": "Vedant Wankhade",
   "main": "src/main/index.js",
@@ -25,7 +25,7 @@
       "provider": "github",
       "owner": "vedantwankhade123",
       "repo": "Ultron",
-      "releaseType": "release"
+      "releaseType": "prerelease"
     },
     "compression": "maximum",
     "electronLanguages": [
