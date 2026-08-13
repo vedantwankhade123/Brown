@@ -7396,29 +7396,55 @@ function renderSettingsModels() {
   
   filteredInstalled.forEach(model => {
     const item = document.createElement('div');
-    item.className = 'model-list-item';
-    
-    // Check compatibility based on model size or type
-    let compatLabel = 'Compatible';
-    let compatClass = 'compatible';
-    
-    if (model.name.includes(activeModel)) {
-      compatLabel = 'Recommended';
-      compatClass = 'recommended';
-    } else if (model.size && model.size > 8 * 1024 * 1024 * 1024) { // Larger than 8GB
-      compatLabel = 'High Resource (Slow)';
-      compatClass = 'incompatible';
-    }
-    
-    const sizeText = model.size ? `${(model.size / (1024 * 1024 * 1024)).toFixed(1)} GB` : 'Installed';
+    item.className = 'catalog-model-card installed-model-card';
+
+    const name = typeof model === 'string' ? model : model.name;
+    const isCloudModel = name.endsWith('-cloud');
+
+    // Find catalog entry for rich description and size if available
+    const catalogEntry = [...(OLLAMA_CLOUD_PULL_MODELS || []), ...(OLLAMA_POPULAR_MODELS || [])].find(
+      c => c.name.toLowerCase() === name.toLowerCase() || c.name.split(':')[0] === name.split(':')[0]
+    );
+
+    // Parameter size tag (e.g. "8B", "20B", "3B", "7B")
+    const paramBadge = catalogEntry?.size || (
+      name.match(/(\d+\.?\d*b)/i) ? name.match(/(\d+\.?\d*b)/i)[0].toUpperCase() : 'Weights'
+    );
+
+    // Formatted disk size text
+    const sizeText = model.size
+      ? `${(model.size / (1024 * 1024 * 1024)).toFixed(1)} GB`
+      : (catalogEntry?.downloadSize || 'Installed');
+
+    // Description text
+    const descText = catalogEntry?.desc
+      ? catalogEntry.desc
+      : (isCloudModel ? 'Ollama Cloud model (free tier remote execution)' : 'Local offline model weight installed on your PC');
+
+    // Tags
+    const tags = catalogEntry?.tags ? [...catalogEntry.tags] : inferModelTags(name, descText);
+    if (!tags.includes('offline') && !isCloudModel) tags.unshift('offline');
+    if (isCloudModel && !tags.includes('cloud')) tags.unshift('cloud');
+
+    // Active status
+    const isActive = activeModel && (activeModel === name || activeModel.split(':')[0] === name.split(':')[0]);
 
     item.innerHTML = `
-      <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span><strong>${model.name}</strong> (${sizeText})</span>
-          <span class="model-compat-badge ${compatClass}">${compatLabel}</span>
+      <div class="catalog-model-info">
+        <div class="catalog-model-title-row">
+          <span class="catalog-model-name">${escapeHtml(name)}</span>
+          <span class="catalog-model-badge">${escapeHtml(paramBadge)}</span>
+          <span class="catalog-model-size-badge">${isCloudModel ? '📦 Cloud' : '💾 ' + escapeHtml(sizeText)}</span>
         </div>
-        <button class="btn-delete-model btn-icon" data-model="${model.name}" style="background: transparent; border: none; padding: 4px 8px; cursor: pointer; color: #ef4444; font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 4px; transition: opacity 0.2s;" title="Delete this model">
+        <div class="catalog-model-desc">${escapeHtml(descText)}</div>
+        ${renderCatalogTagBadges(tags)}
+      </div>
+      <div class="installed-model-actions" style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+        ${isActive
+          ? `<span class="badge-installed" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">ACTIVE</span>`
+          : `<button class="btn-select-model" data-model="${escapeHtml(name)}">Select</button>`
+        }
+        <button class="btn-delete-model" data-model="${escapeHtml(name)}" title="Delete this model">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
             <polyline points="3 6 5 6 21 6"></polyline>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -7429,8 +7455,22 @@ function renderSettingsModels() {
         </button>
       </div>
     `;
-    
-    // Bind delete button handler
+
+    // Bind Select button handler
+    const btnSelect = item.querySelector('.btn-select-model');
+    if (btnSelect) {
+      btnSelect.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const selectedName = e.currentTarget.getAttribute('data-model');
+        activeModel = selectedName;
+        const selObj = document.getElementById('select-model-name');
+        if (selObj) selObj.value = selectedName;
+        logTrace(`Switched active local model to "${selectedName}".`, 'system');
+        renderSettingsModels();
+      });
+    }
+
+    // Bind Delete button handler
     const btnDelete = item.querySelector('.btn-delete-model');
     if (btnDelete) {
       btnDelete.addEventListener('click', async (e) => {
@@ -7443,7 +7483,7 @@ function renderSettingsModels() {
           if (deleteRes.success) {
             logTrace(`Successfully deleted model "${modelToDelete}" from Ollama.`, 'system');
             alert(`Model "${modelToDelete}" deleted.\n\nTo run this delete command from the CLI, execute:\nollama rm ${modelToDelete}`);
-            
+
             // Refresh models list
             await runOnboardingProfiler();
             renderSettingsModels();
@@ -7454,7 +7494,7 @@ function renderSettingsModels() {
         }
       });
     }
-    
+
     settingsModelsList.appendChild(item);
   });
 }
