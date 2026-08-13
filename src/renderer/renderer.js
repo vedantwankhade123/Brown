@@ -26,9 +26,11 @@ const btnPermAccept = document.getElementById('btn-perm-accept');
 const btnPermDeny = document.getElementById('btn-perm-deny');
 
 // Settings Panel references
-const settingsModal = document.getElementById('settings-modal');
+const settingsPanel = document.getElementById('settings-panel');
+const chatMain = document.querySelector('.chat-main');
+const chatView = document.getElementById('chat-view');
 const btnSettings = document.getElementById('btn-settings');
-const btnCloseSettings = document.getElementById('btn-close-settings');
+const btnBackFromSettings = document.getElementById('btn-back-from-settings');
 const settingDataDir = document.getElementById('setting-data-dir');
 const settingConnectorsDir = document.getElementById('setting-connectors-dir');
 const settingOllamaModelsDir = document.getElementById('setting-ollama-models-dir');
@@ -1233,16 +1235,29 @@ function setSendingState(isSending) {
     }
   }
   if (!isSending && chatInput) {
-    // Focus back on input when enabled
-    setTimeout(() => {
-      try {
-        chatInput.focus();
-      } catch (e) {}
-    }, 50);
+    if (isVoiceChatModeEnabled()) {
+      scheduleVoiceModeListen(500);
+    } else {
+      setTimeout(() => {
+        try {
+          chatInput.focus();
+        } catch (e) {}
+      }, 50);
+    }
   }
   // Clean up abort controller when done
   if (!isSending) {
     _activeAbortController = null;
+  }
+  if (isVoiceChatModeEnabled()) {
+    if (isSending) {
+      updateVoiceModeAiTranscript('Thinking…', { processing: true });
+      setVoiceModeStatus('');
+      setVoiceOrbVisualState('ai-speaking');
+      startVoiceOrbAnimation('ai');
+    } else {
+      updateVoiceModeBarUi();
+    }
   }
 }
 
@@ -1255,6 +1270,13 @@ function renderMessageContent(content, text) {
   }
   formatCodeBlocks(content);
   wrapMarkdownTables(content);
+  markAiContentVoicePending(content);
+  if (isVoiceChatModeEnabled() && text && !isThinkingMarkup(text) && !isRichResultMarkup(text) && !isAgentWidgetMarkup(text)) {
+    const plain = extractPlainTextFromMessage(text) || String(text).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (plain && plain.length > 1 && !/^thinking$/i.test(plain)) {
+      updateVoiceModeAiTranscript(plain);
+    }
+  }
 }
 
 function wrapMarkdownTables(container) {
@@ -1282,6 +1304,22 @@ function buildMarkdownFormattingRules() {
 function structureReadableMarkdown(text) {
   let t = String(text || '').trim();
   if (!t) return t;
+
+  // Filter out internal ReAct agent execution logs (Thought:, Action:, Action Input:) if outputting final response text
+  if (/\bAction\s*Input\s*:/i.test(t)) {
+    const actionInputMatch = t.match(/\bAction\s*Input\s*:\s*([\s\S]+)$/i);
+    if (actionInputMatch && actionInputMatch[1]) {
+      let rawVal = actionInputMatch[1].trim();
+      if ((rawVal.startsWith('"') && rawVal.endsWith('"')) || (rawVal.startsWith("'") && rawVal.endsWith("'"))) {
+        rawVal = rawVal.slice(1, -1).trim();
+      }
+      t = rawVal;
+    } else {
+      t = t.replace(/(?:^|\n)\s*(?:Thought|Action|Action\s*Input)\s*:[^\n]*/gi, '').trim();
+    }
+  } else {
+    t = t.replace(/(?:^|\n)\s*(?:Thought|Action)\s*:[^\n]*/gi, '').trim();
+  }
 
   t = t.replace(/\s*\(No specific URL\/source given\)\s*/gi, ' ');
   t = t.replace(/\s*\(no specific url[^)]*\)\s*/gi, ' ');
@@ -1577,6 +1615,7 @@ function renderChatMessage(sender, text, isAi = false) {
 
   chatMessagesContainer.appendChild(messageDiv);
   chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+  if (isAi) markAiContentVoicePending(content);
   return content;
 }
 
@@ -1843,9 +1882,7 @@ async function startOllamaInstallFlow(buttonElement) {
     buttonElement.disabled = false;
     buttonElement.textContent = originalText;
     
-    settingsModal.classList.remove('hidden');
-    const modelTab = document.querySelector('.settings-tab-btn[data-tab="models"]');
-    if (modelTab) modelTab.click();
+    openSettingsPanel('models');
     return;
   }
   
@@ -2424,6 +2461,42 @@ function getLocationSourceLabel(geo = {}) {
   return 'timezone';
 }
 
+function setDetectLocationButtonState(state = 'idle') {
+  const detectBtn = document.getElementById('btn-detect-location');
+  const detectLabel = detectBtn?.querySelector('.account-detect-label');
+  const detectSpinner = detectBtn?.querySelector('.account-detect-spinner');
+  if (!detectBtn) return;
+
+  detectBtn.classList.remove('is-detecting', 'is-detected');
+  if (detectSpinner) detectSpinner.classList.add('hidden');
+
+  if (state === 'detecting') {
+    detectBtn.classList.add('is-detecting');
+    if (detectSpinner) detectSpinner.classList.remove('hidden');
+    if (detectLabel) detectLabel.textContent = 'Detecting…';
+    return;
+  }
+
+  if (state === 'detected') {
+    detectBtn.classList.add('is-detected');
+    if (detectLabel) detectLabel.textContent = 'Detected';
+    return;
+  }
+
+  if (detectLabel) detectLabel.textContent = 'Detect';
+}
+
+function syncDetectLocationButtonFromSavedLocation() {
+  const savedLoc = window.UltronLocationContext
+    ? window.UltronLocationContext.getSavedLocation()
+    : (window.localStorage.getItem('ultron-user-location') || '');
+  if (savedLoc?.trim() && !isManualHomeLocation()) {
+    setDetectLocationButtonState('detected');
+  } else {
+    setDetectLocationButtonState('idle');
+  }
+}
+
 function persistHomeLocation(label) {
   const value = String(label || '').trim();
   if (window.UltronLocationContext) {
@@ -2445,9 +2518,6 @@ async function autoDetectHomeLocation(options = {}) {
 
   const statusEl = document.getElementById('setting-location-status');
   const inputEl = document.getElementById('setting-home-location');
-  const detectBtn = document.getElementById('btn-detect-location');
-  const detectSpinner = detectBtn?.querySelector('.account-detect-spinner');
-  const detectLabel = detectBtn?.querySelector('.account-detect-label');
 
   const savedLoc = window.UltronLocationContext
     ? window.UltronLocationContext.getSavedLocation()
@@ -2463,19 +2533,21 @@ async function autoDetectHomeLocation(options = {}) {
         ? `Using saved home city: ${savedLoc} (auto-detect off)`
         : 'Auto-detect is off. Enter your city or click Detect.';
     }
+    syncDetectLocationButtonFromSavedLocation();
     return { applied: false, label: savedLoc, source: 'saved' };
   }
 
   if (manual && savedLoc && !forceRefresh && !allowManualOverride) {
     if (inputEl) inputEl.value = savedLoc;
     if (statusEl) statusEl.textContent = `Using saved home city: ${savedLoc}`;
+    setDetectLocationButtonState('idle');
     return { applied: false, label: savedLoc, source: 'saved-manual' };
   }
 
-  if (detectBtn) detectBtn.classList.add('is-detecting');
-  if (detectSpinner) detectSpinner.classList.remove('hidden');
-  if (detectLabel) detectLabel.textContent = 'Detecting…';
+  setDetectLocationButtonState('detecting');
   if (statusEl && !silent) statusEl.textContent = 'Detecting location…';
+
+  let detectionSucceeded = false;
 
   try {
     _cachedSystemEnv = null;
@@ -2488,6 +2560,7 @@ async function autoDetectHomeLocation(options = {}) {
     const sourceLabel = getLocationSourceLabel(geo);
 
     if (detectedLabel) {
+      detectionSucceeded = true;
       const shouldApply = forceRefresh || !manual || !savedLoc || reason === 'startup';
       const labelToUse = shouldApply ? detectedLabel : savedLoc;
 
@@ -2519,9 +2592,13 @@ async function autoDetectHomeLocation(options = {}) {
   } catch (e) {
     if (statusEl) statusEl.textContent = 'Detection failed. Enter your city manually or try again.';
   } finally {
-    if (detectBtn) detectBtn.classList.remove('is-detecting');
-    if (detectSpinner) detectSpinner.classList.add('hidden');
-    if (detectLabel) detectLabel.textContent = 'Detect';
+    if (detectionSucceeded) {
+      setDetectLocationButtonState('detected');
+    } else if (savedLoc?.trim() && !isManualHomeLocation()) {
+      setDetectLocationButtonState('detected');
+    } else {
+      setDetectLocationButtonState('idle');
+    }
   }
 
   return { applied: false, label: savedLoc || '', source: 'none' };
@@ -4044,6 +4121,9 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
 - Available Drives: ${drivesDesc}` : ''}${memorySnippet}`);
 
     let finalUserPrompt = prompt;
+    if (isVoiceChatModeEnabled()) {
+      finalUserPrompt = `${prompt}\n\n[Voice Mode Active: Be concise, natural, and direct (1–3 spoken sentences). Do NOT output markdown headers, tables, code blocks, or URLs.]`;
+    }
     if (visionImages.length > 0 && !canUseVision && !activeModel.startsWith('gemini')) {
       finalUserPrompt = `${prompt}\n\n[Note: Desktop screenshot(s) were captured for this step, but the active model "${activeModel}" does not support vision. Switch to a vision model (e.g. llava, gemini) to analyze screen content.]`;
     }
@@ -7441,107 +7521,229 @@ function saveAuthorizedAppsMap(map) {
   }
 }
 
-// Populate Apps Settings Checklist list (includes brand SVGs next to names and persistent state)
+let cachedSettingsApps = [];
+let settingsAppsViewMode = localStorage.getItem('ultron-apps-view') || 'list';
+
+function formatAppSize(bytes) {
+  const value = Number(bytes) || 0;
+  if (value <= 0) return '';
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GB`;
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(value / 1024))} KB`;
+}
+
+function formatAppDate(isoDate) {
+  if (!isoDate) return '';
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return '';
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}-${month}-${year}`;
+}
+
+function formatAppPublisher(app) {
+  const publisher = String(app.publisher || '').trim();
+  if (!publisher || publisher === 'Local') return '';
+  return publisher;
+}
+
+function formatAppGridMeta(app) {
+  const parts = [formatAppSize(app.sizeBytes), formatAppDate(app.modifiedAt)].filter(Boolean);
+  return parts.join(' · ');
+}
+
+function getAppIconMarkup(app) {
+  return app.icon
+    ? `<img class="app-icon" src="${app.icon}" alt="${escapeHtml(app.name)}">`
+    : getAppIconSvg(app.name);
+}
+
+function getAppsFilterQuery() {
+  const appsSearchInput = document.getElementById('apps-search');
+  return appsSearchInput ? appsSearchInput.value.toLowerCase().trim() : '';
+}
+
+function setAppsViewMode(mode) {
+  settingsAppsViewMode = mode === 'grid' ? 'grid' : 'list';
+  localStorage.setItem('ultron-apps-view', settingsAppsViewMode);
+  if (settingsAppsList) {
+    settingsAppsList.classList.toggle('apps-view-grid', settingsAppsViewMode === 'grid');
+    settingsAppsList.classList.toggle('apps-view-list', settingsAppsViewMode === 'list');
+  }
+  document.getElementById('btn-apps-view-list')?.classList.toggle('active', settingsAppsViewMode === 'list');
+  document.getElementById('btn-apps-view-grid')?.classList.toggle('active', settingsAppsViewMode === 'grid');
+}
+
+function updateAppsCountLabel(count) {
+  const label = document.getElementById('apps-count-label');
+  if (label) label.textContent = `${count} app${count === 1 ? '' : 's'} found`;
+}
+
+function syncAppCardAuthorization(card, isSelected) {
+  if (!card) return;
+  card.classList.toggle('is-authorized', isSelected);
+  card.classList.toggle('is-restricted', !isSelected);
+  const toggle = card.querySelector('.app-auth-toggle');
+  if (toggle) {
+    toggle.textContent = isSelected ? 'Authorized' : 'Authorize';
+    toggle.classList.toggle('is-restricted', !isSelected);
+  }
+  const checkbox = card.querySelector('.app-item-checkbox');
+  if (checkbox) checkbox.checked = isSelected;
+}
+
+function bindAppAuthorizationControls(card, app, authMapRef) {
+  const toggleAuthorization = (nextValue) => {
+    authMapRef[app.name] = nextValue;
+    saveAuthorizedAppsMap(authMapRef);
+    syncAppCardAuthorization(card, nextValue);
+    updateMarkAllCheckboxState();
+  };
+
+  const checkbox = card.querySelector('.app-item-checkbox');
+  if (checkbox) {
+    checkbox.addEventListener('change', () => toggleAuthorization(checkbox.checked));
+  }
+
+  card.querySelector('.app-auth-toggle')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleAuthorization(authMapRef[app.name] === false);
+  });
+
+  card.querySelector('.app-card-menu')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleAuthorization(authMapRef[app.name] === false);
+  });
+}
+
+function buildAppListRow(app, isSelected, authMapRef) {
+  const safeId = `chk-app-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}`;
+  const publisher = formatAppPublisher(app);
+  const row = document.createElement('div');
+  row.className = `app-list-row${isSelected ? ' is-authorized' : ' is-restricted'}`;
+  row.dataset.appName = app.name;
+  row.innerHTML = `
+    <input type="checkbox" class="app-item-checkbox" id="${safeId}" data-app-name="${escapeHtml(app.name)}" ${isSelected ? 'checked' : ''}>
+    <div class="app-list-icon-wrap">${getAppIconMarkup(app)}</div>
+    <div class="app-list-body">
+      <div class="app-list-title-row">
+        <span class="app-list-name">${escapeHtml(app.name)}</span>
+      </div>
+      ${publisher ? `<div class="app-list-meta">${escapeHtml(publisher)}</div>` : ''}
+    </div>
+    <button type="button" class="app-auth-toggle app-list-auth-toggle ${isSelected ? '' : 'is-restricted'}">${isSelected ? 'Authorized' : 'Authorize'}</button>
+  `;
+  bindAppAuthorizationControls(row, app, authMapRef);
+  return row;
+}
+
+function buildAppGridCard(app, isSelected, authMapRef) {
+  const safeId = `chk-app-grid-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}`;
+  const gridMeta = formatAppGridMeta(app);
+  const card = document.createElement('div');
+  card.className = `app-grid-card${isSelected ? ' is-authorized' : ' is-restricted'}`;
+  card.dataset.appName = app.name;
+  card.innerHTML = `
+    <input type="checkbox" class="app-item-checkbox" id="${safeId}" data-app-name="${escapeHtml(app.name)}" ${isSelected ? 'checked' : ''}>
+    <button type="button" class="app-card-menu" title="Toggle authorization" aria-label="Toggle authorization for ${escapeHtml(app.name)}">
+      <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><circle cx="5" cy="12" r="1.75"></circle><circle cx="12" cy="12" r="1.75"></circle><circle cx="19" cy="12" r="1.75"></circle></svg>
+    </button>
+    <div class="app-grid-icon-wrap">${getAppIconMarkup(app)}</div>
+    <div class="app-grid-name">${escapeHtml(app.name)}</div>
+    ${gridMeta ? `<div class="app-grid-meta">${escapeHtml(gridMeta)}</div>` : '<div class="app-grid-meta app-grid-meta-empty"></div>'}
+    <button type="button" class="app-auth-toggle ${isSelected ? '' : 'is-restricted'}">${isSelected ? 'Authorized' : 'Authorize'}</button>
+  `;
+  bindAppAuthorizationControls(card, app, authMapRef);
+  return card;
+}
+
+function renderSettingsAppsList(apps, authMap) {
+  if (!settingsAppsList) return;
+
+  setAppsViewMode(settingsAppsViewMode);
+  settingsAppsList.innerHTML = '';
+
+  if (!apps.length) {
+    updateAppsCountLabel(0);
+    settingsAppsList.innerHTML = `<div class="apps-empty-state">No matching applications found.</div>`;
+    return;
+  }
+
+  updateAppsCountLabel(apps.length);
+  const activeMap = authMap;
+
+  apps.forEach((app) => {
+    const isSelected = activeMap[app.name] !== false;
+    if (activeMap[app.name] === undefined) activeMap[app.name] = true;
+    const node = settingsAppsViewMode === 'grid'
+      ? buildAppGridCard(app, isSelected, activeMap)
+      : buildAppListRow(app, isSelected, activeMap);
+    settingsAppsList.appendChild(node);
+  });
+
+  updateMarkAllCheckboxState();
+}
+
+function getFilteredSettingsApps() {
+  const filterQuery = getAppsFilterQuery();
+  return cachedSettingsApps.filter((app) => {
+    if (!filterQuery) return true;
+    const haystack = `${app.name} ${app.publisher || ''}`.toLowerCase();
+    return haystack.includes(filterQuery);
+  });
+}
+
+// Populate Apps Settings list (Windows-style grid & list views)
 async function renderSettingsApps() {
   if (!settingsAppsList) return;
 
+  setAppsViewMode(settingsAppsViewMode);
   settingsAppsList.innerHTML = `
-    <div style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 40px; color: var(--text-muted); font-size: 13px;">
-      <svg class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20" style="color: #ffffff;">
+    <div class="apps-loading-state">
+      <svg class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20">
         <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-opacity="0.25" fill="none"></circle>
         <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" fill="none"></path>
       </svg>
       <span>Scanning local applications...</span>
     </div>
   `;
-  
+  updateAppsCountLabel(0);
+
   logTrace('Scanning host application shortcuts...', 'system');
   const result = await window.ultronAPI.getInstalledApps();
   settingsAppsList.innerHTML = '';
-  
-  if (result.success && Array.isArray(result.apps) && result.apps.length > 0) {
-    const savedMap = getSavedAuthorizedAppsMap();
-    const appsSearchInput = document.getElementById('apps-search');
-    const filterQuery = appsSearchInput ? appsSearchInput.value.toLowerCase().trim() : '';
 
-    const appsToRender = result.apps.filter(app => {
-      if (!filterQuery) return true;
-      return app.name.toLowerCase().includes(filterQuery);
-    });
-
-    if (appsToRender.length === 0) {
-      settingsAppsList.innerHTML = `<div class="text-xs text-muted p-4" style="text-align: center;">No matching applications found.</div>`;
-      return;
-    }
-
-    const currentMap = savedMap || {};
-
-    appsToRender.forEach(app => {
-      const item = document.createElement('div');
-      item.className = 'app-list-item';
-      
-      // If never explicitly toggled, default to true
-      const isSelected = currentMap[app.name] !== undefined ? currentMap[app.name] : true;
-      if (currentMap[app.name] === undefined) {
-        currentMap[app.name] = true;
-      }
-      
-      const iconMarkup = app.icon 
-        ? `<img class="app-icon" src="${app.icon}" alt="${app.name}" style="width: 18px; height: 18px; object-fit: contain;">` 
-        : getAppIconSvg(app.name);
-      
-      const safeId = `chk-app-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}`;
-      
-      item.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0;">
-          <input type="checkbox" class="app-item-checkbox" id="${safeId}" data-app-name="${escapeHtml(app.name)}" ${isSelected ? 'checked' : ''}>
-          ${iconMarkup}
-          <label for="${safeId}" style="cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(app.name)}</label>
-        </div>
-        <span class="app-status-badge ${isSelected ? 'badge-authorized' : 'badge-restricted'}" style="font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px;">
-          ${isSelected ? 'Authorized' : 'Restricted'}
-        </span>
-      `;
-
-      const chk = item.querySelector('.app-item-checkbox');
-      if (chk) {
-        chk.addEventListener('change', () => {
-          const appName = app.name;
-          const activeMap = getSavedAuthorizedAppsMap() || {};
-          result.apps.forEach(a => {
-            if (activeMap[a.name] === undefined) activeMap[a.name] = true;
-          });
-          activeMap[appName] = chk.checked;
-          saveAuthorizedAppsMap(activeMap);
-          
-          const badge = item.querySelector('.app-status-badge');
-          if (badge) {
-            badge.textContent = chk.checked ? 'Authorized' : 'Restricted';
-            badge.className = `app-status-badge ${chk.checked ? 'badge-authorized' : 'badge-restricted'}`;
-          }
-          
-          updateMarkAllCheckboxState();
-        });
-      }
-
-      settingsAppsList.appendChild(item);
-    });
-
-    if (!savedMap) {
-      saveAuthorizedAppsMap(currentMap);
-    }
-
-    updateMarkAllCheckboxState();
-  } else {
-    settingsAppsList.innerHTML = `<div class="text-xs text-muted p-4" style="text-align: center;">No local application shortcuts found.</div>`;
+  if (!result.success || !Array.isArray(result.apps) || result.apps.length === 0) {
+    cachedSettingsApps = [];
+    updateAppsCountLabel(0);
+    settingsAppsList.innerHTML = `<div class="apps-empty-state">No local application shortcuts found.</div>`;
+    return;
   }
+
+  cachedSettingsApps = result.apps.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const savedMap = getSavedAuthorizedAppsMap();
+  const currentMap = savedMap || {};
+
+  cachedSettingsApps.forEach((app) => {
+    if (currentMap[app.name] === undefined) currentMap[app.name] = true;
+  });
+
+  if (!savedMap) saveAuthorizedAppsMap(currentMap);
+
+  renderSettingsAppsList(getFilteredSettingsApps(), currentMap);
 }
 
 function updateMarkAllCheckboxState() {
   const chkMarkAllApps = document.getElementById('chk-mark-all-apps');
   if (!chkMarkAllApps || !settingsAppsList) return;
   const allBoxes = settingsAppsList.querySelectorAll('.app-item-checkbox');
-  if (allBoxes.length === 0) return;
+  if (allBoxes.length === 0) {
+    chkMarkAllApps.checked = false;
+    return;
+  }
   const checkedCount = Array.from(allBoxes).filter(b => b.checked).length;
   chkMarkAllApps.checked = checkedCount === allBoxes.length;
 }
@@ -7550,22 +7752,25 @@ function updateMarkAllCheckboxState() {
 const appsSearchInput = document.getElementById('apps-search');
 if (appsSearchInput) {
   appsSearchInput.addEventListener('input', () => {
-    const query = appsSearchInput.value.toLowerCase().trim();
-    if (!settingsAppsList) return;
-    const items = settingsAppsList.querySelectorAll('.app-list-item');
-    items.forEach(item => {
-      const label = item.querySelector('label');
-      if (label) {
-        const text = label.textContent.toLowerCase();
-        if (text.includes(query)) {
-          item.style.display = 'flex';
-        } else {
-          item.style.display = 'none';
-        }
-      }
+    const savedMap = getSavedAuthorizedAppsMap() || {};
+    cachedSettingsApps.forEach((app) => {
+      if (savedMap[app.name] === undefined) savedMap[app.name] = true;
     });
+    renderSettingsAppsList(getFilteredSettingsApps(), savedMap);
   });
 }
+
+document.getElementById('btn-apps-view-list')?.addEventListener('click', () => {
+  setAppsViewMode('list');
+  const savedMap = getSavedAuthorizedAppsMap() || {};
+  renderSettingsAppsList(getFilteredSettingsApps(), savedMap);
+});
+
+document.getElementById('btn-apps-view-grid')?.addEventListener('click', () => {
+  setAppsViewMode('grid');
+  const savedMap = getSavedAuthorizedAppsMap() || {};
+  renderSettingsAppsList(getFilteredSettingsApps(), savedMap);
+});
 
 const chkMarkAllApps = document.getElementById('chk-mark-all-apps');
 if (chkMarkAllApps) {
@@ -7574,21 +7779,14 @@ if (chkMarkAllApps) {
     const allBoxes = settingsAppsList.querySelectorAll('.app-item-checkbox');
     const newStatus = chkMarkAllApps.checked;
     const activeMap = getSavedAuthorizedAppsMap() || {};
-    
-    allBoxes.forEach(chk => {
+
+    allBoxes.forEach((chk) => {
       chk.checked = newStatus;
       const appName = chk.getAttribute('data-app-name');
       if (appName) activeMap[appName] = newStatus;
-      const item = chk.closest('.app-list-item');
-      if (item) {
-        const badge = item.querySelector('.app-status-badge');
-        if (badge) {
-          badge.textContent = newStatus ? 'Authorized' : 'Restricted';
-          badge.className = `app-status-badge ${newStatus ? 'badge-authorized' : 'badge-restricted'}`;
-        }
-      }
+      syncAppCardAuthorization(chk.closest('.app-list-row, .app-grid-card'), newStatus);
     });
-    
+
     saveAuthorizedAppsMap(activeMap);
   });
 }
@@ -9071,10 +9269,7 @@ if (chatMessagesContainer) {
     if (fixBtn) {
       const action = fixBtn.dataset.fixAction;
       if (action === 'open-settings-apps') {
-        if (btnSettings && settingsModal) {
-          settingsModal.classList.remove('hidden');
-          document.querySelector('.settings-tab-btn[data-tab="apps"]')?.click();
-        }
+        openSettingsPanel('apps');
       } else if (action === 'enable-screen') {
         window.localStorage.setItem('ultron-screen-capture-enabled', 'true');
         window.localStorage.setItem('ultron-screen-aware-enabled', 'true');
@@ -9084,15 +9279,9 @@ if (chatMessagesContainer) {
         await ensureVisionModelForScreen();
         updateModelSelectorLabel();
       } else if (action === 'open-models') {
-        if (btnSettings && settingsModal) {
-          settingsModal.classList.remove('hidden');
-          document.querySelector('.settings-tab-btn[data-tab="models"]')?.click();
-        }
+        openSettingsPanel('models');
       } else if (action === 'open-settings-desktop') {
-        if (btnSettings && settingsModal) {
-          settingsModal.classList.remove('hidden');
-          document.querySelector('.settings-tab-btn[data-tab="desktop"]')?.click();
-        }
+        openSettingsPanel('desktop');
       } else if (action === 'open-app' && fixBtn.dataset.appName) {
         chatInput.value = `Open ${fixBtn.dataset.appName}`;
         chatInput.focus();
@@ -9272,6 +9461,776 @@ let initialInputValue = '';
 let voiceTimerInterval = null;
 let voiceStartTime = 0;
 let _prevHeights = [];
+let voiceStopInProgress = false;
+
+// ==========================================
+// VOICE CHAT MODE — text/voice toggle + orb
+// ==========================================
+const CHAT_MODE_KEY = 'ultron-chat-mode';
+let voiceOrbAnimId = null;
+let voiceOrbSmoothLevel = 0;
+let voiceOrbAnimSource = 'idle';
+let voiceOrbVisualState = 'idle'; // idle | user | ai
+let voiceOrbLastFrameAt = 0;
+let ttsAudioContext = null;
+let ttsAnalyserNode = null;
+let voiceModeListenTimer = null;
+let voiceModeRecording = false;
+let voiceModePaused = false;
+let voiceModeMicMuted = false;
+let vadAnimId = null;
+let vadIntervalId = null;
+let vadSpeechStartAt = 0;
+let vadLastSpeechAt = 0;
+let vadAutoTriggered = false;
+let voiceModeGestureUnlocked = false;
+let voiceModeGestureListener = null;
+
+const VAD_SPEECH_THRESHOLD = 0.01;
+const VAD_SILENCE_MS = 500;
+const VAD_MIN_SPEECH_MS = 200;
+const VAD_MAX_RECORD_MS = 55000;
+
+const VOICE_ORB_FRAME_MS = 100;
+
+const btnChatModeText = document.getElementById('btn-chat-mode-text');
+const btnChatModeVoice = document.getElementById('btn-chat-mode-voice');
+const voiceModeStage = document.getElementById('voice-mode-stage');
+const voiceModeStatus = document.getElementById('voice-mode-status');
+const voiceModeCaption = document.getElementById('voice-mode-caption');
+const voiceModeBar = document.getElementById('voice-mode-bar');
+const voiceModeBarLabel = document.getElementById('voice-mode-bar-label');
+const voiceModePause = document.getElementById('voice-mode-pause');
+const voiceModeStopMic = document.getElementById('voice-mode-stop-mic');
+const voiceModeExit = document.getElementById('voice-mode-exit');
+const voiceModeModelsToggle = document.getElementById('voice-mode-models-toggle');
+const voiceModeModelsPanel = document.getElementById('voice-mode-models-panel');
+const voiceModeChatModel = document.getElementById('voice-mode-chat-model');
+const voiceModeTtsModel = document.getElementById('voice-mode-tts-model');
+
+function isVoiceChatModeEnabled() {
+  return false;
+}
+
+function setVoiceChatMode(enabled = false) {
+  window.localStorage.setItem(CHAT_MODE_KEY, 'text');
+  applyVoiceChatModeUi({ fromUserGesture: false });
+}
+
+function invalidateTtsModelCache() {
+  cachedActiveTtsModelKey = null;
+}
+
+function getVoiceModeChatModelLabel() {
+  const label = document.getElementById('model-selector-label');
+  return activeModel || label?.textContent?.trim() || 'Not set';
+}
+
+async function getVoiceModeTtsLabel() {
+  const key = await resolveActiveTtsModelKey(true);
+  if (!key) return 'Not configured';
+  try {
+    const catalogRes = await window.ultronAPI?.getTtsCatalog?.();
+    const match = catalogRes?.models?.find(m => m.key === key);
+    if (match?.label) return match.label;
+  } catch (e) { /* ignore */ }
+  return key;
+}
+
+async function updateVoiceModeModelsPanel() {
+  if (voiceModeChatModel) voiceModeChatModel.textContent = getVoiceModeChatModelLabel();
+  if (voiceModeTtsModel) voiceModeTtsModel.textContent = await getVoiceModeTtsLabel();
+}
+
+function toggleVoiceModeModelsPanel() {
+  if (!voiceModeModelsPanel || !voiceModeModelsToggle) return;
+  const opening = voiceModeModelsPanel.classList.contains('hidden');
+  voiceModeModelsPanel.classList.toggle('hidden');
+  voiceModeModelsToggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
+  if (opening) updateVoiceModeModelsPanel();
+}
+
+function markAiContentVoicePending(contentElement) {
+  if (!isVoiceChatModeEnabled() || !contentElement) return;
+  const bubble = contentElement.closest('.chat-bubble.ai');
+  if (!bubble) return;
+  const html = contentElement.innerHTML || '';
+  if (isThinkingMarkup(html) || isRichResultMarkup(html) || isAgentWidgetMarkup(html)) return;
+  contentElement.classList.add('voice-pending-speech');
+  contentElement.classList.remove('voice-speech-revealed');
+}
+
+function revealPendingVoiceSpeech() {
+  document.querySelectorAll('.message-content.voice-pending-speech').forEach((el) => {
+    el.classList.remove('voice-pending-speech');
+    el.classList.add('voice-speech-revealed');
+  });
+  syncVoiceModeAiFromChat();
+}
+
+function isVoiceModeListenBlocked() {
+  return voiceModePaused || voiceModeMicMuted;
+}
+
+function updateVoiceModeBarUi() {
+  const isSpeaking = Boolean(streamingAutoSpeakState.busy || activeNeuralAudio);
+  const isMicActive = isRecordingVoice && !voiceModeMicMuted && !voiceModePaused;
+
+  let label = 'Listening…';
+  if (voiceModePaused) label = 'Paused';
+  else if (voiceModeMicMuted) label = 'Mic off';
+  else if (isRecordingVoice) label = 'Listening…';
+  else if (isAwaitingResponse) label = 'Ultron is responding…';
+  else if (isSpeaking) label = 'Ultron is speaking…';
+
+  if (voiceModeBarLabel) voiceModeBarLabel.textContent = label;
+
+  if (voiceModePause) {
+    voiceModePause.classList.toggle('is-active', isSpeaking);
+    voiceModePause.title = isSpeaking ? 'Pause AI speech' : 'Play / Resume conversation';
+    const pauseIcon = voiceModePause.querySelector('.voice-mode-icon-pause');
+    const resumeIcon = voiceModePause.querySelector('.voice-mode-icon-resume');
+    if (pauseIcon) pauseIcon.classList.toggle('hidden', !isSpeaking);
+    if (resumeIcon) resumeIcon.classList.toggle('hidden', isSpeaking);
+  }
+
+  if (voiceModeStopMic) {
+    voiceModeStopMic.classList.toggle('is-muted', !isMicActive);
+    voiceModeStopMic.title = isMicActive ? 'Mute microphone' : 'Unmute microphone';
+    const micOnIcon = voiceModeStopMic.querySelector('.voice-mode-mic-on');
+    const micOffIcon = voiceModeStopMic.querySelector('.voice-mode-mic-off');
+    if (micOnIcon) micOnIcon.classList.toggle('hidden', !isMicActive);
+    if (micOffIcon) micOffIcon.classList.toggle('hidden', isMicActive);
+  }
+}
+
+function setVoiceModeCaption(text, { role = '', processing = false, interim = false } = {}) {
+  if (!voiceModeCaption) return;
+  const trimmed = String(text || '').trim();
+  voiceModeCaption.classList.toggle('processing', processing);
+  voiceModeCaption.classList.toggle('interim', interim && !processing);
+  voiceModeCaption.dataset.role = role || '';
+  voiceModeCaption.textContent = trimmed;
+  voiceModeCaption.classList.toggle('visible', Boolean(trimmed));
+}
+
+function updateVoiceModeUserTranscript(text, { processing = false, interim = false } = {}) {
+  const trimmed = String(text || '').trim();
+  if (processing) {
+    setVoiceModeCaption(trimmed || 'Transcribing…', { role: 'user', processing: true });
+    return;
+  }
+  if (trimmed) {
+    setVoiceModeCaption(trimmed, { role: 'user', interim });
+  } else if (!interim) {
+    // Keep AI caption if user caption is cleared mid-turn only when empty intentionally
+    if (voiceModeCaption?.dataset.role === 'user') {
+      setVoiceModeCaption('', { role: '' });
+    }
+  }
+}
+
+function getOneLinerCaptionText(fullText) {
+  const cleaned = String(fullText || '').replace(/\s+/g, ' ').trim();
+  if (!cleaned) return '';
+  const parts = cleaned.match(/[^.!?\n]+[.!?]+|[^.!?\n]+$/g) || [cleaned];
+  const lastPart = parts[parts.length - 1].trim();
+  if (parts.length > 1 && lastPart.length < 25) {
+    const prevPart = parts[parts.length - 2].trim();
+    return `${prevPart} ${lastPart}`;
+  }
+  return lastPart || cleaned;
+}
+
+function updateVoiceModeAiTranscript(text, { processing = false } = {}) {
+  const trimmed = String(text || '').trim();
+  if (processing) {
+    setVoiceModeCaption(trimmed || 'Ultron is thinking…', { role: 'ai', processing: true });
+    return;
+  }
+  if (trimmed) {
+    const oneLiner = getOneLinerCaptionText(trimmed);
+    setVoiceModeCaption(oneLiner, { role: 'ai' });
+  }
+}
+
+function clearVoiceModeUserTranscript() {
+  if (voiceModeCaption?.dataset.role === 'user' || !voiceModeCaption?.textContent) {
+    setVoiceModeCaption('', { role: '' });
+  }
+}
+
+function clearVoiceModeCaption() {
+  setVoiceModeCaption('', { role: '' });
+}
+
+function syncVoiceModeAiFromChat() {
+  if (!isVoiceChatModeEnabled()) return;
+  const text = getLatestAiMessagePlainText();
+  if (text) updateVoiceModeAiTranscript(text);
+}
+
+function getLatestAiMessagePlainText() {
+  const bubbles = chatMessagesContainer?.querySelectorAll('.chat-bubble.ai');
+  if (!bubbles?.length) return '';
+  const last = bubbles[bubbles.length - 1];
+  const content = last.querySelector('.message-content');
+  if (!content) return '';
+  const plain = extractPlainTextFromMessage(content.innerHTML || content.textContent || '') || content.textContent || '';
+  if (/^thinking$/i.test(plain.trim()) || plain.trim().length < 2) return '';
+  return plain.trim();
+}
+
+function setVoiceModeStatus(text) {
+  const label = String(text || '').trim();
+  if (voiceModeStatus) {
+    if (label) {
+      voiceModeStatus.textContent = label;
+      voiceModeStatus.hidden = false;
+      voiceModeStatus.style.display = '';
+    } else {
+      voiceModeStatus.textContent = '';
+      voiceModeStatus.hidden = true;
+      voiceModeStatus.style.display = 'none';
+    }
+  }
+  updateVoiceModeBarUi();
+}
+
+let vadInterimBusy = false;
+let vadLastInterimAt = 0;
+
+function stopVoiceModeVad() {
+  if (vadAnimId) {
+    cancelAnimationFrame(vadAnimId);
+    vadAnimId = null;
+  }
+  if (vadIntervalId) {
+    clearInterval(vadIntervalId);
+    vadIntervalId = null;
+  }
+  vadSpeechStartAt = 0;
+  vadLastSpeechAt = 0;
+  vadAutoTriggered = false;
+  vadInterimBusy = false;
+  vadLastInterimAt = 0;
+}
+
+function hasVoiceSpeechSignal(level) {
+  if (level >= VAD_SPEECH_THRESHOLD) return true;
+  const t = (accumulatedTranscript || finalVoiceTranscript || '').trim();
+  return t.length > 1;
+}
+
+function startVoiceModeVad() {
+  stopVoiceModeVad();
+  if (!isVoiceChatModeEnabled() || !isRecordingVoice) return;
+
+  vadIntervalId = setInterval(() => {
+    if (!isRecordingVoice || !isVoiceChatModeEnabled() || voiceModePaused || vadAutoTriggered) {
+      stopVoiceModeVad();
+      return;
+    }
+
+    if (audioContext && audioContext.state === 'suspended') {
+      ensureAudioContextRunning(audioContext);
+    }
+
+    const level = getMicLevelFast(analyserNode);
+    const speaking = hasVoiceSpeechSignal(level);
+    const now = performance.now();
+
+    if (speaking) {
+      if (!vadSpeechStartAt) vadSpeechStartAt = now;
+      vadLastSpeechAt = now;
+      const currentText = (accumulatedTranscript || finalVoiceTranscript || '').trim();
+      if (currentText) {
+        updateVoiceModeUserTranscript(currentText, { interim: true });
+      } else {
+        updateVoiceModeUserTranscript('Listening…', { interim: true });
+      }
+
+      // Ultra-fast PCM live Whisper STT captioning while speaking
+      if (!vadInterimBusy && (recordedPcmChunks.length >= 3 || recordedAudioChunks.length >= 2) && (now - vadLastInterimAt >= 600)) {
+        vadLastInterimAt = now;
+        vadInterimBusy = true;
+        (async () => {
+          let samples = null;
+          if (recordedPcmChunks.length > 0) {
+            const merged = mergePcmChunks(recordedPcmChunks);
+            const maxInterimSamples = (pcmCaptureRate || 48000) * 6; // Max 6 seconds for interim captions
+            samples = merged.length > maxInterimSamples ? merged.subarray(merged.length - maxInterimSamples) : merged;
+          } else if (recordedAudioChunks.length >= 2) {
+            const interimBlob = new Blob([...recordedAudioChunks], { type: mediaRecorder?.mimeType || 'audio/webm' });
+            samples = await decodeAudioBlobToMono16k(interimBlob);
+          }
+
+          if (samples && samples.length > 3200 && isRecordingVoice && isVoiceChatModeEnabled() && !vadAutoTriggered) {
+            const sampleArray = samples instanceof Float32Array ? Array.from(samples) : samples;
+            const res = await window.ultronAPI.transcribeAudio({ sampleRate: pcmCaptureRate || 48000, samples: sampleArray });
+            if (res?.text && isRecordingVoice && !vadAutoTriggered) {
+              accumulatedTranscript = res.text.trim();
+              updateVoiceModeUserTranscript(accumulatedTranscript, { interim: true });
+            }
+          }
+        })().catch(() => {}).finally(() => {
+          vadInterimBusy = false;
+        });
+      }
+    } else if (vadSpeechStartAt && vadLastSpeechAt) {
+      const silenceMs = now - vadLastSpeechAt;
+      const speechMs = vadLastSpeechAt - vadSpeechStartAt;
+      const hasText = Boolean((accumulatedTranscript || finalVoiceTranscript || '').trim());
+
+      if (silenceMs >= VAD_SILENCE_MS && (speechMs >= VAD_MIN_SPEECH_MS || hasText)) {
+        vadAutoTriggered = true;
+        stopVoiceModeVad();
+        finishVoiceModeTurn(true);
+        return;
+      }
+    }
+
+    if (vadSpeechStartAt && now - vadSpeechStartAt > VAD_MAX_RECORD_MS && !vadAutoTriggered) {
+      vadAutoTriggered = true;
+      stopVoiceModeVad();
+      finishVoiceModeTurn(true);
+    }
+  }, 130);
+}
+
+function resumeVoiceModeConversation() {
+  voiceModePaused = false;
+  voiceModeMicMuted = false;
+  unlockVoiceModeAudio();
+  updateVoiceModeBarUi();
+  setVoiceModeStatus('');
+  scheduleVoiceModeListen(0);
+}
+
+function pauseVoiceModeConversation() {
+  voiceModePaused = true;
+  if (voiceModeListenTimer) {
+    clearTimeout(voiceModeListenTimer);
+    voiceModeListenTimer = null;
+  }
+  stopVoiceModeVad();
+  if (isRecordingVoice) stopVoiceRecording(false);
+  stopTtsSpeech();
+  setVoiceModeStatus('Paused');
+  updateVoiceModeBarUi();
+}
+
+function toggleVoiceModePause() {
+  if (voiceModePaused || voiceModeMicMuted) {
+    resumeVoiceModeConversation();
+  } else {
+    pauseVoiceModeConversation();
+  }
+}
+
+function stopVoiceModeMicHandoff() {
+  voiceModeMicMuted = true;
+  stopVoiceModeVad();
+  if (isRecordingVoice) stopVoiceRecording(false);
+  clearVoiceModeUserTranscript();
+  setVoiceModeStatus('Mic off — press Resume to continue');
+  updateVoiceModeBarUi();
+}
+
+function setVoiceOrbVisualState(state) {
+  if (state === 'listening') voiceOrbVisualState = 'user';
+  else if (state === 'ai-speaking') voiceOrbVisualState = 'ai';
+  else voiceOrbVisualState = 'idle';
+
+  if (voiceModeStage) voiceModeStage.dataset.orbState = voiceOrbVisualState;
+}
+
+function cancelVoiceOrbAnimation() {
+  if (voiceOrbAnimId) {
+    cancelAnimationFrame(voiceOrbAnimId);
+    voiceOrbAnimId = null;
+  }
+}
+
+// Reusable zero-allocation typed array buffers for audio analysis & visualization
+let _micFastTimeBuffer = null;
+let _analyserFreqBuffer = null;
+let _activityTimeBuffer = null;
+let _activityFreqBuffer = null;
+let _waveformFreqBuffer = null;
+let _waveformTimeBuffer = null;
+
+let _lastVoiceState = null;
+let _lastVoiceLevel = -1;
+
+function getAnalyserLevel(analyser) {
+  if (!analyser) return 0;
+  const bufferLength = analyser.frequencyBinCount;
+  if (!_analyserFreqBuffer || _analyserFreqBuffer.length !== bufferLength) {
+    _analyserFreqBuffer = new Uint8Array(bufferLength);
+  }
+  analyser.getByteFrequencyData(_analyserFreqBuffer);
+  let freqSum = 0;
+  for (let i = 0; i < bufferLength; i += 4) freqSum += _analyserFreqBuffer[i];
+  return Math.min(1, (freqSum / (bufferLength / 4)) / 160);
+}
+
+function getMicActivityLevel(analyser) {
+  if (!analyser) return 0;
+  const bufferLength = analyser.frequencyBinCount;
+  const fftSize = analyser.fftSize || 256;
+  if (!_activityTimeBuffer || _activityTimeBuffer.length !== fftSize) {
+    _activityTimeBuffer = new Uint8Array(fftSize);
+  }
+  if (!_activityFreqBuffer || _activityFreqBuffer.length !== bufferLength) {
+    _activityFreqBuffer = new Uint8Array(bufferLength);
+  }
+  analyser.getByteTimeDomainData(_activityTimeBuffer);
+  analyser.getByteFrequencyData(_activityFreqBuffer);
+
+  let sum = 0;
+  const step = 8;
+  const len = _activityTimeBuffer.length;
+  for (let i = 0; i < len; i += step) {
+    const v = (_activityTimeBuffer[i] - 128) / 128;
+    sum += v * v;
+  }
+  const rms = Math.sqrt(sum / (len / step));
+
+  let speechSum = 0;
+  let speechCount = 0;
+  const lo = 2;
+  const hi = Math.min(56, bufferLength - 1);
+  for (let i = lo; i <= hi; i++) {
+    speechSum += _activityFreqBuffer[i];
+    speechCount++;
+  }
+  const speechLevel = speechCount ? (speechSum / speechCount) / 200 : 0;
+
+  return Math.min(1, Math.max(rms * 3.2, speechLevel * 1.15, getAnalyserLevel(analyser) * 0.85));
+}
+
+function updateVoiceGradientVisual(level, state) {
+  if (!voiceModeStage) return;
+  if (state !== _lastVoiceState) {
+    voiceModeStage.dataset.orbState = state;
+    _lastVoiceState = state;
+  }
+  if (Math.abs(level - _lastVoiceLevel) < 0.005) return;
+  _lastVoiceLevel = level;
+
+  const pulse = 0.18 + level * 0.82;
+  const scale = 0.82 + level * 0.58;
+  const bright = 0.32 + level * 0.68;
+  const shiftX = (level - 0.3) * 4;
+  const shiftY = (level - 0.25) * 3;
+  voiceModeStage.style.setProperty('--voice-pulse', pulse.toFixed(3));
+  voiceModeStage.style.setProperty('--voice-mesh-scale', scale.toFixed(3));
+  voiceModeStage.style.setProperty('--voice-mesh-bright', bright.toFixed(3));
+  voiceModeStage.style.setProperty('--voice-mesh-shift-x', `${shiftX.toFixed(2)}%`);
+  voiceModeStage.style.setProperty('--voice-mesh-shift-y', `${shiftY.toFixed(2)}%`);
+}
+
+function startVoiceOrbAnimation(source = 'idle') {
+  if (source === 'idle') {
+    voiceOrbAnimSource = 'idle';
+    cancelVoiceOrbAnimation();
+    voiceOrbSmoothLevel = 0.28;
+    if (voiceModeStage) voiceModeStage.dataset.orbState = 'idle';
+
+    let lastIdleTick = 0;
+    function idleFrame(now) {
+      if (!isVoiceChatModeEnabled() || voiceOrbAnimSource !== 'idle') {
+        cancelVoiceOrbAnimation();
+        return;
+      }
+      if (now - lastIdleTick >= 110) {
+        lastIdleTick = now;
+        const breathe = 0.24 + Math.sin(now / 1200) * 0.16;
+        updateVoiceGradientVisual(breathe, 'idle');
+      }
+      voiceOrbAnimId = requestAnimationFrame(idleFrame);
+    }
+    voiceOrbAnimId = requestAnimationFrame(idleFrame);
+    return;
+  }
+
+  voiceOrbAnimSource = source;
+  cancelVoiceOrbAnimation();
+  voiceOrbLastFrameAt = 0;
+
+  function frame(now) {
+    if (!isVoiceChatModeEnabled()) {
+      cancelVoiceOrbAnimation();
+      return;
+    }
+
+    const activeMic = voiceOrbAnimSource === 'mic' && isRecordingVoice && analyserNode;
+    const activeAi = voiceOrbAnimSource === 'ai' && (ttsAnalyserNode || streamingAutoSpeakState.busy);
+    if (!activeMic && !activeAi) {
+      cancelVoiceOrbAnimation();
+      startVoiceOrbAnimation('idle');
+      return;
+    }
+
+    if (now - voiceOrbLastFrameAt < VOICE_ORB_FRAME_MS) {
+      voiceOrbAnimId = requestAnimationFrame(frame);
+      return;
+    }
+    voiceOrbLastFrameAt = now;
+
+    let target = 0.05;
+    if (activeMic) {
+      target = getMicLevelFast(analyserNode);
+      voiceOrbVisualState = 'user';
+    } else if (activeAi && ttsAnalyserNode) {
+      target = getMicLevelFast(ttsAnalyserNode);
+      voiceOrbVisualState = 'ai';
+    } else {
+      target = 0.15;
+      voiceOrbVisualState = 'ai';
+    }
+
+    const smoothRate = target > voiceOrbSmoothLevel ? 0.45 : 0.12;
+    voiceOrbSmoothLevel += (target - voiceOrbSmoothLevel) * smoothRate;
+    updateVoiceGradientVisual(voiceOrbSmoothLevel, voiceOrbVisualState);
+    voiceOrbAnimId = requestAnimationFrame(frame);
+  }
+
+  voiceOrbAnimId = requestAnimationFrame(frame);
+}
+
+function connectTtsAudioAnalyser(audio) {
+  if (!audio) return;
+  try {
+    if (!ttsAudioContext || ttsAudioContext.state === 'closed') {
+      ttsAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (ttsAudioContext.state === 'suspended') ttsAudioContext.resume();
+    const source = ttsAudioContext.createMediaElementSource(audio);
+    ttsAnalyserNode = ttsAudioContext.createAnalyser();
+    ttsAnalyserNode.fftSize = 256;
+    ttsAnalyserNode.smoothingTimeConstant = 0.75;
+    source.connect(ttsAnalyserNode);
+    ttsAnalyserNode.connect(ttsAudioContext.destination);
+  } catch (e) {
+    ttsAnalyserNode = null;
+  }
+}
+
+function scheduleVoiceModeListen(delayMs = 600) {
+  if (!isVoiceChatModeEnabled() || isAwaitingResponse || isRecordingVoice || isVoiceModeListenBlocked()) return;
+  if (voiceModeListenTimer) clearTimeout(voiceModeListenTimer);
+  voiceModeListenTimer = setTimeout(() => {
+    voiceModeListenTimer = null;
+    if (streamingAutoSpeakState.busy || activeNeuralAudio) {
+      scheduleVoiceModeListen(500);
+      return;
+    }
+    if (isVoiceChatModeEnabled() && !isAwaitingResponse && !isRecordingVoice && !isVoiceModeListenBlocked()) {
+      startVoiceModeSession();
+    }
+  }, delayMs);
+}
+
+async function startVoiceModeSession() {
+  if (isRecordingVoice || isAwaitingResponse || isVoiceModeListenBlocked()) return;
+  if (!voiceModeGestureUnlocked) {
+    promptVoiceModeGesture();
+    return;
+  }
+  voiceModeRecording = true;
+  setVoiceModeStatus('Starting mic…');
+  setVoiceOrbVisualState('listening');
+  clearVoiceModeCaption();
+  await startVoiceRecording({ voiceMode: true });
+  if (!isRecordingVoice) {
+    voiceModeRecording = false;
+    setVoiceModeStatus('Tap to start listening');
+  } else {
+    setVoiceModeStatus('');
+  }
+}
+
+function unlockVoiceModeAudio() {
+  voiceModeGestureUnlocked = true;
+  clearVoiceModeGestureListener();
+}
+
+function getMicLevelFast(analyser) {
+  if (!analyser) return 0;
+  const fftSize = analyser.fftSize || 256;
+  if (!_micFastTimeBuffer || _micFastTimeBuffer.length !== fftSize) {
+    _micFastTimeBuffer = new Uint8Array(fftSize);
+  }
+  analyser.getByteTimeDomainData(_micFastTimeBuffer);
+  let sum = 0;
+  const step = 16;
+  const len = _micFastTimeBuffer.length;
+  for (let i = 0; i < len; i += step) {
+    const v = (_micFastTimeBuffer[i] - 128) / 128;
+    sum += v * v;
+  }
+  return Math.min(1, Math.sqrt(sum / (len / step)) * 3.4);
+}
+
+function promptVoiceModeGesture() {
+  if (!isVoiceChatModeEnabled() || voiceModeGestureUnlocked) return;
+  setVoiceModeStatus('Tap to start listening');
+}
+
+function clearVoiceModeGestureListener() {
+  if (!voiceModeGestureListener) return;
+  document.removeEventListener('pointerdown', voiceModeGestureListener, true);
+  document.removeEventListener('keydown', voiceModeGestureListener, true);
+  voiceModeGestureListener = null;
+}
+
+async function ensureAudioContextRunning(ctx) {
+  if (!ctx) return false;
+  if (ctx.state === 'running') return true;
+  try {
+    await ctx.resume();
+  } catch (e) {
+    console.warn('AudioContext resume failed:', e);
+  }
+  return ctx.state === 'running';
+}
+
+async function finishVoiceModeTurn(autoSubmitted = false) {
+  if (!isRecordingVoice) return;
+  stopVoiceModeVad();
+  await stopVoiceRecording(true, { autoVoiceSubmit: autoSubmitted });
+}
+
+async function syncActiveTtsModelForVoiceMode() {
+  const key = window.localStorage.getItem('ultron-tts-neural-model');
+  if (key && window.ultronAPI?.setActiveTtsModel) {
+    try {
+      await window.ultronAPI.setActiveTtsModel(key);
+      cachedActiveTtsModelKey = key;
+    } catch (e) { /* ignore */ }
+  }
+}
+
+function applyVoiceChatModeUi({ fromUserGesture = false } = {}) {
+  const chatMain = document.querySelector('.chat-main');
+  const enabled = isVoiceChatModeEnabled();
+
+  if (chatMain) chatMain.classList.toggle('voice-chat-mode', enabled);
+  if (voiceModeStage) {
+    voiceModeStage.classList.toggle('hidden', !enabled);
+    voiceModeStage.setAttribute('aria-hidden', enabled ? 'false' : 'true');
+  }
+  if (voiceModeBar) voiceModeBar.classList.toggle('hidden', !enabled);
+  if (btnChatModeText) {
+    btnChatModeText.classList.toggle('active', !enabled);
+    btnChatModeText.setAttribute('aria-selected', !enabled ? 'true' : 'false');
+  }
+  if (btnChatModeVoice) {
+    btnChatModeVoice.classList.toggle('active', enabled);
+    btnChatModeVoice.setAttribute('aria-selected', enabled ? 'true' : 'false');
+  }
+
+  if (enabled) {
+    voiceModePaused = false;
+    voiceModeMicMuted = false;
+    invalidateTtsModelCache();
+    syncActiveTtsModelForVoiceMode();
+    startVoiceOrbAnimation('idle');
+    updateVoiceModeBarUi();
+    updateVoiceModeModelsPanel();
+    clearVoiceModeCaption();
+    if (fromUserGesture) {
+      unlockVoiceModeAudio();
+      setVoiceModeStatus('');
+      scheduleVoiceModeListen(0);
+    } else if (voiceModeGestureUnlocked) {
+      setVoiceModeStatus('');
+      scheduleVoiceModeListen(0);
+    } else {
+      promptVoiceModeGesture();
+    }
+  } else {
+    cancelVoiceOrbAnimation();
+    stopVoiceModeVad();
+    clearVoiceModeGestureListener();
+    voiceModeGestureUnlocked = false;
+    setVoiceOrbVisualState('');
+    clearVoiceModeCaption();
+    if (voiceModeListenTimer) {
+      clearTimeout(voiceModeListenTimer);
+      voiceModeListenTimer = null;
+    }
+    if (isRecordingVoice) stopVoiceRecording(false);
+    voiceModeRecording = false;
+    voiceModePaused = false;
+    voiceModeMicMuted = false;
+  }
+}
+
+if (btnChatModeText) {
+  btnChatModeText.addEventListener('click', () => {
+    if (!isVoiceChatModeEnabled()) return;
+    setVoiceChatMode(false, { fromUserGesture: true });
+  });
+}
+
+if (btnChatModeVoice) {
+  btnChatModeVoice.addEventListener('click', () => {
+    if (isVoiceChatModeEnabled()) return;
+    unlockVoiceModeAudio();
+    setVoiceChatMode(true, { fromUserGesture: true });
+  });
+}
+
+if (voiceModeStatus) {
+  voiceModeStatus.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (!isVoiceChatModeEnabled() || isRecordingVoice || isAwaitingResponse) return;
+    unlockVoiceModeAudio();
+    scheduleVoiceModeListen(0);
+  });
+}
+
+if (voiceModePause) {
+  voiceModePause.addEventListener('click', (e) => {
+    e.preventDefault();
+    unlockVoiceModeAudio();
+    toggleVoiceModePause();
+  });
+}
+
+if (voiceModeModelsToggle) {
+  voiceModeModelsToggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleVoiceModeModelsPanel();
+  });
+}
+
+if (voiceModeStopMic) {
+  voiceModeStopMic.addEventListener('click', (e) => {
+    e.preventDefault();
+    unlockVoiceModeAudio();
+    stopVoiceModeMicHandoff();
+  });
+}
+
+if (voiceModeExit) {
+  voiceModeExit.addEventListener('click', (e) => {
+    e.preventDefault();
+    stopVoiceModeVad();
+    if (isRecordingVoice) stopVoiceRecording(false);
+    stopTtsSpeech();
+    setVoiceChatMode(false, { fromUserGesture: true });
+  });
+}
+
+function initVoiceChatModeAfterBoot() {
+  // Always default to standard text mode on app launch
+  setVoiceChatMode(false);
+}
 
 const btnMic = document.getElementById('btn-mic');
 const mainInputPill = document.getElementById('main-input-pill') || document.querySelector('.input-pill');
@@ -9290,7 +10249,7 @@ if (btnMic) {
     if (isRecordingVoice) {
       stopVoiceRecording(true);
     } else {
-      startVoiceRecording();
+      startVoiceRecording({ voiceMode: false });
     }
   });
 }
@@ -9331,50 +10290,132 @@ function isBrowserSpeechRecognitionAvailable() {
   return Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
 }
 
-function isElectronVoiceEnvironment() {
-  return Boolean(window.ultronAPI);
+function shouldUseBrowserSpeechRecognition() {
+  // Live preview in the voice pill only — final transcript uses Windows Speech (more accurate).
+  return isBrowserSpeechRecognitionAvailable();
 }
 
-function shouldUseBrowserSpeechRecognition() {
-  if (!isBrowserSpeechRecognitionAvailable()) return false;
-  // Chromium Web Speech is unreliable in Electron (network + NOTREACHED crashes)
-  if (isElectronVoiceEnvironment()) return false;
-  return true;
+function getVoiceSttCulture() {
+  const lang = String(navigator.language || 'en-US').trim();
+  if (/^[a-z]{2}-[A-Z]{2}$/i.test(lang)) return lang;
+  if (lang.toLowerCase().startsWith('en')) return 'en-US';
+  if (lang.toLowerCase().startsWith('hi')) return 'hi-IN';
+  return 'en-US';
+}
+
+function isUltronWindowsDevice() {
+  return /windows/i.test(navigator.userAgent || '') || /win/i.test(navigator.platform || '');
+}
+
+const SETTINGS_ACTION_ICONS = {
+  preview: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>',
+  downloading: '<svg class="settings-icon-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path></svg>',
+  downloaded: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>',
+  use: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7L12 16.8 5.7 21.1 8 14 2 9.4h7.6z"></path></svg>',
+  active: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>',
+  ready: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>'
+};
+
+function settingsActionButtonHtml(label, iconKey, extraClass = '') {
+  const icon = SETTINGS_ACTION_ICONS[iconKey] || '';
+  const classes = ['sound-preview-btn', 'settings-action-btn', extraClass].filter(Boolean).join(' ');
+  return `<span class="${classes}"><span class="settings-action-icon" aria-hidden="true">${icon}</span><span class="settings-action-label">${label}</span></span>`;
+}
+
+function setSettingsActionButton(button, label, iconKey, extraClass = '') {
+  if (!button) return;
+  const extraClasses = String(extraClass || '').split(/\s+/).filter(Boolean);
+  button.className = ['sound-preview-btn', 'settings-action-btn', ...extraClasses].join(' ');
+  const icon = SETTINGS_ACTION_ICONS[iconKey] || '';
+  button.innerHTML = `<span class="settings-action-icon" aria-hidden="true">${icon}</span><span class="settings-action-label">${label}</span>`;
+}
+
+function decorateSettingsActionButtons(root = document) {
+  const map = [
+    ['Preview', 'preview'],
+    ['Download', 'download'],
+    ['Downloading…', 'downloading'],
+    ['Downloaded', 'downloaded'],
+    ['Use', 'use'],
+    ['Active', 'active'],
+    ['Ready', 'ready'],
+    ['Needs key', 'download'],
+    ['Playing…', 'preview']
+  ];
+  root.querySelectorAll('button.sound-preview-btn').forEach((btn) => {
+    if (btn.querySelector('.settings-action-icon')) return;
+    const text = (btn.textContent || '').trim();
+    const match = map.find(([label]) => label.toLowerCase() === text.toLowerCase());
+    if (match) setSettingsActionButton(btn, match[0], match[1], [...btn.classList].filter(c => c !== 'sound-preview-btn').join(' '));
+  });
 }
 
 async function ensureVoiceModelForMic() {
+  if (isUltronWindowsDevice()) {
+    try {
+      if (window.ultronAPI?.getVoiceModelStatus) {
+        const status = await window.ultronAPI.getVoiceModelStatus();
+        if (status?.probed && status?.available === false) {
+          return {
+            ready: false,
+            status,
+            message: 'Windows speech recognition is unavailable. Install English (US) in Windows Settings → Time & language → Speech.'
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Voice model status check failed:', e);
+    }
+    return { ready: true };
+  }
+
   if (!window.ultronAPI?.getVoiceModelStatus) return { ready: true };
   try {
     const status = await window.ultronAPI.getVoiceModelStatus();
-    if (status?.installed) return { ready: true, status };
+    if (status?.installed || status?.builtIn || status?.noDownloadRequired) {
+      return { ready: true, status };
+    }
     return {
       ready: false,
       status,
-      message: 'Download the Voice Input Model in Settings → Agent Sounds (~40 MB, offline Whisper).'
+      message: 'Voice input is not available on this device.'
     };
   } catch (e) {
-    return { ready: false, message: 'Could not check voice model status.' };
+    return { ready: true };
   }
 }
 
 function updateVoiceLiveTranscript(text, { processing = false } = {}) {
-  if (!voiceLiveTranscript) return;
   const trimmed = String(text || '').trim();
+
   if (processing) {
-    voiceLiveTranscript.textContent = trimmed || 'Transcribing…';
-    voiceLiveTranscript.classList.add('visible', 'processing');
-    if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.add('has-transcript');
+    if (voiceLiveTranscript) {
+      voiceLiveTranscript.textContent = trimmed || 'Transcribing…';
+      voiceLiveTranscript.classList.add('visible', 'processing');
+      if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.add('has-transcript');
+    }
+    if (isVoiceChatModeEnabled()) {
+      setVoiceModeStatus(trimmed || 'Transcribing…');
+    }
     return;
   }
-  voiceLiveTranscript.classList.remove('processing');
-  if (trimmed) {
-    voiceLiveTranscript.textContent = trimmed;
-    voiceLiveTranscript.classList.add('visible');
-    if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.add('has-transcript');
-  } else {
-    voiceLiveTranscript.textContent = '';
-    voiceLiveTranscript.classList.remove('visible');
-    if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.remove('has-transcript');
+
+  if (voiceLiveTranscript) {
+    voiceLiveTranscript.classList.remove('processing');
+    if (trimmed) {
+      voiceLiveTranscript.textContent = trimmed;
+      voiceLiveTranscript.classList.add('visible');
+      if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.add('has-transcript');
+    } else {
+      voiceLiveTranscript.textContent = '';
+      voiceLiveTranscript.classList.remove('visible');
+      if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.remove('has-transcript');
+    }
+  }
+
+  if (isVoiceChatModeEnabled() && trimmed && !/^(Listening…|Transcribing…)$/i.test(trimmed)) {
+    updateVoiceModeUserTranscript(trimmed);
   }
 }
 
@@ -9389,16 +10430,31 @@ function getPcmRms(samples) {
   return Math.sqrt(sum / samples.length);
 }
 
-function normalizePcmForWhisper(samples) {
+function trimPcmSilence(samples, threshold = 0.003) {
   if (!samples || !samples.length) return samples;
-  const rms = getPcmRms(samples);
-  if (rms >= 0.02 || rms <= 0.00001) return samples;
-  const gain = Math.min(12, 0.08 / rms);
-  const boosted = new Float32Array(samples.length);
-  for (let i = 0; i < samples.length; i++) {
-    boosted[i] = Math.max(-1, Math.min(1, samples[i] * gain));
+  let start = 0;
+  let end = samples.length - 1;
+  while (start < end && Math.abs(samples[start]) < threshold) start++;
+  while (end > start && Math.abs(samples[end]) < threshold) end--;
+  if (end <= start) return samples;
+  return samples.subarray(start, end + 1);
+}
+
+function normalizePcmForStt(samples) {
+  if (!samples || !samples.length) return samples;
+  const trimmed = trimPcmSilence(samples);
+  const rms = getPcmRms(trimmed);
+  if (rms <= 0.00001) return trimmed;
+  const target = 0.12;
+  let gain = 1;
+  if (rms < target) gain = Math.min(8, target / rms);
+  else if (rms > 0.35) gain = Math.max(0.5, target / rms);
+  if (Math.abs(gain - 1) < 0.05) return trimmed;
+  const out = new Float32Array(trimmed.length);
+  for (let i = 0; i < trimmed.length; i++) {
+    out[i] = Math.max(-1, Math.min(1, trimmed[i] * gain));
   }
-  return boosted;
+  return out;
 }
 
 function mergePcmChunks(chunks) {
@@ -9510,11 +10566,102 @@ function encodeWavBase64(float32Samples, sampleRate = 16000) {
 
   const bytes = new Uint8Array(buffer);
   let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary);
+}
+
+function getVoiceLiveTranscriptText() {
+  const fromState = (accumulatedTranscript || finalVoiceTranscript || '').trim();
+  if (fromState) return fromState;
+
+  if (chatInput && initialInputValue !== undefined) {
+    const prefix = initialInputValue ? `${initialInputValue.trim()} ` : '';
+    const spoken = chatInput.value.startsWith(prefix)
+      ? chatInput.value.slice(prefix.length).trim()
+      : chatInput.value.trim();
+    if (spoken && spoken !== initialInputValue.trim()) return spoken;
+  }
+
+  if (voiceLiveTranscript) {
+    const uiText = String(voiceLiveTranscript.textContent || '').trim();
+    if (uiText && !/^(Listening…|Transcribing…)$/i.test(uiText)) return uiText;
+  }
+
+  return '';
+}
+
+async function transcribeAudioWithTimeout(payload, timeoutMs = 18000) {
+  if (!window.ultronAPI?.transcribeAudio) {
+    return { success: false, error: 'Speech engine unavailable.' };
+  }
+  try {
+    return await Promise.race([
+      window.ultronAPI.transcribeAudio(payload),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Transcription timed out.')), timeoutMs);
+      })
+    ]);
+  } catch (err) {
+    return { success: false, error: err.message || 'Transcription failed.' };
+  }
+}
+
+function applyVoiceTextToChatInput(text) {
+  if (!chatInput) return;
+  const prefix = initialInputValue ? initialInputValue.trim() + ' ' : '';
+  const nextValue = text ? `${prefix}${text}` : initialInputValue;
+  chatInput.value = nextValue;
+  chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+  chatInput.style.height = 'auto';
+  chatInput.style.height = `${Math.min(chatInput.scrollHeight, 140)}px`;
+  chatInput.focus();
+}
+
+function restoreVoiceDoneButton() {
+  if (!voiceBtnDone) return;
+  voiceBtnDone.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+      <polyline points="20 6 9 17 4 12"></polyline>
+    </svg>
+  `;
+  voiceBtnDone.style.pointerEvents = '';
+  if (voiceBtnCancel) voiceBtnCancel.style.pointerEvents = '';
+}
+
+function transitionVoicePillToMainInput() {
+  if (isVoiceChatModeEnabled()) {
+    if (voiceRecordingPill) {
+      voiceRecordingPill.classList.add('hidden');
+      voiceRecordingPill.classList.remove('fading-out');
+    }
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    if (voiceRecordingPill) {
+      voiceRecordingPill.classList.add('fading-out');
+      setTimeout(() => {
+        voiceRecordingPill.classList.add('hidden');
+        voiceRecordingPill.classList.remove('fading-out');
+        if (mainInputPill) {
+          mainInputPill.classList.remove('hidden');
+          mainInputPill.classList.add('fading-out');
+          requestAnimationFrame(() => {
+            mainInputPill.classList.remove('fading-out');
+            resolve();
+          });
+        } else {
+          resolve();
+        }
+      }, 120);
+    } else if (mainInputPill) {
+      mainInputPill.classList.remove('hidden');
+      resolve();
+    } else {
+      resolve();
+    }
+  });
 }
 
 function flushSpeechRecognition(timeoutMs = 900) {
@@ -9584,70 +10731,141 @@ async function transcribeAudioWithGemini(audioBlob) {
   }
 }
 
-async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcmSampleRate = 48000 } = {}) {
-  let samples = null;
+async function prepareSttSamples({ audioBlob = null, pcmSamples = null, pcmSampleRate = 48000 } = {}) {
+  let blobSamples = null;
+  let pcmResampled = null;
+
+  if (audioBlob && audioBlob.size > 0) {
+    blobSamples = await decodeAudioBlobToMono16k(audioBlob);
+  }
 
   if (pcmSamples && pcmSamples.length > 0) {
-    samples = await resamplePcmTo16k(pcmSamples, pcmSampleRate);
-  } else if (audioBlob && audioBlob.size > 0) {
-    samples = await decodeAudioBlobToMono16k(audioBlob);
+    pcmResampled = await resamplePcmTo16k(pcmSamples, pcmSampleRate);
   }
 
-  // Primary: local offline Whisper (reliable in Electron)
-  if (samples && samples.length > 800 && window.ultronAPI?.transcribeAudio) {
-    updateVoiceLiveTranscript('Transcribing locally…', { processing: true });
+  const blobOk = blobSamples && blobSamples.length > 800;
+  const pcmOk = pcmResampled && pcmResampled.length > 800;
 
-    const rms = getPcmRms(samples);
-    const durationSec = (samples.length / 16000).toFixed(1);
-    logTrace(`Mic captured ${durationSec}s (level ${rms.toFixed(4)}).`, 'system');
-    if (rms < 0.002) {
-      logTrace('Mic audio too quiet — raise Windows mic volume or move closer to the microphone.', 'system');
-    }
-
-    const normalized = normalizePcmForWhisper(samples);
-
-    try {
-      const wavBase64 = encodeWavBase64(normalized, 16000);
-      const result = await window.ultronAPI.transcribeAudio({ wavBase64, sampleRate: 16000 });
-      if (result?.success && result.text) return result.text.trim();
-      if (result?.error) {
-        logTrace(result.error, 'system');
-      } else if (result?.needsDownload) {
-        logTrace('Download the voice model in Settings → Agent Sounds, then try the mic again.', 'system');
-      } else {
-        logTrace('No speech detected. Speak clearly for 2–3 seconds and try again.', 'system');
-      }
-    } catch (e) {
-      console.warn('Local STT error:', e);
-      logTrace('Voice transcription failed. Restart Ultron and try again.', 'system');
-    }
-  } else if ((pcmSamples && pcmSamples.length > 0) || (audioBlob && audioBlob.size > 0)) {
-    logTrace(samples ? 'Recording too short — speak for at least 1 second.' : 'Could not capture mic audio. Check microphone permissions.', 'system');
+  let samples = null;
+  if (pcmOk && blobOk) {
+    const pcmRms = getPcmRms(pcmResampled);
+    const blobRms = getPcmRms(blobSamples);
+    samples = pcmRms >= blobRms ? pcmResampled : blobSamples;
+    logTrace(`STT audio source: ${pcmRms >= blobRms ? 'mic PCM' : 'MediaRecorder'} (pcm=${pcmRms.toFixed(4)}, blob=${blobRms.toFixed(4)})`, 'system');
+  } else if (pcmOk) {
+    samples = pcmResampled;
+  } else if (blobOk) {
+    samples = blobSamples;
   }
 
-  const live = (accumulatedTranscript || finalVoiceTranscript || '').trim();
-  if (live) return live;
+  if (!samples || samples.length <= 800) return null;
+  return normalizePcmForStt(samples);
+}
 
-  // Optional cloud fallback when Gemini key is configured
-  if (audioBlob && audioBlob.size > 0) {
-    updateVoiceLiveTranscript('Transcribing…', { processing: true });
-    const geminiText = await transcribeAudioWithGemini(audioBlob);
-    if (geminiText) return geminiText;
+async function transcribeWithWindowsStt(samples, culture = getVoiceSttCulture()) {
+  if (!samples || samples.length <= 800) return '';
+
+  const payload = {
+    sampleRate: 16000,
+    culture,
+    samples: samples instanceof Float32Array ? Array.from(samples) : samples
+  };
+  const wavBase64 = encodeWavBase64(samples, 16000);
+  if (wavBase64) payload.wavBase64 = wavBase64;
+
+  const result = await transcribeAudioWithTimeout(payload, 22000);
+  if (result?.text) return result.text.trim();
+  if (result?.error) logTrace(result.error, 'system');
+  return '';
+}
+
+function getVoiceTranscriptFallback(hint = '') {
+  const fromHint = String(hint || '').trim();
+  if (fromHint && !/^(Listening…|Transcribing…)$/i.test(fromHint)) return fromHint;
+
+  const fromState = getVoiceLiveTranscriptText();
+  if (fromState) return fromState;
+
+  if (voiceModeCaption?.dataset.role === 'user') {
+    const uiText = String(voiceModeCaption.textContent || '').trim();
+    if (uiText && !/^(Listening…|Transcribing…|No speech detected|Thinking…|\.\.\.|…)$/i.test(uiText)) return uiText;
   }
 
   return '';
 }
 
-async function startVoiceRecording() {
+async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcmSampleRate = 48000, liveTranscriptHint = '' } = {}) {
+  const samples = await prepareSttSamples({ audioBlob, pcmSamples, pcmSampleRate });
+
+  if (samples && samples.length > 800 && window.ultronAPI?.transcribeAudio) {
+    setVoiceTranscribingUi(true);
+
+    const rms = getPcmRms(samples);
+    const durationSec = (samples.length / 16000).toFixed(1);
+    logTrace(`Mic captured ${durationSec}s (level ${rms.toFixed(4)}). Transcribing with OpenAI Whisper…`, 'system');
+    if (rms < 0.002) {
+      logTrace('Mic audio too quiet — raise Windows mic volume or move closer to the microphone.', 'system');
+    }
+
+    try {
+      const sampleArray = samples instanceof Float32Array ? Array.from(samples) : samples;
+      const result = await transcribeAudioWithTimeout({ sampleRate: 16000, samples: sampleArray }, 20000);
+      if (result?.text) {
+        logTrace('OpenAI Whisper STT complete.', 'system');
+        return result.text.trim();
+      }
+    } catch (e) {
+      console.warn('Whisper STT error:', e);
+      logTrace('Voice transcription notice: ' + e.message, 'system');
+    }
+  } else if ((pcmSamples && pcmSamples.length > 0) || (audioBlob && audioBlob.size > 0)) {
+    logTrace(
+      samples ? 'Recording too short — speak for at least 1 second.' : 'Could not capture mic audio. Check microphone permissions.',
+      'system'
+    );
+  }
+
+  if (audioBlob && audioBlob.size > 0) {
+    setVoiceTranscribingUi(true);
+    const geminiText = await transcribeAudioWithGemini(audioBlob);
+    if (geminiText) {
+      logTrace('Used Gemini cloud transcription.', 'system');
+      return geminiText;
+    }
+  }
+
+  const fallback = getVoiceTranscriptFallback(liveTranscriptHint);
+  if (fallback) {
+    logTrace('Using live speech captions (fallback).', 'system');
+    return fallback;
+  }
+
+  return '';
+}
+
+function setVoiceTranscribingUi(isTranscribing) {
+  if (!isTranscribing) return;
+  if (voiceLiveTranscript) {
+    voiceLiveTranscript.textContent = 'Processing speech…';
+    voiceLiveTranscript.classList.add('visible', 'processing');
+    if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.add('has-transcript');
+  }
+  if (isVoiceChatModeEnabled()) {
+    const existing = (accumulatedTranscript || finalVoiceTranscript || (voiceModeCaption?.dataset.role === 'user' ? voiceModeCaption.textContent : '') || '').trim();
+    updateVoiceModeUserTranscript(existing || 'Processing speech…', { processing: true });
+    setVoiceModeStatus('Processing speech…');
+  }
+}
+
+async function startVoiceRecording(options = {}) {
+  const voiceMode = options.voiceMode === true || (options.voiceMode !== false && isVoiceChatModeEnabled());
+  if (isRecordingVoice) return;
+
   try {
     const modelCheck = await ensureVoiceModelForMic();
     if (!modelCheck.ready) {
-      logTrace(modelCheck.message || 'Voice model required for offline mic.', 'system');
-      const openSettings = confirm(`${modelCheck.message || 'Voice input model is not installed.'}\n\nOpen Settings → Agent Sounds now to download it?`);
-      if (openSettings) {
-        settingsModal?.classList.remove('hidden');
-        document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.click();
-      }
+      logTrace(modelCheck.message || 'Voice input is not available on this device.', 'system');
+      alert(modelCheck.message || 'Voice input is not available on this device.');
       return;
     }
 
@@ -9657,38 +10875,7 @@ async function startVoiceRecording() {
     recordedAudioChunks = [];
     recordedPcmChunks = [];
     pcmCaptureRate = 48000;
-    isRecordingVoice = true;
-    voiceCaptureActive = true;
-    clearVoiceLiveTranscript();
-    updateVoiceLiveTranscript('Listening…', { processing: false });
 
-    if (!shouldUseBrowserSpeechRecognition()) {
-      logTrace('Using offline Whisper for mic transcription.', 'system');
-    }
-
-    // Smooth animated transition from main prompt pill to voice capsule pill
-    if (mainInputPill) {
-      mainInputPill.classList.add('fading-out');
-      setTimeout(() => {
-        mainInputPill.classList.add('hidden');
-        mainInputPill.classList.remove('fading-out');
-        if (voiceRecordingPill) {
-          voiceRecordingPill.classList.remove('hidden');
-          voiceRecordingPill.classList.add('fading-out');
-          requestAnimationFrame(() => {
-            voiceRecordingPill.classList.remove('fading-out');
-          });
-        }
-      }, 120);
-    }
-
-    // Reset and start timer
-    voiceStartTime = Date.now();
-    if (voiceRecordingTimer) voiceRecordingTimer.textContent = '0:00';
-    if (voiceTimerInterval) clearInterval(voiceTimerInterval);
-    voiceTimerInterval = setInterval(updateVoiceTimer, 200);
-
-    // Initialize microphone audio stream
     mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -9697,19 +10884,52 @@ async function startVoiceRecording() {
         channelCount: 1
       }
     });
+
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume();
+    const audioReady = await ensureAudioContextRunning(audioContext);
+    if (!audioReady) {
+      throw new Error('Microphone audio could not start. Tap “Tap to start listening”, then try again.');
     }
+
     pcmCaptureRate = audioContext.sampleRate || 48000;
     analyserNode = audioContext.createAnalyser();
     analyserNode.fftSize = 256;
-    analyserNode.smoothingTimeConstant = 0.7;
-    
+    analyserNode.smoothingTimeConstant = 0.65;
+
     const source = audioContext.createMediaStreamSource(mediaStream);
     source.connect(analyserNode);
 
-    // Direct PCM capture — more reliable than WebM decode in Electron
+    isRecordingVoice = true;
+    voiceCaptureActive = true;
+    clearVoiceLiveTranscript();
+    clearVoiceModeCaption();
+
+    if (voiceMode) {
+      setVoiceOrbVisualState('listening');
+      startVoiceOrbAnimation('mic');
+    } else {
+      updateVoiceLiveTranscript('Listening…', { processing: false });
+      if (mainInputPill) {
+        mainInputPill.classList.add('fading-out');
+        setTimeout(() => {
+          mainInputPill.classList.add('hidden');
+          mainInputPill.classList.remove('fading-out');
+          if (voiceRecordingPill) {
+            voiceRecordingPill.classList.remove('hidden');
+            voiceRecordingPill.classList.add('fading-out');
+            requestAnimationFrame(() => {
+              voiceRecordingPill.classList.remove('fading-out');
+            });
+          }
+        }, 120);
+      }
+    }
+
+    voiceStartTime = Date.now();
+    if (voiceRecordingTimer) voiceRecordingTimer.textContent = '0:00';
+    if (voiceTimerInterval) clearInterval(voiceTimerInterval);
+    voiceTimerInterval = setInterval(updateVoiceTimer, 200);
+
     try {
       pcmProcessor = audioContext.createScriptProcessor(4096, 1, 1);
       const silentGain = audioContext.createGain();
@@ -9721,15 +10941,19 @@ async function startVoiceRecording() {
         if (!voiceCaptureActive) return;
         const input = event.inputBuffer.getChannelData(0);
         recordedPcmChunks.push(new Float32Array(input));
+        if (recordedPcmChunks.length > 800) recordedPcmChunks.shift();
       };
     } catch (pcmErr) {
       console.warn('PCM capture init notice:', pcmErr);
     }
+    if (!voiceMode) {
+      drawWaveform();
+    }
 
-    // Start animated audio level waveform synced to pitch & intensity
-    drawWaveform();
+    if (voiceMode) {
+      startVoiceModeVad();
+    }
 
-    // MediaRecorder — primary audio capture for offline Whisper
     try {
       const preferredMime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
@@ -9742,13 +10966,12 @@ async function startVoiceRecording() {
       mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) recordedAudioChunks.push(e.data);
       };
-      mediaRecorder.start(100);
+      mediaRecorder.start(250);
     } catch (mErr) {
       console.warn('MediaRecorder init failed:', mErr);
       throw new Error('Could not start audio recording on this device.');
     }
 
-    // Optional live captions in browser only (disabled in Electron)
     const SpeechRec = shouldUseBrowserSpeechRecognition()
       ? (window.SpeechRecognition || window.webkitSpeechRecognition)
       : null;
@@ -9756,7 +10979,7 @@ async function startVoiceRecording() {
       speechRecognition = new SpeechRec();
       speechRecognition.continuous = true;
       speechRecognition.interimResults = true;
-      speechRecognition.lang = navigator.language || 'en-US';
+      speechRecognition.lang = getVoiceSttCulture();
 
       speechRecognition.onresult = (event) => {
         let interim = '';
@@ -9770,8 +10993,12 @@ async function startVoiceRecording() {
         }
         accumulatedTranscript = (finalVoiceTranscript + interim).trim();
         updateVoiceLiveTranscript(accumulatedTranscript);
+        if (voiceMode) {
+          updateVoiceModeUserTranscript(accumulatedTranscript, { interim: Boolean(interim) });
+          setVoiceModeStatus('');
+        }
 
-        if (chatInput && isRecordingVoice) {
+        if (chatInput && isRecordingVoice && !isVoiceChatModeEnabled()) {
           const prefix = initialInputValue ? initialInputValue.trim() + ' ' : '';
           chatInput.value = prefix + accumulatedTranscript;
           chatInput.style.height = 'auto';
@@ -9796,18 +11023,46 @@ async function startVoiceRecording() {
     }
   } catch (err) {
     console.error('Microphone access error:', err);
-    const msg = err.name === 'NotAllowedError'
-      ? 'Microphone access denied. Open Windows Settings → Privacy → Microphone and allow Ultron.'
-      : (err.message || 'Unable to access microphone.');
-    alert(msg);
-    stopVoiceRecording(false);
+    voiceCaptureActive = false;
+    isRecordingVoice = false;
+    cancelVoiceOrbAnimation();
+    if (voiceTimerInterval) {
+      clearInterval(voiceTimerInterval);
+      voiceTimerInterval = null;
+    }
+    if (mediaStream) {
+      mediaStream.getTracks().forEach((t) => t.stop());
+      mediaStream = null;
+    }
+    if (audioContext) {
+      try { audioContext.close(); } catch (e) { /* ignore */ }
+      audioContext = null;
+    }
+    analyserNode = null;
+    mediaRecorder = null;
+    if (voiceMode) {
+      setVoiceModeStatus('Tap to start listening');
+      startVoiceOrbAnimation('idle');
+      if (err.name === 'NotAllowedError') {
+        logTrace('Microphone blocked — allow Ultron in Windows Settings → Privacy → Microphone.', 'system');
+      }
+    } else {
+      const msg = err.name === 'NotAllowedError'
+        ? 'Microphone access denied. Open Windows Settings → Privacy → Microphone and allow Ultron.'
+        : (err.message || 'Unable to access microphone.');
+      alert(msg);
+    }
   }
 }
 
-async function stopVoiceRecording(saveTranscript = true) {
-  // Stop PCM capture last — keep recording until we flush buffers
+async function stopVoiceRecording(saveTranscript = true, options = {}) {
+  if (voiceStopInProgress) return;
+  voiceStopInProgress = true;
+  stopVoiceModeVad();
+
+  try {
   voiceCaptureActive = false;
-  await new Promise(r => setTimeout(r, 220));
+  await new Promise(r => setTimeout(r, 550));
   const { samples: capturedPcm, sampleRate: capturedPcmRate } = captureRecordedPcm();
   teardownPcmCapture();
 
@@ -9822,9 +11077,10 @@ async function stopVoiceRecording(saveTranscript = true) {
     animFrameId = null;
   }
 
-  // Show clean white spinner on done checkmark button while processing
+  const liveTranscriptHint = getVoiceTranscriptFallback();
+
   if (saveTranscript && voiceBtnDone) {
-    updateVoiceLiveTranscript('Transcribing…', { processing: true });
+    setVoiceTranscribingUi(true);
     voiceBtnDone.innerHTML = `
       <svg class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
         <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
@@ -9834,27 +11090,29 @@ async function stopVoiceRecording(saveTranscript = true) {
     if (voiceBtnCancel) voiceBtnCancel.style.pointerEvents = 'none';
   }
 
-  // Flush live speech results before stopping recognition
   if (speechRecognition) {
-    await flushSpeechRecognition();
+    speechRecognition.onend = null;
+    await flushSpeechRecognition(2000);
   }
 
-  // Stop MediaRecorder and grab audio blob (fallback path)
   let finalAudioBlob = null;
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     await new Promise((resolve) => {
+      const timeout = setTimeout(resolve, 3000);
       mediaRecorder.onstop = () => {
+        clearTimeout(timeout);
         if (recordedAudioChunks.length > 0) {
           finalAudioBlob = new Blob(recordedAudioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
         }
         resolve();
       };
       try {
-        if (mediaRecorder.state === 'recording') {
-          mediaRecorder.requestData();
-        }
+        if (mediaRecorder.state === 'recording') mediaRecorder.requestData();
         mediaRecorder.stop();
-      } catch (e) { resolve(); }
+      } catch (e) {
+        clearTimeout(timeout);
+        resolve();
+      }
     });
   }
 
@@ -9869,85 +11127,70 @@ async function stopVoiceRecording(saveTranscript = true) {
   }
 
   if (speechRecognition) {
-    speechRecognition.onend = null;
     try { speechRecognition.stop(); } catch (e) {}
     speechRecognition = null;
   }
 
+  let textToInsert = '';
+
   if (saveTranscript) {
-    let textToInsert = await resolveVoiceTranscript({
-      audioBlob: finalAudioBlob,
-      pcmSamples: capturedPcm,
-      pcmSampleRate: capturedPcmRate
-    });
-
-    // Restore original checkmark icon
-    if (voiceBtnDone) {
-      voiceBtnDone.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-          <polyline points="20 6 9 17 4 12"></polyline>
-        </svg>
-      `;
-      voiceBtnDone.style.pointerEvents = '';
-    }
-    if (voiceBtnCancel) voiceBtnCancel.style.pointerEvents = '';
-
-    clearVoiceLiveTranscript();
-
-    // Smooth animated transition back to main prompt pill once transcription is ready
-    if (voiceRecordingPill) {
-      voiceRecordingPill.classList.add('fading-out');
-      setTimeout(() => {
-        voiceRecordingPill.classList.add('hidden');
-        voiceRecordingPill.classList.remove('fading-out');
-        if (mainInputPill) {
-          mainInputPill.classList.remove('hidden');
-          mainInputPill.classList.add('fading-out');
-          requestAnimationFrame(() => {
-            mainInputPill.classList.remove('fading-out');
-          });
-        }
-      }, 120);
+    try {
+      textToInsert = await resolveVoiceTranscript({
+        audioBlob: finalAudioBlob,
+        pcmSamples: capturedPcm,
+        pcmSampleRate: capturedPcmRate,
+        liveTranscriptHint
+      });
+    } catch (err) {
+      console.error('Voice transcription error:', err);
+      logTrace(err.message || 'Voice transcription failed.', 'system');
+      textToInsert = getVoiceTranscriptFallback(liveTranscriptHint);
     }
 
-    if (chatInput) {
-      const prefix = initialInputValue ? initialInputValue.trim() + ' ' : '';
-      if (textToInsert) {
-        chatInput.value = prefix + textToInsert;
-        updateVoiceLiveTranscript(textToInsert);
-      } else {
-        chatInput.value = initialInputValue;
-        if (saveTranscript) {
-          logTrace('No speech detected. Speak clearly for 1–2 seconds, then tap the checkmark.', 'system');
-        }
-      }
-      chatInput.focus();
-      chatInput.style.height = 'auto';
-      chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
+    if (!textToInsert) {
+      textToInsert = getVoiceTranscriptFallback(liveTranscriptHint);
+    }
+  }
+
+  restoreVoiceDoneButton();
+  clearVoiceLiveTranscript();
+  await transitionVoicePillToMainInput();
+
+  const inVoiceMode = isVoiceChatModeEnabled();
+
+  if (saveTranscript && inVoiceMode) {
+    voiceModeRecording = false;
+
+    if (textToInsert) {
+      setVoiceModeCaption(textToInsert, { role: 'user' });
+      setVoiceModeStatus('');
+      updateVoiceModeAiTranscript('Thinking…', { processing: true });
+      cancelVoiceOrbAnimation();
+      setVoiceOrbVisualState('');
+      startVoiceOrbAnimation('idle');
+      await submitPrompt(textToInsert);
+    } else {
+      clearVoiceModeCaption();
+      setVoiceModeStatus(options.autoVoiceSubmit ? 'Didn\'t catch that — tap to try again' : '');
+      setVoiceOrbVisualState('listening');
+      startVoiceOrbAnimation('idle');
+      scheduleVoiceModeListen(options.autoVoiceSubmit ? 600 : 900);
+    }
+    updateVoiceModeBarUi();
+  } else if (saveTranscript) {
+    if (textToInsert) {
+      applyVoiceTextToChatInput(textToInsert);
+      logTrace('Voice input added to prompt.', 'system');
+    } else {
+      applyVoiceTextToChatInput('');
+      logTrace('No speech detected. Speak clearly for 1–2 seconds, then tap the checkmark.', 'system');
     }
   } else {
-    // Revert to initial input if canceled
-    if (voiceRecordingPill) {
-      voiceRecordingPill.classList.add('fading-out');
-      setTimeout(() => {
-        voiceRecordingPill.classList.add('hidden');
-        voiceRecordingPill.classList.remove('fading-out');
-        if (mainInputPill) {
-          mainInputPill.classList.remove('hidden');
-          mainInputPill.classList.add('fading-out');
-          requestAnimationFrame(() => {
-            mainInputPill.classList.remove('fading-out');
-          });
-        }
-      }, 120);
-    }
-
     if (chatInput) {
       chatInput.value = initialInputValue;
       chatInput.style.height = 'auto';
-      chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
+      chatInput.style.height = `${Math.min(chatInput.scrollHeight, 140)}px`;
     }
-    clearVoiceLiveTranscript();
   }
 
   accumulatedTranscript = '';
@@ -9957,7 +11200,10 @@ async function stopVoiceRecording(saveTranscript = true) {
   recordedPcmChunks = [];
   pcmCaptureRate = 48000;
   voiceCaptureActive = false;
-  teardownPcmCapture();
+  mediaRecorder = null;
+  } finally {
+    voiceStopInProgress = false;
+  }
 }
 
 function drawWaveform() {
@@ -9967,8 +11213,18 @@ function drawWaveform() {
   const canvasCtx = canvas.getContext('2d');
 
   const bufferLength = analyserNode.frequencyBinCount;
-  const freqArray = new Uint8Array(bufferLength);
-  const timeArray = new Uint8Array(analyserNode.fftSize);
+  const fftSize = analyserNode.fftSize || 256;
+  if (!_waveformFreqBuffer || _waveformFreqBuffer.length !== bufferLength) {
+    _waveformFreqBuffer = new Uint8Array(bufferLength);
+  }
+  if (!_waveformTimeBuffer || _waveformTimeBuffer.length !== fftSize) {
+    _waveformTimeBuffer = new Uint8Array(fftSize);
+  }
+
+  // Cache canvas dimensions outside rAF to avoid triggering forced layout reflows (getBoundingClientRect) on every frame
+  const dpr = window.devicePixelRatio || 1;
+  let width = canvas.clientWidth || canvas.width || 500;
+  let height = canvas.clientHeight || canvas.height || 32;
 
   function renderFrame() {
     if (!isRecordingVoice) return;
@@ -9978,12 +11234,9 @@ function drawWaveform() {
       audioContext.resume();
     }
 
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    const width = rect.width || canvas.width || 500;
-    const height = rect.height || canvas.height || 32;
-
     if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+      width = canvas.clientWidth || width;
+      height = canvas.clientHeight || height;
       canvas.width = width * dpr;
       canvas.height = height * dpr;
     }
@@ -9991,8 +11244,10 @@ function drawWaveform() {
     canvasCtx.save();
     canvasCtx.scale(dpr, dpr);
 
-    analyserNode.getByteFrequencyData(freqArray);
-    analyserNode.getByteTimeDomainData(timeArray);
+    analyserNode.getByteFrequencyData(_waveformFreqBuffer);
+    analyserNode.getByteTimeDomainData(_waveformTimeBuffer);
+    const freqArray = _waveformFreqBuffer;
+    const timeArray = _waveformTimeBuffer;
 
     // Calculate real-time Volume Intensity (RMS)
     let sum = 0;
@@ -10377,8 +11632,8 @@ function initAutomationSettingsUI() {
 }
 
 async function bootSystem() {
-  // Always dismiss skeleton — even if boot throws or a step hangs
-  setTimeout(hideSkeletonLoader, 3000);
+  hideSkeletonLoader();
+  setTimeout(hideSkeletonLoader, 2500);
 
   try {
     if (window.UltronAgentPrompt && typeof window.UltronAgentPrompt.loadUltronAgentConfig === 'function') {
@@ -10421,6 +11676,8 @@ async function bootSystem() {
       console.error('Ollama startup check error:', err);
       hideSkeletonLoader();
     });
+
+    initVoiceChatModeAfterBoot();
   } catch (err) {
     console.error('Boot sequence error:', err);
     hideSkeletonLoader();
@@ -10610,6 +11867,7 @@ let ttsVoicesCache = [];
 let ttsKeepAliveTimer = null;
 
 function isTtsAutoSpeakEnabled() {
+  if (isVoiceChatModeEnabled()) return true;
   return window.localStorage.getItem('ultron-tts-auto-speak') === 'true';
 }
 
@@ -10641,7 +11899,10 @@ function normalizeTextForSpeech(text) {
     .replace(/\*\*|__|\*|_/g, '')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^[-*•]\s+/gm, '')
-    .replace(/^-{3,}$|^\*{3,}$/gm, ' ')
+    .replace(/^-{3,}$|^\*{3,}$|^_{3,}$/gm, ' ')
+    .replace(/[—–‑]/g, ' ')
+    .replace(/\s[-–—]\s/g, ' ')
+    .replace(/[^\w\s.,!?;:'"()]/g, ' ')
     .replace(/https?:\/\/\S+/gi, '')
     .replace(/\[(.*?)\]\(.*?\)/g, '$1')
     .replace(/\s{2,}/g, ' ')
@@ -10752,28 +12013,39 @@ function playNeuralAudio(audioBase64, { mimeType = 'audio/wav', onStart, onEnd, 
     if (!allowOverlap) stopNeuralAudio();
     const audio = new Audio(`data:${mimeType};base64,${audioBase64}`);
     activeNeuralAudio = audio;
+    connectTtsAudioAnalyser(audio);
     audio.onplay = () => {
+      setVoiceOrbVisualState('ai-speaking');
+      startVoiceOrbAnimation('ai');
       if (typeof onStart === 'function') onStart();
     };
     audio.onended = () => {
       activeNeuralAudio = null;
+      ttsAnalyserNode = null;
       if (typeof onEnd === 'function') onEnd();
       resolve(true);
     };
     audio.onerror = () => {
       activeNeuralAudio = null;
+      ttsAnalyserNode = null;
       if (typeof onEnd === 'function') onEnd();
       resolve(false);
     };
     audio.play().catch(() => {
       activeNeuralAudio = null;
+      ttsAnalyserNode = null;
       if (typeof onEnd === 'function') onEnd();
       resolve(false);
     });
   });
 }
 
+let _lastAutoSpeakFeedTime = 0;
+let _lastAutoSpeakRawLength = 0;
+
 function resetStreamingAutoSpeak() {
+  _lastAutoSpeakFeedTime = 0;
+  _lastAutoSpeakRawLength = 0;
   streamingAutoSpeakState.generation += 1;
   streamingAutoSpeakState.spokenUpTo = 0;
   streamingAutoSpeakState.queue = [];
@@ -10793,10 +12065,15 @@ function stopTtsSpeech() {
   });
   clearTtsKeepAlive();
   stopNeuralAudio();
+  ttsAnalyserNode = null;
   if (window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
   activeTtsUtterance = null;
+  if (isVoiceChatModeEnabled()) {
+    setVoiceOrbVisualState('');
+    if (!isAwaitingResponse) startVoiceOrbAnimation('idle');
+  }
 }
 
 let cachedActiveTtsModelKey = null;
@@ -10864,12 +12141,21 @@ function notifyStreamingAutoSpeakIdle() {
     streamingAutoSpeakState.onIdle = null;
     cb();
   }
+  if (isVoiceChatModeEnabled() && !isAwaitingResponse) {
+    syncVoiceModeAiFromChat();
+    setVoiceModeStatus('');
+    updateVoiceModeBarUi();
+    scheduleVoiceModeListen(500);
+  }
 }
 
 function markStreamingSpeechStarted() {
   if (!streamingAutoSpeakState.started) {
     streamingAutoSpeakState.started = true;
     startTtsKeepAlive();
+    revealPendingVoiceSpeech();
+    setVoiceOrbVisualState('ai-speaking');
+    startVoiceOrbAnimation('ai');
     if (typeof streamingAutoSpeakState.onFirstAudio === 'function') {
       streamingAutoSpeakState.onFirstAudio();
       streamingAutoSpeakState.onFirstAudio = null;
@@ -10957,17 +12243,17 @@ function enqueueSpeechUnits(units) {
   }
 }
 
-async function resolveActiveTtsModelKey() {
-  if (cachedActiveTtsModelKey) return cachedActiveTtsModelKey;
+async function resolveActiveTtsModelKey(forceRefresh = false) {
+  if (!forceRefresh && cachedActiveTtsModelKey) return cachedActiveTtsModelKey;
   if (!window.ultronAPI?.getTtsCatalog) return null;
   try {
     const catalogRes = await window.ultronAPI.getTtsCatalog();
     const models = catalogRes?.models || [];
     const activeKey = window.localStorage.getItem('ultron-tts-neural-model')
       || models.find(m => m.isActive)?.key
-      || models.find(m => m.installed)?.key;
+      || models.find(m => m.installed || m.cloud)?.key;
     const active = models.find(m => m.key === activeKey);
-    if (active?.installed) {
+    if (active && (active.installed || active.cloud)) {
       cachedActiveTtsModelKey = active.key;
       return active.key;
     }
@@ -10978,8 +12264,9 @@ async function resolveActiveTtsModelKey() {
 async function synthesizeSpeechChunk(text) {
   const modelKey = await resolveActiveTtsModelKey();
   if (!modelKey || !window.ultronAPI?.synthesizeSpeech) return null;
+  const apiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
   try {
-    const res = await window.ultronAPI.synthesizeSpeech(text, modelKey);
+    const res = await window.ultronAPI.synthesizeSpeech(text, modelKey, { apiKey });
     if (res?.success && res.wavBase64) {
       return { wavBase64: res.wavBase64, mimeType: res.mimeType || 'audio/wav' };
     }
@@ -11060,13 +12347,14 @@ async function beginUnifiedSpeechPlayback(fullText) {
 
   const modelKey = await resolveActiveTtsModelKey();
   if (!modelKey || !window.ultronAPI?.synthesizeSpeech) return false;
+  const apiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
 
   const gen = streamingAutoSpeakState.generation;
   setTimeout(async () => {
     if (gen !== streamingAutoSpeakState.generation) return;
     await yieldToUi();
     try {
-      const res = await window.ultronAPI.synthesizeSpeech(cleaned, modelKey);
+      const res = await window.ultronAPI.synthesizeSpeech(cleaned, modelKey, { apiKey });
       if (gen !== streamingAutoSpeakState.generation) return;
       if (res?.success && res.wavBase64) {
         markStreamingSpeechStarted();
@@ -11086,10 +12374,27 @@ async function beginUnifiedSpeechPlayback(fullText) {
   return true;
 }
 
-function feedStreamingAutoSpeak(fullText) {
+function feedStreamingAutoSpeak(fullText, force = false) {
   if (!isTtsAutoSpeakEnabled()) return;
+  if (!fullText || isThinkingMarkup(fullText)) return;
+
+  const now = performance.now();
+  const rawLen = fullText.length;
+  const newChars = rawLen - _lastAutoSpeakRawLength;
+
+  // Throttle regex text normalization during token-by-token streaming unless sentence boundary or 180ms elapsed
+  if (!force && newChars < 25 && (now - _lastAutoSpeakFeedTime < 180)) {
+    const tail = fullText.slice(_lastAutoSpeakRawLength);
+    if (!/[.!?\n]/.test(tail)) {
+      return;
+    }
+  }
+
+  _lastAutoSpeakFeedTime = now;
+  _lastAutoSpeakRawLength = rawLen;
+
   const cleaned = normalizeTextForSpeech(fullText);
-  if (!cleaned || isThinkingMarkup(fullText)) return;
+  if (!cleaned) return;
 
   const btn = ensureLatestMessageSpeakControls();
   if (btn && !streamingAutoSpeakState.activeButton) {
@@ -11104,6 +12409,9 @@ function feedStreamingAutoSpeak(fullText) {
 
   streamingAutoSpeakState.spokenUpTo += consumed;
   enqueueSpeechUnits(units);
+  if (isVoiceChatModeEnabled() && streamingAutoSpeakState.started) {
+    syncVoiceModeAiFromChat();
+  }
   setTimeout(() => drainStreamingAutoSpeak(), 0);
 }
 
@@ -11111,7 +12419,7 @@ function finishStreamingAutoSpeak(fullText) {
   if (!isTtsAutoSpeakEnabled()) return;
   if (streamingAutoSpeakState.mode === 'unified') return;
 
-  feedStreamingAutoSpeak(fullText);
+  feedStreamingAutoSpeak(fullText, true);
   const cleaned = normalizeTextForSpeech(fullText);
   if (!cleaned) return;
   if (streamingAutoSpeakState.spokenUpTo >= cleaned.length) return;
@@ -11312,7 +12620,7 @@ if (window.speechSynthesis) {
   loadTtsVoices();
 }
 
-// Voice input model (Whisper STT) settings
+// Voice input (built-in Windows speech) settings
 const voiceModelStatusBadge = document.getElementById('voice-model-status-badge');
 const voiceModelSizeLabel = document.getElementById('voice-model-size-label');
 const btnDownloadVoiceModel = document.getElementById('btn-download-voice-model');
@@ -11323,7 +12631,7 @@ const voiceModelProgressStatus = document.getElementById('voice-model-progress-s
 const voiceModelProgressStats = document.getElementById('voice-model-progress-stats');
 const voiceModelProgressBar = document.getElementById('voice-model-progress-bar');
 const voiceModelProgressDetail = document.getElementById('voice-model-progress-detail');
-const VOICE_MODEL_PROGRESS_KEY = 'voice-whisper-tiny';
+const VOICE_MODEL_PROGRESS_KEY = 'voice-native';
 let voiceModelDownloadListenerCleanup = null;
 
 function setVoiceModelProgressVisible(visible) {
@@ -11362,10 +12670,20 @@ function showVoiceModelProgress(data = {}) {
 function updateVoiceModelSettingsUI(status) {
   if (!status) return;
 
+  const builtIn = Boolean(
+    status.builtIn
+    || status.noDownloadRequired
+    || status.engine === 'windows-speech'
+    || (isUltronWindowsDevice() && status.engine !== 'whisper-tiny.en')
+  );
+  const ready = builtIn ? (status.available !== false) : Boolean(status.installed);
+
   if (voiceModelSizeLabel) {
-    voiceModelSizeLabel.textContent = status.installed
-      ? `${status.cacheSize || status.sizeEstimate} · offline`
-      : `${status.sizeEstimate} · offline`;
+    voiceModelSizeLabel.textContent = builtIn
+      ? 'Built-in · no download required'
+      : (ready
+        ? `${status.cacheSize || status.sizeEstimate} · ready`
+        : `${status.sizeEstimate || 'Unavailable'}`);
   }
 
   if (voiceModelStatusBadge) {
@@ -11373,24 +12691,34 @@ function updateVoiceModelSettingsUI(status) {
     if (status.downloading) {
       voiceModelStatusBadge.textContent = 'Downloading';
       voiceModelStatusBadge.classList.add('downloading');
-    } else if (status.installed) {
-      voiceModelStatusBadge.textContent = 'Installed';
+    } else if (ready) {
+      voiceModelStatusBadge.textContent = 'Ready';
       voiceModelStatusBadge.classList.add('installed');
     } else {
-      voiceModelStatusBadge.textContent = 'Not installed';
+      voiceModelStatusBadge.textContent = 'Unavailable';
       voiceModelStatusBadge.classList.add('missing');
     }
   }
 
   if (btnDownloadVoiceModel) {
-    btnDownloadVoiceModel.classList.toggle('hidden', status.installed || status.downloading);
-    btnDownloadVoiceModel.disabled = Boolean(status.downloading);
+    btnDownloadVoiceModel.classList.toggle('hidden', builtIn || ready || status.downloading);
+    btnDownloadVoiceModel.disabled = Boolean(builtIn || status.downloading);
   }
   if (btnCancelVoiceModel) {
-    btnCancelVoiceModel.classList.toggle('hidden', !status.downloading);
+    btnCancelVoiceModel.classList.toggle('hidden', builtIn || !status.downloading);
   }
   if (btnDeleteVoiceModel) {
-    btnDeleteVoiceModel.classList.toggle('hidden', !status.installed || status.downloading);
+    btnDeleteVoiceModel.classList.toggle('hidden', builtIn || !status.installed || status.downloading);
+  }
+
+  const voiceRowActions = document.getElementById('voice-input-row-actions');
+  if (voiceRowActions && builtIn && ready) {
+    voiceRowActions.classList.remove('hidden');
+    voiceRowActions.innerHTML = settingsActionButtonHtml('Ready', 'ready', 'is-ready is-downloaded');
+  }
+
+  if (builtIn) {
+    setVoiceModelProgressVisible(false);
   }
 }
 
@@ -11423,7 +12751,7 @@ async function startVoiceModelDownload() {
   if (!window.ultronAPI?.downloadVoiceModel) return;
 
   bindVoiceModelDownloadProgressListener();
-  updateVoiceModelSettingsUI({ installed: false, downloading: true, sizeEstimate: '~40 MB' });
+  updateVoiceModelSettingsUI({ installed: false, downloading: true, sizeEstimate: 'Built-in · no download' });
   resetVoiceModelProgressUI();
   showVoiceModelProgress({ percent: 0, status: 'Starting download…' });
 
@@ -11441,7 +12769,7 @@ async function startVoiceModelDownload() {
   await refreshVoiceModelSettingsUI();
 
   if (result.success) {
-    logTrace('Voice input model installed. Mic transcription is ready offline.', 'system');
+    logTrace('Voice input is ready.', 'system');
   } else if (!result.cancelled) {
     logTrace(result.error || 'Voice model download failed.', 'system');
   }
@@ -11449,6 +12777,7 @@ async function startVoiceModelDownload() {
 
 function initVoiceModelSettingsUI() {
   refreshVoiceModelSettingsUI();
+  decorateSettingsActionButtons(document.getElementById('tab-sounds') || document);
 
   if (btnDownloadVoiceModel) {
     btnDownloadVoiceModel.addEventListener('click', async (e) => {
@@ -11558,8 +12887,7 @@ function bindTtsModelDownloadProgressListener(modelKey) {
     if (isKokoro && ttsModelsListEl) {
       ttsModelsListEl.querySelectorAll('.btn-tts-download').forEach(btn => {
         if (btn.dataset.key === modelKey || catalogEntry()?.engine === 'kokoro') {
-          btn.textContent = 'Downloading…';
-          btn.classList.add('is-downloading');
+          setSettingsActionButton(btn, 'Downloading…', 'downloading', 'btn-tts-download is-downloading');
           btn.disabled = true;
         }
       });
@@ -11577,17 +12905,17 @@ function normalizeTtsModelsForDisplay(models) {
 function getTtsDownloadButtonState(model) {
   if (model.cloud) {
     if (model.installed) {
-      return { label: 'Ready', className: 'is-cloud-ready', disabled: true };
+      return { label: 'Ready', icon: 'ready', className: 'is-cloud-ready', disabled: true };
     }
-    return { label: 'Needs key', className: 'is-cloud-missing', disabled: true };
+    return { label: 'Needs key', icon: 'download', className: 'is-cloud-missing', disabled: true };
   }
   if (model.installed) {
-    return { label: 'Downloaded', className: 'is-downloaded', disabled: true };
+    return { label: 'Downloaded', icon: 'downloaded', className: 'is-downloaded', disabled: true };
   }
   if (model.downloading) {
-    return { label: 'Downloading…', className: 'is-downloading', disabled: true };
+    return { label: 'Downloading…', icon: 'downloading', className: 'is-downloading', disabled: true };
   }
-  return { label: 'Download', className: '', disabled: false };
+  return { label: 'Download', icon: 'download', className: '', disabled: false };
 }
 
 function updateTtsSectionBadge(models = [], badgeEl = ttsModelStatusBadge, { cloud = false } = {}) {
@@ -11605,6 +12933,11 @@ function updateTtsSectionBadge(models = [], badgeEl = ttsModelStatusBadge, { clo
     badgeEl.textContent = cloud ? 'No API key' : 'Not installed';
     badgeEl.classList.add('missing');
   }
+}
+
+function buildTtsActionButton(label, iconKey, className, attrs = '') {
+  const icon = SETTINGS_ACTION_ICONS[iconKey] || '';
+  return `<button type="button" class="sound-preview-btn settings-action-btn ${className}" ${attrs}><span class="settings-action-icon" aria-hidden="true">${icon}</span><span class="settings-action-label">${label}</span></button>`;
 }
 
 function buildTtsModelCard(model) {
@@ -11629,10 +12962,10 @@ function buildTtsModelCard(model) {
       </div>
       <div class="tts-model-card-actions">
         ${model.cloud
-    ? `<button type="button" class="sound-preview-btn btn-tts-cloud-status ${dl.className}" disabled>${dl.label}</button>`
-    : `<button type="button" class="sound-preview-btn btn-tts-download ${dl.className}" data-key="${model.key}" ${dl.disabled ? 'disabled' : ''}>${dl.label}</button>`}
-        <button type="button" class="sound-preview-btn btn-tts-preview" data-key="${model.key}" ${model.installed ? '' : 'disabled'}>Preview</button>
-        <button type="button" class="sound-preview-btn btn-tts-use ${model.isActive ? 'is-active-voice' : ''}" data-key="${model.key}" ${model.installed ? '' : 'disabled'}>${model.isActive ? 'Active' : 'Use'}</button>
+    ? buildTtsActionButton(dl.label, dl.icon, `btn-tts-cloud-status ${dl.className}`, 'disabled')
+    : buildTtsActionButton(dl.label, dl.icon, `btn-tts-download ${dl.className}`, `data-key="${model.key}" ${dl.disabled ? 'disabled' : ''}`)}
+        ${buildTtsActionButton('Preview', 'preview', 'btn-tts-preview', `data-key="${model.key}" ${model.installed ? '' : 'disabled'}`)}
+        ${buildTtsActionButton(model.isActive ? 'Active' : 'Use', model.isActive ? 'active' : 'use', `btn-tts-use ${model.isActive ? 'is-active-voice' : ''}`, `data-key="${model.key}" ${model.installed ? '' : 'disabled'}`)}
       </div>
     </div>
   `;
@@ -11717,10 +13050,9 @@ async function previewTtsModel(modelKey, btn) {
   }
 
   const previewText = model.previewText || "Hello, I'm Ultron.";
-  const originalLabel = btn?.textContent;
   if (btn) {
     btn.disabled = true;
-    btn.textContent = 'Playing…';
+    setSettingsActionButton(btn, 'Playing…', 'preview', 'btn-tts-preview');
   }
 
   stopTtsSpeech();
@@ -11738,7 +13070,7 @@ async function previewTtsModel(modelKey, btn) {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = originalLabel || 'Preview';
+      setSettingsActionButton(btn, 'Preview', 'preview', 'btn-tts-preview');
     }
   }
 }
@@ -11877,16 +13209,21 @@ function initTtsSettingsUI() {
   }
 
   if (btnPreviewTts) {
+    setSettingsActionButton(btnPreviewTts, 'Preview', 'preview');
     btnPreviewTts.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const originalLabel = btnPreviewTts.textContent;
       btnPreviewTts.disabled = true;
-      btnPreviewTts.textContent = 'Speaking…';
+      setSettingsActionButton(btnPreviewTts, 'Speaking…', 'preview');
 
       const activeKey = window.localStorage.getItem('ultron-tts-neural-model')
         || ttsCatalogCache.find(m => m.isActive)?.key
         || ttsCatalogCache.find(m => m.installed)?.key;
+
+      const restorePreviewBtn = () => {
+        btnPreviewTts.disabled = false;
+        setSettingsActionButton(btnPreviewTts, 'Preview', 'preview');
+      };
 
       let started = false;
       if (activeKey && window.ultronAPI?.synthesizeSpeech) {
@@ -11897,12 +13234,7 @@ function initTtsSettingsUI() {
             activeKey
           );
           if (res?.success && res.wavBase64) {
-            started = await playNeuralAudio(res.wavBase64, {
-              onEnd: () => {
-                btnPreviewTts.disabled = false;
-                btnPreviewTts.textContent = originalLabel;
-              }
-            });
+            started = await playNeuralAudio(res.wavBase64, { onEnd: restorePreviewBtn });
           }
         }
       }
@@ -11910,17 +13242,14 @@ function initTtsSettingsUI() {
       if (!started) {
         started = await speakTextAloud("Hello, I'm Ultron. I'll read my responses aloud when you enable auto speak.", {
           force: true,
-          onEnd: () => {
-            btnPreviewTts.disabled = false;
-            btnPreviewTts.textContent = originalLabel;
-          }
+          onEnd: restorePreviewBtn
         });
       }
 
       if (!started) {
         btnPreviewTts.disabled = false;
-        btnPreviewTts.textContent = 'No voice';
-        setTimeout(() => { btnPreviewTts.textContent = originalLabel; }, 1800);
+        setSettingsActionButton(btnPreviewTts, 'No voice', 'preview');
+        setTimeout(() => setSettingsActionButton(btnPreviewTts, 'Preview', 'preview'), 1800);
       }
     });
   }
@@ -11928,47 +13257,94 @@ function initTtsSettingsUI() {
   document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.addEventListener('click', () => {
     ensureTtsVoicesReady().then(() => populateTtsVoiceSelect());
     refreshTtsModelsUI();
+    decorateSettingsActionButtons(document.getElementById('tab-sounds') || document);
   });
+
+  decorateSettingsActionButtons(document.getElementById('tab-sounds') || document);
 }
 
 initTtsSettingsUI();
 
-if (btnSettings && settingsModal && btnCloseSettings) {
-  btnSettings.addEventListener('click', async () => {
-    // Open Account tab by default
-    const firstTab = document.querySelector('.settings-tab-btn[data-tab="account"]');
-    if (firstTab) firstTab.click();
-    
-    settingsModal.classList.remove('hidden');
-    
-    // Initialize Memory Toggle value (default to true)
-    if (settingMemoryToggle) {
-      const isMemoryEnabled = window.localStorage.getItem('ultron-memory-enabled') !== 'false';
-      settingMemoryToggle.checked = isMemoryEnabled;
-    }
+let settingsPanelOpen = false;
+let chatTitleBeforeSettings = '';
 
-    if (settingScreenCaptureToggle) {
-      const screenCaptureEnabled = window.localStorage.getItem('ultron-screen-capture-enabled') !== 'false';
-      settingScreenCaptureToggle.checked = screenCaptureEnabled;
+async function prepareSettingsPanelState() {
+  if (settingMemoryToggle) {
+    const isMemoryEnabled = window.localStorage.getItem('ultron-memory-enabled') !== 'false';
+    settingMemoryToggle.checked = isMemoryEnabled;
+  }
+
+  if (settingScreenCaptureToggle) {
+    const screenCaptureEnabled = window.localStorage.getItem('ultron-screen-capture-enabled') !== 'false';
+    settingScreenCaptureToggle.checked = screenCaptureEnabled;
+  }
+  if (settingNeverCaptureApps) {
+    settingNeverCaptureApps.value = window.localStorage.getItem('ultron-never-capture-apps') || '';
+  }
+
+  await loadStoragePathsUI();
+
+  const btnShowDownload = document.getElementById('btn-show-download-fields');
+  const inputsRow = document.getElementById('download-inputs-row');
+  if (btnShowDownload) btnShowDownload.style.display = 'flex';
+  if (inputsRow) inputsRow.classList.add('hidden');
+
+  updateMemoryUIState();
+}
+
+async function openSettingsPanel(tabName = 'account') {
+  if (!settingsPanel || !chatMain) return;
+
+  if (!settingsPanelOpen) {
+    chatTitleBeforeSettings = activeChatTitle?.textContent || 'New chat';
+  }
+
+  settingsPanelOpen = true;
+  settingsPanel.classList.remove('hidden');
+  chatMain.classList.add('settings-open');
+  btnSettings?.classList.add('active');
+
+  if (activeChatTitle) activeChatTitle.textContent = 'Settings';
+  btnBackFromSettings?.classList.remove('hidden');
+
+  const tab = document.querySelector(`.settings-tab-btn[data-tab="${tabName}"]`);
+  if (tab) tab.click();
+  else document.querySelector('.settings-tab-btn[data-tab="account"]')?.click();
+
+  await prepareSettingsPanelState();
+  decorateSettingsActionButtons(settingsPanel || document);
+  logTrace('Settings opened.', 'system');
+}
+
+function closeSettingsPanel() {
+  if (!settingsPanel || !chatMain) return;
+
+  settingsPanelOpen = false;
+  settingsPanel.classList.add('hidden');
+  chatMain.classList.remove('settings-open');
+  btnSettings?.classList.remove('active');
+
+  if (activeChatTitle) {
+    activeChatTitle.textContent = chatTitleBeforeSettings || 'New chat';
+  }
+  btnBackFromSettings?.classList.add('hidden');
+
+  logTrace('Settings closed.', 'system');
+}
+
+if (btnSettings && settingsPanel) {
+  btnSettings.addEventListener('click', async () => {
+    if (settingsPanelOpen) {
+      closeSettingsPanel();
+      return;
     }
-    if (settingNeverCaptureApps) {
-      settingNeverCaptureApps.value = window.localStorage.getItem('ultron-never-capture-apps') || '';
-    }
-    
-    await loadStoragePathsUI();
-    
-    // Restore direct download trigger state
-    const btnShowDownload = document.getElementById('btn-show-download-fields');
-    const inputsRow = document.getElementById('download-inputs-row');
-    if (btnShowDownload) btnShowDownload.style.display = 'flex';
-    if (inputsRow) inputsRow.classList.add('hidden');
-    
-    updateMemoryUIState();
-    logTrace('Settings configuration panel opened.', 'system');
+    await openSettingsPanel('account');
   });
-  btnCloseSettings.addEventListener('click', () => {
-    settingsModal.classList.add('hidden');
-    logTrace('Settings configuration panel closed.', 'system');
+}
+
+if (btnBackFromSettings) {
+  btnBackFromSettings.addEventListener('click', () => {
+    closeSettingsPanel();
   });
 }
 
@@ -12143,6 +13519,7 @@ if (settingHomeLocation) {
   settingHomeLocation.addEventListener('change', () => {
     window.localStorage.setItem(MANUAL_LOCATION_KEY, 'true');
     persistHomeLocation(settingHomeLocation.value);
+    setDetectLocationButtonState('idle');
     loadAccountDetails();
     logTrace(`Home location ${settingHomeLocation.value.trim() ? 'set manually' : 'cleared'}: "${settingHomeLocation.value.trim()}"`, 'system');
   });
@@ -12568,57 +13945,9 @@ function setupAutoUpdaterUI() {
 
   if (!window.ultronAPI || !window.ultronAPI.onUpdateStatus) return;
 
-  const handleCheckForUpdates = async () => {
-    if (title) title.textContent = 'Checking for updates...';
-    if (topBtnCheck) {
-      topBtnCheck.disabled = true;
-      topBtnCheck.style.opacity = '0.6';
-      topBtnCheck.querySelector('span').textContent = 'Checking...';
-    }
-    if (btnCheck) {
-      btnCheck.disabled = true;
-      btnCheck.style.opacity = '0.6';
-    }
+  function applyUpdateStatus(data) {
+    if (!data) return;
 
-    const res = await window.ultronAPI.checkForUpdates();
-    if (res && res.status === 'dev-mode') {
-      if (title) title.textContent = 'Dev Mode Active';
-      if (subtitle) subtitle.textContent = 'Auto-updates check remote GitHub Releases in production builds.';
-      if (topBtnCheck) {
-        topBtnCheck.disabled = false;
-        topBtnCheck.style.opacity = '1';
-        topBtnCheck.querySelector('span').textContent = 'Dev Mode Active';
-        setTimeout(() => {
-          if (topBtnCheck) topBtnCheck.querySelector('span').textContent = 'Check for Updates';
-        }, 3000);
-      }
-      if (btnCheck) {
-        btnCheck.disabled = false;
-        btnCheck.style.opacity = '1';
-      }
-    }
-  };
-
-  const handleDownloadUpdate = async () => {
-    if (btnDownload) btnDownload.style.display = 'none';
-    if (topBtnDownload) topBtnDownload.classList.add('hidden');
-    if (progressLabel) progressLabel.textContent = 'Starting download...';
-    if (topDownloadText) topDownloadText.textContent = 'Starting download...';
-    await window.ultronAPI.downloadUpdate();
-  };
-
-  const handleRestartAndInstall = () => {
-    window.ultronAPI.restartAndInstall();
-  };
-
-  if (btnCheck) btnCheck.addEventListener('click', handleCheckForUpdates);
-  if (topBtnCheck) topBtnCheck.addEventListener('click', handleCheckForUpdates);
-  if (btnDownload) btnDownload.addEventListener('click', handleDownloadUpdate);
-  if (topBtnDownload) topBtnDownload.addEventListener('click', handleDownloadUpdate);
-  if (btnRestart) btnRestart.addEventListener('click', handleRestartAndInstall);
-  if (topBtnRestart) topBtnRestart.addEventListener('click', handleRestartAndInstall);
-
-  window.ultronAPI.onUpdateStatus((data) => {
     if (btnCheck) {
       btnCheck.disabled = false;
       btnCheck.style.opacity = '1';
@@ -12631,21 +13960,37 @@ function setupAutoUpdaterUI() {
 
     if (data.status === 'checking') {
       if (title) title.textContent = 'Checking GitHub Releases...';
-      if (topBtnCheck) topBtnCheck.querySelector('span').textContent = 'Checking...';
+      if (topBtnCheck) {
+        topBtnCheck.disabled = true;
+        topBtnCheck.style.opacity = '0.6';
+        topBtnCheck.querySelector('span').textContent = 'Checking...';
+      }
+      if (btnCheck) {
+        btnCheck.disabled = true;
+        btnCheck.style.opacity = '0.6';
+      }
+    } else if (data.status === 'dev-mode') {
+      if (title) title.textContent = 'Dev Mode Active';
+      if (subtitle) subtitle.textContent = 'Auto-updates check remote GitHub Releases in production builds.';
+      if (topBtnCheck) {
+        topBtnCheck.querySelector('span').textContent = 'Dev Mode Active';
+        setTimeout(() => {
+          if (topBtnCheck) topBtnCheck.querySelector('span').textContent = 'Check for Updates';
+        }, 3000);
+      }
     } else if (data.status === 'available') {
       if (title) title.textContent = `New Update Available: v${data.version}!`;
       if (subtitle) subtitle.textContent = `Release notes: ${data.releaseNotes || 'Bug fixes and performance improvements.'}`;
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'inline-flex';
 
-      // Top-left header button
       if (topBtnDownload) {
         topBtnDownload.classList.remove('hidden');
         if (topDownloadText) topDownloadText.textContent = `Download v${data.version}`;
       }
     } else if (data.status === 'not-available') {
       if (title) title.textContent = 'Ultron is Up to Date ✓';
-      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.3'}).`;
+      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.7'}).`;
       if (actionContainer) actionContainer.style.display = 'none';
       if (topBtnDownload) topBtnDownload.classList.add('hidden');
       if (topBtnRestart) topBtnRestart.classList.add('hidden');
@@ -12669,7 +14014,7 @@ function setupAutoUpdaterUI() {
       if (topBtnDownload) topBtnDownload.classList.add('hidden');
       if (topBtnRestart) topBtnRestart.classList.remove('hidden');
     } else if (data.status === 'error') {
-      const isUpToDate = data.error && (data.error.includes('latest version') || data.error.includes('No newer release') || data.error.includes('404'));
+      const isUpToDate = data.error && (data.error.includes('latest version') || data.error.includes('No newer release'));
       if (isUpToDate) {
         if (title) title.textContent = 'Ultron is Up to Date ✓';
         if (subtitle) subtitle.textContent = 'You are running the latest version.';
@@ -12678,6 +14023,41 @@ function setupAutoUpdaterUI() {
         if (subtitle) subtitle.textContent = data.error || 'Failed to check for updates.';
       }
     }
+  }
+
+  const handleCheckForUpdates = async () => {
+    applyUpdateStatus({ status: 'checking' });
+    try {
+      const res = await window.ultronAPI.checkForUpdates();
+      if (res) {
+        applyUpdateStatus(res);
+      }
+    } catch (err) {
+      applyUpdateStatus({ status: 'error', error: err?.message || 'Check failed' });
+    }
+  };
+
+  const handleDownloadUpdate = async () => {
+    if (btnDownload) btnDownload.style.display = 'none';
+    if (topBtnDownload) topBtnDownload.classList.add('hidden');
+    if (progressLabel) progressLabel.textContent = 'Starting download...';
+    if (topDownloadText) topDownloadText.textContent = 'Starting download...';
+    await window.ultronAPI.downloadUpdate();
+  };
+
+  const handleRestartAndInstall = () => {
+    window.ultronAPI.restartAndInstall();
+  };
+
+  if (btnCheck) btnCheck.addEventListener('click', handleCheckForUpdates);
+  if (topBtnCheck) topBtnCheck.addEventListener('click', handleCheckForUpdates);
+  if (btnDownload) btnDownload.addEventListener('click', handleDownloadUpdate);
+  if (topBtnDownload) topBtnDownload.addEventListener('click', handleDownloadUpdate);
+  if (btnRestart) btnRestart.addEventListener('click', handleRestartAndInstall);
+  if (topBtnRestart) topBtnRestart.addEventListener('click', handleRestartAndInstall);
+
+  window.ultronAPI.onUpdateStatus((data) => {
+    applyUpdateStatus(data);
   });
 }
 

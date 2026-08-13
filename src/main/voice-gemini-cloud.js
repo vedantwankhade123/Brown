@@ -19,8 +19,9 @@ function loadGeminiApiKey() {
   }
 }
 
-function isGeminiCloudAvailable() {
-  return Boolean(loadGeminiApiKey());
+function isGeminiCloudAvailable(apiKey = null) {
+  const key = String(apiKey || loadGeminiApiKey() || '').trim();
+  return Boolean(key);
 }
 
 function pcmToWavBuffer(pcmBuffer, sampleRate = 24000, channels = 1, bitDepth = 16) {

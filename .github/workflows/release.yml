@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 1.0.8-beta.6 or 1.0.8)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -14,41 +19,78 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: npm
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: npm ci
 
-      - name: Run tests
+      - name: Run Tests
         run: npm test
 
-      - name: Verify tag matches package.json (tag builds only)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Prepare Version and Release Notes
         shell: pwsh
         run: |
-          $pkgVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $tagVersion = "${{ github.ref_name }}" -replace '^v',''
-          if ($pkgVersion -ne $tagVersion) {
-            Write-Error "Git tag v$tagVersion does not match package.json version $pkgVersion. Bump package.json first, then tag."
-          }
-          Write-Host "Publishing Ultron AI v$pkgVersion"
+          $inputVersion = "${{ github.event.inputs.version }}"
+          $currentPkgVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
 
-      - name: Build and publish to GitHub Releases
+          if ($inputVersion) {
+            $targetVersion = $inputVersion -replace '^v',''
+            Write-Host "Updating package.json version to $targetVersion"
+            $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+            $pkg.version = $targetVersion
+            $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json -Encoding UTF8
+          } else {
+            $targetVersion = $currentPkgVersion
+          }
+
+          Write-Host "Target Version: $targetVersion"
+
+          # Check if specific release notes file exists, else generate git changelog
+          $releaseNotesFile = ".release-notes-v${targetVersion}.md"
+          if (-not (Test-Path $releaseNotesFile)) {
+            Write-Host "No $releaseNotesFile found. Generating release notes from git history..."
+            $gitNotes = git log -n 10 --oneline --no-merges
+            $notesContent = "## Release Notes v${targetVersion}`n`n### Recent Changes:`n" + ($gitNotes -join "`n")
+            Set-Content -Path $releaseNotesFile -Value $notesContent -Encoding UTF8
+          }
+          Write-Host "Release notes prepared in $releaseNotesFile"
+
+      - name: Build & Publish to GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run release
 
-      - name: Release summary
+      - name: Update release.json manifest for Website
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          Write-Host "Published v$version to GitHub Releases."
-          Write-Host "Assets: Ultron.AI.Setup.$version.exe, Ultron.AI.$version.exe, latest.yml"
-          Write-Host "Installed apps will detect the update via electron-updater."
+          $tag = "v$version"
+          $relJson = @{
+            version = $version
+            tagName = $tag
+            releaseDate = (Get-Date -Format "yyyy-MM-dd")
+            setupUrl = "https://github.com/vedantwankhade123/Ultron/releases/download/$tag/Ultron.AI.Setup.$version.exe"
+            portableUrl = "https://github.com/vedantwankhade123/Ultron/releases/download/$tag/Ultron.AI.$version.exe"
+            setupName = "Ultron.AI.Setup.$version.exe"
+            portableName = "Ultron.AI.$version.exe"
+          }
+          $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/public/release.json" -Encoding UTF8
+          $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/release.json" -Encoding UTF8
+          Write-Host "Updated website release.json for version $version"
+
+      - name: Summary
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          Write-Host "Successfully published Ultron AI v$version to GitHub Releases!"
+          Write-Host "Installer: Ultron.AI.Setup.$version.exe"
+          Write-Host "Portable:  Ultron.AI.$version.exe"

@@ -33,13 +33,14 @@ function initAutoUpdater(mainWindow) {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowDowngrade = false;
+  autoUpdater.allowPrerelease = true;
 
   try {
     autoUpdater.setFeedURL({
       provider: 'github',
       owner: 'vedantwankhade123',
       repo: 'Ultron',
-      releaseType: 'release'
+      releaseType: 'prerelease'
     });
   } catch (e) {
     console.error('[AUTO-UPDATER] setFeedURL error:', e);
