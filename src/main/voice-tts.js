@@ -321,17 +321,17 @@ function chunkTextForTts(text, maxLen = 350) {
   return chunks.length ? chunks : [cleaned.slice(0, maxLen)];
 }
 
-async function synthesizeWithModel(modelKey, text) {
+async function synthesizeWithModel(modelKey, text, options = {}) {
   const entry = getCatalogEntry(modelKey);
   const chunks = chunkTextForTts(text);
   if (!chunks.length) {
     return { success: false, error: 'No text to speak.' };
   }
-  if (!isModelInstalled(modelKey)) {
+  if (!isModelInstalled(modelKey, options)) {
     return {
       success: false,
-      error: `“${entry.label}” is not installed. Download it in Settings → Agent Sounds.`,
-      needsDownload: true,
+      error: `“${entry.label}” is not configured or installed. Select it in Settings → Agent Sounds.`,
+      needsDownload: !entry.cloud,
       modelKey
     };
   }
@@ -350,7 +350,8 @@ async function synthesizeWithModel(modelKey, text) {
     const { synthesizeGeminiCloudSpeech } = require('./voice-gemini-cloud');
     const result = await synthesizeGeminiCloudSpeech(chunks.join(' '), {
       geminiModel: entry.geminiModel,
-      voiceName: entry.voiceName
+      voiceName: entry.voiceName,
+      apiKey: options.apiKey
     });
     return {
       ...result,
@@ -405,8 +406,8 @@ async function synthesizeWithModel(modelKey, text) {
   }
 }
 
-async function synthesizeSpeech(text, modelKey = activeModelKey) {
-  return synthesizeWithModel(modelKey || activeModelKey, text);
+async function synthesizeSpeech(text, modelKey = activeModelKey, options = {}) {
+  return synthesizeWithModel(modelKey || activeModelKey, text, options);
 }
 
 function getTtsCatalog() {

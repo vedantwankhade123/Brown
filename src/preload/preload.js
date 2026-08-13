@@ -90,7 +90,7 @@ contextBridge.exposeInMainWorld('ultronAPI', {
     return () => ipcRenderer.removeListener('update-status', subscription);
   },
 
-  // Offline speech-to-text (Whisper via main process)
+  // Built-in speech-to-text (Windows Speech Recognition)
   transcribeAudio: (payload) => {
     if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
       return ipcRenderer.invoke('transcribe-audio', payload);

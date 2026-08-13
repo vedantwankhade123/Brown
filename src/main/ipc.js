@@ -220,15 +220,41 @@ function escapePowerShellSingleQuoted(value) {
 
 const JUNK_APP_NAME_RE = /\b(what('s| is) new|release notes?|readme|read me|documentation|user manual|quick start|getting started|welcome to|learn more|visit (our )?website|online help|tip of the day|eula|license agreement|privacy (policy|statement)|product information|how to use|tutorial|support center|customer service|release note|about this|overview|introduction|information|help topics?|view (the )?manual|software license|activation|register (your )?product|buy now|upgrade now|try premium|subscribe|newsletter|survey|feedback form)\b/i;
 
+const EXCLUDED_APP_NAME_RE = /\b(developer command prompt|developer powershell|x\d{2,3} native tools|x\d{2,3} x64 native tools|x64 cross tools|x86 cross tools|remote debugger|performance profiler|blend for visual studio|vc[_\s-]?vars|vs[_\s-]?devcmd|application verifier|windows sdk|windows kit|debuggable package|fusion log viewer|ildasm|gacutil|ngen|spy\+\+|wfc|xsd|vcperf|installerprojects|clickonce|nuget package|sql server configuration|sql server installation|odbc data sources?\(\d+\)|odbcad32|iis express|hyper-v (quick|manager)|windows sandbox|steps recorder|problem steps|windows memory diagnostic|defragment|disk cleanup|resource monitor|system configuration|system information|computer management|event viewer|services\.msc|local security policy|windows powershell ise|powershell ise|debuggable|symbol settings|dumpchk|windbg|debug diagnostic|application compatibility|windows performance toolkit|windows assessment)\b/i;
+
+const EXCLUDED_TARGET_PATH_RE = /\\Common7\\Tools\\|\\VC\\Auxiliary\\Build\\|\\Windows Kits\\|\\Team Tools\\|\\Microsoft Visual Studio\\20\d{2}\\.*\\(Team Tools|Common7\\Tools)\\|\\Program Files \(x86\)\\Microsoft Visual Studio\\|\\Windows\s*Performance\s*Toolkit\\|\\Windows\s*Assessment\s*and\s*Deployment\\|\\Microsoft\s*SDKs\\|\\SDK\s*Tools\\/i;
+
+const ALLOWED_SYSTEM_APP_NAMES = new Set([
+  'file explorer', 'notepad', 'calculator', 'paint', 'paint 3d', 'snipping tool',
+  'powershell', 'windows powershell', 'command prompt', 'windows terminal',
+  'settings', 'control panel', 'task manager', 'windows media player',
+  'microsoft edge', 'wordpad', 'character map', 'remote desktop connection',
+  'windows security', 'microsoft store', 'sticky notes', 'clock', 'photos',
+  'camera', 'maps', 'mail', 'calendar', 'microsoft teams', 'xbox',
+  'google chrome', 'visual studio code', 'whatsapp', 'telegram', 'obsidian',
+  'notepad++', 'git bash', 'obs studio', 'python'
+]);
+
+const ALLOWED_SYSTEM_EXE_NAMES = new Set([
+  'explorer', 'notepad', 'calc', 'mspaint', 'powershell', 'cmd', 'wt',
+  'systemsettings', 'control', 'taskmgr', 'wordpad', 'charmap', 'mstsc',
+  'chrome', 'msedge', 'code', 'whatsapp', 'telegram', 'obs64', 'obs32',
+  'notepad++', 'git-bash', 'py', 'python', 'pythonw'
+]);
+
 const NON_APP_FOLDER_TOKENS = [
   'startup', 'maintenance', 'system tools', 'administrative tools',
   'desktop', 'documents', 'downloads', 'uninstall', 'accessories',
-  'windows powershell', 'windows tools', 'startup folder'
+  'windows tools', 'startup folder', 'visual studio 20', 'windows kits',
+  'windows sdk', 'debugging tools', 'diagnostics', 'accessibility'
 ];
 
-function resolveAppTargetPath(appPath) {
-  if (!appPath) return '';
-  let target = appPath;
+function resolveAppTargetPath(appItemOrPath) {
+  const rawPath = typeof appItemOrPath === 'string'
+    ? appItemOrPath
+    : appItemOrPath?.path;
+  if (!rawPath) return '';
+  let target = rawPath;
   if (target.toLowerCase().endsWith('.lnk')) {
     try {
       const shortcut = shell.readShortcutLink(target);
@@ -236,6 +262,26 @@ function resolveAppTargetPath(appPath) {
     } catch (e) { /* ignore bad shortcuts */ }
   }
   return target;
+}
+
+function isObscureSystemUtility(name, targetPath) {
+  const friendlyName = String(name || '').toLowerCase().trim();
+  if (ALLOWED_SYSTEM_APP_NAMES.has(friendlyName)) return false;
+
+  const normalized = String(targetPath || '').toLowerCase().replace(/\//g, '\\');
+  if (!normalized.includes('\\windows\\system32\\') && !normalized.includes('\\windows\\syswow64\\')) {
+    return false;
+  }
+
+  const exeBase = path.basename(normalized, path.extname(normalized)).toLowerCase();
+  if (ALLOWED_SYSTEM_EXE_NAMES.has(exeBase)) return false;
+
+  // Hide cryptic system utilities like dfrgui, cleanmgr, compmgmt, etc.
+  if (/^[a-z][a-z0-9]{2,11}$/.test(friendlyName) && friendlyName === exeBase) {
+    return true;
+  }
+
+  return !ALLOWED_SYSTEM_APP_NAMES.has(friendlyName);
 }
 
 function isLaunchableExecutable(targetPath) {
@@ -261,6 +307,7 @@ function isRealApplication(appItem) {
 
   const lowerName = name.toLowerCase();
   if (JUNK_APP_NAME_RE.test(lowerName)) return false;
+  if (EXCLUDED_APP_NAME_RE.test(lowerName)) return false;
   if (NON_APP_FOLDER_TOKENS.some(token => lowerName.includes(token))) return false;
   if (/^(help|support|readme|documentation|license|uninstall|repair|modify)$/i.test(lowerName)) return false;
 
@@ -269,6 +316,8 @@ function isRealApplication(appItem) {
 
   const target = resolveAppTargetPath(rawPath);
   if (isDocumentOrLinkTarget(target)) return false;
+  if (EXCLUDED_TARGET_PATH_RE.test(String(target).replace(/\//g, '\\'))) return false;
+  if (isObscureSystemUtility(name, target)) return false;
 
   if (rawPath.toLowerCase().endsWith('.lnk')) {
     return isLaunchableExecutable(target);
@@ -279,11 +328,14 @@ function isRealApplication(appItem) {
 
 function getBuiltInAppsList() {
   const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Local');
+  const appData = process.env.APPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Roaming');
   return [
     { name: 'Google Chrome', path: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' },
+    { name: 'Google Chrome', path: 'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe' },
     { name: 'Microsoft Edge', path: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' },
-    { name: 'Visual Studio Code', path: path.join(process.env.USERPROFILE, 'AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe') },
-    { name: 'Obsidian', path: path.join(process.env.USERPROFILE, 'AppData\\Local\\Obsidian\\Obsidian.exe') },
+    { name: 'Microsoft Edge', path: 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe' },
+    { name: 'Visual Studio Code', path: path.join(localAppData, 'Programs\\Microsoft VS Code\\Code.exe') },
+    { name: 'Obsidian', path: path.join(localAppData, 'Obsidian\\Obsidian.exe') },
     { name: 'Git Bash', path: 'C:\\Program Files\\Git\\git-bash.exe' },
     { name: 'OBS Studio', path: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe' },
     { name: 'OBS Studio', path: 'C:\\Program Files (x86)\\obs-studio\\bin\\64bit\\obs64.exe' },
@@ -291,10 +343,13 @@ function getBuiltInAppsList() {
     { name: 'Notepad', path: 'C:\\Windows\\System32\\notepad.exe' },
     { name: 'Calculator', path: 'C:\\Windows\\System32\\calc.exe' },
     { name: 'Paint', path: 'C:\\Windows\\System32\\mspaint.exe' },
-    { name: 'WhatsApp', path: path.join(localAppData, 'WhatsApp', 'WhatsApp.exe') },
+    { name: 'WhatsApp', path: path.join(localAppData, 'WhatsApp\\WhatsApp.exe') },
+    { name: 'Telegram', path: path.join(appData, 'Telegram Desktop\\Telegram.exe') },
     { name: 'Notepad++', path: 'C:\\Program Files\\Notepad++\\notepad++.exe' },
     { name: 'Command Prompt', path: 'C:\\Windows\\System32\\cmd.exe' },
     { name: 'PowerShell', path: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe' },
+    { name: 'Windows Terminal', path: path.join(localAppData, 'Microsoft\\WindowsApps\\wt.exe') },
+    { name: 'Settings', path: 'C:\\Windows\\ImmersiveControlPanel\\SystemSettings.exe' },
     { name: 'Python', path: 'C:\\Windows\\py.exe' }
   ];
 }
@@ -375,6 +430,40 @@ async function getInstalledAppIcon(appItem) {
     }
   } catch (e) {}
   return '';
+}
+
+function inferAppPublisher(targetPath = '') {
+  if (!targetPath) return 'Local';
+  const pfMatch = targetPath.match(/Program Files(?: \(x86\))?\\([^\\]+)/i);
+  if (pfMatch) return pfMatch[1];
+  if (/\\Windows\\/i.test(targetPath)) return 'Microsoft';
+  const localPrograms = targetPath.match(/AppData\\Local\\Programs\\([^\\]+)/i);
+  if (localPrograms) return localPrograms[1];
+  return 'Local';
+}
+
+function enrichInstalledApp(appItem) {
+  const targetPath = resolveAppTargetPath(appItem);
+  let sizeBytes = 0;
+  let modifiedAt = null;
+
+  try {
+    const statPath = targetPath && fs.existsSync(targetPath) ? targetPath : appItem.path;
+    if (statPath && fs.existsSync(statPath)) {
+      const stat = fs.statSync(statPath);
+      sizeBytes = stat.size || 0;
+      modifiedAt = stat.mtime ? stat.mtime.toISOString() : null;
+    }
+  } catch (e) { /* ignore */ }
+
+  return {
+    name: appItem.name,
+    path: appItem.path || '',
+    targetPath,
+    publisher: inferAppPublisher(targetPath || appItem.path || ''),
+    sizeBytes,
+    modifiedAt
+  };
 }
 
 async function runMouseScript(bodyLines) {
@@ -673,15 +762,33 @@ function registerAudioIpcHandlers() {
   if (registerAudioIpcHandlers._done) return;
   registerAudioIpcHandlers._done = true;
 
+
+
   ipcMain.handle('transcribe-audio', async (_event, payload = {}) => {
     try {
       const { transcribeAudioWavBase64, transcribeAudioFloat32 } = require('./voice-stt');
+      const culture = String(payload.culture || '').trim() || undefined;
+      let wavResult = null;
+
       if (payload.wavBase64) {
-        return await transcribeAudioWavBase64(payload.wavBase64);
+        wavResult = await transcribeAudioWavBase64(payload.wavBase64, culture);
+        if (wavResult?.text) return wavResult;
       }
+
       const samples = payload.samples || payload.audio || [];
-      const sampleRate = Number(payload.sampleRate) || 16000;
-      return await transcribeAudioFloat32(samples, sampleRate);
+      if (Array.isArray(samples) && samples.length > 800) {
+        const sampleRate = Number(payload.sampleRate) || 16000;
+        const floatResult = await transcribeAudioFloat32(samples, sampleRate, culture);
+        if (floatResult?.text) return floatResult;
+        if (wavResult) return wavResult;
+        return floatResult;
+      }
+
+      if (payload.wavBase64) {
+        return wavResult || await transcribeAudioWavBase64(payload.wavBase64, culture);
+      }
+
+      return { success: false, error: 'No audio data provided.' };
     } catch (err) {
       console.error('[ipc] transcribe-audio error:', err);
       return { success: false, error: err.message || 'Transcription failed.' };
@@ -690,10 +797,18 @@ function registerAudioIpcHandlers() {
 
   ipcMain.handle('get-voice-model-status', async () => {
     try {
-      const { getVoiceModelStatus } = require('./voice-stt');
-      return getVoiceModelStatus();
+      const { refreshVoiceModelAvailability } = require('./voice-stt');
+      return await refreshVoiceModelAvailability();
     } catch (err) {
-      return { installed: false, error: err.message };
+      const onWindows = process.platform === 'win32';
+      return {
+        installed: onWindows,
+        available: onWindows,
+        builtIn: onWindows,
+        noDownloadRequired: onWindows,
+        engine: onWindows ? 'windows-speech' : 'unavailable',
+        error: err.message
+      };
     }
   });
 
@@ -771,8 +886,9 @@ function registerAudioIpcHandlers() {
       const { synthesizeSpeech, synthesizeWithModel } = require('./voice-tts');
       const text = String(payload.text || payload.content || '');
       const modelKey = payload.modelKey || null;
-      if (modelKey) return await synthesizeWithModel(modelKey, text);
-      return await synthesizeSpeech(text);
+      const apiKey = String(payload.apiKey || payload.geminiApiKey || '').trim();
+      if (modelKey) return await synthesizeWithModel(modelKey, text, { apiKey });
+      return await synthesizeSpeech(text, undefined, { apiKey });
     } catch (err) {
       console.error('[ipc] synthesize-speech error:', err);
       return { success: false, error: err.message || 'Speech synthesis failed.' };
@@ -1013,8 +1129,9 @@ function setupIpcHandlers() {
 
       const results = await Promise.all(
         mergedApps.map(async (appItem) => {
+          const enriched = enrichInstalledApp(appItem);
           const iconDataUrl = await getInstalledAppIcon(appItem);
-          return { name: appItem.name, icon: iconDataUrl };
+          return { ...enriched, icon: iconDataUrl };
         })
       );
 

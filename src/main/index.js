@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { setupIpcHandlers, setMainWindow } = require('./ipc');
@@ -22,15 +22,41 @@ function initializeDataDirectories() {
 
 module.exports = { getDefaultDataDirectory: () => require('./paths').getDefaultAgentDataDir() };
 
+const WINDOW_BG = '#000000';
+const TITLE_BAR_COLOR = '#131314';
+
+function applyWinTitleBarOverlay(win) {
+  if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
+  try {
+    win.setTitleBarOverlay({
+      color: TITLE_BAR_COLOR,
+      symbolColor: '#ffffff',
+      height: 32
+    });
+  } catch (err) {
+    console.warn('[window] setTitleBarOverlay failed:', err.message);
+  }
+}
+
 function createWindow() {
+  const isWin32 = process.platform === 'win32';
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    show: true,
-    backgroundColor: '#0a0a0c',
-    title: 'Ultron AI: Local Windows Autonomous AI Framework',
+    show: false,
+    backgroundColor: isWin32 ? TITLE_BAR_COLOR : WINDOW_BG,
+    title: 'Ultron: Autonomous Local AI Agent',
     icon: path.join(__dirname, '..', '..', 'Assets', 'ultron-logo.png'),
-    frame: true,
+    ...(isWin32
+      ? {
+          titleBarStyle: 'hidden',
+          titleBarOverlay: {
+            color: TITLE_BAR_COLOR,
+            symbolColor: '#ffffff',
+            height: 32
+          }
+        }
+      : { frame: true }),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
@@ -40,9 +66,24 @@ function createWindow() {
   });
 
   mainWindow.once('ready-to-show', () => {
+    applyWinTitleBarOverlay(mainWindow);
     mainWindow.show();
     mainWindow.focus();
   });
+
+  if (isWin32) {
+    mainWindow.on('maximize', () => applyWinTitleBarOverlay(mainWindow));
+    mainWindow.on('unmaximize', () => applyWinTitleBarOverlay(mainWindow));
+    mainWindow.on('enter-full-screen', () => applyWinTitleBarOverlay(mainWindow));
+    mainWindow.on('leave-full-screen', () => applyWinTitleBarOverlay(mainWindow));
+    mainWindow.webContents.on('did-finish-load', () => {
+      applyWinTitleBarOverlay(mainWindow);
+      mainWindow.webContents.executeJavaScript(
+        "document.body.classList.add('platform-win32')",
+        true
+      ).catch(() => {});
+    });
+  }
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (url !== mainWindow.webContents.getURL() && (url.startsWith('http://') || url.startsWith('https://'))) {
@@ -75,34 +116,72 @@ function createWindow() {
   initAutoUpdater(mainWindow);
 }
 
+process.on('uncaughtException', (err) => {
+  console.error('[MAIN] Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[MAIN] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('[MAIN] Another instance of Ultron is already running. Exiting second instance.');
+  app.quit();
+}
+
 app.whenReady().then(() => {
-  initializeDataDirectories();
-  setupIpcHandlers();
-
-  const uvxPath = mcpManager.resolveUvxPath();
-  if (uvxPath && !process.env.ULTRON_UVX_PATH) {
-    process.env.ULTRON_UVX_PATH = uvxPath;
+  try {
+    nativeTheme.themeSource = 'dark';
+    initializeDataDirectories();
+    setupIpcHandlers();
+  } catch (err) {
+    console.error('[MAIN] Error during early initialization:', err);
   }
 
-  const nodePath = mcpManager.resolveNodeExecutable();
-  if (nodePath && !process.env.ULTRON_NODE_PATH) {
-    process.env.ULTRON_NODE_PATH = nodePath;
+  try {
+    if (process.platform === 'win32') {
+      const { probeNativeSttAvailable } = require('./voice-stt-native');
+      probeNativeSttAvailable()
+        .then((ok) => console.log('[voice-stt] Windows speech recognition:', ok ? 'ready' : 'unavailable'))
+        .catch((err) => console.warn('[voice-stt] Probe failed:', err.message));
+    }
+  } catch (err) {
+    console.warn('[MAIN] Probe native STT failed:', err.message);
   }
 
-  mcpManager.initializeMcp({
-    userDataPath: getConnectorsRoot(),
-    windowsUiaAutoInstall: false
-  }).then((status) => {
-    console.log('[MCP] Initialized:', JSON.stringify(status));
-  }).catch((err) => {
-    console.warn('[MCP] Init failed (native tools still available):', err.message);
-  });
+  try {
+    const uvxPath = mcpManager.resolveUvxPath();
+    if (uvxPath && !process.env.ULTRON_UVX_PATH) {
+      process.env.ULTRON_UVX_PATH = uvxPath;
+    }
 
-  const { session } = require('electron');
-  session.defaultSession.on('preload-error', (event, preloadPath, error) => {
-    console.error('[PRELOAD ERROR] Path:', preloadPath);
-    console.error('[PRELOAD ERROR] Error Stack:', error.stack || error);
-  });
+    const nodePath = mcpManager.resolveNodeExecutable();
+    if (nodePath && !process.env.ULTRON_NODE_PATH) {
+      process.env.ULTRON_NODE_PATH = nodePath;
+    }
+
+    mcpManager.initializeMcp({
+      userDataPath: getConnectorsRoot(),
+      windowsUiaAutoInstall: false
+    }).then((status) => {
+      console.log('[MCP] Initialized:', JSON.stringify(status));
+    }).catch((err) => {
+      console.warn('[MCP] Init failed (native tools still available):', err.message);
+    });
+  } catch (err) {
+    console.warn('[MAIN] MCP initialization error:', err.message);
+  }
+
+  try {
+    const { session } = require('electron');
+    session.defaultSession.on('preload-error', (event, preloadPath, error) => {
+      console.error('[PRELOAD ERROR] Path:', preloadPath);
+      console.error('[PRELOAD ERROR] Error Stack:', error.stack || error);
+    });
+  } catch (err) {
+    console.warn('[MAIN] Session setup error:', err.message);
+  }
 
   createWindow();
 
