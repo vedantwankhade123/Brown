@@ -7851,18 +7851,6 @@ span.settings-action-btn.is-ready {
   display: none;
 }
 
-/* Voice Mode Disabled */
-.voice-mode-stage,
-.voice-mode-bar,
-.voice-mode-models-toggle,
-.voice-mode-models-panel,
-.btn-chat-mode-voice,
-.chat-mode-toggle {
-  display: none !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-}
-
 /* Beta Badge Pill */
 .beta-badge-pill {
   font-size: 9px;
