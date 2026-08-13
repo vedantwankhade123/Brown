@@ -1479,6 +1479,10 @@ function finalizeAiMessageBubble(contentElement, fullText, { autoSpeak = true } 
   const actionsDiv = messageWrapper ? messageWrapper.querySelector('.message-actions') : null;
   if (actionsDiv) wireMessageActionButtons(actionsDiv, fullText);
   if (autoSpeak) finishStreamingAutoSpeak(fullText);
+  // In text mode, pre-synthesize TTS in background so Speak button is instant
+  if (!isVoiceChatModeEnabled()) {
+    precacheTtsAudio(fullText);
+  }
 }
 
 async function typeMessageResponse(contentElement, fullText, options = {}) {
@@ -4706,11 +4710,11 @@ function renderModelDropdownList() {
       const item = document.createElement('div');
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       item.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <img src="../../Assets/gemini-logo.png" alt="Gemini" style="width: 16px; height: 16px; object-fit: contain;" />
-          <span class="model-name-text">${model.name}</span>
+        <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
+          <img src="../../Assets/gemini-logo.png" alt="Gemini" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
+          <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
         </div>
-        <span class="model-badge" style="background: transparent !important; color: #ffffff !important; border: none !important; padding: 0; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">${model.tag}</span>
+        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.5); flex-shrink: 0; text-align: right; margin-left: 8px;">${model.tag}</span>
       `;
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept('');
@@ -4745,11 +4749,11 @@ function renderModelDropdownList() {
       const item = document.createElement('div');
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       item.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <img src="../../Assets/ollama-logo.png" alt="Ollama Cloud" style="width: 16px; height: 16px; object-fit: contain;" />
-          <span class="model-name-text">${model.name}</span>
+        <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
+          <img src="../../Assets/ollama-logo.png" alt="Ollama Cloud" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
+          <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
         </div>
-        <span class="model-badge" style="background: transparent !important; color: #34d399 !important; border: none !important; padding: 0; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">CLOUD</span>
+        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: #34d399; flex-shrink: 0; text-align: right; margin-left: 8px;">CLOUD</span>
       `;
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept(model.name);
@@ -4793,11 +4797,11 @@ function renderModelDropdownList() {
       }
 
       item.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <img src="../../Assets/ollama-logo.png" alt="Ollama" style="width: 16px; height: 16px; object-fit: contain; filter: brightness(0) invert(1);" />
-          <span class="model-name-text">${model.name}</span>
+        <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
+          <img src="../../Assets/ollama-logo.png" alt="Ollama" style="width: 16px; height: 16px; object-fit: contain; filter: brightness(0) invert(1); flex-shrink: 0;" />
+          <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
         </div>
-        <span class="model-badge" style="background: transparent !important; color: #ffffff !important; border: none !important; padding: 0; font-size: 11px; font-weight: 600; font-family: 'JetBrains Mono', monospace;">${badgeText}</span>
+        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.5); flex-shrink: 0; text-align: right; margin-left: 8px;">${badgeText}</span>
       `;
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept(model.name);
@@ -11937,8 +11941,69 @@ let ttsVoicesCache = [];
 let ttsKeepAliveTimer = null;
 
 function isTtsAutoSpeakEnabled() {
+  // In voice chat mode, always auto-speak responses
   if (isVoiceChatModeEnabled()) return true;
-  return window.localStorage.getItem('ultron-tts-auto-speak') === 'true';
+  // In normal text mode, never auto-speak — user must click Speak button.
+  // Background pre-synthesis is handled separately by the pre-cache system.
+  return false;
+}
+
+// --- TTS Pre-cache for text mode ---
+// Synthesize audio in background as soon as a response is generated,
+// so when the user clicks Speak, the audio is instantly ready.
+const _ttsPrecache = new Map(); // key: text hash -> { wavBase64, mimeType }
+let _ttsPrecacheGeneration = 0;
+
+function _ttsPrecacheHash(text) {
+  // Simple hash for cache keying
+  let h = 0;
+  const s = String(text || '').slice(0, 500);
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return h + '_' + (text || '').length;
+}
+
+async function precacheTtsAudio(fullText) {
+  // Pre-synthesize in background for text mode (not voice chat mode)
+  if (isVoiceChatModeEnabled()) return;
+  if (!fullText || isThinkingMarkup(fullText)) return;
+
+  const cleaned = normalizeTextForSpeech(fullText);
+  if (!cleaned || cleaned.length < 5) return;
+
+  const cacheKey = _ttsPrecacheHash(cleaned);
+  if (_ttsPrecache.has(cacheKey)) return; // Already cached
+
+  const gen = ++_ttsPrecacheGeneration;
+
+  try {
+    const modelKey = await resolveActiveTtsModelKey();
+    if (!modelKey || !window.ultronAPI?.synthesizeSpeech) return;
+    if (gen !== _ttsPrecacheGeneration) return; // Stale
+
+    const apiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
+    const res = await window.ultronAPI.synthesizeSpeech(cleaned, modelKey, { apiKey });
+    if (gen !== _ttsPrecacheGeneration) return;
+
+    if (res?.success && res.wavBase64) {
+      _ttsPrecache.set(cacheKey, { wavBase64: res.wavBase64, mimeType: res.mimeType || 'audio/wav' });
+      // Keep cache small — evict oldest entries if over 5
+      if (_ttsPrecache.size > 5) {
+        const firstKey = _ttsPrecache.keys().next().value;
+        _ttsPrecache.delete(firstKey);
+      }
+    }
+  } catch (e) {
+    // Silent — pre-cache is best-effort
+  }
+}
+
+function getCachedTtsAudio(text) {
+  const cleaned = normalizeTextForSpeech(text);
+  if (!cleaned) return null;
+  const cacheKey = _ttsPrecacheHash(cleaned);
+  return _ttsPrecache.get(cacheKey) || null;
 }
 
 function getTtsRate() {
@@ -12521,6 +12586,17 @@ async function speakTextAloud(text, { force = false, button = null, onStart, onE
   if (speakBtn) {
     streamingAutoSpeakState.activeButton = speakBtn;
     setSpeakButtonState(speakBtn, 'loading');
+  }
+
+  // Check pre-cached audio for instant zero-latency playback
+  const cached = getCachedTtsAudio(text);
+  if (cached && cached.wavBase64) {
+    if (speakBtn) setSpeakButtonState(speakBtn, 'speaking');
+    if (typeof onStart === 'function') onStart();
+    const ok = await playNeuralAudio(cached.wavBase64, { mimeType: cached.mimeType || 'audio/wav' });
+    if (speakBtn) setSpeakButtonState(speakBtn, 'idle');
+    if (typeof onEnd === 'function') onEnd();
+    return ok;
   }
 
   const modelKey = await resolveActiveTtsModelKey();
