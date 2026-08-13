@@ -83,9 +83,14 @@ jobs:
             setupName = "Ultron.AI.Setup.$version.exe"
             portableName = "Ultron.AI.$version.exe"
           }
-          $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/public/release.json" -Encoding UTF8
-          $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/release.json" -Encoding UTF8
-          Write-Host "Updated website release.json for version $version"
+          if (Test-Path "Ultron Website") {
+            New-Item -ItemType Directory -Force -Path "Ultron Website/public" | Out-Null
+            $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/public/release.json" -Encoding UTF8
+            $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/release.json" -Encoding UTF8
+            Write-Host "Updated website release.json for version $version"
+          } else {
+            Write-Host "Ultron Website folder not in runner root, skipping release.json update."
+          }
 
       - name: Summary
         shell: pwsh
