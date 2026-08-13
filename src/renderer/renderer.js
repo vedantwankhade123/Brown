@@ -8438,28 +8438,43 @@ function renderOllamaCatalog(filterQuery = '') {
 
   function appendCatalogCard(model, installedSet) {
     const isInstalled = installedSet.has(model.name.toLowerCase());
+    const isCloudModel = model.name.endsWith('-cloud') || (model.tags && model.tags.includes('cloud'));
     const tags = model.tags || inferModelTags(model.name, model.desc);
     const card = document.createElement('div');
     card.className = 'catalog-model-card';
+
+    let actionButtonHtml = `<button class="btn-catalog-pull" data-model="${escapeHtml(model.name)}">Download</button>`;
+    if (isInstalled) {
+      actionButtonHtml = `<span class="badge-installed">INSTALLED</span>`;
+    } else if (isCloudModel) {
+      actionButtonHtml = `<button class="btn-catalog-pull btn-cloud-use" data-model="${escapeHtml(model.name)}" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">Use Model</button>`;
+    }
+
     card.innerHTML = `
       <div class="catalog-model-info">
         <div class="catalog-model-title-row">
           <span class="catalog-model-name">${escapeHtml(model.name)}</span>
           <span class="catalog-model-badge">${escapeHtml(model.size)}</span>
-          <span class="catalog-model-size-badge">📦 ${escapeHtml(model.downloadSize || 'Est. ~4 GB')}</span>
+          <span class="catalog-model-size-badge">${isCloudModel ? '📦 Cloud' : '📦 ' + escapeHtml(model.downloadSize || 'Est. ~4 GB')}</span>
         </div>
         <div class="catalog-model-desc">${escapeHtml(model.desc)}</div>
         ${renderCatalogTagBadges(tags)}
       </div>
-      ${isInstalled
-        ? `<span class="badge-installed">INSTALLED</span>`
-        : `<button class="btn-catalog-pull" data-model="${escapeHtml(model.name)}">Download</button>`
-      }
+      ${actionButtonHtml}
     `;
     const pullBtn = card.querySelector('.btn-catalog-pull');
     if (pullBtn) {
       pullBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
+        if (isCloudModel) {
+          activeModel = model.name;
+          const selObj = document.getElementById('select-model-name');
+          if (selObj) selObj.value = model.name;
+          logTrace(`Switched active model to cloud model "${model.name}". Runs remotely via Cloud API.`, 'system');
+          renderSettingsModels();
+          renderOllamaCatalog(filterQuery);
+          return;
+        }
         const ok = await ensureOllamaCloudAuthForPull(model.name);
         if (!ok) return;
         if (inputDownloadModel) {
@@ -8511,21 +8526,21 @@ function renderOllamaCatalog(filterQuery = '') {
 
 initModelCatalogFilters();
 
-// Bind show download fields trigger
-const btnShowDownloadFields = document.getElementById('btn-show-download-fields');
-if (btnShowDownloadFields) {
-  btnShowDownloadFields.addEventListener('click', () => {
-    btnShowDownloadFields.style.display = 'none';
+// Bind show download fields triggers (both top and bottom buttons)
+const addModelsTriggers = document.querySelectorAll('.btn-add-models-trigger, #btn-show-download-fields, #btn-show-download-fields-top');
+addModelsTriggers.forEach(btn => {
+  btn.addEventListener('click', () => {
+    addModelsTriggers.forEach(b => b.style.display = 'none');
     const inputsRow = document.getElementById('download-inputs-row');
     if (inputsRow) {
       inputsRow.classList.remove('hidden');
       catalogLimit = 10;
       renderModelTypeFilterBar(document.getElementById('catalog-model-filters'));
       renderOllamaCatalog();
-      inputDownloadModel.focus();
+      if (inputDownloadModel) inputDownloadModel.focus();
     }
   });
-}
+});
 
 // Bind catalog Load More button
 const btnLoadMoreModels = document.getElementById('btn-load-more-models');
@@ -9548,13 +9563,28 @@ const voiceModeModelsPanel = document.getElementById('voice-mode-models-panel');
 const voiceModeChatModel = document.getElementById('voice-mode-chat-model');
 const voiceModeTtsModel = document.getElementById('voice-mode-tts-model');
 
-function isVoiceChatModeEnabled() {
-  return false;
+// Hardware Adaptive Voice Engine Profile Detection
+function getHardwareAdaptiveVoiceConfig() {
+  const cores = navigator.hardwareConcurrency || 4;
+  const ram = navigator.deviceMemory || 8;
+  const isLowEnd = cores <= 4 || ram <= 4;
+
+  return {
+    isLowEnd,
+    sampleRate: isLowEnd ? 22050 : 44100,
+    vadInterval: isLowEnd ? 85 : 35,
+    chunkSize: isLowEnd ? 100 : 250,
+    animThrottleMs: isLowEnd ? 33 : 16
+  };
 }
 
-function setVoiceChatMode(enabled = false) {
-  window.localStorage.setItem(CHAT_MODE_KEY, 'text');
-  applyVoiceChatModeUi({ fromUserGesture: false });
+function isVoiceChatModeEnabled() {
+  return window.localStorage.getItem(CHAT_MODE_KEY) === 'voice';
+}
+
+function setVoiceChatMode(enabled = false, options = {}) {
+  window.localStorage.setItem(CHAT_MODE_KEY, enabled ? 'voice' : 'text');
+  applyVoiceChatModeUi(options);
 }
 
 function invalidateTtsModelCache() {
