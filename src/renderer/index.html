@@ -15,7 +15,7 @@
   <div class="app-window-titlebar">
     <div class="app-titlebar-brand">
       <img src="../../Assets/ultron-logo.png" class="app-titlebar-logo" alt="">
-      <span class="app-titlebar-name">Ultron</span>
+      <span class="app-titlebar-name">Ultron <span class="beta-badge-pill">BETA</span></span>
     </div>
   </div>
 
@@ -50,7 +50,7 @@
       <div class="brand-header">
         <div class="brand-left">
           <img src="../../Assets/ultron-logo.png" class="brand-logo" alt="Ultron Logo">
-          <span class="brand-name">Ultron</span>
+          <span class="brand-name">Ultron <span class="beta-badge-pill">BETA</span></span>
         </div>
         <button id="btn-toggle-left-sidebar" class="btn-toggle-left-sidebar" title="Collapse navigation">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
@@ -512,6 +512,10 @@
           <div class="settings-tab-btn" data-tab="updates">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
             Software Updates
+          </div>
+          <div class="settings-tab-btn" data-tab="developer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            Developer
           </div>
         </aside>
         
@@ -1180,6 +1184,39 @@
                   Restart to Install Update
                 </button>
                 <span id="update-progress-label" style="font-size: 12px; color: #a1a1aa;"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Developer Tab -->
+          <div id="tab-developer" class="tab-pane hidden">
+            <div class="developer-settings-card">
+              <div class="developer-header-card">
+                <div class="developer-avatar-large">VW</div>
+                <div class="developer-header-text">
+                  <h4 class="developer-name">Vedant Wankhade <span class="badge-developer-role">Founder &amp; Lead Architect</span></h4>
+                  <p class="developer-email">vedantwankhade123@gmail.com</p>
+                  <p class="developer-tagline">Creator of Ultron AI — Offline Privacy-Focused Windows AI Agent Framework</p>
+                </div>
+              </div>
+              
+              <div class="developer-info-body">
+                <h5 class="developer-section-subtitle">About the Developer</h5>
+                <p class="developer-bio-text">
+                  Designed and engineered Ultron AI to provide a 100% offline, privacy-first local AI agent framework for Windows PCs. Dedicated to building air-gapped, zero-telemetry computer automation tools that give users complete sovereignty over their data and hardware.
+                </p>
+
+                <h5 class="developer-section-subtitle">Connect &amp; Resources</h5>
+                <div class="developer-links-container">
+                  <a href="https://github.com/vedantwankhade123" target="_blank" class="developer-social-link">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                    <span>GitHub Profile</span>
+                  </a>
+                  <a href="https://github.com/vedantwankhade123/Ultron" target="_blank" class="developer-social-link">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="12" x2="12" y2="22.08"></line></svg>
+                    <span>Ultron Repository</span>
+                  </a>
+                </div>
               </div>
             </div>
           </div>
