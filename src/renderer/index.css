@@ -7851,20 +7851,16 @@ span.settings-action-btn.is-ready {
   display: none;
 }
 
-/* Beta Badge Pill */
+/* Beta Badge Text */
 .beta-badge-pill {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(59, 130, 246, 0.2);
   color: #60a5fa;
-  border: 1px solid rgba(59, 130, 246, 0.4);
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  vertical-align: middle;
-  margin-left: 4px;
-  display: inline-block;
+  vertical-align: baseline;
+  margin-left: 5px;
+  display: inline;
 }
 
 /* Developer Settings Section */
