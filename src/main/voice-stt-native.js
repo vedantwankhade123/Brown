@@ -40,23 +40,22 @@ try {
     exit 0
   }
 
-  $engine.InitialSilenceTimeout = [TimeSpan]::FromMilliseconds(400)
+  $engine.InitialSilenceTimeout = [TimeSpan]::FromSeconds(30)
   $engine.BabbleTimeout = [TimeSpan]::FromSeconds(0)
-  $engine.EndSilenceTimeout = [TimeSpan]::FromMilliseconds(280)
-  $engine.EndSilenceTimeoutAmbiguous = [TimeSpan]::FromMilliseconds(420)
+  $engine.EndSilenceTimeout = [TimeSpan]::FromMilliseconds(1200)
+  $engine.EndSilenceTimeoutAmbiguous = [TimeSpan]::FromMilliseconds(1500)
 
   $parts = New-Object System.Collections.Generic.List[string]
   while ($true) {
     $result = $null
     try {
-      $result = $engine.Recognize([TimeSpan]::FromSeconds(6))
+      $result = $engine.Recognize([TimeSpan]::FromSeconds(15))
     } catch {
       break
     }
     if ($null -eq $result) { break }
     $piece = [string]$result.Text
     if ($piece.Trim().Length -eq 0) { continue }
-    if ($result.Confidence -lt 0.05) { continue }
     [void]$parts.Add($piece.Trim())
   }
 

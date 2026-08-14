@@ -1,11 +1,12 @@
 {
   "name": "ultron",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Local offline privacy-focused Windows AI Agent framework",
   "author": "Vedant Wankhade",
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
+    "stop": "powershell -Command \"Stop-Process -Name electron -Force -ErrorAction SilentlyContinue\"",
     "build:win": "electron-builder --win nsis",
     "build:portable": "electron-builder --win portable",
     "build:store": "electron-builder --win appx",

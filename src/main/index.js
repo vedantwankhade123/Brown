@@ -25,6 +25,8 @@ module.exports = { getDefaultDataDirectory: () => require('./paths').getDefaultA
 const WINDOW_BG = '#000000';
 const TITLE_BAR_COLOR = '#131314';
 
+let mainWindow = null;
+
 function applyWinTitleBarOverlay(win) {
   if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
   try {
@@ -40,7 +42,7 @@ function applyWinTitleBarOverlay(win) {
 
 function createWindow() {
   const isWin32 = process.platform === 'win32';
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     show: false,
@@ -128,6 +130,14 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   console.log('[MAIN] Another instance of Ultron is already running. Exiting second instance.');
   app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
+  });
 }
 
 app.whenReady().then(() => {
@@ -194,6 +204,11 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    mcpManager.shutdownMcp().finally(() => app.quit());
+    Promise.race([
+      mcpManager.shutdownMcp(),
+      new Promise((resolve) => setTimeout(resolve, 3000))
+    ]).finally(() => {
+      app.quit();
+    });
   }
 });
