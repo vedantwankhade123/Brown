@@ -19,6 +19,18 @@
     </div>
   </div>
 
+  <!-- APP INTRO SPLASH SCREEN -->
+  <div id="app-splash-screen" class="app-splash-screen">
+    <div class="splash-card">
+      <div class="splash-logo-container">
+        <img src="../../Assets/ultron-logo.png" class="splash-logo-img" alt="Ultron Logo">
+      </div>
+      <div class="splash-text-container">
+        <h1 class="splash-brand-title shiny-text">Ultron</h1>
+      </div>
+    </div>
+  </div>
+
   <!-- APP BOOT SKELETON OVERLAY -->
   <div id="app-skeleton-overlay" class="app-skeleton-overlay">
     <div class="skeleton-sidebar">
@@ -115,21 +127,6 @@
           </svg>
         </button>
         <span id="active-chat-title" class="chat-title">New chat</span>
-        <div class="chat-mode-toggle" role="tablist" aria-label="Chat mode">
-          <button type="button" id="btn-chat-mode-text" class="chat-mode-btn active" data-mode="text" role="tab" aria-selected="true" title="Text mode">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
-              <path d="M17 6.1H3M21 12.1H3M15.8 18.1H3"></path>
-            </svg>
-            <span>Text</span>
-          </button>
-          <button type="button" id="btn-chat-mode-voice" class="chat-mode-btn" data-mode="voice" role="tab" aria-selected="false" title="Voice mode — speak with Ultron">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-              <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
-            </svg>
-            <span>Voice</span>
-          </button>
-        </div>
       </div>
 
       <div class="chat-header-actions">
@@ -181,61 +178,65 @@
     <div id="voice-mode-stage" class="voice-mode-stage hidden" aria-hidden="true" data-orb-state="idle">
       <div class="voice-gradient-bg" aria-hidden="true">
         <div class="voice-mesh-layer"></div>
-      </div>
-      <button type="button" id="voice-mode-models-toggle" class="voice-mode-models-toggle" title="Show active models" aria-expanded="false">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-          <rect x="4" y="4" width="16" height="16" rx="2"></rect>
-          <path d="M9 9h6M9 12h6M9 15h4"></path>
-        </svg>
-        <span>Models</span>
-      </button>
-      <div id="voice-mode-models-panel" class="voice-mode-models-panel hidden" role="region" aria-label="Active models">
-        <div class="voice-mode-model-row">
-          <span class="voice-mode-model-key">Chat</span>
-          <span id="voice-mode-chat-model" class="voice-mode-model-val">—</span>
-        </div>
-        <div class="voice-mode-model-row">
-          <span class="voice-mode-model-key">Voice</span>
-          <span id="voice-mode-tts-model" class="voice-mode-model-val">—</span>
-        </div>
+        <div class="voice-mesh-shimmer"></div>
       </div>
       <div class="voice-mode-overlay">
         <div class="voice-mode-copy">
-          <img src="../../Assets/ultron-logo.png" class="voice-mode-logo" alt="Ultron">
-          <p id="voice-mode-caption" class="voice-mode-caption" aria-live="polite" data-role=""></p>
+          <div class="voice-mode-logo-wrap">
+            <div class="voice-listen-aura" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <img src="../../Assets/ultron-logo.png" class="voice-mode-logo" alt="Ultron">
+          </div>
+          <p id="voice-mode-caption" class="voice-mode-caption" aria-hidden="true" data-role=""></p>
           <button type="button" id="voice-mode-status" class="voice-mode-status">Tap to start listening</button>
         </div>
       </div>
-      <!-- Voice Mode controls — pause / stop mic / exit -->
-      <div id="voice-mode-bar" class="voice-mode-bar hidden">
-        <button type="button" id="voice-mode-pause" class="voice-mode-bar-btn" title="Pause conversation">
-          <svg class="voice-mode-icon-pause" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-            <rect x="6" y="5" width="4" height="14" rx="1"></rect>
-            <rect x="14" y="5" width="4" height="14" rx="1"></rect>
-          </svg>
-          <svg class="voice-mode-icon-resume hidden" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-            <polygon points="8 5 19 12 8 19"></polygon>
-          </svg>
-        </button>
-        <button type="button" id="voice-mode-stop-mic" class="voice-mode-bar-btn" title="Toggle microphone">
-          <svg class="voice-mode-mic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-            <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
-            <line x1="12" y1="19" x2="12" y2="23"></line>
-            <line x1="8" y1="23" x2="16" y2="23"></line>
-          </svg>
-          <svg class="voice-mode-mic-off hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-            <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
-            <line x1="4" y1="4" x2="20" y2="20"></line>
-          </svg>
-        </button>
-        <button type="button" id="voice-mode-exit" class="voice-mode-bar-btn voice-mode-bar-exit" title="Exit voice mode">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+      <div class="voice-mode-dock">
+        <div class="voice-mode-models-wrap">
+          <button type="button" id="voice-mode-models-toggle" class="voice-mode-models-toggle" title="Switch model" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+              <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+              <path d="M9 9h6M9 12h6M9 15h4"></path>
+            </svg>
+            <span>Models</span>
+          </button>
+          <div id="voice-mode-models-panel" class="voice-mode-models-panel hidden" role="listbox" aria-label="Switch chat model">
+            <div id="voice-mode-models-list" class="voice-mode-models-list"></div>
+          </div>
+        </div>
+        <div id="voice-mode-bar" class="voice-mode-bar hidden">
+          <button type="button" id="voice-mode-pause" class="voice-mode-bar-btn" title="Pause conversation">
+            <svg class="voice-mode-icon-pause" viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
+              <rect x="6" y="5" width="4" height="14" rx="1"></rect>
+              <rect x="14" y="5" width="4" height="14" rx="1"></rect>
+            </svg>
+            <svg class="voice-mode-icon-resume hidden" viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
+              <polygon points="8 5 19 12 8 19"></polygon>
+            </svg>
+          </button>
+          <button type="button" id="voice-mode-stop-mic" class="voice-mode-bar-btn" title="Toggle microphone">
+            <svg class="voice-mode-mic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
+            <svg class="voice-mode-mic-off hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
+              <line x1="4" y1="4" x2="20" y2="20"></line>
+            </svg>
+          </button>
+          <button type="button" id="voice-mode-exit" class="voice-mode-bar-btn voice-mode-bar-exit" title="Exit voice mode">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -291,6 +292,101 @@
       <!-- Attachment Carousel Preview Bar (Top of Prompt Pill) -->
       <div id="attachment-preview-bar" class="attachment-preview-bar hidden"></div>
 
+      <!-- PROMPT TOP HEADER BAR: Text/Voice mode toggle + Permission mode selector -->
+      <div id="prompt-top-bar" class="prompt-top-bar">
+        <div class="prompt-top-left">
+          <!-- Text / Voice Mode Toggle Switcher -->
+          <div class="chat-mode-toggle" role="tablist" aria-label="Chat mode">
+            <button type="button" id="btn-chat-mode-text" class="chat-mode-btn active" data-mode="text" role="tab" aria-selected="true" title="Text mode">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
+                <path d="M17 6.1H3M21 12.1H3M15.8 18.1H3"></path>
+              </svg>
+              <span>Text</span>
+            </button>
+            <button type="button" id="btn-chat-mode-voice" class="chat-mode-btn" data-mode="voice" role="tab" aria-selected="false" title="Voice mode — speak with Ultron">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
+              </svg>
+              <span>Voice</span>
+            </button>
+          </div>
+
+          <!-- Permission Mode Selector Pill -->
+          <div id="perm-selector-wrapper" class="perm-selector-wrapper">
+            <button type="button" id="btn-perm-selector" class="perm-selector-btn" aria-haspopup="true" aria-expanded="false" title="Agent permission mode">
+              <span id="perm-selector-icon" class="perm-selector-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                </svg>
+              </span>
+              <span id="perm-selector-label" class="perm-selector-label">Approve for me</span>
+              <svg class="perm-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+
+            <!-- Permission Mode Dropdown Card (Ultron Action Authorization) -->
+            <div id="perm-mode-dropdown" class="perm-mode-dropdown hidden" role="menu">
+              <div class="perm-popover-header">
+                <span class="perm-popover-title">Ultron Action Authorization</span>
+              </div>
+              <div class="perm-popover-list">
+                <!-- Option 1: Review Mode -->
+                <button type="button" class="perm-popover-item mode-option" data-mode="Review" role="menuitem">
+                  <div class="perm-item-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                      <path d="M9 12l2 2 4-4"></path>
+                    </svg>
+                  </div>
+                  <div class="perm-item-content">
+                    <span class="perm-item-title">Prompt every action</span>
+                    <span class="perm-item-desc">Require explicit confirmation before editing files, running shell commands, or accessing the web</span>
+                  </div>
+                  <svg class="perm-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </button>
+
+                <!-- Option 2: Adaptive Mode (Default) -->
+                <button type="button" class="perm-popover-item mode-option" data-mode="Adaptive" role="menuitem">
+                  <div class="perm-item-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                      <path d="M13 9.5V7l-4.5 5.5h3.5v3l4.5-5.5h-3.5z"></path>
+                    </svg>
+                  </div>
+                  <div class="perm-item-content">
+                    <span class="perm-item-title">Smart auto-approval</span>
+                    <span class="perm-item-desc">Automatically approve routine system ops while prompting for potentially risky actions</span>
+                  </div>
+                  <svg class="perm-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </button>
+
+                <!-- Option 3: Trusted Mode -->
+                <button type="button" class="perm-popover-item mode-option item-full-access" data-mode="Trusted" role="menuitem">
+                  <div class="perm-item-icon warning-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+                    </svg>
+                  </div>
+                  <div class="perm-item-content">
+                    <span class="perm-item-title warning-title">Full autonomous mode</span>
+                    <span class="perm-item-desc warning-desc">Grant unrestricted background execution for seamless automated workflows</span>
+                  </div>
+                  <svg class="perm-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="main-input-pill" class="input-pill input-pill-stacked">
         <!-- Hidden Native File Input -->
         <input type="file" id="hidden-file-input" multiple style="display: none;" />
@@ -301,9 +397,9 @@
         <!-- Actions Row at Bottom -->
         <div class="input-pill-actions">
           <div class="input-actions-left">
-            <!-- Plus menu: attach files + permission modes -->
+            <!-- Plus menu: attach files + agent options -->
             <div id="plus-menu-wrapper" class="plus-menu-wrapper">
-              <button id="btn-plus-menu" class="input-action-btn btn-plus-menu" title="Attach files & agent mode" type="button" aria-haspopup="true" aria-expanded="false">
+              <button id="btn-plus-menu" class="input-action-btn btn-plus-menu" title="Attach files & agent options" type="button" aria-haspopup="true" aria-expanded="false">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
                   <line x1="12" y1="5" x2="12" y2="19"></line>
                   <line x1="5" y1="12" x2="19" y2="12"></line>
@@ -319,36 +415,6 @@
                     <span class="plus-menu-item-desc">Upload text, code, or images</span>
                   </div>
                   <span id="model-capability-badge" class="model-capability-badge badge-text">Text</span>
-                </button>
-                <div class="plus-menu-divider"></div>
-                <div class="plus-menu-section-label">Agent permission mode</div>
-                <button type="button" class="plus-menu-item mode-option" data-mode="Review" role="menuitem">
-                  <span class="mode-radio"></span>
-                  <div class="plus-menu-item-text">
-                    <span class="plus-menu-item-title">Review</span>
-                    <span class="plus-menu-item-desc">Ask before every action</span>
-                  </div>
-                </button>
-                <button type="button" class="plus-menu-item mode-option" data-mode="Containment" role="menuitem">
-                  <span class="mode-radio"></span>
-                  <div class="plus-menu-item-text">
-                    <span class="plus-menu-item-title">Containment</span>
-                    <span class="plus-menu-item-desc">Run inside sandbox only</span>
-                  </div>
-                </button>
-                <button type="button" class="plus-menu-item mode-option" data-mode="Adaptive" role="menuitem">
-                  <span class="mode-radio"></span>
-                  <div class="plus-menu-item-text">
-                    <span class="plus-menu-item-title">Adaptive</span>
-                    <span class="plus-menu-item-desc">Smart auto with safety checks</span>
-                  </div>
-                </button>
-                <button type="button" class="plus-menu-item mode-option" data-mode="Trusted" role="menuitem">
-                  <span class="mode-radio"></span>
-                  <div class="plus-menu-item-text">
-                    <span class="plus-menu-item-title">Trusted</span>
-                    <span class="plus-menu-item-desc">Full automation, minimal prompts</span>
-                  </div>
                 </button>
                 <div class="plus-menu-divider"></div>
                 <div class="plus-menu-section-label">Agent options</div>
@@ -513,9 +579,9 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
             Software Updates
           </div>
-          <div class="settings-tab-btn" data-tab="developer">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-            Developer
+          <div class="settings-tab-btn" data-tab="about">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            About
           </div>
         </aside>
         
@@ -815,6 +881,56 @@
                   <div id="voice-model-progress-bar" class="connector-download-progress-fill"></div>
                 </div>
                 <div id="voice-model-progress-detail" class="connector-download-progress-speed">Speed: --</div>
+              </div>
+            </div>
+
+            <div class="models-sound-section voice-model-section">
+              <div class="voice-model-section-header">
+                <div class="voice-model-section-title">
+                  <div>
+                    <h5 class="voice-model-heading">Performance</h5>
+                    <p class="text-xs text-muted voice-model-desc">Choose how much background work and visual activity Ultron uses.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="models-sound-row voice-model-row">
+                <div class="voice-model-row-info">
+                  <span class="voice-model-name">Runtime profile</span>
+                  <span id="setting-performance-profile-note" class="text-xs text-muted">Balanced daily use</span>
+                </div>
+                <select id="setting-performance-profile" class="tts-select">
+                  <option value="battery">Battery Saver</option>
+                  <option value="balanced" selected>Balanced</option>
+                  <option value="performance">Performance</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="models-sound-section voice-model-section">
+              <div class="voice-model-section-header">
+                <div class="voice-model-section-title">
+                  <div>
+                    <h5 class="voice-model-heading">Microphone controls</h5>
+                    <p class="text-xs text-muted voice-model-desc">Windows Speech uses the selected input after recording stops.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="models-sound-row voice-model-row">
+                <div class="voice-model-row-info">
+                  <span class="voice-model-name">Input device</span>
+                  <span class="text-xs text-muted">Choose the microphone Ultron records from</span>
+                </div>
+                <select id="setting-voice-input-device" class="tts-select"></select>
+              </div>
+              <div class="models-sound-volume-row">
+                <span class="text-xs text-muted">Voice sensitivity</span>
+                <input type="range" id="setting-voice-sensitivity" min="2.4" max="5" step="0.1" value="3.6">
+                <span id="setting-voice-sensitivity-label" class="text-xs text-muted">Balanced</span>
+              </div>
+              <div class="models-sound-volume-row">
+                <span class="text-xs text-muted">Pause before send</span>
+                <input type="range" id="setting-voice-pause" min="500" max="2000" step="100" value="700">
+                <span id="setting-voice-pause-label" class="text-xs text-muted">0.7s</span>
               </div>
             </div>
 
@@ -1198,37 +1314,70 @@
             </div>
           </div>
 
-          <!-- Developer Tab -->
-          <div id="tab-developer" class="tab-pane hidden">
-            <div class="developer-settings-card">
-              <div class="developer-header-card">
-                <div class="developer-avatar-large">VW</div>
-                <div class="developer-header-text">
-                  <h4 class="developer-name">Vedant Wankhade <span class="badge-developer-role">Creator of Ultron</span></h4>
-                  <p class="developer-email">vedantwankhade123@gmail.com</p>
-                  <p class="developer-tagline">Architect & Developer of Ultron AI — Offline Privacy-Focused Windows AI Framework</p>
+          <!-- About Tab -->
+          <div id="tab-about" class="tab-pane hidden">
+            <div class="developer-settings-card about-settings-card">
+              <div class="about-app-intro">
+                <div class="about-app-brand">
+                  <img src="../../Assets/ultron-logo.png" class="about-app-logo" alt="Ultron">
+                  <div>
+                    <h4 class="about-app-title">Ultron</h4>
+                    <p class="developer-tagline">Local Windows AI agent</p>
+                  </div>
                 </div>
-              </div>
-              
-              <div class="developer-info-body">
-                <h5 class="developer-section-subtitle">About the Developer</h5>
+                <h5 class="developer-section-subtitle">About Ultron</h5>
                 <p class="developer-bio-text">
-                  Vedant Wankhade is the sole creator and lead software engineer behind Ultron AI. Designed and architected from the ground up, Ultron provides a 100% air-gapped, zero-telemetry computer automation system for Windows PCs.
+                  Ultron is a privacy-first AI agent for Windows. It runs on your PC, talks in text or voice, and can help with chat, files, apps, and desktop automation — without sending your data to a cloud by default.
                 </p>
                 <p class="developer-bio-text" style="margin-top: 6px;">
-                  Specializing in desktop automation, native IPC system security, and hybrid local/cloud model orchestration (Ollama &amp; Gemini 3.5), Vedant is dedicated to building state-of-the-art AI tools that run natively on user hardware without monthly subscriptions or privacy compromises.
+                  Use local Ollama models offline, or connect Google Gemini when you want online models. Ultron is built to stay fast, private, and under your control.
                 </p>
+              </div>
 
-                <h5 class="developer-section-subtitle">Developer Profile &amp; Contact</h5>
-                <div class="developer-links-container">
-                  <a href="https://github.com/vedantwankhade123" target="_blank" class="developer-social-link">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-                    <span>GitHub Profile (@vedantwankhade123)</span>
-                  </a>
-                  <a href="mailto:vedantwankhade123@gmail.com" class="developer-social-link">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-                    <span>Contact Developer</span>
-                  </a>
+              <div class="about-team-section">
+                <h5 class="developer-section-subtitle">Team</h5>
+                <div class="about-team-grid">
+                  <article class="about-team-card">
+                    <div class="developer-avatar-large">VW</div>
+                    <div class="developer-header-text">
+                      <h4 class="developer-name">Vedant Wankhade <span class="badge-developer-role">Team Lead</span></h4>
+                      <p class="developer-email">vedantwankhade47@gmail.com</p>
+                      <div class="developer-links-container">
+                        <a href="https://github.com/vedantwankhade123" target="_blank" class="developer-social-link">
+                          <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                          <span>GitHub (@vedantwankhade123)</span>
+                        </a>
+                        <a href="mailto:vedantwankhade47@gmail.com" class="developer-social-link">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                          <span>Email</span>
+                        </a>
+                      </div>
+                    </div>
+                  </article>
+
+                  <article class="about-team-card">
+                    <div class="developer-avatar-large about-avatar-pi">PI</div>
+                    <div class="developer-header-text">
+                      <h4 class="developer-name">Pranav Ingole <span class="badge-developer-role">Team Member</span></h4>
+                      <p class="developer-tagline">Contributor to Ultron</p>
+                    </div>
+                  </article>
+
+                  <article class="about-team-card">
+                    <div class="developer-avatar-large about-avatar-pp">PP</div>
+                    <div class="developer-header-text">
+                      <h4 class="developer-name">Priyanka Patil <span class="badge-developer-role">Team Member</span></h4>
+                      <p class="developer-tagline">Contributor to Ultron</p>
+                    </div>
+                  </article>
+
+                  <article class="about-team-card">
+                    <div class="developer-avatar-large about-avatar-sm">SM</div>
+                    <div class="developer-header-text">
+                      <h4 class="developer-name">Samiksha Mohod <span class="badge-developer-role">Team Member</span></h4>
+                      <p class="developer-tagline">Contributor to Ultron</p>
+                    </div>
+                  </article>
                 </div>
               </div>
             </div>
