@@ -8952,8 +8952,273 @@ async function checkAndRunFirstTimeOnboarding() {
     if (existingName) fullNameInput.value = existingName;
     else if (existingFn) fullNameInput.value = `${existingFn} ${existingLn || ''}`.trim();
   }
-  if (birthdateInput && existingBd) birthdateInput.value = existingBd;
   if (emailInput && existingEm && existingEm !== 'user@example.com') emailInput.value = existingEm;
+
+  function parseDateStr(str) {
+    if (!str) return null;
+    const cleaned = str.trim();
+    if (!cleaned) return null;
+
+    // YYYY-MM-DD
+    let match = cleaned.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (match) {
+      const y = parseInt(match[1], 10);
+      const m = parseInt(match[2], 10) - 1;
+      const d = parseInt(match[3], 10);
+      const date = new Date(y, m, d);
+      if (date.getFullYear() === y && date.getMonth() === m && date.getDate() === d) {
+        return date;
+      }
+    }
+
+    // DD-MM-YYYY or MM-DD-YYYY
+    match = cleaned.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    if (match) {
+      let p1 = parseInt(match[1], 10);
+      let p2 = parseInt(match[2], 10);
+      let y = parseInt(match[3], 10);
+      let d = p1, m = p2 - 1;
+      if (p1 <= 12 && p2 > 12) {
+        m = p1 - 1;
+        d = p2;
+      }
+      const date = new Date(y, m, d);
+      if (date.getFullYear() === y && date.getMonth() === m && date.getDate() === d) {
+        return date;
+      }
+    }
+
+    const timestamp = Date.parse(cleaned);
+    if (!isNaN(timestamp)) {
+      const d = new Date(timestamp);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    return null;
+  }
+
+  function formatDateISO(date) {
+    if (!date || isNaN(date.getTime())) return '';
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function initCustomDatePicker() {
+    const dateInput = document.getElementById('onboard-birthdate');
+    const toggleBtn = document.getElementById('onboard-date-toggle');
+    const popover = document.getElementById('custom-dob-picker');
+    const monthSelect = document.getElementById('dob-picker-month');
+    const yearSelect = document.getElementById('dob-picker-year');
+    const prevBtn = document.getElementById('dob-picker-prev');
+    const nextBtn = document.getElementById('dob-picker-next');
+    const daysContainer = document.getElementById('dob-picker-days');
+    const clearBtn = document.getElementById('dob-picker-clear');
+    const todayBtn = document.getElementById('dob-picker-today');
+    const container = document.getElementById('onboard-date-field-container');
+
+    if (!dateInput || !popover || !monthSelect || !yearSelect || !daysContainer) return;
+
+    // Populate years (1920 to current year)
+    const currentYearNow = new Date().getFullYear();
+    yearSelect.innerHTML = '';
+    for (let y = currentYearNow; y >= 1920; y--) {
+      const opt = document.createElement('option');
+      opt.value = y;
+      opt.textContent = y;
+      yearSelect.appendChild(opt);
+    }
+
+    let selectedDate = parseDateStr(existingBd) || (dateInput.value ? parseDateStr(dateInput.value) : null);
+    let viewMonth = selectedDate ? selectedDate.getMonth() : 0; // Jan
+    let viewYear = selectedDate ? selectedDate.getFullYear() : 2005; // default 2005 for onboarding DOB
+
+    function renderDays() {
+      monthSelect.value = viewMonth;
+      yearSelect.value = viewYear;
+      daysContainer.innerHTML = '';
+
+      const firstDayIdx = new Date(viewYear, viewMonth, 1).getDay();
+      const totalDays = new Date(viewYear, viewMonth + 1, 0).getDate();
+      const prevMonthTotalDays = new Date(viewYear, viewMonth, 0).getDate();
+
+      const today = new Date();
+
+      // Prev month days padding
+      for (let i = firstDayIdx - 1; i >= 0; i--) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'datepicker-day other-month';
+        btn.textContent = prevMonthTotalDays - i;
+        btn.addEventListener('click', () => {
+          if (viewMonth === 0) {
+            viewMonth = 11;
+            viewYear--;
+          } else {
+            viewMonth--;
+          }
+          selectDay(prevMonthTotalDays - i);
+        });
+        daysContainer.appendChild(btn);
+      }
+
+      // Current month days
+      for (let day = 1; day <= totalDays; day++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'datepicker-day';
+        btn.textContent = day;
+
+        const isToday = today.getFullYear() === viewYear && today.getMonth() === viewMonth && today.getDate() === day;
+        if (isToday) btn.classList.add('today');
+
+        const isSelected = selectedDate && selectedDate.getFullYear() === viewYear && selectedDate.getMonth() === viewMonth && selectedDate.getDate() === day;
+        if (isSelected) btn.classList.add('selected');
+
+        btn.addEventListener('click', () => selectDay(day));
+        daysContainer.appendChild(btn);
+      }
+
+      // Next month days padding to make 6 rows (42 grid cells)
+      const totalRendered = firstDayIdx + totalDays;
+      const remainingCells = 42 - totalRendered;
+      for (let day = 1; day <= remainingCells; day++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'datepicker-day other-month';
+        btn.textContent = day;
+        btn.addEventListener('click', () => {
+          if (viewMonth === 11) {
+            viewMonth = 0;
+            viewYear++;
+          } else {
+            viewMonth++;
+          }
+          selectDay(day);
+        });
+        daysContainer.appendChild(btn);
+      }
+    }
+
+    function selectDay(day) {
+      selectedDate = new Date(viewYear, viewMonth, day);
+      const isoStr = formatDateISO(selectedDate);
+      dateInput.value = isoStr;
+      if (error2) error2.classList.add('hidden');
+      renderDays();
+      popover.classList.add('hidden');
+    }
+
+    function openPicker() {
+      const parsed = parseDateStr(dateInput.value);
+      if (parsed) {
+        selectedDate = parsed;
+        viewMonth = parsed.getMonth();
+        viewYear = parsed.getFullYear();
+      }
+      renderDays();
+      popover.classList.remove('hidden');
+    }
+
+    function togglePicker() {
+      if (popover.classList.contains('hidden')) {
+        openPicker();
+      } else {
+        popover.classList.add('hidden');
+      }
+    }
+
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        togglePicker();
+      });
+    }
+
+    dateInput.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPicker();
+    });
+
+    monthSelect.addEventListener('change', (e) => {
+      viewMonth = parseInt(e.target.value, 10);
+      renderDays();
+    });
+
+    yearSelect.addEventListener('change', (e) => {
+      viewYear = parseInt(e.target.value, 10);
+      renderDays();
+    });
+
+    if (prevBtn) {
+      prevBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (viewMonth === 0) {
+          viewMonth = 11;
+          viewYear--;
+        } else {
+          viewMonth--;
+        }
+        renderDays();
+      });
+    }
+
+    if (nextBtn) {
+      nextBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (viewMonth === 11) {
+          viewMonth = 0;
+          viewYear++;
+        } else {
+          viewMonth++;
+        }
+        renderDays();
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectedDate = null;
+        dateInput.value = '';
+        renderDays();
+      });
+    }
+
+    if (todayBtn) {
+      todayBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const now = new Date();
+        viewMonth = now.getMonth();
+        viewYear = now.getFullYear();
+        selectDay(now.getDate());
+      });
+    }
+
+    dateInput.addEventListener('input', () => {
+      const parsed = parseDateStr(dateInput.value);
+      if (parsed) {
+        selectedDate = parsed;
+        viewMonth = parsed.getMonth();
+        viewYear = parsed.getFullYear();
+        if (error2) error2.classList.add('hidden');
+        renderDays();
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (container && !container.contains(e.target)) {
+        popover.classList.add('hidden');
+      }
+    });
+
+    if (selectedDate) {
+      dateInput.value = formatDateISO(selectedDate);
+    }
+  }
+
+  initCustomDatePicker();
 
   if (fullNameInput) {
     fullNameInput.addEventListener('keydown', (e) => {
@@ -9063,14 +9328,17 @@ async function checkAndRunFirstTimeOnboarding() {
         currentStep = 2;
         updateStepUI();
       } else if (currentStep === 2) {
-        const bd = birthdateInput ? birthdateInput.value : '';
-        if (!bd) {
+        const rawBd = birthdateInput ? birthdateInput.value.trim() : '';
+        const parsed = parseDateStr(rawBd);
+        if (!rawBd || !parsed) {
           if (error2) error2.classList.remove('hidden');
           return;
         }
         if (error2) error2.classList.add('hidden');
 
-        window.localStorage.setItem('ultron-user-birthdate', bd);
+        const isoDate = formatDateISO(parsed);
+        birthdateInput.value = isoDate;
+        window.localStorage.setItem('ultron-user-birthdate', isoDate);
 
         currentStep = 3;
         updateStepUI();
@@ -9121,7 +9389,9 @@ async function checkAndRunFirstTimeOnboarding() {
     const titleEl = document.getElementById('ollama-status-title');
     const descEl = document.getElementById('ollama-status-desc');
     const iconWrapper = document.getElementById('ollama-status-icon-wrapper');
+    const readyDetailsEl = document.getElementById('ollama-ready-details');
 
+    if (readyDetailsEl) readyDetailsEl.classList.add('hidden');
     if (titleEl) titleEl.textContent = 'Checking Ollama...';
     if (descEl) descEl.textContent = 'Verifying your local AI engine before you can finish setup.';
     if (iconWrapper) {
@@ -9136,6 +9406,7 @@ async function checkAndRunFirstTimeOnboarding() {
       if (iconWrapper) {
         iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" width="22" height="22"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
       }
+      if (readyDetailsEl) readyDetailsEl.classList.remove('hidden');
       setOllamaActionBoxes();
       setFinishVisible(true);
       return;
@@ -9180,6 +9451,7 @@ async function checkAndRunFirstTimeOnboarding() {
         if (iconWrapper) {
           iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" width="22" height="22"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
         }
+        if (readyDetailsEl) readyDetailsEl.classList.remove('hidden');
         setOllamaActionBoxes();
         setFinishVisible(true);
         return;
@@ -9711,6 +9983,13 @@ async function getVoiceModeTtsLabel() {
   return key;
 }
 
+function updateVoiceModeModelsToggleLabel() {
+  const labelEl = document.getElementById('voice-mode-models-label');
+  if (labelEl) {
+    labelEl.textContent = activeModel || 'Select Model';
+  }
+}
+
 function closeVoiceModeModelsPanel() {
   if (!voiceModeModelsPanel || !voiceModeModelsToggle) return;
   voiceModeModelsPanel.classList.add('hidden');
@@ -9727,12 +10006,14 @@ async function selectChatModel(modelName) {
     logTrace(`Chat context model shifted to "${activeModel}"`, 'local');
   }
   updateModelSelectorLabel();
+  updateVoiceModeModelsToggleLabel();
   if (modelDropdown) modelDropdown.classList.add('hidden');
   if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
   closeVoiceModeModelsPanel();
 }
 
 function updateVoiceModeModelsPanel() {
+  updateVoiceModeModelsToggleLabel();
   if (!voiceModeModelsList) return;
   if (typeof renderModelDropdownList === 'function') renderModelDropdownList();
   if (!modelDropdownList) return;
@@ -9741,10 +10022,16 @@ function updateVoiceModeModelsPanel() {
     const clone = child.cloneNode(true);
     if (clone.classList.contains('model-dropdown-item') && !clone.classList.contains('disabled')) {
       const name = clone.querySelector('.model-name-text')?.textContent?.trim();
+      if (name && name === activeModel) {
+        clone.classList.add('active');
+      }
       clone.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (name) selectChatModel(name);
+        if (name) {
+          selectChatModel(name);
+          closeVoiceModeModelsPanel();
+        }
       });
     }
     voiceModeModelsList.appendChild(clone);
@@ -9762,6 +10049,14 @@ function toggleVoiceModeModelsPanel() {
     closeVoiceModeModelsPanel();
   }
 }
+
+document.addEventListener('click', (e) => {
+  if (voiceModeModelsPanel && !voiceModeModelsPanel.classList.contains('hidden')) {
+    if (!voiceModeModelsToggle?.contains(e.target) && !voiceModeModelsPanel?.contains(e.target)) {
+      closeVoiceModeModelsPanel();
+    }
+  }
+});
 
 function markAiContentVoicePending(contentElement) {
   if (!isVoiceChatModeEnabled() || !contentElement) return;
@@ -9862,7 +10157,7 @@ function setVoiceModeStatus(text) {
       const isListening = /^listening/i.test(label);
       voiceModeStatus.classList.toggle('is-listening', isListening);
       if (isListening) {
-        voiceModeStatus.innerHTML = 'Listening<span class="voice-status-dots" aria-hidden="true"></span>';
+        voiceModeStatus.innerHTML = 'Listening<span class="animated-voice-dots" aria-hidden="true"><span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></span>';
       } else {
         voiceModeStatus.textContent = label;
       }
@@ -10169,6 +10464,7 @@ function updateVoiceGradientVisual(level, state) {
   voiceModeStage.style.setProperty('--voice-mesh-bright', bright.toFixed(3));
   voiceModeStage.style.setProperty('--voice-mesh-shift-x', `${shiftX.toFixed(2)}%`);
   voiceModeStage.style.setProperty('--voice-mesh-shift-y', `${shiftY.toFixed(2)}%`);
+  voiceModeStage.style.setProperty('--voice-audio-level', level.toFixed(3));
 }
 
 function startVoiceOrbAnimation(source = 'idle') {
@@ -11232,15 +11528,36 @@ async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcm
         logTrace('Speech transcription complete.', 'system');
         return result.text.trim();
       }
+
+      if (audioBlob && audioBlob.size > 0) {
+        const geminiText = await transcribeAudioWithGemini(audioBlob);
+        if (geminiText) {
+          logTrace('Cloud speech transcription complete.', 'system');
+          return geminiText.trim();
+        }
+      }
+
       const message = result?.error || 'Did not detect clear speech.';
       lastVoiceTranscriptionError = message;
       logTrace(message, 'system');
       if (!inVoiceMode) updateVoiceLiveTranscript(message, { processing: false });
     } catch (e) {
       console.warn('Speech transcription error:', e);
+      if (audioBlob && audioBlob.size > 0) {
+        try {
+          const geminiText = await transcribeAudioWithGemini(audioBlob);
+          if (geminiText) return geminiText.trim();
+        } catch (gErr) { /* ignore */ }
+      }
       logTrace('Voice transcription notice: ' + e.message, 'system');
     }
   } else if ((pcmSamples && pcmSamples.length > 0) || (audioBlob && audioBlob.size > 0)) {
+    if (audioBlob && audioBlob.size > 0) {
+      try {
+        const geminiText = await transcribeAudioWithGemini(audioBlob);
+        if (geminiText) return geminiText.trim();
+      } catch (gErr) { /* ignore */ }
+    }
     lastVoiceTranscriptionError = samples
       ? 'Recording was too short for Windows Speech.'
       : 'No usable microphone audio was captured.';

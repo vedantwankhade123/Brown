@@ -8,17 +8,10 @@ const {
   transcribeWavBuffer
 } = require('./voice-stt-native');
 
-const {
-  WHISPER_MODEL_ID,
-  WHISPER_ENGINE_KEY,
-  transcribeWhisperFloat32,
-  transcribeWhisperWavBuffer
-} = require('./voice-whisper');
-
-const VOICE_MODEL_KEY = 'whisper-local';
-const VOICE_MODEL_ID = WHISPER_MODEL_ID;
-const VOICE_MODEL_LABEL = 'OpenAI Whisper (Open Source Local)';
-const VOICE_MODEL_SIZE_EST = '~39 MB · Fast & Accurate';
+const VOICE_MODEL_KEY = 'windows-speech';
+const VOICE_MODEL_ID = 'system-speech-recognition';
+const VOICE_MODEL_LABEL = VOICE_ENGINE_LABEL;
+const VOICE_MODEL_SIZE_EST = 'Built into Windows';
 
 function getVoiceModelStatus() {
   const onWindows = isWindowsPlatform();
@@ -33,10 +26,10 @@ function getVoiceModelStatus() {
     downloading: false,
     builtIn: true,
     noDownloadRequired: true,
-    engine: 'whisper-local',
+    engine: VOICE_ENGINE_KEY,
     platform: process.platform,
     probed: true,
-    cacheSize: 'Local ONNX',
+    cacheSize: 'Windows system service',
     cacheBytes: 0
   };
 }
@@ -50,11 +43,11 @@ async function downloadVoiceModel() {
 }
 
 function cancelVoiceModelDownload() {
-  return { success: false, error: 'Whisper STT model is integrated and ready.' };
+  return { success: false, error: 'Windows Speech is built into the operating system.' };
 }
 
 function deleteVoiceModel() {
-  return { success: false, error: 'Whisper STT model is part of the local voice engine.' };
+  return { success: false, error: 'Windows Speech is managed by the operating system.' };
 }
 
 function isVoiceModelInstalled() {
@@ -147,10 +140,6 @@ async function transcribeAudioWavBase64(wavBase64, culture) {
 
   try {
     const wavBuffer = Buffer.from(wavBase64, 'base64');
-    const whisperRes = await transcribeWhisperWavBuffer(wavBuffer);
-    if (whisperRes?.success && whisperRes.text) {
-      return whisperRes;
-    }
     return await transcribeWavBuffer(wavBuffer, culture);
   } catch (err) {
     console.error('[voice-stt] WAV transcription failed:', err);
@@ -167,17 +156,6 @@ async function transcribeAudioFloat32(audioSamples, sampleRate = 16000, culture)
     return { success: false, error: 'No audio samples provided.' };
   }
 
-  // 1. Primary: Fast local OpenAI Whisper ONNX STT (< 300ms, accurate, offline)
-  try {
-    const whisperRes = await transcribeWhisperFloat32(audioSamples, sampleRate);
-    if (whisperRes?.success && whisperRes.text) {
-      return whisperRes;
-    }
-  } catch (wErr) {
-    console.warn('[voice-stt] Whisper STT fallback notice:', wErr.message);
-  }
-
-  // 2. Fallback: Windows Speech / SAPI 5
   try {
     const float32 = audioSamples instanceof Float32Array
       ? audioSamples
@@ -209,4 +187,3 @@ module.exports = {
   transcribeAudioWavBase64,
   transcribeAudioFloat32
 };
-
