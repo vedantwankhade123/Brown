@@ -74,6 +74,7 @@
       "!node_modules/onnxruntime-node/bin/napi-v3/win32/arm64{,/**}"
     ],
     "win": {
+      "executableName": "Ultron AI",
       "target": [
         {
           "target": "nsis",
@@ -107,7 +108,7 @@
     },
     "nsis": {
       "oneClick": false,
-      "perMachine": true,
+      "perMachine": false,
       "allowElevation": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
@@ -118,8 +119,7 @@
       "uninstallerIcon": "Assets/ultron-logo.ico",
       "installerHeaderIcon": "Assets/ultron-logo.ico",
       "artifactName": "Ultron.AI.Setup.${version}.${ext}",
-      "runAfterFinish": true,
-      "include": "build/installer.nsh"
+      "runAfterFinish": true
     }
   },
   "dependencies": {
