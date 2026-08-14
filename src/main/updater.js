@@ -40,7 +40,7 @@ function initAutoUpdater(mainWindow) {
       provider: 'github',
       owner: 'vedantwankhade123',
       repo: 'Ultron',
-      releaseType: 'prerelease'
+      releaseType: 'release'
     });
   } catch (e) {
     console.error('[AUTO-UPDATER] setFeedURL error:', e);
