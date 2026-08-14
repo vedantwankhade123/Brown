@@ -43,11 +43,13 @@ async function getWhisperTranscriber(onProgress) {
       transformers.env.backends.onnx.wasm.numThreads = 1;
 
       console.log(`[voice-whisper] initializing local Whisper STT (${WHISPER_MODEL_ID})...`);
-      return transformers.pipeline('automatic-speech-recognition', WHISPER_MODEL_ID, {
+      const pipeline = await transformers.pipeline('automatic-speech-recognition', WHISPER_MODEL_ID, {
         dtype: 'fp32',
         device: 'cpu',
         progress_callback: onProgress || null
       });
+      whisperReady = true;
+      return pipeline;
     })().catch((err) => {
       whisperPipelinePromise = null;
       throw err;
@@ -60,6 +62,7 @@ function cleanWhisperText(rawText) {
   if (!rawText) return '';
   let text = String(rawText || '')
     .replace(/\[(BLANK_AUDIO|MUSIC|NOISE|LAUGHTER|SILENCE|APPLAUSE)\]/gi, '')
+    .replace(/<\|.*?\|>/g, '')
     .trim();
   if (/^[\s.,!?-]+$/.test(text)) return '';
   return text;
@@ -134,6 +137,70 @@ function decodeWavBufferToFloat32(wavBuffer) {
   return { float32: resampleFloat32To16k(float32, sampleRate), sampleRate: 16000 };
 }
 
+function getRms(samples, start = 0, end = samples?.length || 0) {
+  if (!samples || end <= start) return 0;
+  let sum = 0;
+  for (let i = start; i < end; i++) sum += samples[i] * samples[i];
+  return Math.sqrt(sum / (end - start));
+}
+
+function estimateNoiseFloor(samples, sampleRate = 16000) {
+  if (!samples || !samples.length) return 0.003;
+  const frameSize = Math.max(160, Math.floor(sampleRate * 0.02));
+  const levels = [];
+  for (let offset = 0; offset + frameSize <= samples.length; offset += frameSize) {
+    levels.push(getRms(samples, offset, offset + frameSize));
+  }
+  if (!levels.length) return getRms(samples);
+  levels.sort((a, b) => a - b);
+  return Math.max(0.002, levels[Math.floor(levels.length * 0.2)] || 0.002);
+}
+
+function trimSilence(samples, sampleRate = 16000) {
+  if (!samples || !samples.length) return samples;
+  const frameSize = Math.max(160, Math.floor(sampleRate * 0.02));
+  const threshold = Math.max(0.002, estimateNoiseFloor(samples, sampleRate) * 1.5);
+  let firstFrame = -1;
+  let lastFrame = -1;
+  let frameIndex = 0;
+  for (let offset = 0; offset + frameSize <= samples.length; offset += frameSize, frameIndex++) {
+    if (getRms(samples, offset, offset + frameSize) >= threshold) {
+      if (firstFrame < 0) firstFrame = frameIndex;
+      lastFrame = frameIndex;
+    }
+  }
+  if (firstFrame < 0) return samples;
+  const pad = Math.floor(sampleRate * 0.12);
+  const start = Math.max(0, firstFrame * frameSize - pad);
+  const end = Math.min(samples.length, (lastFrame + 1) * frameSize + pad);
+  return samples.subarray(start, end);
+}
+
+function getSpeechStats(samples, sampleRate = 16000) {
+  if (!samples || !samples.length) {
+    return { speechRatio: 0, peak: 0, rms: 0 };
+  }
+  const frameSize = Math.max(160, Math.floor(sampleRate * 0.025));
+  const threshold = Math.max(0.002, estimateNoiseFloor(samples, sampleRate) * 1.5);
+  let speechFrames = 0;
+  let totalFrames = 0;
+  let peak = 0;
+  for (let offset = 0; offset + frameSize <= samples.length; offset += frameSize) {
+    const rms = getRms(samples, offset, offset + frameSize);
+    if (rms >= threshold) speechFrames++;
+    totalFrames++;
+    for (let i = offset; i < offset + frameSize; i++) {
+      const abs = Math.abs(samples[i]);
+      if (abs > peak) peak = abs;
+    }
+  }
+  return {
+    speechRatio: totalFrames ? speechFrames / totalFrames : 0,
+    peak,
+    rms: getRms(samples)
+  };
+}
+
 function normalizeAudioPeak(samples) {
   if (!samples || !samples.length) return samples;
   let maxAbs = 0;
@@ -142,15 +209,21 @@ function normalizeAudioPeak(samples) {
     if (abs > maxAbs) maxAbs = abs;
   }
   if (maxAbs < 0.001) return samples;
-  const factor = 0.85 / maxAbs;
+  const factor = Math.min(8, 0.85 / maxAbs);
   const normalized = new Float32Array(samples.length);
   for (let i = 0; i < samples.length; i++) {
-    normalized[i] = samples[i] * factor;
+    const value = samples[i] * factor;
+    normalized[i] = Math.abs(value) < 0.0005 ? 0 : value;
   }
   return normalized;
 }
 
 let isWhisperInferring = false;
+let whisperReady = false;
+
+function isWhisperReady() {
+  return whisperReady;
+}
 
 async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000) {
   if (!audioSamples || !audioSamples.length) {
@@ -167,6 +240,12 @@ async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000) {
     if (samples16k.length < 800) {
       return { success: false, error: 'Recording too short.', engine: WHISPER_ENGINE_KEY };
     }
+    samples16k = trimSilence(samples16k, 16000);
+    const speechStats = getSpeechStats(samples16k, 16000);
+    if (speechStats.peak < 0.005 || speechStats.rms < 0.0008) {
+      return { success: false, error: 'No clear speech detected.', engine: WHISPER_ENGINE_KEY };
+    }
+
     const max16kSamples = 16000 * 25;
     if (samples16k.length > max16kSamples) {
       samples16k = samples16k.subarray(samples16k.length - max16kSamples);
@@ -229,5 +308,6 @@ module.exports = {
   WHISPER_ENGINE_KEY,
   transcribeWhisperFloat32,
   transcribeWhisperWavBuffer,
-  warmupWhisper
+  warmupWhisper,
+  isWhisperReady
 };

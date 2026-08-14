@@ -766,29 +766,51 @@ function registerAudioIpcHandlers() {
 
   ipcMain.handle('transcribe-audio', async (_event, payload = {}) => {
     try {
-      const { transcribeAudioWavBase64, transcribeAudioFloat32 } = require('./voice-stt');
       const culture = String(payload.culture || '').trim() || undefined;
-      let wavResult = null;
+      const { transcribeWhisperFloat32, transcribeWhisperWavBuffer, isWhisperReady } = require('./voice-whisper');
+      const { transcribeAudioWavBase64, transcribeAudioFloat32 } = require('./voice-stt');
+
+      let windowsResult = null;
 
       if (payload.wavBase64) {
-        wavResult = await transcribeAudioWavBase64(payload.wavBase64, culture);
-        if (wavResult?.text) return wavResult;
+        windowsResult = await transcribeAudioWavBase64(payload.wavBase64, culture);
+        if (windowsResult?.success && windowsResult?.text) {
+          return windowsResult;
+        }
       }
 
       const samples = payload.samples || payload.audio || [];
       if (Array.isArray(samples) && samples.length > 800) {
         const sampleRate = Number(payload.sampleRate) || 16000;
-        const floatResult = await transcribeAudioFloat32(samples, sampleRate, culture);
-        if (floatResult?.text) return floatResult;
-        if (wavResult) return wavResult;
-        return floatResult;
+        if (!windowsResult?.text) {
+          windowsResult = await transcribeAudioFloat32(samples, sampleRate, culture);
+          if (windowsResult?.text) return windowsResult;
+        }
+
+        if (isWhisperReady()) {
+          try {
+            const float32 = Float32Array.from(samples);
+            const whisperRes = await transcribeWhisperFloat32(float32, sampleRate);
+            if (whisperRes?.success && whisperRes?.text) {
+              return whisperRes;
+            }
+          } catch (wErr) {
+            console.warn('[ipc] Whisper Float32 transcribe notice:', wErr.message);
+          }
+        }
+      } else if (payload.wavBase64 && isWhisperReady()) {
+        try {
+          const wavBuf = Buffer.from(payload.wavBase64, 'base64');
+          const whisperRes = await transcribeWhisperWavBuffer(wavBuf);
+          if (whisperRes?.success && whisperRes?.text) {
+            return whisperRes;
+          }
+        } catch (wErr) {
+          console.warn('[ipc] Whisper WAV transcribe notice:', wErr.message);
+        }
       }
 
-      if (payload.wavBase64) {
-        return wavResult || await transcribeAudioWavBase64(payload.wavBase64, culture);
-      }
-
-      return { success: false, error: 'No audio data provided.' };
+      return windowsResult || { success: false, error: 'No speech detected in the recording.' };
     } catch (err) {
       console.error('[ipc] transcribe-audio error:', err);
       return { success: false, error: err.message || 'Transcription failed.' };

@@ -1236,7 +1236,7 @@ function setSendingState(isSending) {
   }
   if (!isSending && chatInput) {
     if (isVoiceChatModeEnabled()) {
-      scheduleVoiceModeListen(500);
+      scheduleVoiceModeListen(80);
     } else {
       setTimeout(() => {
         try {
@@ -1251,8 +1251,7 @@ function setSendingState(isSending) {
   }
   if (isVoiceChatModeEnabled()) {
     if (isSending) {
-      updateVoiceModeAiTranscript('Thinking…', { processing: true });
-      setVoiceModeStatus('');
+      setVoiceModeStatus('Thinking…');
       setVoiceOrbVisualState('ai-speaking');
       startVoiceOrbAnimation('ai');
     } else {
@@ -1271,12 +1270,6 @@ function renderMessageContent(content, text) {
   formatCodeBlocks(content);
   wrapMarkdownTables(content);
   markAiContentVoicePending(content);
-  if (isVoiceChatModeEnabled() && text && !isThinkingMarkup(text) && !isRichResultMarkup(text) && !isAgentWidgetMarkup(text)) {
-    const plain = extractPlainTextFromMessage(text) || String(text).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (plain && plain.length > 1 && !/^thinking$/i.test(plain)) {
-      updateVoiceModeAiTranscript(plain);
-    }
-  }
 }
 
 function wrapMarkdownTables(container) {
@@ -1613,7 +1606,53 @@ function renderChatMessage(sender, text, isAi = false) {
     const avatar = document.createElement('div');
     avatar.className = 'avatar user';
     avatar.textContent = getUserInitials();
-    messageDiv.appendChild(content);
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message-wrapper user-wrapper';
+    wrapper.appendChild(content);
+
+    const actions = document.createElement('div');
+    actions.className = 'message-actions user-actions';
+    actions.style.display = 'flex';
+    actions.style.gap = '8px';
+    actions.style.marginTop = '4px';
+    actions.style.justifyContent = 'flex-end';
+
+    const btnCopyUser = document.createElement('button');
+    btnCopyUser.className = 'btn-copy-msg message-action-btn';
+    applyMessageActionButtonStyles(btnCopyUser);
+    btnCopyUser.innerHTML = `
+      <svg class="message-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+      </svg>
+      <span>Copy</span>
+    `;
+    btnCopyUser.addEventListener('click', (e) => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(text);
+      const span = btnCopyUser.querySelector('span');
+      if (span) span.textContent = 'Copied!';
+      btnCopyUser.style.color = '#34d399';
+      setTimeout(() => {
+        if (span) span.textContent = 'Copy';
+        btnCopyUser.style.color = 'var(--text-muted)';
+      }, 2000);
+    });
+
+    btnCopyUser.addEventListener('mouseenter', () => {
+      btnCopyUser.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+      btnCopyUser.style.color = 'var(--accent-white)';
+    });
+    btnCopyUser.addEventListener('mouseleave', () => {
+      btnCopyUser.style.backgroundColor = 'transparent';
+      btnCopyUser.style.color = 'var(--text-muted)';
+    });
+
+    actions.appendChild(btnCopyUser);
+    wrapper.appendChild(actions);
+
+    messageDiv.appendChild(wrapper);
     messageDiv.appendChild(avatar);
   }
 
@@ -4880,8 +4919,6 @@ async function runOnboardingProfiler() {
     logTrace(`Hardware profiling failed: ${result ? result.error : 'Unknown error'}`, 'system');
   }
 
-  // Smoothly reveal full app interface after hardware & model diagnostics complete
-  hideSkeletonLoader();
 }
 
 // Bind security settings selector
@@ -4892,13 +4929,64 @@ const SECURITY_MODE_LABELS = {
   Trusted: 'Trusted'
 };
 
+const PERM_MODE_DISPLAY_LABELS = {
+  Review: 'Prompt every action',
+  Adaptive: 'Smart auto-approval',
+  Trusted: 'Full autonomous mode',
+  Containment: 'Smart auto-approval'
+};
+
 function updateSecurityModeUI(mode) {
   const resolved = SECURITY_MODE_LABELS[mode] ? mode : 'Adaptive';
   if (selectSecurityMode) selectSecurityMode.value = resolved;
   if (settingsDefaultSecurity) settingsDefaultSecurity.value = resolved;
 
-  document.querySelectorAll('.plus-menu-item.mode-option').forEach(btn => {
+  const btnPermSelector = document.getElementById('btn-perm-selector');
+  const permSelectorLabel = document.getElementById('perm-selector-label');
+  const displayLabel = PERM_MODE_DISPLAY_LABELS[resolved] || 'Smart auto-approval';
+
+  if (permSelectorLabel) permSelectorLabel.textContent = displayLabel;
+  if (btnPermSelector) {
+    btnPermSelector.classList.toggle('warning-active', resolved === 'Trusted');
+  }
+
+  document.querySelectorAll('.mode-option').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.mode === resolved);
+  });
+}
+
+const btnPermSelector = document.getElementById('btn-perm-selector');
+const permModeDropdown = document.getElementById('perm-mode-dropdown');
+const permSelectorWrapper = document.getElementById('perm-selector-wrapper');
+
+if (btnPermSelector && permModeDropdown) {
+  btnPermSelector.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !permModeDropdown.classList.contains('hidden');
+    if (isOpen) {
+      permModeDropdown.classList.add('hidden');
+      if (permSelectorWrapper) permSelectorWrapper.classList.remove('open');
+    } else {
+      permModeDropdown.classList.remove('hidden');
+      if (permSelectorWrapper) permSelectorWrapper.classList.add('open');
+    }
+  });
+
+  document.querySelectorAll('#perm-mode-dropdown .mode-option').forEach(item => {
+    item.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const targetMode = item.dataset.mode;
+      await applySecurityMode(targetMode, 'prompt-top-bar');
+      permModeDropdown.classList.add('hidden');
+      if (permSelectorWrapper) permSelectorWrapper.classList.remove('open');
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (permSelectorWrapper && !permSelectorWrapper.contains(e.target)) {
+      permModeDropdown.classList.add('hidden');
+      permSelectorWrapper.classList.remove('open');
+    }
   });
 }
 
@@ -4963,6 +5051,9 @@ document.addEventListener('click', (e) => {
   if (modelSelectorWrapper && !modelSelectorWrapper.contains(e.target)) {
     modelDropdown.classList.add('hidden');
     modelSelectorWrapper.classList.remove('open');
+  }
+  if (voiceModeModelsWrap && !voiceModeModelsWrap.contains(e.target)) {
+    closeVoiceModeModelsPanel();
   }
 });
 
@@ -5396,19 +5487,19 @@ async function submitPrompt(overridePrompt) {
       const lastAiBubble = stoppedBubbles.length ? stoppedBubbles[stoppedBubbles.length - 1] : null;
       if (lastAiBubble) {
         const existingContent = lastAiBubble.querySelector('.message-content');
-        const liveRoot = existingContent ? existingContent.querySelector('.agent-live-root') : null;
-        const currentText = existingContent ? existingContent.textContent.trim() : '';
-        if (liveRoot && existingContent.querySelector('.agent-progress-feed')) {
-          const widgetsHtml = liveRoot.querySelector('.agent-live-widgets')?.innerHTML || '';
-          const stoppedFinal = composeAgentFinalContent([], [], '⏹ Generation stopped.', 0);
-          existingContent.innerHTML = `${widgetsHtml}${stoppedFinal}`;
-        } else if (currentText && currentText !== 'Thinking' && currentText.length > 10) {
-          const stoppedNote = document.createElement('div');
-          stoppedNote.className = 'agent-stopped-note';
-          stoppedNote.innerHTML = '<em>⏹ Generation stopped</em>';
-          if (existingContent) existingContent.appendChild(stoppedNote);
-        } else if (existingContent) {
-          renderMessageContent(existingContent, '⏹ Generation stopped.');
+        const messageWrapper = lastAiBubble.querySelector('.message-wrapper') || lastAiBubble;
+        const actionsDiv = messageWrapper ? messageWrapper.querySelector('.message-actions') : null;
+        if (existingContent) {
+          const thinkingNode = existingContent.querySelector('.agent-thinking-wrapper, .thinking-container');
+          if (thinkingNode) thinkingNode.remove();
+          const stoppedNotes = existingContent.querySelectorAll('.agent-stopped-note');
+          stoppedNotes.forEach(n => n.remove());
+
+          const cleanText = extractPlainTextFromMessage(existingContent.innerText || existingContent.textContent || '');
+          if (actionsDiv) {
+            actionsDiv.style.display = 'flex';
+            wireMessageActionButtons(actionsDiv, cleanText);
+          }
         }
       }
       logTrace('Generation stopped by user.', 'system');
@@ -7044,16 +7135,12 @@ Write the final answer now.`;
 
   if (!finalResponse) {
     if (_activeAbortController && _activeAbortController.signal.aborted) {
-      finalResponse = 'Generation stopped.';
+      finalResponse = '';
     } else {
       finalResponse = isDone
         ? 'Task completed successfully.'
         : 'Reached the maximum number of agent steps. Review the activity feed for partial progress.';
     }
-  }
-
-  if (_activeAbortController && _activeAbortController.signal.aborted && !/stopped/i.test(finalResponse)) {
-    finalResponse = `${finalResponse}\n\n⏹ Generation stopped.`;
   }
 
   const anyFailed = agentSubgoals.some(step => step.status === 'failed');
@@ -9394,7 +9481,8 @@ async function refreshLiveMetrics() {
 function startLiveMetricsPolling() {
   refreshLiveMetrics();
   if (_liveMetricsTimer) clearInterval(_liveMetricsTimer);
-  _liveMetricsTimer = setInterval(refreshLiveMetrics, 8000);
+  const intervalMs = getPerformanceProfile() === 'battery' ? 30000 : (getPerformanceProfile() === 'performance' ? 5000 : 12000);
+  _liveMetricsTimer = setInterval(refreshLiveMetrics, intervalMs);
 }
 
 document.addEventListener('click', (e) => {
@@ -9514,6 +9602,9 @@ let recordedAudioChunks = [];
 let pcmProcessor = null;
 let recordedPcmChunks = [];
 let pcmCaptureRate = 48000;
+let lastVoiceTranscriptionError = '';
+let micNoiseFloor = 0.004;
+let micCalibratingUntil = 0;
 let accumulatedTranscript = '';
 let finalVoiceTranscript = '';
 let initialInputValue = '';
@@ -9541,16 +9632,25 @@ let vadAnimId = null;
 let vadIntervalId = null;
 let vadSpeechStartAt = 0;
 let vadLastSpeechAt = 0;
+let vadSpeechFrameCount = 0;
+let vadNoiseFrameCount = 0;
 let vadAutoTriggered = false;
 let voiceModeGestureUnlocked = false;
 let voiceModeGestureListener = null;
 
-const VAD_SPEECH_THRESHOLD = 0.01;
-const VAD_SILENCE_MS = 500;
-const VAD_MIN_SPEECH_MS = 200;
+const VAD_BASE_SPEECH_THRESHOLD = 0.018;
+let vadNoiseMultiplier = 3.0;
+const VAD_CALIBRATION_MS = 350;
+let vadSilenceMs = 700;
+const VAD_MIN_SPEECH_MS = 320;
+const VAD_START_FRAMES = 2;
+const VAD_STOP_FRAMES = 4;
 const VAD_MAX_RECORD_MS = 55000;
 
-const VOICE_ORB_FRAME_MS = 100;
+function getVoiceOrbFrameMs() {
+  const profile = getPerformanceProfile();
+  return profile === 'battery' ? 180 : (profile === 'performance' ? 66 : 100);
+}
 
 const btnChatModeText = document.getElementById('btn-chat-mode-text');
 const btnChatModeVoice = document.getElementById('btn-chat-mode-voice');
@@ -9564,8 +9664,8 @@ const voiceModeStopMic = document.getElementById('voice-mode-stop-mic');
 const voiceModeExit = document.getElementById('voice-mode-exit');
 const voiceModeModelsToggle = document.getElementById('voice-mode-models-toggle');
 const voiceModeModelsPanel = document.getElementById('voice-mode-models-panel');
-const voiceModeChatModel = document.getElementById('voice-mode-chat-model');
-const voiceModeTtsModel = document.getElementById('voice-mode-tts-model');
+const voiceModeModelsList = document.getElementById('voice-mode-models-list');
+const voiceModeModelsWrap = document.querySelector('.voice-mode-models-wrap');
 
 // Hardware Adaptive Voice Engine Profile Detection
 function getHardwareAdaptiveVoiceConfig() {
@@ -9611,17 +9711,56 @@ async function getVoiceModeTtsLabel() {
   return key;
 }
 
-async function updateVoiceModeModelsPanel() {
-  if (voiceModeChatModel) voiceModeChatModel.textContent = getVoiceModeChatModelLabel();
-  if (voiceModeTtsModel) voiceModeTtsModel.textContent = await getVoiceModeTtsLabel();
+function closeVoiceModeModelsPanel() {
+  if (!voiceModeModelsPanel || !voiceModeModelsToggle) return;
+  voiceModeModelsPanel.classList.add('hidden');
+  voiceModeModelsToggle.setAttribute('aria-expanded', 'false');
+}
+
+async function selectChatModel(modelName) {
+  const name = String(modelName || '').trim();
+  if (!name) return;
+  if (name !== activeModel) {
+    const isGemini = name.toLowerCase().includes('gemini');
+    await unloadOllamaModelsExcept(isGemini ? '' : name);
+    activeModel = name;
+    logTrace(`Chat context model shifted to "${activeModel}"`, 'local');
+  }
+  updateModelSelectorLabel();
+  if (modelDropdown) modelDropdown.classList.add('hidden');
+  if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
+  closeVoiceModeModelsPanel();
+}
+
+function updateVoiceModeModelsPanel() {
+  if (!voiceModeModelsList) return;
+  if (typeof renderModelDropdownList === 'function') renderModelDropdownList();
+  if (!modelDropdownList) return;
+  voiceModeModelsList.innerHTML = '';
+  Array.from(modelDropdownList.children).forEach((child) => {
+    const clone = child.cloneNode(true);
+    if (clone.classList.contains('model-dropdown-item') && !clone.classList.contains('disabled')) {
+      const name = clone.querySelector('.model-name-text')?.textContent?.trim();
+      clone.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (name) selectChatModel(name);
+      });
+    }
+    voiceModeModelsList.appendChild(clone);
+  });
 }
 
 function toggleVoiceModeModelsPanel() {
   if (!voiceModeModelsPanel || !voiceModeModelsToggle) return;
   const opening = voiceModeModelsPanel.classList.contains('hidden');
-  voiceModeModelsPanel.classList.toggle('hidden');
-  voiceModeModelsToggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
-  if (opening) updateVoiceModeModelsPanel();
+  if (opening) {
+    updateVoiceModeModelsPanel();
+    voiceModeModelsPanel.classList.remove('hidden');
+    voiceModeModelsToggle.setAttribute('aria-expanded', 'true');
+  } else {
+    closeVoiceModeModelsPanel();
+  }
 }
 
 function markAiContentVoicePending(contentElement) {
@@ -9678,70 +9817,31 @@ function updateVoiceModeBarUi() {
   }
 }
 
-function setVoiceModeCaption(text, { role = '', processing = false, interim = false } = {}) {
+function setVoiceModeCaption(_text, _opts) {
   if (!voiceModeCaption) return;
-  const trimmed = String(text || '').trim();
-  voiceModeCaption.classList.toggle('processing', processing);
-  voiceModeCaption.classList.toggle('interim', interim && !processing);
-  voiceModeCaption.dataset.role = role || '';
-  voiceModeCaption.textContent = trimmed;
-  voiceModeCaption.classList.toggle('visible', Boolean(trimmed));
+  voiceModeCaption.textContent = '';
+  voiceModeCaption.dataset.role = '';
+  voiceModeCaption.classList.remove('visible', 'processing', 'interim');
 }
 
-function updateVoiceModeUserTranscript(text, { processing = false, interim = false } = {}) {
-  const trimmed = String(text || '').trim();
-  if (processing) {
-    setVoiceModeCaption(trimmed || 'Transcribing…', { role: 'user', processing: true });
-    return;
-  }
-  if (trimmed) {
-    setVoiceModeCaption(trimmed, { role: 'user', interim });
-  } else if (!interim) {
-    // Keep AI caption if user caption is cleared mid-turn only when empty intentionally
-    if (voiceModeCaption?.dataset.role === 'user') {
-      setVoiceModeCaption('', { role: '' });
-    }
-  }
+function updateVoiceModeUserTranscript(_text, _opts) {
+  return;
 }
 
-function getOneLinerCaptionText(fullText) {
-  const cleaned = String(fullText || '').replace(/\s+/g, ' ').trim();
-  if (!cleaned) return '';
-  const parts = cleaned.match(/[^.!?\n]+[.!?]+|[^.!?\n]+$/g) || [cleaned];
-  const lastPart = parts[parts.length - 1].trim();
-  if (parts.length > 1 && lastPart.length < 25) {
-    const prevPart = parts[parts.length - 2].trim();
-    return `${prevPart} ${lastPart}`;
-  }
-  return lastPart || cleaned;
-}
-
-function updateVoiceModeAiTranscript(text, { processing = false } = {}) {
-  const trimmed = String(text || '').trim();
-  if (processing) {
-    setVoiceModeCaption(trimmed || 'Ultron is thinking…', { role: 'ai', processing: true });
-    return;
-  }
-  if (trimmed) {
-    const oneLiner = getOneLinerCaptionText(trimmed);
-    setVoiceModeCaption(oneLiner, { role: 'ai' });
-  }
+function updateVoiceModeAiTranscript(_text, _opts) {
+  return;
 }
 
 function clearVoiceModeUserTranscript() {
-  if (voiceModeCaption?.dataset.role === 'user' || !voiceModeCaption?.textContent) {
-    setVoiceModeCaption('', { role: '' });
-  }
+  setVoiceModeCaption('');
 }
 
 function clearVoiceModeCaption() {
-  setVoiceModeCaption('', { role: '' });
+  setVoiceModeCaption('');
 }
 
 function syncVoiceModeAiFromChat() {
-  if (!isVoiceChatModeEnabled()) return;
-  const text = getLatestAiMessagePlainText();
-  if (text) updateVoiceModeAiTranscript(text);
+  return;
 }
 
 function getLatestAiMessagePlainText() {
@@ -9759,10 +9859,17 @@ function setVoiceModeStatus(text) {
   const label = String(text || '').trim();
   if (voiceModeStatus) {
     if (label) {
-      voiceModeStatus.textContent = label;
+      const isListening = /^listening/i.test(label);
+      voiceModeStatus.classList.toggle('is-listening', isListening);
+      if (isListening) {
+        voiceModeStatus.innerHTML = 'Listening<span class="voice-status-dots" aria-hidden="true"></span>';
+      } else {
+        voiceModeStatus.textContent = label;
+      }
       voiceModeStatus.hidden = false;
       voiceModeStatus.style.display = '';
     } else {
+      voiceModeStatus.classList.remove('is-listening');
       voiceModeStatus.textContent = '';
       voiceModeStatus.hidden = true;
       voiceModeStatus.style.display = 'none';
@@ -9785,13 +9892,85 @@ function stopVoiceModeVad() {
   }
   vadSpeechStartAt = 0;
   vadLastSpeechAt = 0;
+  vadSpeechFrameCount = 0;
+  vadNoiseFrameCount = 0;
   vadAutoTriggered = false;
   vadInterimBusy = false;
   vadLastInterimAt = 0;
 }
 
-function hasVoiceSpeechSignal(level) {
-  if (level >= VAD_SPEECH_THRESHOLD) return true;
+function resetMicNoiseCalibration() {
+  micNoiseFloor = 0.004;
+  micCalibratingUntil = performance.now() + VAD_CALIBRATION_MS;
+}
+
+function updateMicNoiseFloor(level) {
+  if (!Number.isFinite(level) || level <= 0) return;
+  if (performance.now() <= micCalibratingUntil) {
+    micNoiseFloor = micNoiseFloor ? (micNoiseFloor * 0.82 + level * 0.18) : level;
+  } else if (level < micNoiseFloor * 1.6) {
+    micNoiseFloor = micNoiseFloor * 0.96 + level * 0.04;
+  }
+  micNoiseFloor = Math.max(0.0025, Math.min(0.04, micNoiseFloor));
+}
+
+function getAdaptiveVadThreshold() {
+  return Math.max(VAD_BASE_SPEECH_THRESHOLD, micNoiseFloor * vadNoiseMultiplier);
+}
+
+function getMicVoiceFeatures(analyser) {
+  const level = getMicLevelFast(analyser);
+  if (!analyser) return { level, voiceRatio: 0, zcr: 0, voiceLike: false };
+
+  const freqLength = analyser.frequencyBinCount || 0;
+  if (!_waveformFreqBuffer || _waveformFreqBuffer.length !== freqLength) {
+    _waveformFreqBuffer = new Uint8Array(freqLength);
+  }
+  analyser.getByteFrequencyData(_waveformFreqBuffer);
+
+  const nyquist = (audioContext?.sampleRate || 48000) / 2;
+  let voiceEnergy = 0;
+  let totalEnergy = 0;
+  for (let i = 1; i < freqLength; i++) {
+    const hz = (i / freqLength) * nyquist;
+    const amp = _waveformFreqBuffer[i] / 255;
+    const energy = amp * amp;
+    totalEnergy += energy;
+    if (hz >= 120 && hz <= 3800) voiceEnergy += energy;
+  }
+
+  const timeLength = analyser.fftSize || 256;
+  if (!_micFastTimeBuffer || _micFastTimeBuffer.length !== timeLength) {
+    _micFastTimeBuffer = new Uint8Array(timeLength);
+  }
+  analyser.getByteTimeDomainData(_micFastTimeBuffer);
+  let crossings = 0;
+  let prev = (_micFastTimeBuffer[0] - 128) / 128;
+  for (let i = 1; i < timeLength; i++) {
+    const cur = (_micFastTimeBuffer[i] - 128) / 128;
+    if ((prev < 0 && cur >= 0) || (prev >= 0 && cur < 0)) crossings++;
+    prev = cur;
+  }
+
+  const voiceRatio = totalEnergy > 0.00001 ? voiceEnergy / totalEnergy : 0;
+  const zcr = crossings / Math.max(1, timeLength - 1);
+  return {
+    level,
+    voiceRatio,
+    zcr,
+    voiceLike: voiceRatio >= 0.48 && zcr >= 0.015 && zcr <= 0.32
+  };
+}
+
+function hasVoiceSpeechSignal(features) {
+  const level = typeof features === 'number' ? features : features?.level || 0;
+  updateMicNoiseFloor(level);
+  if (performance.now() <= micCalibratingUntil) return false;
+  const threshold = getAdaptiveVadThreshold();
+  if (level >= threshold) {
+    if (typeof features === 'number') return true;
+    if (features.voiceLike || level >= threshold * 1.2) return true;
+  }
   const t = (accumulatedTranscript || finalVoiceTranscript || '').trim();
   return t.length > 1;
 }
@@ -9799,6 +9978,7 @@ function hasVoiceSpeechSignal(level) {
 function startVoiceModeVad() {
   stopVoiceModeVad();
   if (!isVoiceChatModeEnabled() || !isRecordingVoice) return;
+  const pollMs = Math.max(40, getHardwareAdaptiveVoiceConfig().vadInterval || 50);
 
   vadIntervalId = setInterval(() => {
     if (!isRecordingVoice || !isVoiceChatModeEnabled() || voiceModePaused || vadAutoTriggered) {
@@ -9810,53 +9990,26 @@ function startVoiceModeVad() {
       ensureAudioContextRunning(audioContext);
     }
 
-    const level = getMicLevelFast(analyserNode);
-    const speaking = hasVoiceSpeechSignal(level);
+    const micFeatures = getMicVoiceFeatures(analyserNode);
+    const speechCandidate = hasVoiceSpeechSignal(micFeatures);
+    if (speechCandidate) {
+      vadSpeechFrameCount++;
+      vadNoiseFrameCount = 0;
+    } else {
+      vadNoiseFrameCount++;
+    }
+    const speaking = vadSpeechFrameCount >= VAD_START_FRAMES;
     const now = performance.now();
 
     if (speaking) {
       if (!vadSpeechStartAt) vadSpeechStartAt = now;
       vadLastSpeechAt = now;
-      const currentText = (accumulatedTranscript || finalVoiceTranscript || '').trim();
-      if (currentText) {
-        updateVoiceModeUserTranscript(currentText, { interim: true });
-      } else {
-        updateVoiceModeUserTranscript('Listening…', { interim: true });
-      }
-
-      // Ultra-fast PCM live Whisper STT captioning while speaking
-      if (!vadInterimBusy && (recordedPcmChunks.length >= 3 || recordedAudioChunks.length >= 2) && (now - vadLastInterimAt >= 600)) {
-        vadLastInterimAt = now;
-        vadInterimBusy = true;
-        (async () => {
-          let samples = null;
-          if (recordedPcmChunks.length > 0) {
-            const merged = mergePcmChunks(recordedPcmChunks);
-            const maxInterimSamples = (pcmCaptureRate || 48000) * 6; // Max 6 seconds for interim captions
-            samples = merged.length > maxInterimSamples ? merged.subarray(merged.length - maxInterimSamples) : merged;
-          } else if (recordedAudioChunks.length >= 2) {
-            const interimBlob = new Blob([...recordedAudioChunks], { type: mediaRecorder?.mimeType || 'audio/webm' });
-            samples = await decodeAudioBlobToMono16k(interimBlob);
-          }
-
-          if (samples && samples.length > 3200 && isRecordingVoice && isVoiceChatModeEnabled() && !vadAutoTriggered) {
-            const sampleArray = samples instanceof Float32Array ? Array.from(samples) : samples;
-            const res = await window.ultronAPI.transcribeAudio({ sampleRate: pcmCaptureRate || 48000, samples: sampleArray });
-            if (res?.text && isRecordingVoice && !vadAutoTriggered) {
-              accumulatedTranscript = res.text.trim();
-              updateVoiceModeUserTranscript(accumulatedTranscript, { interim: true });
-            }
-          }
-        })().catch(() => {}).finally(() => {
-          vadInterimBusy = false;
-        });
-      }
     } else if (vadSpeechStartAt && vadLastSpeechAt) {
       const silenceMs = now - vadLastSpeechAt;
       const speechMs = vadLastSpeechAt - vadSpeechStartAt;
       const hasText = Boolean((accumulatedTranscript || finalVoiceTranscript || '').trim());
 
-      if (silenceMs >= VAD_SILENCE_MS && (speechMs >= VAD_MIN_SPEECH_MS || hasText)) {
+      if (vadNoiseFrameCount >= VAD_STOP_FRAMES && silenceMs >= vadSilenceMs && (speechMs >= VAD_MIN_SPEECH_MS || hasText)) {
         vadAutoTriggered = true;
         stopVoiceModeVad();
         finishVoiceModeTurn(true);
@@ -9869,7 +10022,7 @@ function startVoiceModeVad() {
       stopVoiceModeVad();
       finishVoiceModeTurn(true);
     }
-  }, 130);
+  }, pollMs);
 }
 
 function resumeVoiceModeConversation() {
@@ -9907,8 +10060,21 @@ function stopVoiceModeMicHandoff() {
   stopVoiceModeVad();
   if (isRecordingVoice) stopVoiceRecording(false);
   clearVoiceModeUserTranscript();
-  setVoiceModeStatus('Mic off — press Resume to continue');
+  setVoiceModeStatus('Mic off');
   updateVoiceModeBarUi();
+}
+
+function toggleVoiceModeMic() {
+  if (voiceModeMicMuted) {
+    voiceModeMicMuted = false;
+    voiceModePaused = false;
+    unlockVoiceModeAudio();
+    updateVoiceModeBarUi();
+    setVoiceModeStatus('Listening…');
+    scheduleVoiceModeListen(0);
+    return;
+  }
+  stopVoiceModeMicHandoff();
 }
 
 function setVoiceOrbVisualState(state) {
@@ -10047,7 +10213,7 @@ function startVoiceOrbAnimation(source = 'idle') {
       return;
     }
 
-    if (now - voiceOrbLastFrameAt < VOICE_ORB_FRAME_MS) {
+    if (now - voiceOrbLastFrameAt < getVoiceOrbFrameMs()) {
       voiceOrbAnimId = requestAnimationFrame(frame);
       return;
     }
@@ -10092,13 +10258,13 @@ function connectTtsAudioAnalyser(audio) {
   }
 }
 
-function scheduleVoiceModeListen(delayMs = 600) {
+function scheduleVoiceModeListen(delayMs = 120) {
   if (!isVoiceChatModeEnabled() || isAwaitingResponse || isRecordingVoice || isVoiceModeListenBlocked()) return;
   if (voiceModeListenTimer) clearTimeout(voiceModeListenTimer);
   voiceModeListenTimer = setTimeout(() => {
     voiceModeListenTimer = null;
     if (streamingAutoSpeakState.busy || activeNeuralAudio) {
-      scheduleVoiceModeListen(500);
+      scheduleVoiceModeListen(180);
       return;
     }
     if (isVoiceChatModeEnabled() && !isAwaitingResponse && !isRecordingVoice && !isVoiceModeListenBlocked()) {
@@ -10114,7 +10280,7 @@ async function startVoiceModeSession() {
     return;
   }
   voiceModeRecording = true;
-  setVoiceModeStatus('Starting mic…');
+  setVoiceModeStatus('Listening…');
   setVoiceOrbVisualState('listening');
   clearVoiceModeCaption();
   await startVoiceRecording({ voiceMode: true });
@@ -10122,7 +10288,7 @@ async function startVoiceModeSession() {
     voiceModeRecording = false;
     setVoiceModeStatus('Tap to start listening');
   } else {
-    setVoiceModeStatus('');
+    setVoiceModeStatus('Listening…');
   }
 }
 
@@ -10217,10 +10383,10 @@ function applyVoiceChatModeUi({ fromUserGesture = false } = {}) {
     clearVoiceModeCaption();
     if (fromUserGesture) {
       unlockVoiceModeAudio();
-      setVoiceModeStatus('');
+      setVoiceModeStatus('Listening…');
       scheduleVoiceModeListen(0);
     } else if (voiceModeGestureUnlocked) {
-      setVoiceModeStatus('');
+      setVoiceModeStatus('Listening…');
       scheduleVoiceModeListen(0);
     } else {
       promptVoiceModeGesture();
@@ -10229,6 +10395,7 @@ function applyVoiceChatModeUi({ fromUserGesture = false } = {}) {
     cancelVoiceOrbAnimation();
     stopVoiceModeVad();
     clearVoiceModeGestureListener();
+    closeVoiceModeModelsPanel();
     voiceModeGestureUnlocked = false;
     setVoiceOrbVisualState('');
     clearVoiceModeCaption();
@@ -10287,7 +10454,7 @@ if (voiceModeStopMic) {
   voiceModeStopMic.addEventListener('click', (e) => {
     e.preventDefault();
     unlockVoiceModeAudio();
-    stopVoiceModeMicHandoff();
+    toggleVoiceModeMic();
   });
 }
 
@@ -10365,17 +10532,100 @@ function isBrowserSpeechRecognitionAvailable() {
 }
 
 function shouldUseBrowserSpeechRecognition() {
-  // Live preview in the voice pill only — final transcript uses Windows Speech (more accurate).
-  return isBrowserSpeechRecognitionAvailable();
+  // Windows Speech is the sole transcription engine for both text and voice mode.
+  return false;
 }
 
 function getVoiceSttCulture() {
   const lang = String(navigator.language || 'en-US').trim();
-  if (/^[a-z]{2}-[A-Z]{2}$/i.test(lang)) return lang;
   if (lang.toLowerCase().startsWith('en')) return 'en-US';
   if (lang.toLowerCase().startsWith('hi')) return 'hi-IN';
   return 'en-US';
 }
+
+const settingPerformanceProfile = document.getElementById('setting-performance-profile');
+const settingPerformanceProfileNote = document.getElementById('setting-performance-profile-note');
+const settingVoiceInputDevice = document.getElementById('setting-voice-input-device');
+const settingVoiceSensitivity = document.getElementById('setting-voice-sensitivity');
+const settingVoiceSensitivityLabel = document.getElementById('setting-voice-sensitivity-label');
+const settingVoicePause = document.getElementById('setting-voice-pause');
+const settingVoicePauseLabel = document.getElementById('setting-voice-pause-label');
+
+function getPerformanceProfile() {
+  const profile = localStorage.getItem('ultron-performance-profile') || 'balanced';
+  return ['battery', 'balanced', 'performance'].includes(profile) ? profile : 'balanced';
+}
+
+function applyPerformanceProfile(profile = getPerformanceProfile()) {
+  document.body.dataset.performanceProfile = profile;
+  if (settingPerformanceProfile) settingPerformanceProfile.value = profile;
+  if (settingPerformanceProfileNote) {
+    settingPerformanceProfileNote.textContent = profile === 'battery'
+      ? 'Reduced animation, polling, and background startup work'
+      : profile === 'performance'
+        ? 'Fast refreshes and full visual effects'
+        : 'Balanced daily use';
+  }
+}
+
+function getSelectedVoiceInputDeviceId() {
+  return localStorage.getItem('ultron-voice-input-device') || '';
+}
+
+function updateVoiceInputSettingsLabels() {
+  if (settingVoiceSensitivityLabel) {
+    const value = Number(vadNoiseMultiplier);
+    settingVoiceSensitivityLabel.textContent = value >= 4.2 ? 'Strict' : value <= 3 ? 'Sensitive' : 'Balanced';
+  }
+  if (settingVoicePauseLabel) settingVoicePauseLabel.textContent = `${(vadSilenceMs / 1000).toFixed(1)}s`;
+}
+
+async function refreshVoiceInputDevices() {
+  if (!settingVoiceInputDevice || !navigator.mediaDevices?.enumerateDevices) return;
+  const selected = getSelectedVoiceInputDeviceId();
+  const devices = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter(device => device.kind === 'audioinput');
+  settingVoiceInputDevice.innerHTML = '<option value="">System default</option>';
+  devices.forEach((device, index) => {
+    const option = document.createElement('option');
+    option.value = device.deviceId;
+    option.textContent = device.label || `Microphone ${index + 1}`;
+    settingVoiceInputDevice.appendChild(option);
+  });
+  settingVoiceInputDevice.value = devices.some(device => device.deviceId === selected) ? selected : '';
+}
+
+function initRuntimePreferencesUI() {
+  const savedSensitivity = Number(localStorage.getItem('ultron-voice-sensitivity'));
+  const savedPause = Number(localStorage.getItem('ultron-voice-pause-ms'));
+  if (Number.isFinite(savedSensitivity)) vadNoiseMultiplier = Math.max(2.4, Math.min(5, savedSensitivity));
+  if (Number.isFinite(savedPause)) vadSilenceMs = Math.max(500, Math.min(2000, savedPause));
+  if (settingVoiceSensitivity) settingVoiceSensitivity.value = String(vadNoiseMultiplier);
+  if (settingVoicePause) settingVoicePause.value = String(vadSilenceMs);
+  updateVoiceInputSettingsLabels();
+  applyPerformanceProfile();
+  refreshVoiceInputDevices();
+
+  settingPerformanceProfile?.addEventListener('change', () => {
+    localStorage.setItem('ultron-performance-profile', settingPerformanceProfile.value);
+    applyPerformanceProfile(settingPerformanceProfile.value);
+  });
+  settingVoiceInputDevice?.addEventListener('change', () => {
+    localStorage.setItem('ultron-voice-input-device', settingVoiceInputDevice.value || '');
+  });
+  settingVoiceSensitivity?.addEventListener('input', () => {
+    vadNoiseMultiplier = Number(settingVoiceSensitivity.value);
+    localStorage.setItem('ultron-voice-sensitivity', String(vadNoiseMultiplier));
+    updateVoiceInputSettingsLabels();
+  });
+  settingVoicePause?.addEventListener('input', () => {
+    vadSilenceMs = Number(settingVoicePause.value);
+    localStorage.setItem('ultron-voice-pause-ms', String(vadSilenceMs));
+    updateVoiceInputSettingsLabels();
+  });
+  document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.addEventListener('click', refreshVoiceInputDevices);
+}
+
+initRuntimePreferencesUI();
 
 function isUltronWindowsDevice() {
   return /windows/i.test(navigator.userAgent || '') || /win/i.test(navigator.platform || '');
@@ -10470,7 +10720,7 @@ function updateVoiceLiveTranscript(text, { processing = false } = {}) {
       if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.add('has-transcript');
     }
     if (isVoiceChatModeEnabled()) {
-      setVoiceModeStatus(trimmed || 'Transcribing…');
+      setVoiceModeStatus('Listening…');
     }
     return;
   }
@@ -10489,7 +10739,7 @@ function updateVoiceLiveTranscript(text, { processing = false } = {}) {
   }
 
   if (isVoiceChatModeEnabled() && trimmed && !/^(Listening…|Transcribing…)$/i.test(trimmed)) {
-    updateVoiceModeUserTranscript(trimmed);
+    return;
   }
 }
 
@@ -10504,26 +10754,110 @@ function getPcmRms(samples) {
   return Math.sqrt(sum / samples.length);
 }
 
-function trimPcmSilence(samples, threshold = 0.003) {
+function estimatePcmNoiseFloor(samples, sampleRate = 16000) {
+  if (!samples || !samples.length) return 0.003;
+  const frameSize = Math.max(160, Math.floor(sampleRate * 0.02));
+  const frameLevels = [];
+  for (let offset = 0; offset + frameSize <= samples.length; offset += frameSize) {
+    frameLevels.push(getPcmRms(samples.subarray(offset, offset + frameSize)));
+  }
+  if (!frameLevels.length) return getPcmRms(samples);
+  frameLevels.sort((a, b) => a - b);
+  return Math.max(0.002, frameLevels[Math.floor(frameLevels.length * 0.2)] || 0.002);
+}
+
+function getPcmSpeechStats(samples, sampleRate = 16000) {
+  if (!samples || !samples.length) return { speechRatio: 0, peak: 0, rms: 0, threshold: 0.006 };
+  const frameSize = Math.max(160, Math.floor(sampleRate * 0.025));
+  const noiseFloor = estimatePcmNoiseFloor(samples, sampleRate);
+  const threshold = Math.max(0.006, noiseFloor * 2.6);
+  let speechFrames = 0;
+  let totalFrames = 0;
+  let peak = 0;
+  for (let offset = 0; offset + frameSize <= samples.length; offset += frameSize) {
+    const frame = samples.subarray(offset, offset + frameSize);
+    const rms = getPcmRms(frame);
+    if (rms >= threshold) speechFrames++;
+    totalFrames++;
+    for (let i = 0; i < frame.length; i++) {
+      const abs = Math.abs(frame[i]);
+      if (abs > peak) peak = abs;
+    }
+  }
+  return {
+    speechRatio: totalFrames ? speechFrames / totalFrames : 0,
+    peak,
+    rms: getPcmRms(samples),
+    threshold
+  };
+}
+
+function hasEnoughSpeechForStt(samples, sampleRate = 16000) {
+  if (!samples || samples.length < sampleRate * 0.45) return false;
+  const stats = getPcmSpeechStats(samples, sampleRate);
+  return stats.peak >= 0.018 && stats.rms >= 0.0035 && stats.speechRatio >= 0.12;
+}
+
+function trimPcmSilence(samples, threshold = null) {
   if (!samples || !samples.length) return samples;
+  const activeThreshold = threshold || Math.max(0.004, estimatePcmNoiseFloor(samples) * 2.4);
   let start = 0;
   let end = samples.length - 1;
-  while (start < end && Math.abs(samples[start]) < threshold) start++;
-  while (end > start && Math.abs(samples[end]) < threshold) end--;
+  while (start < end && Math.abs(samples[start]) < activeThreshold) start++;
+  while (end > start && Math.abs(samples[end]) < activeThreshold) end--;
   if (end <= start) return samples;
-  return samples.subarray(start, end + 1);
+  const pad = Math.floor(16000 * 0.08);
+  return samples.subarray(Math.max(0, start - pad), Math.min(samples.length, end + pad + 1));
+}
+
+function applyPcmNoiseGate(samples, sampleRate = 16000) {
+  if (!samples || !samples.length) return samples;
+  const frameSize = Math.max(160, Math.floor(sampleRate * 0.02));
+  const noiseFloor = estimatePcmNoiseFloor(samples, sampleRate);
+  const openThreshold = Math.max(0.006, noiseFloor * 2.8);
+  const closeThreshold = Math.max(0.004, noiseFloor * 1.8);
+  const out = new Float32Array(samples.length);
+  let gateOpen = false;
+
+  for (let offset = 0; offset < samples.length; offset += frameSize) {
+    const end = Math.min(samples.length, offset + frameSize);
+    const frame = samples.subarray(offset, end);
+    const rms = getPcmRms(frame);
+    if (rms >= openThreshold) gateOpen = true;
+    else if (rms < closeThreshold) gateOpen = false;
+
+    const gain = gateOpen ? 1 : 0.12;
+    for (let i = offset; i < end; i++) out[i] = samples[i] * gain;
+  }
+
+  return out;
 }
 
 function normalizePcmForStt(samples) {
   if (!samples || !samples.length) return samples;
   const trimmed = trimPcmSilence(samples);
-  const rms = getPcmRms(trimmed);
+  const gated = applyPcmNoiseGate(trimmed);
+  const rms = getPcmRms(gated);
   if (rms <= 0.00001) return trimmed;
   const target = 0.12;
   let gain = 1;
   if (rms < target) gain = Math.min(8, target / rms);
   else if (rms > 0.35) gain = Math.max(0.5, target / rms);
-  if (Math.abs(gain - 1) < 0.05) return trimmed;
+  if (Math.abs(gain - 1) < 0.05) return gated;
+  const out = new Float32Array(gated.length);
+  for (let i = 0; i < gated.length; i++) {
+    const amplified = gated[i] * gain;
+    out[i] = Math.abs(amplified) < 0.002 ? 0 : Math.max(-1, Math.min(1, amplified));
+  }
+  return out;
+}
+
+function normalizeManualPcmForWindowsStt(samples) {
+  if (!samples || !samples.length) return samples;
+  const trimmed = trimPcmSilence(samples, 0.0025);
+  const rms = getPcmRms(trimmed);
+  if (rms <= 0.00001) return trimmed;
+  const gain = Math.min(12, Math.max(0.5, 0.12 / rms));
   const out = new Float32Array(trimmed.length);
   for (let i = 0; i < trimmed.length; i++) {
     out[i] = Math.max(-1, Math.min(1, trimmed[i] * gain));
@@ -10647,7 +10981,10 @@ function encodeWavBase64(float32Samples, sampleRate = 16000) {
 }
 
 function getVoiceLiveTranscriptText() {
-  const fromState = (accumulatedTranscript || finalVoiceTranscript || '').trim();
+  const finalized = (finalVoiceTranscript || '').trim();
+  if (finalized) return finalized;
+
+  const fromState = (accumulatedTranscript || '').trim();
   if (fromState) return fromState;
 
   if (chatInput && initialInputValue !== undefined) {
@@ -10664,6 +11001,10 @@ function getVoiceLiveTranscriptText() {
   }
 
   return '';
+}
+
+function hasEnoughTranscriptWords(text, minWords = 3) {
+  return String(text || '').trim().split(/\s+/).filter(Boolean).length >= minWords;
 }
 
 async function transcribeAudioWithTimeout(payload, timeoutMs = 18000) {
@@ -10805,7 +11146,7 @@ async function transcribeAudioWithGemini(audioBlob) {
   }
 }
 
-async function prepareSttSamples({ audioBlob = null, pcmSamples = null, pcmSampleRate = 48000 } = {}) {
+async function prepareSttSamples({ audioBlob = null, pcmSamples = null, pcmSampleRate = 48000, strictVoiceGate = false } = {}) {
   let blobSamples = null;
   let pcmResampled = null;
 
@@ -10824,8 +11165,9 @@ async function prepareSttSamples({ audioBlob = null, pcmSamples = null, pcmSampl
   if (pcmOk && blobOk) {
     const pcmRms = getPcmRms(pcmResampled);
     const blobRms = getPcmRms(blobSamples);
-    samples = pcmRms >= blobRms ? pcmResampled : blobSamples;
-    logTrace(`STT audio source: ${pcmRms >= blobRms ? 'mic PCM' : 'MediaRecorder'} (pcm=${pcmRms.toFixed(4)}, blob=${blobRms.toFixed(4)})`, 'system');
+    const useRecordedTrack = pcmRms < blobRms * 0.45;
+    samples = useRecordedTrack ? blobSamples : pcmResampled;
+    logTrace(`STT audio source: ${useRecordedTrack ? 'recorded mic track' : 'filtered mic PCM'} (pcm=${pcmRms.toFixed(4)}, raw=${blobRms.toFixed(4)})`, 'system');
   } else if (pcmOk) {
     samples = pcmResampled;
   } else if (blobOk) {
@@ -10833,24 +11175,26 @@ async function prepareSttSamples({ audioBlob = null, pcmSamples = null, pcmSampl
   }
 
   if (!samples || samples.length <= 800) return null;
-  return normalizePcmForStt(samples);
+  const normalized = strictVoiceGate
+    ? normalizePcmForStt(samples)
+    : normalizeManualPcmForWindowsStt(samples);
+  if (!normalized || normalized.length < 16000 * 0.45) return null;
+  return strictVoiceGate && !hasEnoughSpeechForStt(normalized) ? null : normalized;
 }
 
 async function transcribeWithWindowsStt(samples, culture = getVoiceSttCulture()) {
-  if (!samples || samples.length <= 800) return '';
+  if (!samples || samples.length <= 800) return { success: false, error: 'Recording was too short.' };
 
-  const payload = {
-    sampleRate: 16000,
-    culture,
-    samples: samples instanceof Float32Array ? Array.from(samples) : samples
-  };
   const wavBase64 = encodeWavBase64(samples, 16000);
-  if (wavBase64) payload.wavBase64 = wavBase64;
-
-  const result = await transcribeAudioWithTimeout(payload, 22000);
-  if (result?.text) return result.text.trim();
-  if (result?.error) logTrace(result.error, 'system');
-  return '';
+  const payload = wavBase64
+    ? { sampleRate: 16000, culture, wavBase64 }
+    : {
+        sampleRate: 16000,
+        culture,
+        samples: samples instanceof Float32Array ? Array.from(samples) : samples
+      };
+  const result = await transcribeAudioWithTimeout(payload, 10000);
+  return result || { success: false, error: 'Windows Speech did not return a result.' };
 }
 
 function getVoiceTranscriptFallback(hint = '') {
@@ -10869,49 +11213,49 @@ function getVoiceTranscriptFallback(hint = '') {
 }
 
 async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcmSampleRate = 48000, liveTranscriptHint = '' } = {}) {
-  const samples = await prepareSttSamples({ audioBlob, pcmSamples, pcmSampleRate });
-
+  const inVoiceMode = isVoiceChatModeEnabled();
+  lastVoiceTranscriptionError = '';
+  const samples = await prepareSttSamples({ audioBlob, pcmSamples, pcmSampleRate, strictVoiceGate: false });
   if (samples && samples.length > 800 && window.ultronAPI?.transcribeAudio) {
     setVoiceTranscribingUi(true);
 
     const rms = getPcmRms(samples);
     const durationSec = (samples.length / 16000).toFixed(1);
-    logTrace(`Mic captured ${durationSec}s (level ${rms.toFixed(4)}). Transcribing with OpenAI Whisper…`, 'system');
+    logTrace(`Mic captured ${durationSec}s (level ${rms.toFixed(4)}). Transcribing speech...`, 'system');
     if (rms < 0.002) {
       logTrace('Mic audio too quiet — raise Windows mic volume or move closer to the microphone.', 'system');
     }
 
     try {
-      const sampleArray = samples instanceof Float32Array ? Array.from(samples) : samples;
-      const result = await transcribeAudioWithTimeout({ sampleRate: 16000, samples: sampleArray }, 20000);
+      const result = await transcribeWithWindowsStt(samples);
       if (result?.text) {
-        logTrace('OpenAI Whisper STT complete.', 'system');
+        logTrace('Speech transcription complete.', 'system');
         return result.text.trim();
       }
+      const message = result?.error || 'Did not detect clear speech.';
+      lastVoiceTranscriptionError = message;
+      logTrace(message, 'system');
+      if (!inVoiceMode) updateVoiceLiveTranscript(message, { processing: false });
     } catch (e) {
-      console.warn('Whisper STT error:', e);
+      console.warn('Speech transcription error:', e);
       logTrace('Voice transcription notice: ' + e.message, 'system');
     }
   } else if ((pcmSamples && pcmSamples.length > 0) || (audioBlob && audioBlob.size > 0)) {
+    lastVoiceTranscriptionError = samples
+      ? 'Recording was too short for Windows Speech.'
+      : 'No usable microphone audio was captured.';
     logTrace(
       samples ? 'Recording too short — speak for at least 1 second.' : 'Could not capture mic audio. Check microphone permissions.',
       'system'
     );
   }
 
-  if (audioBlob && audioBlob.size > 0) {
-    setVoiceTranscribingUi(true);
-    const geminiText = await transcribeAudioWithGemini(audioBlob);
-    if (geminiText) {
-      logTrace('Used Gemini cloud transcription.', 'system');
-      return geminiText;
-    }
+  if (inVoiceMode && !samples) {
+    return '';
   }
 
-  const fallback = getVoiceTranscriptFallback(liveTranscriptHint);
-  if (fallback) {
-    logTrace('Using live speech captions (fallback).', 'system');
-    return fallback;
+  if (!samples && !lastVoiceTranscriptionError) {
+    lastVoiceTranscriptionError = 'No microphone audio was captured.';
   }
 
   return '';
@@ -10925,9 +11269,7 @@ function setVoiceTranscribingUi(isTranscribing) {
     if (voiceVisualizerWrapper) voiceVisualizerWrapper.classList.add('has-transcript');
   }
   if (isVoiceChatModeEnabled()) {
-    const existing = (accumulatedTranscript || finalVoiceTranscript || (voiceModeCaption?.dataset.role === 'user' ? voiceModeCaption.textContent : '') || '').trim();
-    updateVoiceModeUserTranscript(existing || 'Processing speech…', { processing: true });
-    setVoiceModeStatus('Processing speech…');
+    setVoiceModeStatus('Thinking…');
   }
 }
 
@@ -10950,14 +11292,22 @@ async function startVoiceRecording(options = {}) {
     recordedPcmChunks = [];
     pcmCaptureRate = 48000;
 
+    resetMicNoiseCalibration();
+
+    const selectedDeviceId = getSelectedVoiceInputDeviceId();
     mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
+        ...(selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : {}),
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
+        sampleRate: 48000,
+        sampleSize: 16,
         channelCount: 1
       }
     });
+
+    refreshVoiceInputDevices();
 
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const audioReady = await ensureAudioContextRunning(audioContext);
@@ -10971,7 +11321,17 @@ async function startVoiceRecording(options = {}) {
     analyserNode.smoothingTimeConstant = 0.65;
 
     const source = audioContext.createMediaStreamSource(mediaStream);
-    source.connect(analyserNode);
+    const highPass = audioContext.createBiquadFilter();
+    highPass.type = 'highpass';
+    highPass.frequency.value = 90;
+    highPass.Q.value = 0.7;
+    const lowPass = audioContext.createBiquadFilter();
+    lowPass.type = 'lowpass';
+    lowPass.frequency.value = 4200;
+    lowPass.Q.value = 0.7;
+    source.connect(highPass);
+    highPass.connect(lowPass);
+    lowPass.connect(analyserNode);
 
     isRecordingVoice = true;
     voiceCaptureActive = true;
@@ -10981,6 +11341,7 @@ async function startVoiceRecording(options = {}) {
     if (voiceMode) {
       setVoiceOrbVisualState('listening');
       startVoiceOrbAnimation('mic');
+      setVoiceModeStatus('Listening…');
     } else {
       updateVoiceLiveTranscript('Listening…', { processing: false });
       if (mainInputPill) {
@@ -11008,7 +11369,7 @@ async function startVoiceRecording(options = {}) {
       pcmProcessor = audioContext.createScriptProcessor(4096, 1, 1);
       const silentGain = audioContext.createGain();
       silentGain.gain.value = 0;
-      source.connect(pcmProcessor);
+      lowPass.connect(pcmProcessor);
       pcmProcessor.connect(silentGain);
       silentGain.connect(audioContext.destination);
       pcmProcessor.onaudioprocess = (event) => {
@@ -11060,7 +11421,7 @@ async function startVoiceRecording(options = {}) {
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const piece = event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            finalVoiceTranscript += piece;
+            finalVoiceTranscript = `${finalVoiceTranscript} ${piece}`.trim();
           } else {
             interim += piece;
           }
@@ -11068,8 +11429,7 @@ async function startVoiceRecording(options = {}) {
         accumulatedTranscript = (finalVoiceTranscript + interim).trim();
         updateVoiceLiveTranscript(accumulatedTranscript);
         if (voiceMode) {
-          updateVoiceModeUserTranscript(accumulatedTranscript, { interim: Boolean(interim) });
-          setVoiceModeStatus('');
+          setVoiceModeStatus('Listening…');
         }
 
         if (chatInput && isRecordingVoice && !isVoiceChatModeEnabled()) {
@@ -11136,7 +11496,7 @@ async function stopVoiceRecording(saveTranscript = true, options = {}) {
 
   try {
   voiceCaptureActive = false;
-  await new Promise(r => setTimeout(r, 550));
+  await new Promise(r => setTimeout(r, 70));
   const { samples: capturedPcm, sampleRate: capturedPcmRate } = captureRecordedPcm();
   teardownPcmCapture();
 
@@ -11151,8 +11511,6 @@ async function stopVoiceRecording(saveTranscript = true, options = {}) {
     animFrameId = null;
   }
 
-  const liveTranscriptHint = getVoiceTranscriptFallback();
-
   if (saveTranscript && voiceBtnDone) {
     setVoiceTranscribingUi(true);
     voiceBtnDone.innerHTML = `
@@ -11166,13 +11524,13 @@ async function stopVoiceRecording(saveTranscript = true, options = {}) {
 
   if (speechRecognition) {
     speechRecognition.onend = null;
-    await flushSpeechRecognition(2000);
+    await flushSpeechRecognition(250);
   }
 
   let finalAudioBlob = null;
   if (mediaRecorder && mediaRecorder.state !== 'inactive') {
     await new Promise((resolve) => {
-      const timeout = setTimeout(resolve, 3000);
+      const timeout = setTimeout(resolve, capturedPcm && capturedPcm.length > 800 ? 220 : 700);
       mediaRecorder.onstop = () => {
         clearTimeout(timeout);
         if (recordedAudioChunks.length > 0) {
@@ -11212,17 +11570,12 @@ async function stopVoiceRecording(saveTranscript = true, options = {}) {
       textToInsert = await resolveVoiceTranscript({
         audioBlob: finalAudioBlob,
         pcmSamples: capturedPcm,
-        pcmSampleRate: capturedPcmRate,
-        liveTranscriptHint
+        pcmSampleRate: capturedPcmRate
       });
     } catch (err) {
       console.error('Voice transcription error:', err);
       logTrace(err.message || 'Voice transcription failed.', 'system');
-      textToInsert = getVoiceTranscriptFallback(liveTranscriptHint);
-    }
-
-    if (!textToInsert) {
-      textToInsert = getVoiceTranscriptFallback(liveTranscriptHint);
+      textToInsert = '';
     }
   }
 
@@ -11236,19 +11589,17 @@ async function stopVoiceRecording(saveTranscript = true, options = {}) {
     voiceModeRecording = false;
 
     if (textToInsert) {
-      setVoiceModeCaption(textToInsert, { role: 'user' });
-      setVoiceModeStatus('');
-      updateVoiceModeAiTranscript('Thinking…', { processing: true });
+      setVoiceModeStatus('Thinking…');
       cancelVoiceOrbAnimation();
       setVoiceOrbVisualState('');
       startVoiceOrbAnimation('idle');
       await submitPrompt(textToInsert);
     } else {
       clearVoiceModeCaption();
-      setVoiceModeStatus(options.autoVoiceSubmit ? 'Didn\'t catch that — tap to try again' : '');
+      setVoiceModeStatus(options.autoVoiceSubmit ? 'Listening…' : '');
       setVoiceOrbVisualState('listening');
       startVoiceOrbAnimation('idle');
-      scheduleVoiceModeListen(options.autoVoiceSubmit ? 600 : 900);
+      scheduleVoiceModeListen(options.autoVoiceSubmit ? 180 : 280);
     }
     updateVoiceModeBarUi();
   } else if (saveTranscript) {
@@ -11257,6 +11608,7 @@ async function stopVoiceRecording(saveTranscript = true, options = {}) {
       logTrace('Voice input added to prompt.', 'system');
     } else {
       applyVoiceTextToChatInput('');
+      if (chatInput && lastVoiceTranscriptionError) chatInput.placeholder = lastVoiceTranscriptionError;
       logTrace('No speech detected. Speak clearly for 1–2 seconds, then tap the checkmark.', 'system');
     }
   } else {
@@ -11346,26 +11698,24 @@ function drawWaveform() {
       const dataIdx = Math.floor((i / totalPills) * bufferLength);
       const freqAmp = (freqArray[dataIdx] || 0) / 255;
       
-      // Multiplier for voice pitch & sound volume intensity
-      const voiceFactor = Math.max(freqAmp * 1.8, rmsVolume * 3.2);
+      // Multiplier for voice pitch & sound volume intensity — boosted for strong dynamic reaction
+      const voiceFactor = Math.max(freqAmp * 2.8, rmsVolume * 6.0);
       
-      let targetHeight = 3;
-      if (voiceFactor >= 0.01) {
-        targetHeight = Math.min(height - 4, Math.max(3, voiceFactor * (height - 4)));
+      let targetHeight = 4;
+      if (voiceFactor >= 0.005) {
+        targetHeight = Math.min(height - 2, Math.max(4, voiceFactor * (height - 2)));
       }
 
       // Smooth lerp transition for fluid 60fps movement
-      _prevHeights[i] += (targetHeight - _prevHeights[i]) * 0.4;
+      _prevHeights[i] += (targetHeight - _prevHeights[i]) * 0.45;
       const pillHeight = _prevHeights[i];
       const y = (height - pillHeight) / 2;
-
-      // Voice reactive dynamic glow color
-      if (voiceFactor >= 0.02) {
-        const glowOpacity = Math.min(1.0, 0.45 + voiceFactor * 0.55);
-        const blueVal = Math.floor(210 + Math.min(45, voiceFactor * 45));
-        canvasCtx.fillStyle = `rgba(96, 165, ${blueVal}, ${glowOpacity})`;
+      // Vibrant Blue visualizer waveform fill
+      if (voiceFactor >= 0.01) {
+        const glowOpacity = Math.min(1.0, 0.65 + voiceFactor * 0.35);
+        canvasCtx.fillStyle = `rgba(59, 130, 246, ${glowOpacity})`;
       } else {
-        canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+        canvasCtx.fillStyle = 'rgba(96, 165, 250, 0.45)';
       }
 
       canvasCtx.beginPath();
@@ -11705,9 +12055,36 @@ function initAutomationSettingsUI() {
   }
 }
 
+function settleBootStep(promise, timeoutMs = 10000) {
+  return Promise.race([
+    Promise.resolve(promise).catch((error) => {
+      console.warn('Startup task failed:', error);
+      return null;
+    }),
+    new Promise((resolve) => setTimeout(resolve, timeoutMs))
+  ]);
+}
+
+function runSplashIntroSequence() {
+  const splashScreen = document.getElementById('app-splash-screen');
+  if (!splashScreen) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    // Show splash sequence through half loading period (2.5 seconds)
+    setTimeout(() => {
+      splashScreen.classList.add('fade-out');
+      setTimeout(() => {
+        splashScreen.style.display = 'none';
+        resolve();
+      }, 500);
+    }, 2500);
+  });
+}
+
 async function bootSystem() {
-  hideSkeletonLoader();
-  setTimeout(hideSkeletonLoader, 2500);
+  const splashPromise = runSplashIntroSequence();
 
   try {
     if (window.UltronAgentPrompt && typeof window.UltronAgentPrompt.loadUltronAgentConfig === 'function') {
@@ -11721,8 +12098,8 @@ async function bootSystem() {
       }
     }
 
-    await syncStoragePathOnBoot();
-    await loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: true });
+    await settleBootStep(syncStoragePathOnBoot());
+    await settleBootStep(loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: true }));
     updateWelcomeGreeting();
     await checkAndRunFirstTimeOnboarding();
     setSendingState(false);
@@ -11740,18 +12117,15 @@ async function bootSystem() {
     if (bootAllowlist && window.ultronAPI && typeof window.ultronAPI.setAuthorizedApps === 'function') {
       window.ultronAPI.setAuthorizedApps(bootAllowlist).catch(() => {});
     }
-    reloadConversationsFromDisk().catch(err => {
-      console.error('Conversation reload error:', err);
-    });
-
-    checkOllamaStartup().then(() => {
-      return runOnboardingProfiler();
-    }).catch((err) => {
-      console.error('Ollama startup check error:', err);
-      hideSkeletonLoader();
-    });
+    await settleBootStep(reloadConversationsFromDisk());
+    await settleBootStep(checkOllamaStartup().then(() => runOnboardingProfiler()));
 
     initVoiceChatModeAfterBoot();
+
+    await splashPromise;
+    await new Promise(r => setTimeout(r, 600));
+
+    hideSkeletonLoader();
   } catch (err) {
     console.error('Boot sequence error:', err);
     hideSkeletonLoader();
@@ -12277,10 +12651,9 @@ function notifyStreamingAutoSpeakIdle() {
     cb();
   }
   if (isVoiceChatModeEnabled() && !isAwaitingResponse) {
-    syncVoiceModeAiFromChat();
-    setVoiceModeStatus('');
+    setVoiceModeStatus('Listening…');
     updateVoiceModeBarUi();
-    scheduleVoiceModeListen(500);
+    scheduleVoiceModeListen(80);
   }
 }
 
@@ -12291,6 +12664,7 @@ function markStreamingSpeechStarted() {
     revealPendingVoiceSpeech();
     setVoiceOrbVisualState('ai-speaking');
     startVoiceOrbAnimation('ai');
+    if (isVoiceChatModeEnabled()) setVoiceModeStatus('');
     if (typeof streamingAutoSpeakState.onFirstAudio === 'function') {
       streamingAutoSpeakState.onFirstAudio();
       streamingAutoSpeakState.onFirstAudio = null;
@@ -12922,7 +13296,6 @@ async function startVoiceModelDownload() {
 }
 
 function initVoiceModelSettingsUI() {
-  refreshVoiceModelSettingsUI();
   decorateSettingsActionButtons(document.getElementById('tab-sounds') || document);
 
   if (btnDownloadVoiceModel) {
@@ -13282,12 +13655,9 @@ async function startTtsModelDownload(modelKey) {
 }
 
 function initTtsModelsUI() {
-  refreshTtsModelsUI();
-  warmupActiveTtsEngine();
-
   document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.addEventListener('click', () => {
     refreshTtsModelsUI();
-    warmupActiveTtsEngine();
+    if (getPerformanceProfile() !== 'battery') warmupActiveTtsEngine();
   });
 }
 
@@ -14208,7 +14578,3 @@ function setupAutoUpdaterUI() {
 }
 
 setupAutoUpdaterUI();
-
-
-
-
