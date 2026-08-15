@@ -113,24 +113,24 @@ If you prefer building from source rather than downloading the pre-compiled `.ex
 
 All versions are available on the [GitHub Releases](https://github.com/vedantwankhade123/Ultron/releases) page.
 
-| Version | Release Date | Key Highlights & Changes | Direct Link |
-| :--- | :--- | :--- | :--- |
-| **`v1.0.13`** *(Latest)* | Aug 15, 2026 | Robust setup wizard branding (sidebar/header), precise shortcut targeting, clean file replacement, eliminate drive root folder duplication | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.13) |
-| **`v1.0.12`** | Aug 14, 2026 | Audio visualizer stability, model selector dropdown polish, voice TTS volume controls | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.12) |
-| **`v1.0.11`** | Aug 13, 2026 | Local AI Agent orchestration improvements & Whisper STT speech recognition tuning | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.11) |
-| **`v1.0.10`** | Aug 12, 2026 | Native Windows audio player fallback and voice worker process isolation | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.10) |
-| **`v1.0.9`** | Aug 10, 2026 | Storage settings overhaul, custom directory browse & persistent data isolation | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.9) |
-| **`v1.0.8`** | Aug 8, 2026 | Model Context Protocol (MCP) server integration & Windows UI Automation tools | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.8) |
-| **`v1.0.7-beta.8`** | Aug 6, 2026 | Multi-modal screen capture agent, Windows OCR fallback & Gemini vision routing | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.7-beta.8) |
-| **`v1.0.7-beta.7`** | Aug 5, 2026 | System diagnostics dashboard, storage management & live metrics splitter | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.7-beta.7) |
-| **`v1.0.7-beta.6`** | Aug 3, 2026 | Fast app startup optimization and auto-updater background feed checks | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.7-beta.6) |
-| **`v1.0.7-beta.5`** | Aug 1, 2026 | Ollama Cloud account sync, Kokoro TTS download fixes & chat deletion controls | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.7-beta.5) |
-| **`v1.0.6`** | Jul 28, 2026 | Slim installer architecture — on-demand AI model downloads for fast setup | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.6) |
-| **`v1.0.5`** | Jul 24, 2026 | Local hardware profiler (CPU/GPU/RAM) and automated LLM recommendation | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.5) |
-| **`v1.0.4`** | Jul 20, 2026 | Seamless auto-update background polling and safe GitHub releases fallback | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.4) |
-| **`v1.0.3`** | Jul 16, 2026 | Custom installation directory data routing and sandboxed memory persistence | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.3) |
-| **`v1.0.2`** | Jul 12, 2026 | Official website integration, landing documentation and direct asset mirrors | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.2) |
-| **`v1.0.1`** | Jul 8, 2026 | Full-width responsive download mirrors & dark glassmorphic styling polish | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.1) |
-| **`v1.0.0`** | Jul 1, 2026 | 🎉 Initial public release: Offline Ollama LLMs, voice waveform UI & system tools | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.0) |
+| Version | Key Highlights & Changes | Direct Link |
+| :--- | :--- | :--- |
+| **`v1.0.13`** *(Latest)* | **Aug 15, 2026** — Robust setup wizard branding (sidebar/header), precise shortcut targeting, clean file replacement, eliminate drive root folder duplication | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.13) |
+| **`v1.0.12`** | **Aug 14, 2026** — Audio visualizer stability, model selector dropdown polish, voice TTS volume controls | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.12) |
+| **`v1.0.11`** | **Aug 13, 2026** — Local AI Agent orchestration improvements & Whisper STT speech recognition tuning | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.11) |
+| **`v1.0.10`** | **Aug 12, 2026** — Native Windows audio player fallback and voice worker process isolation | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.10) |
+| **`v1.0.9`** | **Aug 10, 2026** — Storage settings overhaul, custom directory browse & persistent data isolation | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.9) |
+| **`v1.0.8`** | **Aug 8, 2026** — Model Context Protocol (MCP) server integration & Windows UI Automation tools | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.8) |
+| **`v1.0.7-beta.8`** | **Aug 6, 2026** — Multi-modal screen capture agent, Windows OCR fallback & Gemini vision routing | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.7-beta.8) |
+| **`v1.0.7-beta.7`** | **Aug 5, 2026** — System diagnostics dashboard, storage management & live metrics splitter | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.7-beta.7) |
+| **`v1.0.7-beta.6`** | **Aug 3, 2026** — Fast app startup optimization and auto-updater background feed checks | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.7-beta.6) |
+| **`v1.0.7-beta.5`** | **Aug 1, 2026** — Ollama Cloud account sync, Kokoro TTS download fixes & chat deletion controls | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.7-beta.5) |
+| **`v1.0.6`** | **Jul 28, 2026** — Slim installer architecture — on-demand AI model downloads for fast setup | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.6) |
+| **`v1.0.5`** | **Jul 24, 2026** — Local hardware profiler (CPU/GPU/RAM) and automated LLM recommendation | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.5) |
+| **`v1.0.4`** | **Jul 20, 2026** — Seamless auto-update background polling and safe GitHub releases fallback | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.4) |
+| **`v1.0.3`** | **Jul 16, 2026** — Custom installation directory data routing and sandboxed memory persistence | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.3) |
+| **`v1.0.2`** | **Jul 12, 2026** — Official website integration, landing documentation and direct asset mirrors | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.2) |
+| **`v1.0.1`** | **Jul 8, 2026** — Full-width responsive download mirrors & dark glassmorphic styling polish | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.1) |
+| **`v1.0.0`** | **Jul 1, 2026** — 🎉 Initial public release: Offline Ollama LLMs, voice waveform UI & system tools | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.0) |
 
 
