@@ -15,6 +15,8 @@ Assets/*
 !Assets/ultron-logo.png
 !Assets/ultron-logo.ico
 !Assets/gemini-logo.png
+!Assets/installerSidebar.bmp
+!Assets/installerHeader.bmp
 __pycache__/
 *.pyc
 
