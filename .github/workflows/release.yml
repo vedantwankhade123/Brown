@@ -78,10 +78,10 @@ jobs:
             version = $version
             tagName = $tag
             releaseDate = (Get-Date -Format "yyyy-MM-dd")
-            setupUrl = "https://github.com/vedantwankhade123/Ultron/releases/download/$tag/Ultron.AI.Setup.$version.exe"
-            portableUrl = "https://github.com/vedantwankhade123/Ultron/releases/download/$tag/Ultron.AI.$version.exe"
-            setupName = "Ultron.AI.Setup.$version.exe"
-            portableName = "Ultron.AI.$version.exe"
+            setupUrl = "https://github.com/vedantwankhade123/Ultron/releases/download/$tag/Ultron%20AI%20Setup%20v$version.exe"
+            portableUrl = "https://github.com/vedantwankhade123/Ultron/releases/download/$tag/Ultron%20AI%20v$version.exe"
+            setupName = "Ultron AI Setup v$version.exe"
+            portableName = "Ultron AI v$version.exe"
           }
           if (Test-Path "Ultron Website") {
             New-Item -ItemType Directory -Force -Path "Ultron Website/public" | Out-Null
@@ -97,5 +97,5 @@ jobs:
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           Write-Host "Successfully published Ultron AI v$version to GitHub Releases!"
-          Write-Host "Installer: Ultron.AI.Setup.$version.exe"
-          Write-Host "Portable:  Ultron.AI.$version.exe"
+          Write-Host "Installer: Ultron AI Setup v$version.exe"
+          Write-Host "Portable:  Ultron AI v$version.exe"
