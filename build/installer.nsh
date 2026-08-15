@@ -30,6 +30,11 @@
   Delete "$SMPROGRAMS\Ultron AI\Ultron.lnk"
 !macroend
 
+!macro customInstallMode
+  ; Skip "Select Users" (All Users vs Current User) dialog and proceed directly to folder selection
+  StrCpy $isForceCurrentInstall "1"
+!macroend
+
 !macro customInstall
   ; 1. Ensure any leftover stale shortcuts are purged before creating new ones
   Delete "$DESKTOP\Ultron AI.lnk"

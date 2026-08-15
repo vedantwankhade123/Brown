@@ -53,7 +53,13 @@ function getDefaultUltronRoot() {
     if (ensureDir(repoRoot)) return repoRoot;
   }
 
-  // Safe standard User Data location (%LOCALAPPDATA%\UltronData)
+  // 1. Primary: Use the installation folder chosen by the user at setup time (e.g. D:\Ultron AI)
+  const installRoot = getInstallRoot();
+  if (installRoot && ensureDir(installRoot)) {
+    return installRoot;
+  }
+
+  // 2. Fallback: Safe standard User Data location (%LOCALAPPDATA%\UltronData)
   try {
     if (typeof app?.getPath === 'function') {
       const userPath = app.getPath('userData');
