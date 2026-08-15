@@ -1,6 +1,6 @@
 {
   "name": "ultron",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Local offline privacy-focused Windows AI Agent framework",
   "author": "Vedant Wankhade",
   "main": "src/main/index.js",
@@ -29,6 +29,7 @@
       "releaseType": "release"
     },
     "compression": "normal",
+    "npmRebuild": false,
     "electronLanguages": [
       "en-US"
     ],
@@ -75,7 +76,7 @@
       "cscLink": null
     },
     "portable": {
-      "artifactName": "Ultron.AI.${version}.${ext}"
+      "artifactName": "Ultron AI v${version}.${ext}"
     },
     "appx": {
       "applicationId": "UltronAI",
@@ -98,7 +99,10 @@
       "installerIcon": "Assets/ultron-logo.ico",
       "uninstallerIcon": "Assets/ultron-logo.ico",
       "installerHeaderIcon": "Assets/ultron-logo.ico",
-      "artifactName": "Ultron.AI.Setup.${version}.${ext}",
+      "installerSidebar": "Assets/installerSidebar.bmp",
+      "uninstallerSidebar": "Assets/installerSidebar.bmp",
+      "installerHeader": "Assets/installerHeader.bmp",
+      "artifactName": "Ultron AI Setup v${version}.${ext}",
       "runAfterFinish": true,
       "differentialPackage": false,
       "include": "build/installer.nsh"

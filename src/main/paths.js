@@ -8,12 +8,12 @@ const LEGACY_CONFIG_NAME = 'config.json';
 
 /** Dev: Ultron-local | Production: Ultron-AI */
 function getUltronFolderName() {
-  return app.isPackaged ? 'Ultron-AI' : 'Ultron-local';
+  return app?.isPackaged ? 'Ultron-AI' : 'Ultron-local';
 }
 
 /** Electron app binary folder (not user data). */
 function getInstallRoot() {
-  if (app.isPackaged) {
+  if (app?.isPackaged && typeof app?.getPath === 'function') {
     return path.dirname(app.getPath('exe'));
   }
   return process.cwd();
@@ -42,38 +42,38 @@ function driveRootFrom(anyPath) {
 
 /**
  * Default unified data root:
- * - Dev: D:\Ultron-local (fallback {repo}\Ultron-local)
- * - Production: {installDrive}\Ultron-AI
+ * - Production: %LOCALAPPDATA%\UltronData
+ * - Dev: {repo}\Ultron-local
  */
 function getDefaultUltronRoot() {
   const folderName = getUltronFolderName();
 
-  if (!app.isPackaged) {
-    const dRoot = path.join('D:\\', folderName);
-    if (ensureDir(dRoot)) return dRoot;
+  if (!app?.isPackaged) {
     const repoRoot = path.join(process.cwd(), folderName);
     if (ensureDir(repoRoot)) return repoRoot;
   }
 
-  const exePath = app.getPath('exe');
-  const drive = driveRootFrom(exePath);
-  if (drive) {
-    const root = path.join(`${drive}\\`, folderName);
-    if (ensureDir(root)) return root;
+  // Safe standard User Data location (%LOCALAPPDATA%\UltronData)
+  try {
+    if (typeof app?.getPath === 'function') {
+      const userPath = app.getPath('userData');
+      if (userPath && ensureDir(userPath)) {
+        return userPath;
+      }
+    }
+  } catch (e) {
+    // app.getPath may not be initialized in early tests
   }
 
-  const fallback = path.join(getInstallRoot(), folderName);
+  const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
+  const fallback = path.join(localAppData, app?.isPackaged ? 'UltronData' : 'UltronDataDev');
   ensureDir(fallback);
   return fallback;
 }
 
-/** Production: {ollamaDrive}\Ultron-AI beside Ollama install drive. */
+/** Production: Unified storage directory. */
 function getUltronRootBesideOllama(ollamaExePath) {
-  const drive = driveRootFrom(ollamaExePath);
-  if (!drive) return getDefaultUltronRoot();
-  const root = path.join(`${drive}\\`, getUltronFolderName());
-  ensureDir(root);
-  return root;
+  return getDefaultUltronRoot();
 }
 
 function getStorageConfigPath(ultronRoot) {
@@ -296,7 +296,7 @@ function getStoragePathsSnapshot() {
     modelsDir: getOllamaModelsDir(),
     ollamaModelsDir: getOllamaModelsDir(),
     ollamaInstallPath: getOllamaInstallPath(),
-    electronUserData: app.getPath('userData')
+    electronUserData: typeof app?.getPath === 'function' ? app.getPath('userData') : path.join(process.env.LOCALAPPDATA || '', 'UltronDataDev')
   };
 }
 

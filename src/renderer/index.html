@@ -1157,7 +1157,7 @@
             </div>
 
             <p class="text-xs text-muted settings-section-intro" style="margin: 0 0 12px 0;">
-              Development uses <code style="font-size:11px;">Ultron-local</code> (e.g. <code style="font-size:11px;">D:\Ultron-local</code>). Installed apps use <code style="font-size:11px;">Ultron-AI</code> on the install drive. All downloads, memory, and models live inside that folder.
+              All downloads, persistent memory, conversation history, and local models are stored securely. You can customize the storage folders below.
             </p>
             <p id="storage-ultron-root-label" class="text-xs text-muted" style="margin: 0 0 6px 0; line-height: 1.45; font-weight: 600; color: rgba(255,255,255,0.82);"></p>
             <p id="storage-install-root-label" class="text-xs text-muted" style="margin: 0 0 14px 0; line-height: 1.45;"></p>
@@ -1165,12 +1165,12 @@
             <div class="setting-item" style="margin-top: 4px;">
               <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Agent Storage &amp; Memory</label>
               <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. D:\Ultron\data">
+                <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. %LOCALAPPDATA%\UltronData\data">
                 <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
                 <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
               </div>
               <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                Conversations, agent memory, and session data. Defaults to <code style="font-size:11px;">{Ultron-local or Ultron-AI}\data</code>.
+                Conversations, agent memory, and session data. Defaults to <code style="font-size:11px;">%LOCALAPPDATA%\UltronData\data</code>.
               </p>
             </div>
 
@@ -1296,7 +1296,7 @@
                   </div>
                   <div>
                     <h5 id="update-status-title" style="margin: 0; font-size: 15px; font-weight: 600; color: #fff;">Ultron is up to date</h5>
-                    <p id="update-status-subtitle" style="margin: 4px 0 0 0; font-size: 12px; color: #a1a1aa;">Current Version: v1.0.12</p>
+                    <p id="update-status-subtitle" style="margin: 4px 0 0 0; font-size: 12px; color: #a1a1aa;">Current Version: v1.0.13</p>
                   </div>
                 </div>
                 <button id="btn-check-updates" style="background: #4285f4; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background 0.2s;">
@@ -1324,7 +1324,7 @@
                 <div class="about-app-brand">
                   <img src="../../Assets/ultron-logo.png" class="about-app-logo" alt="Ultron">
                   <div>
-                    <h4 class="about-app-title">Ultron <span class="about-app-version-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); vertical-align: middle; margin-left: 6px;">v1.0.12</span></h4>
+                    <h4 class="about-app-title">Ultron <span class="about-app-version-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); vertical-align: middle; margin-left: 6px;">v1.0.13</span></h4>
                     <p class="developer-tagline">Local &amp; Offline Windows AI Agent</p>
                   </div>
                 </div>
@@ -1339,7 +1339,7 @@
                 <div class="about-specs-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 16px;">
                   <div class="about-spec-item" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 8px; padding: 12px;">
                     <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Version</div>
-                    <div style="font-size: 14px; color: #f3f4f6; font-weight: 600; margin-top: 4px;">v1.0.12 Release</div>
+                    <div style="font-size: 14px; color: #f3f4f6; font-weight: 600; margin-top: 4px;">v1.0.13 Release</div>
                   </div>
                   <div class="about-spec-item" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 8px; padding: 12px;">
                     <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Platform</div>
