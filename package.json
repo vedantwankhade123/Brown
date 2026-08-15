@@ -28,7 +28,7 @@
       "repo": "Ultron",
       "releaseType": "release"
     },
-    "compression": "normal",
+    "compression": "store",
     "npmRebuild": false,
     "electronLanguages": [
       "en-US"
