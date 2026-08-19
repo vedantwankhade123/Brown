@@ -635,12 +635,12 @@ html, body {
   align-items: center;
   position: relative;
   min-width: 0;
-  width: calc(100% - 48px);
+  width: 100%;
 }
 
 .answer-card {
-  width: 90% !important;
-  max-width: 90% !important;
+  width: 100% !important;
+  max-width: 100% !important;
   margin: 0 auto !important;
   margin-bottom: 0px !important;
   display: flex;
@@ -666,8 +666,8 @@ html, body {
 }
 
 .answer-card.contracted {
-  height: 40px;
-  max-height: 40px;
+  height: 42px;
+  max-height: 42px;
   border-radius: 14px;
   border-bottom: 1px solid var(--border-solid);
   margin-bottom: 4px !important;
@@ -681,9 +681,10 @@ html, body {
 
 .answer-card.contracted .answer-header {
   border-bottom: none;
-  padding: 6px 12px;
-  height: 40px;
+  padding: 8px 14px;
+  height: 42px;
   box-sizing: border-box;
+  background: #141416;
 }
 
 .answer-card.contracted #copy-answer-btn,
@@ -700,14 +701,15 @@ html, body {
   background: #141416;
   flex-shrink: 0;
   gap: 8px;
+  cursor: pointer;
 }
 
 .answer-model-tag {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-main);
   cursor: pointer;
   flex: 1 1 0;
@@ -715,7 +717,10 @@ html, body {
   overflow: hidden;
 }
 
-.answer-model-tag span#answer-model-label {
+.answer-session-title {
+  font-size: 13px;
+  color: var(--text-main);
+  font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -750,7 +755,7 @@ html, body {
   background: #27272a;
   border: 1px solid var(--border-subtle);
   color: var(--text-muted);
-  padding: 4px 8px;
+  padding: 5px 8px;
   font-size: 11.5px;
   font-weight: 500;
   border-radius: 6px;
@@ -836,7 +841,7 @@ html, body {
 }
 
 /* ==========================================================================
-   MAIN BOTTOM PILL INPUT BAR (White Outline on Focus, Auto-Grow Multi-Line)
+   MAIN BOTTOM PILL INPUT BAR (Pill Shape with Smooth Gradual Expansion)
    ========================================================================== */
 .floating-input-row {
   width: 100%;
@@ -846,20 +851,26 @@ html, body {
 }
 
 .capsule-bar {
-  flex: 1;
-  min-height: 50px;
-  height: auto;
+  width: 100%;
+  min-height: 52px;
+  height: 52px;
   background: var(--bg-solid-panel);
   border: 1px solid var(--border-solid);
-  border-radius: 26px;
+  border-radius: 999px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.9);
   display: flex;
-  align-items: flex-end;
-  padding: 6px 8px;
+  align-items: center;
+  padding: 6px 10px;
   position: relative;
   z-index: 100;
   box-sizing: border-box;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, border-radius 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, border-radius 0.2s ease, height 0.15s ease;
+}
+
+.capsule-bar.multiline {
+  align-items: flex-end;
+  height: auto;
+  border-radius: 20px;
 }
 
 .capsule-bar:focus-within {
@@ -881,7 +892,6 @@ html, body {
   cursor: pointer;
   outline: none;
   flex-shrink: 0;
-  margin-bottom: 1px;
   transition: all 0.15s ease;
 }
 
@@ -899,7 +909,7 @@ html, body {
   flex: 1;
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 12px;
   min-height: 36px;
 }
 
@@ -910,15 +920,15 @@ html, body {
   outline: none;
   font-family: inherit;
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 20px;
   color: var(--text-main);
   resize: none;
-  padding: 7px 0 6px 0;
+  padding: 8px 0;
   margin: 0;
   box-sizing: border-box;
-  height: 34px;
-  min-height: 34px;
-  max-height: 108px; /* Fit up to 5 lines of text (~21px per line * 5 + padding = ~108px) */
+  height: 36px;
+  min-height: 36px;
+  max-height: 96px; /* Fit up to 4 lines of text */
   overflow-y: hidden;
   user-select: text;
 }
@@ -946,6 +956,9 @@ html, body {
 
 .prompt-input::placeholder {
   color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Controls Container */
@@ -955,7 +968,6 @@ html, body {
   gap: 4px;
   padding-right: 2px;
   flex-shrink: 0;
-  margin-bottom: 1px;
 }
 
 .action-icon-btn {
@@ -998,7 +1010,6 @@ html, body {
   outline: none;
   flex-shrink: 0;
   margin-left: 2px;
-  margin-bottom: 1px;
   transition: all 0.15s ease;
 }
 
@@ -1025,7 +1036,6 @@ html, body {
   cursor: pointer;
   outline: none;
   flex-shrink: 0;
-  margin-bottom: 5px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
   transition: all 0.15s ease;
 }

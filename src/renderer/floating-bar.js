@@ -478,8 +478,7 @@
     const rawQuery = promptInput.value.trim();
     if (!rawQuery) return;
     currentPromptText = rawQuery;
-    const preview = rawQuery.length > 32 ? rawQuery.substring(0, 30) + '...' : rawQuery;
-    showAnswerCard(`Ultron · ${activeModel}: "${preview}"`);
+    showAnswerCard(rawQuery);
     isStreaming = true;
 
     try {
@@ -548,17 +547,25 @@
       .replace(/>/g, '&gt;');
   }
 
-  // Auto-resize prompt textarea up to 5 lines with smooth scroll
+  // Auto-resize prompt textarea up to 4 lines with smooth scroll
   function autoResizePromptInput() {
     if (!promptInput) return;
-    promptInput.style.height = 'auto';
+    const capsuleBar = document.getElementById('capsule-bar');
+    promptInput.style.height = '36px';
     const scrollHeight = promptInput.scrollHeight;
-    const maxHeight = 108; // Fit up to 5 lines of text
-    if (scrollHeight > maxHeight) {
-      promptInput.style.height = maxHeight + 'px';
-      promptInput.classList.add('scrollable');
+    const maxHeight = 96; // Fit up to 4 lines of text
+    if (scrollHeight > 40) {
+      if (capsuleBar) capsuleBar.classList.add('multiline');
+      if (scrollHeight > maxHeight) {
+        promptInput.style.height = maxHeight + 'px';
+        promptInput.classList.add('scrollable');
+      } else {
+        promptInput.style.height = scrollHeight + 'px';
+        promptInput.classList.remove('scrollable');
+      }
     } else {
-      promptInput.style.height = Math.max(34, scrollHeight) + 'px';
+      if (capsuleBar) capsuleBar.classList.remove('multiline');
+      promptInput.style.height = '36px';
       promptInput.classList.remove('scrollable');
     }
   }

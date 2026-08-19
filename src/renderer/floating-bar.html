@@ -197,21 +197,26 @@
     <div class="floating-input-row">
       <div class="input-and-docked-response-wrapper">
         
-        <!-- AI Response Screen (Docked strictly above capsule bar, 90% width of capsule, with expand/contract) -->
+        <!-- AI Response Screen / Minimized Session Card (Docked directly on top of capsule bar) -->
         <div id="answer-card" class="popover-card answer-card hidden">
           <div class="answer-header" id="answer-header">
-            <div class="answer-model-tag" id="answer-model-tag" title="Click to toggle expanded / minimized view">
-              <img src="../../Assets/ultron-logo.png" alt="Ultron" class="answer-ultron-logo" onerror="this.src='../Assets/ultron-logo.png'" />
-              <span id="answer-model-label">Ultron Response</span>
-              <span class="answer-model-badge" id="answer-model-badge">AI</span>
+            <div class="answer-model-tag" id="answer-model-tag" title="Click to open session">
+              <span id="answer-model-label" class="answer-session-title">hello</span>
             </div>
             <div class="answer-actions">
+              <!-- Open Session Button (Arrow) -->
+              <button class="icon-btn-sm" id="toggle-contract-btn" title="Open response">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                  <polyline points="12 5 19 12 12 19"></polyline>
+                </svg>
+              </button>
+
               <!-- Edit Prompt Button (Pencil Icon) -->
-              <button class="icon-btn-sm" id="edit-prompt-btn" title="Edit prompt in input bar and resend">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+              <button class="icon-btn-sm" id="edit-prompt-btn" title="Edit prompt in input bar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
                   <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
                 </svg>
-                <span class="btn-label-text">Edit</span>
               </button>
 
               <!-- Copy Button (Shown when expanded) -->
@@ -220,21 +225,9 @@
                   <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                   <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
                 </svg>
-                <span class="btn-label-text">Copy</span>
               </button>
 
-              <!-- Open / Minimize Toggle Button -->
-              <button class="icon-btn-sm" id="toggle-contract-btn" title="Expand / Minimize response">
-                <svg class="icon-expand-up hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                  <polyline points="18 15 12 9 6 15"></polyline>
-                </svg>
-                <svg class="icon-contract-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                  <polyline points="6 9 12 15 18 9"></polyline>
-                </svg>
-                <span id="contract-btn-text" class="btn-label-text">Minimize</span>
-              </button>
-
-              <!-- Expand to Main Window Full Chat -->
+              <!-- Expand to Main Window Full Chat (Shown when expanded) -->
               <button class="icon-btn-sm" id="expand-answer-btn" title="Open full chat in Main Window">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
                   <polyline points="15 3 21 3 21 9"></polyline>
@@ -242,14 +235,13 @@
                   <line x1="21" y1="3" x2="14" y2="10"></line>
                   <line x1="3" y1="21" x2="10" y2="14"></line>
                 </svg>
-                <span class="btn-label-text">Expand</span>
               </button>
 
-              <!-- Close / Clear (✕) -->
-              <button class="icon-btn-sm btn-close-danger" id="close-answer-btn" title="Close and clear answer">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12">
-                  <line x1="18" y1="6" x2="6" y2="18"></line>
-                  <line x1="6" y1="6" x2="18" y2="18"></line>
+              <!-- Delete / Clear (Trash Can) -->
+              <button class="icon-btn-sm btn-close-danger" id="close-answer-btn" title="Delete session">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                  <polyline points="3 6 5 6 21 6"></polyline>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                 </svg>
               </button>
             </div>
@@ -283,7 +275,7 @@
             </svg>
           </button>
 
-          <!-- Center Text Input (Auto-grows up to 5 lines with smooth scroll) -->
+          <!-- Center Text Input (Single-line by default, auto-grows up to 4 lines) -->
           <div class="input-container">
             <textarea 
               id="prompt-input" 
