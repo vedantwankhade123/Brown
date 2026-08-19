@@ -1087,7 +1087,17 @@ body.platform-win32 .chat-header-actions {
   box-sizing: border-box;
 }
 
-/* Actual User Chat Bubble (dark pill containing text - fits content width) */
+/* User Message Wrapper (aligns the bubble and actions strictly to the right) */
+.chat-message.user .message-wrapper,
+.chat-message.user .user-wrapper {
+  flex: 0 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-end !important;
+  max-width: calc(100% - 50px);
+}
+
+/* Actual User Chat Bubble (dark pill containing text - fits content width & docked right) */
 .chat-message.user .message-content {
   background-color: #202124;
   border: 1px solid var(--border-color);
@@ -1099,7 +1109,8 @@ body.platform-win32 .chat-header-actions {
   line-height: 1.4;
   flex: 0 0 auto !important;
   width: fit-content !important;
-  max-width: 75% !important;
+  max-width: 100% !important;
+  align-self: flex-end !important;
   word-break: break-word;
   white-space: normal; /* Prevents trailing newlines from expanding bubble height */
 }
