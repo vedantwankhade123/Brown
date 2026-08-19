@@ -14932,6 +14932,49 @@ if (settingShowMiniPill) {
 
 // Handle hand-off from Floating Action Bar companion
 
+function saveAndRenderFloatingBarSession(prompt, answer) {
+  if (!prompt || !answer) return;
+
+  // 1. Ensure a session exists in conversationsStore
+  if (!currentSessionId || !conversationsStore[currentSessionId]) {
+    const sessionTitle = typeof makeSessionTitle === 'function' ? makeSessionTitle(prompt) : prompt.substring(0, 30);
+    if (typeof addSessionToHistory === 'function') {
+      addSessionToHistory(sessionTitle);
+    }
+  }
+
+  // 2. Prevent duplicate entries
+  const currentMsgs = (conversationsStore[currentSessionId] && conversationsStore[currentSessionId].messages) || [];
+  const alreadySaved = currentMsgs.some(m => !m.isAi && m.text && m.text.trim() === prompt.trim());
+
+  if (!alreadySaved) {
+    if (typeof appendChatMessage === 'function') {
+      appendChatMessage('User', prompt, false);
+      appendChatMessage('Ultron', answer, true);
+    } else if (typeof renderChatMessage === 'function') {
+      renderChatMessage('User', prompt, false);
+      renderChatMessage('Ultron', answer, true);
+    }
+  }
+
+  // 3. Persist session to disk & refresh sidebar history list
+  if (typeof saveConversationsToDisk === 'function') {
+    saveConversationsToDisk();
+  }
+  if (typeof rebuildSessionHistoryList === 'function') {
+    rebuildSessionHistoryList();
+  }
+  if (typeof saveChatHistoryDebounced === 'function') {
+    saveChatHistoryDebounced();
+  }
+
+  const chatMessagesContainer = document.querySelector('.chat-messages') || document.querySelector('.chat-main');
+  if (chatMessagesContainer) {
+    chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+  }
+}
+
+// Handle hand-off from Floating Action Bar companion
 if (window.ultronAPI && window.ultronAPI.onFloatingBarHandOff) {
   window.ultronAPI.onFloatingBarHandOff((payload) => {
     if (!payload) return;
@@ -14953,22 +14996,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarHandOff) {
     }
 
     if (payload.prompt && payload.answer) {
-      // Check if already rendered to prevent duplicate queries and responses
-      const existingUserMsgs = Array.from(document.querySelectorAll('.chat-message.user .message-content'));
-      const lastUserMsg = existingUserMsgs.length > 0 ? existingUserMsgs[existingUserMsgs.length - 1].textContent.trim() : '';
-      if (lastUserMsg !== payload.prompt.trim()) {
-        if (typeof renderChatMessage === 'function') {
-          renderChatMessage('User', payload.prompt, false);
-          renderChatMessage('Ultron', payload.answer, true);
-          if (typeof saveChatHistoryDebounced === 'function') {
-            saveChatHistoryDebounced();
-          }
-        }
-      }
-      const chatMessagesContainer = document.querySelector('.chat-messages') || document.querySelector('.chat-main');
-      if (chatMessagesContainer) {
-        chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-      }
+      saveAndRenderFloatingBarSession(payload.prompt, payload.answer);
       return;
     }
 
@@ -14988,17 +15016,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarHandOff) {
 if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
   window.ultronAPI.onFloatingBarSessionCreated((payload) => {
     if (!payload || !payload.prompt || !payload.answer) return;
-    const existingUserMsgs = Array.from(document.querySelectorAll('.chat-message.user .message-content'));
-    const lastUserMsg = existingUserMsgs.length > 0 ? existingUserMsgs[existingUserMsgs.length - 1].textContent.trim() : '';
-    if (lastUserMsg === payload.prompt.trim()) return; // Already present, avoid duplication
-
-    if (typeof renderChatMessage === 'function') {
-      renderChatMessage('User', payload.prompt, false);
-      renderChatMessage('Ultron', payload.answer, true);
-      if (typeof saveChatHistoryDebounced === 'function') {
-        saveChatHistoryDebounced();
-      }
-    }
+    saveAndRenderFloatingBarSession(payload.prompt, payload.answer);
   });
 }
 
