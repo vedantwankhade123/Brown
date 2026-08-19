@@ -180,7 +180,7 @@
     hideModelDropdown();
     hideApprovalDropdown();
     if (!answerCard.classList.contains('hidden')) {
-      contractAnswerCard();
+      hideAnswerCard();
     }
     if (window.ultronAPI && window.ultronAPI.floatingBarSetMode) {
       window.ultronAPI.floatingBarSetMode({ miniMode: true });
@@ -193,6 +193,12 @@
     if (window.ultronAPI && window.ultronAPI.floatingBarSetMode) {
       window.ultronAPI.floatingBarSetMode({ miniMode: false });
     }
+    // Show stacked contracted cards docked directly above the input pill
+    if (!isStreaming) {
+      answerCard.classList.add('hidden');
+      renderSessionCardsStack();
+    }
+    updateTopModesVisibility();
     promptInput.focus();
   }
 
