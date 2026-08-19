@@ -207,25 +207,24 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: #18181b;
-  border: 1px solid var(--border-solid);
+  background: transparent !important;
+  border: 1px solid transparent !important;
   border-radius: 999px;
-  padding: 5px 12px;
-  color: var(--text-main);
+  padding: 4px 8px;
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  box-shadow: none !important;
   transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
 }
 
 .model-capsule-pill:hover,
 .approval-capsule-pill:hover {
-  background: #27272a;
-  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-main);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.65);
 }
 
 .model-capsule-pill:active,
@@ -235,9 +234,8 @@ html, body {
 
 .model-capsule-pill.open,
 .approval-capsule-pill.open {
-  background: #27272a;
-  border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 0 0 0 1px var(--border-white-faint);
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: var(--text-main);
 }
 
 .model-capsule-pill .model-chevron,
@@ -630,6 +628,16 @@ html, body {
 /* ==========================================================================
    4. EXPANDED / CONTRACTED AI RESPONSE SCREEN (Docked directly above input)
    ========================================================================== */
+.input-and-docked-response-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  min-width: 0;
+  width: calc(100% - 48px);
+}
+
 .answer-card {
   width: 90% !important;
   max-width: 90% !important;
@@ -648,6 +656,7 @@ html, body {
   position: relative;
   z-index: 150;
   overflow: hidden;
+  box-sizing: border-box;
   transition: height 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
 }
 
@@ -657,11 +666,11 @@ html, body {
 }
 
 .answer-card.contracted {
-  height: 42px;
-  max-height: 42px;
+  height: 40px;
+  max-height: 40px;
   border-radius: 14px;
   border-bottom: 1px solid var(--border-solid);
-  margin-bottom: 6px !important;
+  margin-bottom: 4px !important;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
   cursor: pointer;
 }
@@ -673,7 +682,7 @@ html, body {
 .answer-card.contracted .answer-header {
   border-bottom: none;
   padding: 6px 12px;
-  height: 42px;
+  height: 40px;
   box-sizing: border-box;
 }
 

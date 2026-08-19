@@ -179,7 +179,7 @@
     hidePlusMenu();
     hideModelDropdown();
     hideApprovalDropdown();
-    if (currentAnswerText && !answerCard.classList.contains('hidden')) {
+    if (!answerCard.classList.contains('hidden')) {
       contractAnswerCard();
     }
     if (window.ultronAPI && window.ultronAPI.floatingBarSetMode) {
@@ -215,7 +215,9 @@
     if (isHidden) {
       hideModelDropdown();
       hideApprovalDropdown();
-      hideAnswerCard();
+      if (!answerCard.classList.contains('hidden')) {
+        contractAnswerCard();
+      }
       plusMenuDropdown.classList.remove('hidden');
       btnPlusMenu.classList.add('open');
       btnPlusMenu.querySelector('.icon-plus').classList.add('hidden');
@@ -240,7 +242,6 @@
     if (isHidden) {
       hidePlusMenu();
       hideApprovalDropdown();
-      hideAnswerCard();
       modelDropdown.classList.remove('hidden');
       modelSelectorBtn.classList.add('open');
     } else {
@@ -261,7 +262,6 @@
     if (isHidden) {
       hidePlusMenu();
       hideModelDropdown();
-      hideAnswerCard();
       approvalDropdown.classList.remove('hidden');
       approvalPill.classList.add('open');
     } else {
@@ -279,16 +279,16 @@
   function setApprovalMode(mode) {
     activeApprovalMode = mode;
     approvalOptions.forEach(opt => {
-      const isMatch = opt.dataset.mode === mode;
-      opt.classList.toggle('active', isMatch);
+      const isActive = opt.dataset.mode === mode;
+      opt.classList.toggle('active', isActive);
       const check = opt.querySelector('.approval-check');
-      if (check) check.classList.toggle('hidden', !isMatch);
+      if (check) check.classList.toggle('hidden', !isActive);
 
-      if (isMatch) {
+      if (isActive) {
         approvalPillLabel.textContent = opt.dataset.label;
-        if (mode === 'smart') {
+        if (mode === 'strict') {
           approvalIconBox.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" width="13" height="13">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" width="13" height="13">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
               <polyline points="9 12 11 14 15 10"></polyline>
             </svg>
@@ -301,7 +301,7 @@
           `;
         } else {
           approvalIconBox.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" width="13" height="13">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" width="13" height="13">
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
               <polyline points="9 12 11 14 15 10"></polyline>
             </svg>
@@ -337,6 +337,13 @@
       if (down) down.classList.remove('hidden');
       const label = document.getElementById('contract-btn-text');
       if (label) label.textContent = 'Minimize';
+    }
+    if (currentAnswerText) {
+      answerLoading.classList.add('hidden');
+      answerContent.classList.remove('hidden');
+    } else if (isStreaming) {
+      answerLoading.classList.remove('hidden');
+      answerContent.classList.add('hidden');
     }
     updateTopModesVisibility();
   }
@@ -724,13 +731,11 @@
       });
     }
 
-    // Clicking header expands if contracted
+    // Clicking header or session title toggles expand / contract in the same response area
     if (answerHeader) {
       answerHeader.addEventListener('click', (e) => {
         if (!e.target.closest('button')) {
-          if (answerCard.classList.contains('contracted')) {
-            expandAnswerCard();
-          }
+          toggleContractAnswerCard();
         }
       });
     }
