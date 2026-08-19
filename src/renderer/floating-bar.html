@@ -280,16 +280,16 @@
           </svg>
         </button>
 
-        <!-- Center Text Input (Expands fully across the bar) -->
+        <!-- Center Text Input (Auto-grows up to 5 lines with smooth scroll) -->
         <div class="input-container">
-          <input 
-            type="text" 
+          <textarea 
             id="prompt-input" 
             class="prompt-input" 
             placeholder="Run terminal scripts, browse code..." 
             autocomplete="off" 
             spellcheck="false"
-          />
+            rows="1"
+          ></textarea>
         </div>
 
         <!-- Right Action Controls -->

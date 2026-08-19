@@ -66,6 +66,7 @@
           showFullFloatingMode();
           if (prefill) {
             promptInput.value = prefill;
+            autoResizePromptInput();
           }
           promptInput.focus();
           promptInput.select();
@@ -419,6 +420,7 @@
             });
             if (result && result.text) {
               promptInput.value = result.text;
+              autoResizePromptInput();
             }
           }
         } catch (transcribeErr) {
@@ -539,6 +541,21 @@
       .replace(/>/g, '&gt;');
   }
 
+  // Auto-resize prompt textarea up to 5 lines with smooth scroll
+  function autoResizePromptInput() {
+    if (!promptInput) return;
+    promptInput.style.height = 'auto';
+    const scrollHeight = promptInput.scrollHeight;
+    const maxHeight = 108; // Fit up to 5 lines of text
+    if (scrollHeight > maxHeight) {
+      promptInput.style.height = maxHeight + 'px';
+      promptInput.classList.add('scrollable');
+    } else {
+      promptInput.style.height = Math.max(34, scrollHeight) + 'px';
+      promptInput.classList.remove('scrollable');
+    }
+  }
+
   // Event Listeners Setup
   function setupEventListeners() {
     // Mini-pill click -> Expand to full floating companion bar
@@ -617,13 +634,27 @@
     }
 
     // Send Button click
-    btnSend.addEventListener('click', () => executeQuery());
+    btnSend.addEventListener('click', () => {
+      executeQuery();
+      promptInput.value = '';
+      autoResizePromptInput();
+    });
+
+    // Auto-resize on input typing/pasting
+    promptInput.addEventListener('input', autoResizePromptInput);
 
     // Input Keydown Handling
     promptInput.addEventListener('keydown', async (e) => {
       if (e.key === 'Enter') {
+        if (e.shiftKey) {
+          // Allow newline with Shift+Enter
+          setTimeout(autoResizePromptInput, 0);
+          return;
+        }
         e.preventDefault();
         await executeQuery();
+        promptInput.value = '';
+        autoResizePromptInput();
         return;
       }
 
@@ -678,6 +709,7 @@
         e.stopPropagation();
         if (currentPromptText) {
           promptInput.value = currentPromptText;
+          autoResizePromptInput();
         }
         promptInput.focus();
         promptInput.select();
