@@ -1068,7 +1068,7 @@ html, body {
   transform: scale(0.96);
 }
 
-/* External Maximize Button on the right side of the floating bar (Completely Circular) */
+/* External Maximize Button on the right side of the floating bar (Completely Circular & Centered) */
 .btn-external-expand {
   width: 44px;
   height: 44px;
@@ -1082,6 +1082,7 @@ html, body {
   cursor: pointer;
   outline: none;
   flex-shrink: 0;
+  margin-bottom: 4px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
   transition: all 0.15s ease;
 }
