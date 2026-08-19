@@ -628,43 +628,95 @@ html, body {
 }
 
 /* ==========================================================================
-   4. EXPANDED AI RESPONSE SCREEN (Transient Companion Session)
+   4. EXPANDED / CONTRACTED AI RESPONSE SCREEN (Docked directly above input)
    ========================================================================== */
 .answer-card {
-  width: 100%;
-  height: 380px;
-  max-height: 440px;
+  width: 90% !important;
+  max-width: 90% !important;
+  margin: 0 auto !important;
+  margin-bottom: 0px !important;
   display: flex;
   flex-direction: column;
   background: var(--bg-solid-panel);
   border: 1px solid var(--border-solid);
-  border-radius: 18px;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.95);
+  border-bottom: none;
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.75);
+  position: relative;
+  z-index: 150;
+  overflow: hidden;
+  transition: height 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+}
+
+.answer-card:not(.contracted) {
+  height: 380px;
+  max-height: 420px;
+}
+
+.answer-card.contracted {
+  height: 42px;
+  max-height: 42px;
+  border-radius: 14px;
+  border-bottom: 1px solid var(--border-solid);
+  margin-bottom: 6px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+}
+
+.answer-card.contracted .answer-body {
+  display: none !important;
+}
+
+.answer-card.contracted .answer-header {
+  border-bottom: none;
+  padding: 6px 12px;
+  height: 42px;
+  box-sizing: border-box;
+}
+
+.answer-card.contracted #copy-answer-btn,
+.answer-card.contracted #expand-answer-btn {
+  display: none !important;
 }
 
 .answer-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: 8px 14px;
   border-bottom: 1px solid var(--border-solid);
   background: #141416;
   flex-shrink: 0;
+  gap: 8px;
 }
 
 .answer-model-tag {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text-main);
+  cursor: pointer;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.answer-model-tag span#answer-model-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .answer-ultron-logo {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   object-fit: contain;
+  flex-shrink: 0;
 }
 
 .answer-model-badge {
@@ -675,33 +727,42 @@ html, body {
   border: 1px solid rgba(59, 130, 246, 0.3);
   padding: 1px 6px;
   border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .answer-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  flex-shrink: 0;
 }
 
 .icon-btn-sm {
   background: #27272a;
   border: 1px solid var(--border-subtle);
   color: var(--text-muted);
-  padding: 5px 9px;
+  padding: 4px 8px;
   font-size: 11.5px;
   font-weight: 500;
   border-radius: 6px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   transition: all 0.12s ease;
+  user-select: none;
 }
 
 .icon-btn-sm:hover {
   background: var(--bg-solid-hover);
   color: var(--text-main);
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.icon-btn-sm.btn-close-danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.4);
 }
 
 .answer-body {
