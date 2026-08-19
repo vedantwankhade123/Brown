@@ -14976,3 +14976,17 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarHandOff) {
   });
 }
 
+// Real-time synchronization of sessions from Floating Companion Bar
+if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
+  window.ultronAPI.onFloatingBarSessionCreated((payload) => {
+    if (!payload || !payload.prompt || !payload.answer) return;
+    if (typeof renderChatMessage === 'function') {
+      renderChatMessage('User', payload.prompt, false);
+      renderChatMessage('Ultron', payload.answer, true);
+      if (typeof saveChatHistoryDebounced === 'function') {
+        saveChatHistoryDebounced();
+      }
+    }
+  });
+}
+

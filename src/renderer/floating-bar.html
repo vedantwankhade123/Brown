@@ -257,6 +257,23 @@
               <span>Ultron is generating response...</span>
             </div>
             <div class="answer-content markdown-body hidden" id="answer-content"></div>
+            <!-- Response Action Toolbar (Copy & Speak) below AI response -->
+            <div class="answer-content-footer hidden" id="answer-content-footer">
+              <button type="button" class="icon-btn-footer" id="footer-copy-btn" title="Copy response">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <span class="footer-btn-text">Copy</span>
+              </button>
+              <button type="button" class="icon-btn-footer" id="footer-speak-btn" title="Speak response aloud">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                </svg>
+                <span class="footer-btn-text">Speak</span>
+              </button>
+            </div>
           </div>
         </div>
 

@@ -365,6 +365,8 @@
     expandAnswerCard();
     answerLoading.classList.remove('hidden');
     answerContent.classList.add('hidden');
+    const footer = document.getElementById('answer-content-footer');
+    if (footer) footer.classList.add('hidden');
     answerContent.innerHTML = '';
     currentAnswerText = '';
     updateTopModesVisibility();
@@ -373,6 +375,9 @@
   function hideAnswerCard() {
     answerCard.classList.add('hidden');
     answerCard.classList.remove('contracted');
+    if (window.speechSynthesis && window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+    }
     isStreaming = false;
     currentAnswerText = '';
     updateTopModesVisibility();
@@ -525,6 +530,19 @@
     } finally {
       isStreaming = false;
       answerLoading.classList.add('hidden');
+      const footer = document.getElementById('answer-content-footer');
+      if (footer && currentAnswerText) {
+        footer.classList.remove('hidden');
+      }
+
+      // Realtime session synchronization to Main Window
+      if (currentAnswerText && window.ultronAPI && window.ultronAPI.floatingBarSyncSession) {
+        window.ultronAPI.floatingBarSyncSession({
+          prompt: currentPromptText,
+          answer: currentAnswerText,
+          model: activeModel
+        });
+      }
     }
   }
 
@@ -608,24 +626,34 @@
       toggleApprovalDropdown();
     });
 
+    // Action buttons inside plus menu
+    const btnAttach = document.getElementById('plus-action-attach');
+    if (btnAttach) {
+      btnAttach.addEventListener('click', () => {
+        hidePlusMenu();
+        if (window.ultronAPI && window.ultronAPI.floatingBarExpandToMain) {
+          window.ultronAPI.floatingBarExpandToMain({ action: 'attach-files' });
+        }
+      });
+    }
+
+    // Model download button
+    const btnDownloadModels = document.getElementById('btn-dropdown-download-models');
+    if (btnDownloadModels) {
+      btnDownloadModels.addEventListener('click', () => {
+        hideModelDropdown();
+        if (window.ultronAPI && window.ultronAPI.floatingBarExpandToMain) {
+          window.ultronAPI.floatingBarExpandToMain({ action: 'open-settings-models' });
+        }
+      });
+    }
+
     // Approval option item selection
     approvalOptions.forEach(opt => {
       opt.addEventListener('click', (e) => {
         e.stopPropagation();
         setApprovalMode(opt.dataset.mode);
       });
-    });
-
-    // Download Models item click -> Expand to full app settings/models
-    btnDropdownDownloadModels.addEventListener('click', () => {
-      hideModelDropdown();
-      expandToFullApp({ action: 'open-settings-models' });
-    });
-
-    // Attach files click
-    plusActionAttach.addEventListener('click', () => {
-      hidePlusMenu();
-      expandToFullApp({ action: 'attach-files' });
     });
 
     // Agent options toggles
@@ -650,8 +678,6 @@
     // Send Button click
     btnSend.addEventListener('click', () => {
       executeQuery();
-      promptInput.value = '';
-      autoResizePromptInput();
     });
 
     // Auto-resize on input typing/pasting
@@ -667,8 +693,6 @@
         }
         e.preventDefault();
         await executeQuery();
-        promptInput.value = '';
-        autoResizePromptInput();
         return;
       }
 
@@ -757,6 +781,62 @@
           setTimeout(() => { 
             if (lbl) lbl.textContent = 'Copy'; 
           }, 2000);
+        }
+      });
+    }
+
+    // Footer Copy Button (Below text)
+    const footerCopyBtn = document.getElementById('footer-copy-btn');
+    if (footerCopyBtn) {
+      footerCopyBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (currentAnswerText) {
+          navigator.clipboard.writeText(currentAnswerText);
+          const txt = footerCopyBtn.querySelector('.footer-btn-text');
+          if (txt) txt.textContent = 'Copied!';
+          setTimeout(() => {
+            if (txt) txt.textContent = 'Copy';
+          }, 2000);
+        }
+      });
+    }
+
+    // Footer Speak Button (TTS)
+    const footerSpeakBtn = document.getElementById('footer-speak-btn');
+    if (footerSpeakBtn) {
+      footerSpeakBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!currentAnswerText) return;
+        if (window.speechSynthesis) {
+          if (window.speechSynthesis.speaking) {
+            window.speechSynthesis.cancel();
+            footerSpeakBtn.classList.remove('speaking');
+            const txt = footerSpeakBtn.querySelector('.footer-btn-text');
+            if (txt) txt.textContent = 'Speak';
+          } else {
+            const cleaned = currentAnswerText
+              .replace(/```[\s\S]*?```/g, '')
+              .replace(/`([^`]+)`/g, '$1')
+              .replace(/[*_~#>]/g, '')
+              .trim();
+            const utterance = new SpeechSynthesisUtterance(cleaned || currentAnswerText);
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            utterance.onend = () => {
+              footerSpeakBtn.classList.remove('speaking');
+              const txt = footerSpeakBtn.querySelector('.footer-btn-text');
+              if (txt) txt.textContent = 'Speak';
+            };
+            utterance.onerror = () => {
+              footerSpeakBtn.classList.remove('speaking');
+              const txt = footerSpeakBtn.querySelector('.footer-btn-text');
+              if (txt) txt.textContent = 'Speak';
+            };
+            footerSpeakBtn.classList.add('speaking');
+            const txt = footerSpeakBtn.querySelector('.footer-btn-text');
+            if (txt) txt.textContent = 'Stop';
+            window.speechSynthesis.speak(utterance);
+          }
         }
       });
     }

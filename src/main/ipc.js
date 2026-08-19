@@ -2664,6 +2664,17 @@ function getInstallationDefaultDataDir() {
       return { success: false, text: '', error: err.message };
     }
   });
+
+  ipcMain.handle('floating-bar:sync-session', async (_event, payload) => {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+        mainWindow.webContents.send('floating-bar:session-created', payload);
+      }
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
 }
 
 module.exports = {
