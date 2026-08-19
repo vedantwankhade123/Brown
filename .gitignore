@@ -30,6 +30,7 @@ portfolio-builder/
 *.md
 !README.md
 !RESEARCH_PROGRESS.md
+!RESEARCH_PAPER.md
 !DOCUMENTATION.md
 !RELEASE_NOTES.md
 .agent-docs/
