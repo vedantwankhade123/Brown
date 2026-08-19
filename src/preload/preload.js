@@ -118,6 +118,7 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   floatingBarSetMode: (payload) => ipcRenderer.invoke('floating-bar:set-mode', payload),
   floatingBarExpandToMain: (payload) => ipcRenderer.invoke('floating-bar:expand-to-main', payload),
   floatingBarGetClipboard: () => ipcRenderer.invoke('floating-bar:get-clipboard'),
+  floatingBarSyncSession: (payload) => ipcRenderer.invoke('floating-bar:sync-session', payload),
   onFloatingBarActivated: (callback) => {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('floating-bar:activated', subscription);
@@ -127,5 +128,10 @@ contextBridge.exposeInMainWorld('ultronAPI', {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('floating-bar:hand-off', subscription);
     return () => ipcRenderer.removeListener('floating-bar:hand-off', subscription);
+  },
+  onFloatingBarSessionCreated: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('floating-bar:session-created', subscription);
+    return () => ipcRenderer.removeListener('floating-bar:session-created', subscription);
   }
 });

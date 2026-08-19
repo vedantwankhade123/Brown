@@ -643,8 +643,8 @@ html, body {
 }
 
 .answer-card {
-  width: 100% !important;
-  max-width: 100% !important;
+  width: 90% !important;
+  max-width: 90% !important;
   margin: 0 auto !important;
   margin-bottom: 0px !important;
   display: flex;
@@ -751,15 +751,16 @@ html, body {
 .answer-actions {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 3px;
   flex-shrink: 0;
 }
 
-.icon-btn-sm {
-  background: #27272a;
-  border: 1px solid var(--border-subtle);
+.answer-actions .icon-btn-sm {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
   color: var(--text-muted);
-  padding: 5px 8px;
+  padding: 5px 6px;
   font-size: 11.5px;
   font-weight: 500;
   border-radius: 6px;
@@ -771,26 +772,26 @@ html, body {
   user-select: none;
 }
 
-.icon-btn-sm:hover {
-  background: var(--bg-solid-hover);
+.answer-actions .icon-btn-sm:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
   color: var(--text-main);
-  border-color: rgba(255, 255, 255, 0.22);
 }
 
-.icon-btn-sm.btn-close-danger:hover {
-  background: rgba(239, 68, 68, 0.2);
+.answer-actions .icon-btn-sm.btn-close-danger:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
   color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.4);
 }
 
 .answer-body {
   flex: 1;
-  padding: 16px 18px;
+  padding: 16px 18px 12px 18px;
   overflow-y: auto;
   font-size: 13.5px;
   line-height: 1.6;
   color: #e4e4e7;
   user-select: text;
+  display: flex;
+  flex-direction: column;
 }
 
 .answer-loading {
@@ -826,8 +827,15 @@ html, body {
   50% { height: 16px; }
 }
 
+.answer-content {
+  flex: 1;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
 .answer-content pre {
-  background: #141416;
+  background: #18181b;
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--border-solid);
@@ -842,6 +850,40 @@ html, body {
 
 .answer-content p {
   margin-bottom: 8px;
+}
+
+.answer-content-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.icon-btn-footer {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.icon-btn-footer:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-main);
+}
+
+.icon-btn-footer.speaking {
+  color: var(--accent-blue);
+  background: rgba(59, 130, 246, 0.12);
 }
 
 /* ==========================================================================
