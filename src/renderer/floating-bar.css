@@ -809,6 +809,54 @@ html, body {
   color: #ef4444;
 }
 
+@keyframes slideUpCard {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.answer-card:not(.hidden) {
+  animation: slideUpCard 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.answer-body,
+.chat-messages-scroll,
+.answer-content {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.answer-body::-webkit-scrollbar,
+.chat-messages-scroll::-webkit-scrollbar,
+.answer-content::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.answer-body::-webkit-scrollbar-track,
+.chat-messages-scroll::-webkit-scrollbar-track,
+.answer-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.answer-body::-webkit-scrollbar-thumb,
+.chat-messages-scroll::-webkit-scrollbar-thumb,
+.answer-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+}
+
+.answer-body::-webkit-scrollbar-thumb:hover,
+.chat-messages-scroll::-webkit-scrollbar-thumb:hover,
+.answer-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
 .answer-body {
   flex: 1;
   padding: 16px 18px 12px 18px;
@@ -1141,6 +1189,39 @@ html, body {
 
 .btn-send-circle:active {
   transform: scale(0.96);
+}
+
+/* Stop Generation Button (Square Icon in Circle, shown when generating) */
+.btn-stop-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #ef4444;
+  border: none;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  outline: none;
+  flex-shrink: 0;
+  margin-left: 2px;
+  transition: all 0.15s ease;
+  animation: pulseStop 1.5s infinite ease-in-out;
+}
+
+.btn-stop-circle:hover {
+  background: #dc2626;
+  transform: scale(1.04);
+}
+
+.btn-stop-circle:active {
+  transform: scale(0.96);
+}
+
+@keyframes pulseStop {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
 }
 
 /* External Maximize Button on the right side of the floating bar (Completely Circular & Centered) */

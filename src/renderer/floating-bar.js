@@ -29,6 +29,7 @@
   const micBtn = document.getElementById('mic-btn');
   const expandBtn = document.getElementById('expand-btn');
   const btnSend = document.getElementById('btn-send');
+  const btnStop = document.getElementById('btn-stop');
   const copyAnswerBtn = document.getElementById('copy-answer-btn');
   const expandAnswerBtn = document.getElementById('expand-answer-btn');
   const closeAnswerBtn = document.getElementById('close-answer-btn');
@@ -51,6 +52,7 @@
   let currentAnswerText = '';
   let currentPromptText = '';
   let isStreaming = false;
+  let activeAbortController = null;
 
   // Initialize
   async function init() {
@@ -671,7 +673,17 @@
     renderSessionCardsStack();
     updateTopModesVisibility();
 
+    // Toggle Send -> Stop button
+    if (btnSend) btnSend.classList.add('hidden');
+    if (btnStop) btnStop.classList.remove('hidden');
+
     isStreaming = true;
+    activeAbortController = new AbortController();
+
+    const isSimpleGreeting = /^(hello|hi|hey|good morning|good afternoon|good evening|yo)\b/i.test(rawQuery.trim());
+    const systemPrompt = isSimpleGreeting
+      ? 'You are Ultron, a friendly and concise AI assistant for Windows. Reply with a short, warm greeting in 1-2 concise sentences.'
+      : 'You are Ultron, a fast, intelligent, and concise AI assistant built for Windows. Answer directly and concisely with clean markdown formatting. Avoid unnecessary corporate preamble.';
 
     try {
       const response = await fetch('http://127.0.0.1:11434/api/generate', {
@@ -682,8 +694,9 @@
           prompt: rawQuery,
           stream: true,
           keep_alive: '5m',
-          system: 'You are Ultron, a fast, intelligent, and concise AI assistant built for Windows. Answer directly and concisely with markdown formatting.'
-        })
+          system: systemPrompt
+        }),
+        signal: activeAbortController ? activeAbortController.signal : undefined
       });
 
       if (!response.ok) {
@@ -718,11 +731,18 @@
         }
       }
     } catch (err) {
-      if (thinking) thinking.classList.add('hidden');
-      if (answerContent) answerContent.classList.remove('hidden');
-      renderAnswerContent(`⚠️ **Error:** ${escapeHtml(err.message || 'Model unavailable. Please make sure Ollama is running.')}`);
+      if (err.name === 'AbortError') {
+        // User clicked stop - keep what has been generated so far
+      } else {
+        if (thinking) thinking.classList.add('hidden');
+        if (answerContent) answerContent.classList.remove('hidden');
+        renderAnswerContent(`⚠️ **Error:** ${escapeHtml(err.message || 'Model unavailable. Please make sure Ollama is running.')}`);
+      }
     } finally {
       isStreaming = false;
+      activeAbortController = null;
+      if (btnSend) btnSend.classList.remove('hidden');
+      if (btnStop) btnStop.classList.add('hidden');
       if (thinking) thinking.classList.add('hidden');
       if (footer && currentAnswerText) {
         footer.classList.remove('hidden');
@@ -748,6 +768,11 @@
       answerContent.innerHTML = window.ultronAPI.parseMarkdown(markdown);
     } else {
       answerContent.textContent = markdown;
+    }
+    // Auto-scroll dynamically with real-time text typing
+    const chatScroll = document.getElementById('chat-messages-scroll');
+    if (chatScroll) {
+      chatScroll.scrollTop = chatScroll.scrollHeight;
     }
     const answerBody = document.getElementById('answer-body');
     if (answerBody) {
@@ -876,6 +901,25 @@
     btnSend.addEventListener('click', () => {
       executeQuery();
     });
+
+    // Stop Button click (Abort streaming generation)
+    if (btnStop) {
+      btnStop.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (activeAbortController) {
+          activeAbortController.abort();
+        }
+        isStreaming = false;
+        if (btnSend) btnSend.classList.remove('hidden');
+        if (btnStop) btnStop.classList.add('hidden');
+        const thinking = document.getElementById('thinking-indicator');
+        if (thinking) thinking.classList.add('hidden');
+        const footer = document.getElementById('answer-content-footer');
+        if (footer && currentAnswerText) {
+          footer.classList.remove('hidden');
+        }
+      });
+    }
 
     // Auto-resize on input typing/pasting
     promptInput.addEventListener('input', autoResizePromptInput);
