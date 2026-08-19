@@ -185,7 +185,7 @@ html, body {
   align-items: flex-end;
   position: relative;
   z-index: 200;
-  margin-bottom: -1px;
+  margin-bottom: -2px;
 }
 
 .top-modes-bridge {
@@ -194,22 +194,22 @@ html, body {
   gap: 4px;
   background: var(--bg-solid-panel);
   border: 1px solid var(--border-solid);
-  border-bottom: 1px solid var(--bg-solid-panel);
+  border-bottom: 2px solid var(--bg-solid-panel);
   border-top-left-radius: 14px;
   border-top-right-radius: 14px;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   padding: 3px 6px 4px 6px;
-  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.45);
   position: relative;
-  z-index: 105;
+  z-index: 205;
 }
 
 /* Outward (concave) flared curves where the bridge seamlessly meets the floating bar */
 .top-modes-bridge::before {
   content: '';
   position: absolute;
-  bottom: 0px;
+  bottom: -1px;
   left: -10px;
   width: 10px;
   height: 10px;
@@ -220,7 +220,7 @@ html, body {
 .top-modes-bridge::after {
   content: '';
   position: absolute;
-  bottom: 0px;
+  bottom: -1px;
   right: -10px;
   width: 10px;
   height: 10px;
