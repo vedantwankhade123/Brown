@@ -827,28 +827,30 @@ html, body {
 }
 
 /* ==========================================================================
-   MAIN BOTTOM PILL INPUT BAR (White Outline on Focus)
+   MAIN BOTTOM PILL INPUT BAR (White Outline on Focus, Auto-Grow Multi-Line)
    ========================================================================== */
 .floating-input-row {
   width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
 }
 
 .capsule-bar {
   flex: 1;
-  height: 50px;
+  min-height: 50px;
+  height: auto;
   background: var(--bg-solid-panel);
   border: 1px solid var(--border-solid);
-  border-radius: 999px;
+  border-radius: 26px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.9);
   display: flex;
-  align-items: center;
-  padding: 5px 8px;
+  align-items: flex-end;
+  padding: 6px 8px;
   position: relative;
   z-index: 100;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, border-radius 0.15s ease;
 }
 
 .capsule-bar:focus-within {
@@ -870,6 +872,7 @@ html, body {
   cursor: pointer;
   outline: none;
   flex-shrink: 0;
+  margin-bottom: 1px;
   transition: all 0.15s ease;
 }
 
@@ -882,53 +885,13 @@ html, body {
   background: #3f3f46;
 }
 
-/* Model Selector Pill Button inside Input Bar */
-.model-selector-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: #27272a;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  padding: 5px 12px;
-  height: 36px;
-  margin-left: 6px;
-  color: var(--text-main);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  outline: none;
-  flex-shrink: 0;
-  transition: all 0.15s ease;
-}
-
-.model-selector-btn:hover {
-  background: var(--bg-solid-hover);
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.model-selector-btn.open {
-  border-color: var(--border-white);
-  box-shadow: 0 0 0 1px var(--border-white-faint);
-}
-
-.model-selector-label {
-  max-width: 120px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.model-chevron {
-  color: var(--text-dim);
-}
-
 /* Input Container */
 .input-container {
   flex: 1;
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 10px;
+  min-height: 36px;
 }
 
 .prompt-input {
@@ -936,8 +899,40 @@ html, body {
   background: transparent;
   border: none;
   outline: none;
+  font-family: inherit;
   font-size: 14px;
+  line-height: 1.45;
   color: var(--text-main);
+  resize: none;
+  padding: 7px 0 6px 0;
+  margin: 0;
+  box-sizing: border-box;
+  height: 34px;
+  min-height: 34px;
+  max-height: 108px; /* Fit up to 5 lines of text (~21px per line * 5 + padding = ~108px) */
+  overflow-y: hidden;
+  user-select: text;
+}
+
+.prompt-input.scrollable {
+  overflow-y: auto;
+}
+
+.prompt-input::-webkit-scrollbar {
+  width: 4px;
+}
+
+.prompt-input::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.prompt-input::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.prompt-input::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .prompt-input::placeholder {
@@ -950,6 +945,8 @@ html, body {
   align-items: center;
   gap: 4px;
   padding-right: 2px;
+  flex-shrink: 0;
+  margin-bottom: 1px;
 }
 
 .action-icon-btn {
@@ -992,6 +989,7 @@ html, body {
   outline: none;
   flex-shrink: 0;
   margin-left: 2px;
+  margin-bottom: 1px;
   transition: all 0.15s ease;
 }
 
@@ -1008,7 +1006,7 @@ html, body {
 .btn-external-expand {
   width: 40px;
   height: 40px;
-  border-radius: 50%;
+  border-radius: 12px;
   background: var(--bg-solid-panel);
   border: 1px solid var(--border-solid);
   color: var(--text-muted);
@@ -1018,17 +1016,13 @@ html, body {
   cursor: pointer;
   outline: none;
   flex-shrink: 0;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.75);
+  margin-bottom: 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
   transition: all 0.15s ease;
 }
 
 .btn-external-expand:hover {
   background: var(--bg-solid-hover);
-  color: #ffffff;
-  border-color: var(--border-white);
-  transform: scale(1.05);
-}
-
-.btn-external-expand:active {
-  transform: scale(0.96);
+  color: var(--text-main);
+  border-color: rgba(255, 255, 255, 0.22);
 }
