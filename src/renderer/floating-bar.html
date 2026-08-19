@@ -97,23 +97,7 @@
 
       </div>
 
-      <!-- 2. Model Selection Dropdown (Solid Dark) -->
-      <div id="model-dropdown" class="popover-card model-dropdown hidden">
-        <div class="model-dropdown-section-title">Offline Models</div>
-        <div id="model-dropdown-list" class="model-dropdown-list">
-          <!-- Populated dynamically with actual installed Ollama models + Gemini -->
-        </div>
-        <div id="btn-dropdown-download-models" class="model-dropdown-download-item">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="8" x2="12" y2="16"></line>
-            <line x1="8" y1="12" x2="16" y2="12"></line>
-          </svg>
-          <span>Download Models...</span>
-        </div>
-      </div>
-
-      <!-- 3. Expanded AI Response Screen (50% Expanded Screen on Top of Floating Bar) -->
+      <!-- 2. Expanded AI Response Screen (50% Expanded Screen on Top of Floating Bar) -->
       <div id="answer-card" class="popover-card answer-card hidden">
         <div class="answer-header">
           <div class="answer-model-tag" id="answer-model-tag">
@@ -165,12 +149,41 @@
     <!-- Centered Attached Crown Bridge Directly On Top of Input (Zero Gap) -->
     <div class="floating-top-modes-container" id="floating-top-modes">
       <div class="top-modes-bridge">
-        <!-- Approval Wrapper with Floating Dropdown -->
+        
+        <!-- 1. Model Selector Wrapper with Upward Dropdown (On Left of Approval) -->
+        <div class="model-wrapper" id="model-wrapper">
+          <div class="model-capsule-pill" id="model-selector-btn" title="Select AI Model">
+            <img src="../../Assets/ollama-logo.png" alt="Ollama" class="model-ollama-icon" onerror="this.src='../Assets/ollama-logo.png'">
+            <span id="model-selector-label" class="model-selector-label">phi3:latest</span>
+            <svg class="model-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+
+          <!-- Model Selection Dropdown (Solid Dark, opens above the pill) -->
+          <div id="model-dropdown" class="popover-card model-dropdown hidden">
+            <div class="model-dropdown-section-title">Offline Models</div>
+            <div id="model-dropdown-list" class="model-dropdown-list">
+              <!-- Populated dynamically with actual installed Ollama models + Gemini -->
+            </div>
+            <div id="btn-dropdown-download-models" class="model-dropdown-download-item">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="16"></line>
+                <line x1="8" y1="12" x2="16" y2="12"></line>
+              </svg>
+              <span>Download Models...</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. Approval Wrapper with Floating Dropdown -->
         <div class="approval-wrapper" id="approval-wrapper">
           <div class="approval-capsule-pill" id="approval-pill">
             <span class="approval-icon-box" id="approval-icon-box">
               <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" width="13" height="13">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                <polyline points="9 12 11 14 15 10"></polyline>
               </svg>
             </span>
             <span id="approval-pill-label">Smart Auto-Approval</span>
@@ -223,6 +236,7 @@
 
           </div>
         </div>
+
       </div>
     </div>
 
@@ -242,16 +256,7 @@
           </svg>
         </button>
 
-        <!-- Model Selector Pill Button inside Input Bar -->
-        <button class="model-selector-btn" id="model-selector-btn" title="Select AI Model">
-          <img src="../../Assets/ollama-logo.png" alt="Ollama" class="model-ollama-icon" onerror="this.src='../Assets/ollama-logo.png'">
-          <span id="model-selector-label" class="model-selector-label">phi3:latest</span>
-          <svg class="model-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </button>
-
-        <!-- Center Text Input -->
+        <!-- Center Text Input (Expands fully across the bar) -->
         <div class="input-container">
           <input 
             type="text" 
