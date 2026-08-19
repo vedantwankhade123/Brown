@@ -4756,7 +4756,8 @@ body.platform-win32 .chat-header-actions {
   justify-content: center;
   width: 24px;
   height: 24px;
-  color: rgba(255, 255, 255, 0.9);
+  color: #ffffff;
+  stroke: #ffffff;
   flex-shrink: 0;
   margin-top: 1px;
 }
