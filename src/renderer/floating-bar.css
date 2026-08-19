@@ -207,24 +207,26 @@ html, body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: transparent !important;
-  border: 1px solid transparent !important;
+  background: #18181b;
+  border: 1px solid var(--border-solid);
   border-radius: 999px;
-  padding: 4px 8px;
-  color: var(--text-muted);
+  padding: 4px 10px;
+  color: var(--text-main);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  box-shadow: none !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
 }
 
 .model-capsule-pill:hover,
 .approval-capsule-pill:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-  color: var(--text-main);
+  background: #27272a;
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
   transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.65);
 }
 
 .model-capsule-pill:active,
@@ -234,8 +236,10 @@ html, body {
 
 .model-capsule-pill.open,
 .approval-capsule-pill.open {
-  background: rgba(255, 255, 255, 0.12) !important;
-  color: var(--text-main);
+  background: #27272a;
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 0 1px var(--border-white-faint);
+  color: #ffffff;
 }
 
 .model-capsule-pill .model-chevron,
@@ -1022,11 +1026,11 @@ html, body {
   transform: scale(0.96);
 }
 
-/* External Maximize Button on the right side of the floating bar (Sleek 40px Size) */
+/* External Maximize Button on the right side of the floating bar (Completely Circular) */
 .btn-external-expand {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   background: var(--bg-solid-panel);
   border: 1px solid var(--border-solid);
   color: var(--text-muted);
@@ -1044,4 +1048,9 @@ html, body {
   background: var(--bg-solid-hover);
   color: var(--text-main);
   border-color: rgba(255, 255, 255, 0.22);
+  transform: scale(1.05);
+}
+
+.btn-external-expand:active {
+  transform: scale(0.95);
 }
