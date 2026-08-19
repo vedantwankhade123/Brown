@@ -81,11 +81,7 @@ function createFloatingBarWindow(mainWindow) {
 
   floatingWindow.on('blur', () => {
     if (!isPinned && floatingWindow && !floatingWindow.isDestroyed() && floatingWindow.isVisible()) {
-      if (mainWindowRef && !mainWindowRef.isDestroyed() && mainWindowRef.isMinimized()) {
-        showFloatingBar('', true);
-      } else {
-        floatingWindow.hide();
-      }
+      showFloatingBar('', true);
     }
   });
 
@@ -173,7 +169,7 @@ function showFloatingBar(prefill = '', miniMode = false) {
 
 function hideFloatingBar(force = false) {
   if (floatingWindow && !floatingWindow.isDestroyed() && floatingWindow.isVisible()) {
-    if (!force && mainWindowRef && !mainWindowRef.isDestroyed() && mainWindowRef.isMinimized()) {
+    if (!force) {
       showFloatingBar('', true);
     } else {
       floatingWindow.hide();
