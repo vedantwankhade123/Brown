@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { setupIpcHandlers, setMainWindow } = require('./ipc');
 const { initAutoUpdater } = require('./updater');
+const { createFloatingBarWindow } = require('./floating-bar-window');
 const mcpManager = require('./mcp-manager');
 const { applyStoragePaths, getConnectorsRoot } = require('./paths');
 
@@ -72,6 +73,15 @@ function createWindow() {
     mainWindow.show();
     mainWindow.focus();
   });
+
+  // Guarantee main window opens directly on launch
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      applyWinTitleBarOverlay(mainWindow);
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  }, 800);
 
   if (isWin32) {
     mainWindow.on('maximize', () => applyWinTitleBarOverlay(mainWindow));
@@ -194,10 +204,16 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+  try {
+    createFloatingBarWindow(mainWindow);
+  } catch (err) {
+    console.warn('[MAIN] Failed to initialize floating bar window:', err.message);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
+      try { createFloatingBarWindow(mainWindow); } catch (e) {}
     }
   });
 });

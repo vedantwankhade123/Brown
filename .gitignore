@@ -26,8 +26,11 @@ kokoro-cpu-result.txt
 .research/
 portfolio-builder/
 
-# Ignore all markdown files except README.md
+# Markdown documentation files
 *.md
 !README.md
+!RESEARCH_PROGRESS.md
+!DOCUMENTATION.md
+!RELEASE_NOTES.md
 .agent-docs/
 

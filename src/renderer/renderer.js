@@ -4930,10 +4930,10 @@ const SECURITY_MODE_LABELS = {
 };
 
 const PERM_MODE_DISPLAY_LABELS = {
-  Review: 'Prompt every action',
-  Adaptive: 'Smart auto-approval',
-  Trusted: 'Full autonomous mode',
-  Containment: 'Smart auto-approval'
+  Review: 'Prompt Every Action',
+  Adaptive: 'Smart Auto-Approval',
+  Trusted: 'Full Autonomous Mode',
+  Containment: 'Smart Auto-Approval'
 };
 
 function updateSecurityModeUI(mode) {
@@ -8134,18 +8134,18 @@ function updateWindowsUiaInstallButton(connected, installing = false) {
   btnInstallWindowsUia.classList.remove('btn-installing', 'btn-installed');
   if (installing) {
     btnInstallWindowsUia.disabled = true;
-    btnInstallWindowsUia.textContent = 'Installing…';
+    btnInstallWindowsUia.innerHTML = `<span class="connector-refresh-btn-spinner" style="display:inline-block; margin-right:6px;" aria-hidden="true"></span><span>Installing…</span>`;
     btnInstallWindowsUia.classList.add('btn-installing');
     return;
   }
   if (connected) {
     btnInstallWindowsUia.disabled = true;
-    btnInstallWindowsUia.textContent = 'Installed';
+    btnInstallWindowsUia.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" width="13" height="13" style="margin-right:6px;"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Installed</span>`;
     btnInstallWindowsUia.classList.add('btn-installed');
     return;
   }
   btnInstallWindowsUia.disabled = false;
-  btnInstallWindowsUia.textContent = 'Install / Connect UI Automation';
+  btnInstallWindowsUia.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" style="margin-right:6px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Install / Connect UI Automation</span>`;
 }
 
 function setConnectorBadgesChecking() {
@@ -12182,8 +12182,14 @@ function renderWorkflowsListUI() {
         <div class="workflow-row-steps">${wf.steps.map(s => escapeHtml(s)).join(' → ')}</div>
       </div>
       <div class="workflow-row-actions">
-        <button type="button" class="sound-preview-btn btn-run-workflow" data-id="${escapeHtml(wf.id)}">Run</button>
-        <button type="button" class="sound-preview-btn btn-delete-workflow" data-id="${escapeHtml(wf.id)}">Delete</button>
+        <button type="button" class="sound-preview-btn btn-run-workflow" data-id="${escapeHtml(wf.id)}" style="display: inline-flex; align-items: center; gap: 5px;">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          <span>Run</span>
+        </button>
+        <button type="button" class="sound-preview-btn btn-delete-workflow" data-id="${escapeHtml(wf.id)}" style="display: inline-flex; align-items: center; gap: 5px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          <span>Delete</span>
+        </button>
       </div>`;
     list.appendChild(row);
   });
@@ -12389,14 +12395,30 @@ function runSplashIntroSequence() {
   }
 
   return new Promise((resolve) => {
-    // Show splash sequence through half loading period (2.5 seconds)
-    setTimeout(() => {
+    let resolved = false;
+    const dismiss = () => {
+      if (resolved) return;
+      resolved = true;
       splashScreen.classList.add('fade-out');
       setTimeout(() => {
         splashScreen.style.display = 'none';
+        splashScreen.style.pointerEvents = 'none';
         resolve();
-      }, 500);
-    }, 2500);
+      }, 300);
+    };
+
+    // Auto dismiss after 800ms
+    const timer = setTimeout(dismiss, 800);
+
+    // Instant skip on click or keypress
+    splashScreen.addEventListener('click', () => {
+      clearTimeout(timer);
+      dismiss();
+    }, { once: true });
+    window.addEventListener('keydown', () => {
+      clearTimeout(timer);
+      dismiss();
+    }, { once: true });
   });
 }
 
@@ -14895,3 +14917,62 @@ function setupAutoUpdaterUI() {
 }
 
 setupAutoUpdaterUI();
+
+// UI Controls: Show Mini Pill Setting Persistence
+const settingShowMiniPill = document.getElementById('setting-show-mini-pill');
+if (settingShowMiniPill) {
+  const savedVal = localStorage.getItem('ultron-show-mini-pill');
+  if (savedVal !== null) {
+    settingShowMiniPill.checked = savedVal === 'true';
+  }
+  settingShowMiniPill.addEventListener('change', () => {
+    localStorage.setItem('ultron-show-mini-pill', settingShowMiniPill.checked);
+  });
+}
+
+// Handle hand-off from Floating Action Bar companion
+
+if (window.ultronAPI && window.ultronAPI.onFloatingBarHandOff) {
+  window.ultronAPI.onFloatingBarHandOff((payload) => {
+    if (!payload) return;
+
+    if (payload.action === 'open-settings-models') {
+      const settingsBtn = document.getElementById('btn-settings');
+      if (settingsBtn) settingsBtn.click();
+      setTimeout(() => {
+        const modelsTab = document.querySelector('.settings-tab-btn[data-tab="models"]');
+        if (modelsTab) modelsTab.click();
+      }, 100);
+      return;
+    }
+
+    if (payload.action === 'attach-files') {
+      const attachBtn = document.getElementById('plus-menu-attach');
+      if (attachBtn) attachBtn.click();
+      return;
+    }
+
+    if (payload.prompt && payload.answer) {
+      // Restore full conversation thread into the main chat window
+      if (typeof renderChatMessage === 'function') {
+        renderChatMessage('User', payload.prompt, false);
+        renderChatMessage('Ultron', payload.answer, true);
+        if (typeof saveChatHistoryDebounced === 'function') {
+          saveChatHistoryDebounced();
+        }
+      }
+      return;
+    }
+
+    if (chatInput) {
+      if (payload.prompt) {
+        chatInput.value = payload.prompt;
+      }
+      chatInput.focus();
+    }
+    if (payload.autoSend && payload.prompt && btnSend) {
+      btnSend.click();
+    }
+  });
+}
+

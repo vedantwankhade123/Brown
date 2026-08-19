@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ultron Floating Companion</title>
+  <link rel="stylesheet" href="floating-bar.css">
+</head>
+<body class="floating-body">
+  
+  <!-- 1. COMPACT MINI PILL WIDGET (Shown ONLY when main window is minimized) -->
+  <div id="mini-pill-widget" class="mini-pill-widget hidden">
+    <div class="mini-pill-capsule" id="mini-pill-main-click" title="Ask Ultron (Click to open)">
+      <div class="mini-pill-logo-circle">
+        <img src="../../Assets/ultron-logo.png" alt="Ultron" class="mini-pill-logo" onerror="this.src='../Assets/ultron-logo.png'">
+      </div>
+      <span class="mini-pill-text">Ask Ultron</span>
+    </div>
+    <button class="mini-pill-external-close" id="mini-pill-close-btn" title="Close Mini Pill">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+
+  <!-- 2. FULL FLOATING COMPANION VIEW -->
+  <div id="floating-wrapper" class="floating-wrapper">
+    
+    <!-- Upward-Opening Popovers Container (Positioned Above Controls) -->
+    <div id="popover-container" class="popover-container">
+      
+      <!-- 1. Plus (+) Menu Dropdown (Solid Dark) -->
+      <div id="plus-menu-dropdown" class="popover-card plus-menu-dropdown hidden">
+        
+        <!-- Attach files option -->
+        <button type="button" class="plus-menu-item" id="plus-action-attach">
+          <div class="plus-item-left">
+            <svg class="plus-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+            </svg>
+            <div class="plus-item-text">
+              <span class="plus-item-title">Attach files</span>
+              <span class="plus-item-desc">Upload text, code, or images</span>
+            </div>
+          </div>
+          <span class="plus-badge-text">TEXT</span>
+        </button>
+
+        <div class="plus-menu-divider"></div>
+        <div class="plus-menu-section-label">AGENT OPTIONS</div>
+
+        <!-- Agent tools option -->
+        <button type="button" class="plus-menu-item toggle-item active" id="plus-toggle-agent-tools">
+          <div class="plus-item-left">
+            <svg class="plus-icon green" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" width="16" height="16">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+            </svg>
+            <div class="plus-item-text">
+              <span class="plus-item-title green">Agent tools</span>
+              <span class="plus-item-desc">Run desktop actions & file ops</span>
+            </div>
+          </div>
+          <div class="toggle-indicator active"></div>
+        </button>
+
+        <!-- Screen aware option -->
+        <button type="button" class="plus-menu-item toggle-item active" id="plus-toggle-screen-aware">
+          <div class="plus-item-left">
+            <svg class="plus-icon green" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" width="16" height="16">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+            <div class="plus-item-text">
+              <span class="plus-item-title green">Screen aware</span>
+              <span class="plus-item-desc">Capture desktop for vision tasks</span>
+            </div>
+          </div>
+          <div class="toggle-indicator active"></div>
+        </button>
+
+        <!-- Web search option -->
+        <button type="button" class="plus-menu-item toggle-item active" id="plus-toggle-web-search">
+          <div class="plus-item-left">
+            <svg class="plus-icon green" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" width="16" height="16">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="2" y1="12" x2="22" y2="12"></line>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+            </svg>
+            <div class="plus-item-text">
+              <span class="plus-item-title green">Web search</span>
+              <span class="plus-item-desc">Allow live web lookups</span>
+            </div>
+          </div>
+          <div class="toggle-indicator active"></div>
+        </button>
+
+      </div>
+
+      <!-- 2. Model Selection Dropdown (Solid Dark) -->
+      <div id="model-dropdown" class="popover-card model-dropdown hidden">
+        <div class="model-dropdown-section-title">Offline Models</div>
+        <div id="model-dropdown-list" class="model-dropdown-list">
+          <!-- Populated dynamically with actual installed Ollama models + Gemini -->
+        </div>
+        <div id="btn-dropdown-download-models" class="model-dropdown-download-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="16"></line>
+            <line x1="8" y1="12" x2="16" y2="12"></line>
+          </svg>
+          <span>Download Models...</span>
+        </div>
+      </div>
+
+      <!-- 3. Expanded AI Response Screen (50% Expanded Screen on Top of Floating Bar) -->
+      <div id="answer-card" class="popover-card answer-card hidden">
+        <div class="answer-header">
+          <div class="answer-model-tag" id="answer-model-tag">
+            <img src="../../Assets/ultron-logo.png" alt="Ultron" class="answer-ultron-logo" onerror="this.src='../Assets/ultron-logo.png'" />
+            <span id="answer-model-label">Ultron Response</span>
+            <span class="answer-model-badge" id="answer-model-badge">AI</span>
+          </div>
+          <div class="answer-actions">
+            <button class="icon-btn-sm" id="copy-answer-btn" title="Copy answer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span>Copy</span>
+            </button>
+            <button class="icon-btn-sm" id="expand-answer-btn" title="Open full chat in Main Window">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <polyline points="9 21 3 21 3 15"></polyline>
+                <line x1="21" y1="3" x2="14" y2="10"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>
+              <span>Expand to Main</span>
+            </button>
+            <button class="icon-btn-sm" id="close-answer-btn" title="Close answer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="answer-body" id="answer-body">
+          <div class="answer-loading" id="answer-loading">
+            <div class="loading-wave">
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+              <span class="wave-bar"></span>
+            </div>
+            <span>Ultron is generating response...</span>
+          </div>
+          <div class="answer-content markdown-body hidden" id="answer-content"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Centered Attached Crown Bridge Directly On Top of Input (Zero Gap) -->
+    <div class="floating-top-modes-container" id="floating-top-modes">
+      <div class="top-modes-bridge">
+        <!-- Approval Wrapper with Floating Dropdown -->
+        <div class="approval-wrapper" id="approval-wrapper">
+          <div class="approval-capsule-pill" id="approval-pill">
+            <span class="approval-icon-box" id="approval-icon-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" width="13" height="13">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
+            </span>
+            <span id="approval-pill-label">Smart Auto-Approval</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11" style="opacity: 0.6;">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+
+          <!-- Approval Mode Dropdown (Opens above the pill) -->
+          <div id="approval-dropdown" class="popover-card approval-dropdown hidden">
+            <div class="approval-dropdown-title">Ultron Action Authorization</div>
+            
+            <!-- Option 1: Prompt Every Action -->
+            <div class="approval-option" data-mode="strict" data-label="Prompt Every Action">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" class="approval-opt-icon">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                <polyline points="9 12 11 14 15 10"></polyline>
+              </svg>
+              <div class="approval-option-text">
+                <span class="approval-option-name">Prompt Every Action</span>
+                <span class="approval-option-desc">Require explicit confirmation before editing files, running shell commands, or accessing the web</span>
+              </div>
+              <span class="approval-check hidden">✓</span>
+            </div>
+
+            <!-- Option 2: Smart Auto-Approval (Active) -->
+            <div class="approval-option active" data-mode="smart" data-label="Smart Auto-Approval">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" width="18" height="18" class="approval-opt-icon">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                <polyline points="9 12 11 14 15 10"></polyline>
+              </svg>
+              <div class="approval-option-text">
+                <span class="approval-option-name">Smart Auto-Approval</span>
+                <span class="approval-option-desc">Automatically approve routine system ops while prompting for potentially risky actions</span>
+              </div>
+              <span class="approval-check">✓</span>
+            </div>
+
+            <!-- Option 3: Full Autonomous Mode (Orange) -->
+            <div class="approval-option full-auto-opt" data-mode="full" data-label="Full Autonomous Mode">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" width="18" height="18" class="approval-opt-icon orange">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+              <div class="approval-option-text">
+                <span class="approval-option-name orange">Full Autonomous Mode</span>
+                <span class="approval-option-desc orange">Grant unrestricted background execution for seamless automated workflows</span>
+              </div>
+              <span class="approval-check hidden">✓</span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom Pill-Shaped Input Bar with External Maximize Button -->
+    <div class="floating-input-row">
+      <div id="capsule-bar" class="capsule-bar">
+        
+        <!-- Plus (+) / Close (✕) Button -->
+        <button class="btn-plus-circle" id="btn-plus-menu" title="Attach files & agent options">
+          <svg class="icon-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="15" height="15">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <svg class="icon-close hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+
+        <!-- Model Selector Pill Button inside Input Bar -->
+        <button class="model-selector-btn" id="model-selector-btn" title="Select AI Model">
+          <img src="../../Assets/ollama-logo.png" alt="Ollama" class="model-ollama-icon" onerror="this.src='../Assets/ollama-logo.png'">
+          <span id="model-selector-label" class="model-selector-label">phi3:latest</span>
+          <svg class="model-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        <!-- Center Text Input -->
+        <div class="input-container">
+          <input 
+            type="text" 
+            id="prompt-input" 
+            class="prompt-input" 
+            placeholder="Run terminal scripts, browse code..." 
+            autocomplete="off" 
+            spellcheck="false"
+          />
+        </div>
+
+        <!-- Right Action Controls -->
+        <div class="controls-container">
+          
+          <!-- Voice Input Button (Directly to the left of Send) -->
+          <button class="action-icon-btn" id="mic-btn" title="Voice Input">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
+            </svg>
+          </button>
+
+          <!-- Solid White Circular Send Button -->
+          <button class="btn-send-circle" id="btn-send" title="Send Prompt">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="15" height="15">
+              <line x1="12" y1="19" x2="12" y2="5"></line>
+              <polyline points="5 12 12 5 19 12"></polyline>
+            </svg>
+          </button>
+
+        </div>
+      </div>
+
+      <!-- External Maximize Button on the right side outside the capsule (Sleek 40px Size) -->
+      <button class="btn-external-expand" id="expand-btn" title="Maximize to Main Ultron Window (Tab)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <polyline points="15 3 21 3 21 9"></polyline>
+          <polyline points="9 21 3 21 3 15"></polyline>
+          <line x1="21" y1="3" x2="14" y2="10"></line>
+          <line x1="3" y1="21" x2="10" y2="14"></line>
+        </svg>
+      </button>
+    </div>
+
+  </div>
+
+  <script src="floating-bar.js"></script>
+</body>
+</html>

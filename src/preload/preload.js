@@ -110,5 +110,22 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   downloadTtsModel: (modelKey) => ipcRenderer.invoke('download-tts-model', modelKey),
   cancelTtsModelDownload: (modelKey) => ipcRenderer.invoke('cancel-tts-model-download', modelKey),
   deleteTtsModel: (modelKey) => ipcRenderer.invoke('delete-tts-model', modelKey),
-  warmupTtsModel: (modelKey) => ipcRenderer.invoke('warmup-tts-model', modelKey)
+  warmupTtsModel: (modelKey) => ipcRenderer.invoke('warmup-tts-model', modelKey),
+
+  // Floating Bar Companion APIs
+  floatingBarToggle: () => ipcRenderer.invoke('floating-bar:toggle'),
+  floatingBarHide: (payload) => ipcRenderer.invoke('floating-bar:hide', payload),
+  floatingBarSetMode: (payload) => ipcRenderer.invoke('floating-bar:set-mode', payload),
+  floatingBarExpandToMain: (payload) => ipcRenderer.invoke('floating-bar:expand-to-main', payload),
+  floatingBarGetClipboard: () => ipcRenderer.invoke('floating-bar:get-clipboard'),
+  onFloatingBarActivated: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('floating-bar:activated', subscription);
+    return () => ipcRenderer.removeListener('floating-bar:activated', subscription);
+  },
+  onFloatingBarHandOff: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('floating-bar:hand-off', subscription);
+    return () => ipcRenderer.removeListener('floating-bar:hand-off', subscription);
+  }
 });
