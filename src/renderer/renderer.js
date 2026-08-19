@@ -14953,13 +14953,21 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarHandOff) {
     }
 
     if (payload.prompt && payload.answer) {
-      // Restore full conversation thread into the main chat window
-      if (typeof renderChatMessage === 'function') {
-        renderChatMessage('User', payload.prompt, false);
-        renderChatMessage('Ultron', payload.answer, true);
-        if (typeof saveChatHistoryDebounced === 'function') {
-          saveChatHistoryDebounced();
+      // Check if already rendered to prevent duplicate queries and responses
+      const existingUserMsgs = Array.from(document.querySelectorAll('.chat-message.user .message-content'));
+      const lastUserMsg = existingUserMsgs.length > 0 ? existingUserMsgs[existingUserMsgs.length - 1].textContent.trim() : '';
+      if (lastUserMsg !== payload.prompt.trim()) {
+        if (typeof renderChatMessage === 'function') {
+          renderChatMessage('User', payload.prompt, false);
+          renderChatMessage('Ultron', payload.answer, true);
+          if (typeof saveChatHistoryDebounced === 'function') {
+            saveChatHistoryDebounced();
+          }
         }
+      }
+      const chatMessagesContainer = document.querySelector('.chat-messages') || document.querySelector('.chat-main');
+      if (chatMessagesContainer) {
+        chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
       }
       return;
     }
@@ -14980,6 +14988,10 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarHandOff) {
 if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
   window.ultronAPI.onFloatingBarSessionCreated((payload) => {
     if (!payload || !payload.prompt || !payload.answer) return;
+    const existingUserMsgs = Array.from(document.querySelectorAll('.chat-message.user .message-content'));
+    const lastUserMsg = existingUserMsgs.length > 0 ? existingUserMsgs[existingUserMsgs.length - 1].textContent.trim() : '';
+    if (lastUserMsg === payload.prompt.trim()) return; // Already present, avoid duplication
+
     if (typeof renderChatMessage === 'function') {
       renderChatMessage('User', payload.prompt, false);
       renderChatMessage('Ultron', payload.answer, true);
