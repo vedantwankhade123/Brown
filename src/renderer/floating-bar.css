@@ -423,15 +423,73 @@ html, body {
   background: var(--accent-green);
 }
 
+.model-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.model-capsule-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #141416;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.model-capsule-pill:hover,
+.model-capsule-pill.open {
+  background: var(--bg-solid-hover);
+  border-color: var(--border-solid);
+}
+
+.model-capsule-pill .model-chevron {
+  transition: transform 0.15s ease;
+  opacity: 0.6;
+}
+
+.model-capsule-pill.open .model-chevron {
+  transform: rotate(180deg);
+}
+
+.model-capsule-pill .model-ollama-icon {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+}
+
+.model-selector-label {
+  max-width: 110px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ==========================================================================
-   2. MODEL SELECTION DROPDOWN
+   2. MODEL SELECTION DROPDOWN (Upward Popup relative to model pill)
    ========================================================================== */
 .model-dropdown {
-  width: 320px;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 300px;
   max-height: 280px;
   display: flex;
   flex-direction: column;
   padding: 4px 0 0 0;
+  background: var(--bg-solid-panel);
+  border: 1px solid var(--border-solid);
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.95);
+  z-index: 1000;
 }
 
 .model-dropdown-section-title {
@@ -473,13 +531,6 @@ html, body {
   gap: 10px;
 }
 
-.model-ollama-icon {
-  width: 16px;
-  height: 16px;
-  object-fit: contain;
-  filter: brightness(0) invert(1);
-}
-
 .model-dropdown-name {
   font-size: 13px;
   font-weight: 600;
@@ -516,8 +567,7 @@ html, body {
 .approval-dropdown {
   position: absolute;
   bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
+  right: 0;
   width: 330px;
   padding: 12px;
   display: flex;
