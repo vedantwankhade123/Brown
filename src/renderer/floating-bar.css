@@ -612,6 +612,8 @@ html, body {
 .approval-opt-icon {
   flex-shrink: 0;
   margin-top: 1px;
+  stroke: #ffffff;
+  color: #ffffff;
 }
 
 .approval-opt-icon.orange {
