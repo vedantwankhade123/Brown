@@ -177,118 +177,78 @@ html, body {
   position: relative;
 }
 
-/* Centered Attached Top Crown Modes (Seamlessly fused with floating bar) */
+/* Centered Floating Top Options Islands (Separated with clean gap above input) */
 .floating-top-modes-container {
   width: 100%;
   display: flex;
   justify-content: center;
-  align-items: flex-end;
+  align-items: center;
   position: relative;
   z-index: 200;
-  margin-bottom: -2px;
+  margin-bottom: 8px;
 }
 
-.top-modes-bridge {
+.top-modes-row {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: var(--bg-solid-panel);
-  border: 1px solid var(--border-solid);
-  border-bottom: 2px solid var(--bg-solid-panel);
-  border-top-left-radius: 14px;
-  border-top-right-radius: 14px;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-  padding: 3px 6px 4px 6px;
-  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.45);
-  position: relative;
-  z-index: 205;
-}
-
-/* Outward (concave) flared curves where the bridge seamlessly meets the floating bar */
-.top-modes-bridge::before {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: -10px;
-  width: 10px;
-  height: 10px;
-  background: radial-gradient(circle at top left, transparent 9px, var(--border-solid) 9.5px, var(--border-solid) 10px, var(--bg-solid-panel) 10.5px);
-  pointer-events: none;
-}
-
-.top-modes-bridge::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  right: -10px;
-  width: 10px;
-  height: 10px;
-  background: radial-gradient(circle at top right, transparent 9px, var(--border-solid) 9.5px, var(--border-solid) 10px, var(--bg-solid-panel) 10.5px);
-  pointer-events: none;
-}
-
-.mode-capsule-switch {
-  display: inline-flex;
-  align-items: center;
-  background: #141416;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  padding: 2px;
-  gap: 2px;
-}
-
-.mode-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  gap: 8px;
   background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 11.5px;
-  font-weight: 500;
-  padding: 3px 10px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  padding: 0;
 }
 
-.mode-pill:hover {
-  color: var(--text-main);
-}
-
-.mode-pill.active {
-  background: var(--bg-solid-hover);
-  color: var(--text-main);
-}
-
+.model-wrapper,
 .approval-wrapper {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
 }
 
+.model-capsule-pill,
 .approval-capsule-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: #141416;
-  border: 1px solid var(--border-subtle);
+  background: #18181b;
+  border: 1px solid var(--border-solid);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   color: var(--text-main);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
 }
 
+.model-capsule-pill:hover,
 .approval-capsule-pill:hover {
-  background: var(--bg-solid-hover);
+  background: #27272a;
+  border-color: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.65);
 }
 
+.model-capsule-pill:active,
+.approval-capsule-pill:active {
+  transform: scale(0.97);
+}
+
+.model-capsule-pill.open,
 .approval-capsule-pill.open {
-  border-color: var(--border-white);
+  background: #27272a;
+  border-color: rgba(255, 255, 255, 0.3);
   box-shadow: 0 0 0 1px var(--border-white-faint);
+}
+
+.model-capsule-pill .model-chevron,
+.approval-capsule-pill svg:last-child {
+  transition: transform 0.15s ease;
+  opacity: 0.6;
+}
+
+.model-capsule-pill.open .model-chevron,
+.approval-capsule-pill.open svg:last-child {
+  transform: rotate(180deg);
 }
 
 .approval-icon-box {
@@ -428,36 +388,7 @@ html, body {
   display: inline-flex;
 }
 
-.model-capsule-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: #141416;
-  border: 1px solid var(--border-subtle);
-  border-radius: 999px;
-  padding: 4px 10px;
-  color: var(--text-main);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  user-select: none;
-}
 
-.model-capsule-pill:hover,
-.model-capsule-pill.open {
-  background: var(--bg-solid-hover);
-  border-color: var(--border-solid);
-}
-
-.model-capsule-pill .model-chevron {
-  transition: transform 0.15s ease;
-  opacity: 0.6;
-}
-
-.model-capsule-pill.open .model-chevron {
-  transform: rotate(180deg);
-}
 
 .model-ollama-icon {
   width: 18px;
