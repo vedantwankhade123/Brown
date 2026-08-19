@@ -99,7 +99,7 @@
 
     </div>
 
-    <!-- Centered Floating Top Options (Clean, transparent background) -->
+    <!-- Centered Floating Top Options -->
     <div class="floating-top-modes-container" id="floating-top-modes">
       <div class="top-modes-row">
         
@@ -197,21 +197,16 @@
     <div class="floating-input-row">
       <div class="input-and-docked-response-wrapper">
         
-        <!-- AI Response Screen / Minimized Session Card (Docked directly on top of capsule bar) -->
+        <!-- Stacked Recent Session Cards (Holds up to 4 cards, docked above input capsule) -->
+        <div id="session-cards-container" class="session-cards-container"></div>
+
+        <!-- Full Docked Chat Response Screen (Docked directly on top of capsule bar, 90% width) -->
         <div id="answer-card" class="popover-card answer-card hidden">
           <div class="answer-header" id="answer-header">
-            <div class="answer-model-tag" id="answer-model-tag" title="Click to open session">
-              <span id="answer-model-label" class="answer-session-title">hello</span>
+            <div class="answer-model-tag" id="answer-model-tag" title="Click to collapse session">
+              <span id="answer-model-label" class="answer-session-title">Conversation</span>
             </div>
             <div class="answer-actions">
-              <!-- Open Session Button (Arrow) -->
-              <button class="icon-btn-sm" id="toggle-contract-btn" title="Open response">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
-                  <line x1="5" y1="12" x2="19" y2="12"></line>
-                  <polyline points="12 5 19 12 12 19"></polyline>
-                </svg>
-              </button>
-
               <!-- Edit Prompt Button (Pencil Icon) -->
               <button class="icon-btn-sm" id="edit-prompt-btn" title="Edit prompt in input bar">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
@@ -219,17 +214,9 @@
                 </svg>
               </button>
 
-              <!-- Copy Button (Shown when expanded) -->
-              <button class="icon-btn-sm" id="copy-answer-btn" title="Copy answer">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                </svg>
-              </button>
-
-              <!-- Expand to Main Window Full Chat (Shown when expanded) -->
-              <button class="icon-btn-sm" id="expand-answer-btn" title="Open full chat in Main Window">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+              <!-- Expand to Main Window Full Chat -->
+              <button class="icon-btn-sm" id="expand-answer-btn" title="Open in Main App Window">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
                   <polyline points="15 3 21 3 21 9"></polyline>
                   <polyline points="9 21 3 21 3 15"></polyline>
                   <line x1="21" y1="3" x2="14" y2="10"></line>
@@ -237,8 +224,8 @@
                 </svg>
               </button>
 
-              <!-- Delete / Clear (Trash Can) -->
-              <button class="icon-btn-sm btn-close-danger" id="close-answer-btn" title="Delete session">
+              <!-- Close / Dismiss Card (✕) -->
+              <button class="icon-btn-sm btn-close-danger" id="close-answer-btn" title="Close chat card">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
                   <polyline points="3 6 5 6 21 6"></polyline>
                   <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -246,17 +233,28 @@
               </button>
             </div>
           </div>
+          
           <div class="answer-body" id="answer-body">
-            <div class="answer-loading" id="answer-loading">
-              <div class="loading-wave">
-                <span class="wave-bar"></span>
-                <span class="wave-bar"></span>
-                <span class="wave-bar"></span>
-                <span class="wave-bar"></span>
+            <!-- Messages Container (User query + AI response) -->
+            <div class="chat-messages-scroll" id="chat-messages-scroll">
+              <div class="chat-msg user-msg hidden" id="user-msg-block">
+                <div class="msg-bubble user-bubble" id="user-msg-text"></div>
               </div>
-              <span>Ultron is generating response...</span>
+              
+              <div class="chat-msg ai-msg" id="ai-msg-block">
+                <!-- Dynamic Animated Thinking Indicator -->
+                <div class="thinking-container hidden" id="thinking-indicator">
+                  <span>Thinking</span>
+                  <div class="thinking-dot-wrapper">
+                    <span class="thinking-dot"></span>
+                    <span class="thinking-dot"></span>
+                    <span class="thinking-dot"></span>
+                  </div>
+                </div>
+                <div class="msg-bubble ai-bubble markdown-body hidden" id="answer-content"></div>
+              </div>
             </div>
-            <div class="answer-content markdown-body hidden" id="answer-content"></div>
+
             <!-- Response Action Toolbar (Copy & Speak) below AI response -->
             <div class="answer-content-footer hidden" id="answer-content-footer">
               <button type="button" class="icon-btn-footer" id="footer-copy-btn" title="Copy response">
@@ -328,8 +326,8 @@
 
       </div>
 
-      <!-- External Maximize Button on the right side outside the capsule (Sleek 40px Size) -->
-      <button class="btn-external-expand" id="expand-btn" title="Maximize to Main Ultron Window (Tab)">
+      <!-- External Maximize Button on the right side outside the capsule (Sleek Circular Size) -->
+      <button class="btn-external-expand" id="expand-btn" title="Maximize to Main Ultron Window">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
           <polyline points="15 3 21 3 21 9"></polyline>
           <polyline points="9 21 3 21 3 15"></polyline>

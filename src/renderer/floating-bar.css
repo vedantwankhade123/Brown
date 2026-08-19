@@ -642,6 +642,81 @@ html, body {
   width: 100%;
 }
 
+/* ==========================================================================
+   4. STACKED SESSION CARDS CONTAINER (Holds up to 4 cards, docked above input)
+   ========================================================================== */
+.session-cards-container {
+  width: 90%;
+  max-width: 90%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 4px;
+  z-index: 120;
+}
+
+.contracted-session-card {
+  width: 100%;
+  height: 42px;
+  background: #141416;
+  border: 1px solid var(--border-solid);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  box-sizing: border-box;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  transition: all 0.15s ease;
+}
+
+.contracted-session-card:hover {
+  background: #1c1c1f;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.contracted-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  padding-right: 8px;
+}
+
+.contracted-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.contracted-card-actions .icon-btn-sm {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: var(--text-muted);
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.contracted-card-actions .icon-btn-sm:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-main);
+}
+
+.contracted-card-actions .icon-btn-sm.btn-close-danger:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #ef4444;
+}
+
+/* ==========================================================================
+   5. EXPANDED AI CHAT RESPONSE SCREEN (Docked directly above input, 90% width)
+   ========================================================================== */
 .answer-card {
   width: 90% !important;
   max-width: 90% !important;
@@ -661,39 +736,9 @@ html, body {
   z-index: 150;
   overflow: hidden;
   box-sizing: border-box;
-  transition: height 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
-}
-
-.answer-card:not(.contracted) {
   height: 380px;
   max-height: 420px;
-}
-
-.answer-card.contracted {
-  height: 42px;
-  max-height: 42px;
-  border-radius: 14px;
-  border-bottom: 1px solid var(--border-solid);
-  margin-bottom: 4px !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-  cursor: pointer;
-}
-
-.answer-card.contracted .answer-body {
-  display: none !important;
-}
-
-.answer-card.contracted .answer-header {
-  border-bottom: none;
-  padding: 8px 14px;
-  height: 42px;
-  box-sizing: border-box;
-  background: #141416;
-}
-
-.answer-card.contracted #copy-answer-btn,
-.answer-card.contracted #expand-answer-btn {
-  display: none !important;
+  transition: height 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
 }
 
 .answer-header {
@@ -728,24 +773,6 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.answer-ultron-logo {
-  width: 18px;
-  height: 18px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.answer-model-badge {
-  font-size: 10px;
-  font-weight: 700;
-  color: #60a5fa;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  padding: 1px 6px;
-  border-radius: 4px;
-  flex-shrink: 0;
 }
 
 .answer-actions {
@@ -794,44 +821,92 @@ html, body {
   flex-direction: column;
 }
 
-.answer-loading {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-muted);
-  font-size: 13px;
-  padding: 8px 0;
-}
-
-.loading-wave {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  height: 16px;
-}
-
-.wave-bar {
-  width: 3.5px;
-  height: 100%;
-  background: var(--accent-blue);
-  border-radius: 3px;
-  animation: waveAnim 1s ease-in-out infinite;
-}
-
-.wave-bar:nth-child(2) { animation-delay: 0.15s; }
-.wave-bar:nth-child(3) { animation-delay: 0.3s; }
-.wave-bar:nth-child(4) { animation-delay: 0.45s; }
-
-@keyframes waveAnim {
-  0%, 100% { height: 3px; }
-  50% { height: 16px; }
-}
-
-.answer-content {
+.chat-messages-scroll {
   flex: 1;
-  background: transparent !important;
-  border: none !important;
-  padding: 0 !important;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.chat-msg {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.chat-msg.user-msg {
+  align-items: flex-end;
+}
+
+.chat-msg.ai-msg {
+  align-items: flex-start;
+}
+
+.msg-bubble {
+  max-width: 88%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  user-select: text;
+  word-break: break-word;
+}
+
+.msg-bubble.user-bubble {
+  background: #27272a;
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.msg-bubble.ai-bubble {
+  background: transparent;
+  color: #e4e4e7;
+  padding-left: 0;
+  padding-right: 0;
+  max-width: 100%;
+}
+
+/* Animated Thinking Indicator (Identical to Main App) */
+.thinking-container {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-family: inherit;
+  color: #e4e4e7;
+  font-size: 14px;
+  padding: 4px 0;
+}
+
+.thinking-dot-wrapper {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  align-items: center;
+  height: 15px;
+}
+
+.thinking-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background-color: var(--text-primary, #ffffff);
+  animation: thinkingBounce 1.4s infinite ease-in-out both;
+}
+
+.thinking-dot:nth-child(1) { animation-delay: -0.32s; }
+.thinking-dot:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes thinkingBounce {
+  0%, 80%, 100% { 
+    transform: scale(0.4);
+    opacity: 0.3;
+  } 
+  40% { 
+    transform: scale(1.1);
+    opacity: 1;
+  }
 }
 
 .answer-content pre {

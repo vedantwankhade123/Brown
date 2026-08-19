@@ -312,6 +312,134 @@
     hideApprovalDropdown();
   }
 
+  let recentFloatingSessions = []; // Max 4 sessions in the floating bar stack
+
+  function renderSessionCardsStack() {
+    const container = document.getElementById('session-cards-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    // If full answer card is currently open, hide the stack so only full chat is visible
+    if (!answerCard.classList.contains('hidden')) {
+      container.classList.add('hidden');
+      return;
+    }
+
+    if (recentFloatingSessions.length === 0) {
+      container.classList.add('hidden');
+      return;
+    }
+
+    container.classList.remove('hidden');
+
+    recentFloatingSessions.forEach((sess) => {
+      const card = document.createElement('div');
+      card.className = 'contracted-session-card';
+      card.title = 'Click to open session';
+      
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'contracted-card-title';
+      titleSpan.textContent = sess.prompt;
+
+      const actionsDiv = document.createElement('div');
+      actionsDiv.className = 'contracted-card-actions';
+
+      // Edit button
+      const editBtn = document.createElement('button');
+      editBtn.className = 'icon-btn-sm';
+      editBtn.title = 'Edit prompt in input bar';
+      editBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+        </svg>
+      `;
+      editBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        promptInput.value = sess.prompt;
+        autoResizePromptInput();
+        promptInput.focus();
+        promptInput.select();
+      });
+
+      // Delete button (from floating view stack only)
+      const deleteBtn = document.createElement('button');
+      deleteBtn.className = 'icon-btn-sm btn-close-danger';
+      deleteBtn.title = 'Dismiss session card (kept in main app)';
+      deleteBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+          <polyline points="3 6 5 6 21 6"></polyline>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        </svg>
+      `;
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        recentFloatingSessions = recentFloatingSessions.filter(s => s.id !== sess.id);
+        renderSessionCardsStack();
+      });
+
+      actionsDiv.appendChild(editBtn);
+      actionsDiv.appendChild(deleteBtn);
+
+      card.appendChild(titleSpan);
+      card.appendChild(actionsDiv);
+
+      card.addEventListener('click', () => {
+        loadSessionIntoChat(sess);
+      });
+
+      container.appendChild(card);
+    });
+  }
+
+  function loadSessionIntoChat(sess) {
+    currentPromptText = sess.prompt;
+    currentAnswerText = sess.answer;
+    
+    hidePlusMenu();
+    hideModelDropdown();
+    hideApprovalDropdown();
+
+    answerModelLabel.textContent = sess.prompt;
+    answerCard.classList.remove('hidden');
+
+    const userBlock = document.getElementById('user-msg-block');
+    const userText = document.getElementById('user-msg-text');
+    const thinking = document.getElementById('thinking-indicator');
+    const footer = document.getElementById('answer-content-footer');
+
+    if (userBlock && userText) {
+      userText.textContent = sess.prompt;
+      userBlock.classList.remove('hidden');
+    }
+    if (thinking) thinking.classList.add('hidden');
+    if (answerContent) {
+      answerContent.classList.remove('hidden');
+      renderAnswerContent(sess.answer);
+    }
+    if (footer) footer.classList.remove('hidden');
+
+    renderSessionCardsStack();
+    updateTopModesVisibility();
+  }
+
+  function addSessionToStack(prompt, answer) {
+    const newSess = {
+      id: Date.now().toString(),
+      prompt,
+      answer,
+      model: activeModel,
+      timestamp: Date.now()
+    };
+    
+    // Add to start (most recent)
+    recentFloatingSessions.unshift(newSess);
+    // If goes beyond 4, pop the oldest from the floating stack
+    if (recentFloatingSessions.length > 4) {
+      recentFloatingSessions.pop();
+    }
+    renderSessionCardsStack();
+  }
+
   // Answer Card Controls (Docked Response Screen with Contract/Expand)
   function contractAnswerCard() {
     if (!answerCard || answerCard.classList.contains('hidden')) return;
@@ -363,7 +491,7 @@
     answerModelLabel.textContent = title;
     answerCard.classList.remove('hidden');
     expandAnswerCard();
-    answerLoading.classList.remove('hidden');
+    answerLoading.classList.add('hidden');
     answerContent.classList.add('hidden');
     const footer = document.getElementById('answer-content-footer');
     if (footer) footer.classList.add('hidden');
@@ -380,6 +508,7 @@
     }
     isStreaming = false;
     currentAnswerText = '';
+    renderSessionCardsStack();
     updateTopModesVisibility();
   }
 
@@ -449,12 +578,34 @@
       promptInput.placeholder = 'Listening... Speak now...';
     } catch (err) {
       console.warn('[FloatingBar] Mic error:', err);
+      micBtn.classList.remove('recording');
+      isRecording = false;
     }
   }
 
   function stopVoiceRecording() {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       mediaRecorder.stop();
+    }
+  }
+
+  // Vision Screen Capture Trigger
+  async function triggerScreenAwareness() {
+    try {
+      promptInput.placeholder = 'Capturing active desktop...';
+      if (window.ultronAPI && window.ultronAPI.captureScreen) {
+        const capture = await window.ultronAPI.captureScreen();
+        if (capture && capture.dataUrl) {
+          expandToFullApp({
+            prompt: promptInput.value.trim(),
+            screenshot: capture.dataUrl
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[FloatingBar] Screen capture failed:', err);
+    } finally {
+      promptInput.placeholder = 'Run terminal scripts, browse code...';
     }
   }
 
@@ -482,8 +633,38 @@
   async function executeQuery() {
     const rawQuery = promptInput.value.trim();
     if (!rawQuery) return;
+    
     currentPromptText = rawQuery;
-    showAnswerCard(rawQuery);
+    promptInput.value = '';
+    autoResizePromptInput();
+
+    hidePlusMenu();
+    hideModelDropdown();
+    hideApprovalDropdown();
+
+    answerModelLabel.textContent = rawQuery;
+    answerCard.classList.remove('hidden');
+    
+    const userBlock = document.getElementById('user-msg-block');
+    const userText = document.getElementById('user-msg-text');
+    const thinking = document.getElementById('thinking-indicator');
+    const footer = document.getElementById('answer-content-footer');
+
+    if (userBlock && userText) {
+      userText.textContent = rawQuery;
+      userBlock.classList.remove('hidden');
+    }
+    if (thinking) thinking.classList.remove('hidden');
+    if (answerContent) {
+      answerContent.classList.add('hidden');
+      answerContent.innerHTML = '';
+    }
+    if (footer) footer.classList.add('hidden');
+    
+    currentAnswerText = '';
+    renderSessionCardsStack();
+    updateTopModesVisibility();
+
     isStreaming = true;
 
     try {
@@ -494,6 +675,7 @@
           model: activeModel,
           prompt: rawQuery,
           stream: true,
+          keep_alive: '5m',
           system: 'You are Ultron, a fast, intelligent, and concise AI assistant built for Windows. Answer directly and concisely with markdown formatting.'
         })
       });
@@ -502,46 +684,55 @@
         throw new Error(`Ollama HTTP ${response.status} - ${response.statusText}`);
       }
 
-      answerLoading.classList.add('hidden');
-      answerContent.classList.remove('hidden');
+      if (thinking) thinking.classList.add('hidden');
+      if (answerContent) answerContent.classList.remove('hidden');
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffered = '';
 
       while (isStreaming) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n').filter(Boolean);
+        buffered += decoder.decode(value, { stream: true });
+        const lines = buffered.split('\n');
+        buffered = lines.pop() || '';
 
         for (const line of lines) {
+          if (!line.trim()) continue;
           try {
             const data = JSON.parse(line);
-            if (data.response) {
-              currentAnswerText += data.response;
+            const token = data.response || (data.message ? data.message.content : '');
+            if (token) {
+              currentAnswerText += token;
               renderAnswerContent(currentAnswerText);
             }
           } catch (e) {}
         }
       }
     } catch (err) {
-      renderAnswerContent(`⚠️ **Error:** ${escapeHtml(err.message || 'Model unavailable')}`);
+      if (thinking) thinking.classList.add('hidden');
+      if (answerContent) answerContent.classList.remove('hidden');
+      renderAnswerContent(`⚠️ **Error:** ${escapeHtml(err.message || 'Model unavailable. Please make sure Ollama is running.')}`);
     } finally {
       isStreaming = false;
-      answerLoading.classList.add('hidden');
-      const footer = document.getElementById('answer-content-footer');
+      if (thinking) thinking.classList.add('hidden');
       if (footer && currentAnswerText) {
         footer.classList.remove('hidden');
       }
 
-      // Realtime session synchronization to Main Window
-      if (currentAnswerText && window.ultronAPI && window.ultronAPI.floatingBarSyncSession) {
-        window.ultronAPI.floatingBarSyncSession({
-          prompt: currentPromptText,
-          answer: currentAnswerText,
-          model: activeModel
-        });
+      if (currentAnswerText) {
+        addSessionToStack(rawQuery, currentAnswerText);
+
+        // Realtime session synchronization to Main Window
+        if (window.ultronAPI && window.ultronAPI.floatingBarSyncSession) {
+          window.ultronAPI.floatingBarSyncSession({
+            prompt: rawQuery,
+            answer: currentAnswerText,
+            model: activeModel
+          });
+        }
       }
     }
   }
@@ -717,11 +908,7 @@
           return;
         }
         if (!answerCard.classList.contains('hidden')) {
-          if (!answerCard.classList.contains('contracted')) {
-            contractAnswerCard();
-          } else {
-            hideAnswerCard();
-          }
+          hideAnswerCard();
           return;
         }
         if (window.ultronAPI && window.ultronAPI.floatingBarHide) {
@@ -863,8 +1050,8 @@
       if (!e.target.closest('#approval-pill') && !e.target.closest('#approval-dropdown')) {
         hideApprovalDropdown();
       }
-      if (!e.target.closest('#answer-card') && !e.target.closest('#capsule-bar') && !answerCard.classList.contains('hidden')) {
-        contractAnswerCard();
+      if (!e.target.closest('#answer-card') && !e.target.closest('#capsule-bar') && !e.target.closest('#session-cards-container') && !answerCard.classList.contains('hidden')) {
+        hideAnswerCard();
       }
     });
   }
