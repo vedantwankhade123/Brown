@@ -2613,9 +2613,61 @@ function getInstallationDefaultDataDir() {
       return { success: false, error: err.message || 'MCP tool call failed.' };
     }
   });
+
+  // Floating Bar IPC Handlers
+  ipcMain.handle('floating-bar:toggle', async () => {
+    try {
+      const { toggleFloatingBar } = require('./floating-bar-window');
+      toggleFloatingBar();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('floating-bar:hide', async (_event, payload) => {
+    try {
+      const { hideFloatingBar } = require('./floating-bar-window');
+      const force = payload && payload.force !== undefined ? payload.force : true;
+      hideFloatingBar(force);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('floating-bar:expand-to-main', async (_event, payload) => {
+    try {
+      const { expandToMainWindow } = require('./floating-bar-window');
+      expandToMainWindow(payload);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('floating-bar:set-mode', async (_event, { miniMode }) => {
+    try {
+      const { setFloatingBarMode } = require('./floating-bar-window');
+      setFloatingBarMode(miniMode);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('floating-bar:get-clipboard', async () => {
+    try {
+      const text = clipboard.readText() || '';
+      return { success: true, text };
+    } catch (err) {
+      return { success: false, text: '', error: err.message };
+    }
+  });
 }
 
 module.exports = {
   setupIpcHandlers,
   setMainWindow
 };
+

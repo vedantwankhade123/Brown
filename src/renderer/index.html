@@ -344,7 +344,7 @@
                     </svg>
                   </div>
                   <div class="perm-item-content">
-                    <span class="perm-item-title">Prompt every action</span>
+                    <span class="perm-item-title">Prompt Every Action</span>
                     <span class="perm-item-desc">Require explicit confirmation before editing files, running shell commands, or accessing the web</span>
                   </div>
                   <svg class="perm-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
@@ -361,7 +361,7 @@
                     </svg>
                   </div>
                   <div class="perm-item-content">
-                    <span class="perm-item-title">Smart auto-approval</span>
+                    <span class="perm-item-title">Smart Auto-Approval</span>
                     <span class="perm-item-desc">Automatically approve routine system ops while prompting for potentially risky actions</span>
                   </div>
                   <svg class="perm-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
@@ -377,7 +377,7 @@
                     </svg>
                   </div>
                   <div class="perm-item-content">
-                    <span class="perm-item-title warning-title">Full autonomous mode</span>
+                    <span class="perm-item-title warning-title">Full Autonomous Mode</span>
                     <span class="perm-item-desc warning-desc">Grant unrestricted background execution for seamless automated workflows</span>
                   </div>
                   <svg class="perm-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
@@ -565,6 +565,10 @@
           <div class="settings-tab-btn" data-tab="sounds">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
             Agent Sounds
+          </div>
+          <div class="settings-tab-btn" data-tab="performance">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            Advanced Options
           </div>
           <div class="settings-tab-btn" data-tab="storage">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"></path></svg>
@@ -812,8 +816,14 @@
                   <span>Task complete</span>
                 </label>
                 <div class="models-sound-row-actions">
-                  <button type="button" class="sound-preview-btn" data-sound-kind="task_complete">Preview</button>
-                  <button type="button" class="sound-file-picker" data-sound-kind="task_complete">Choose file</button>
+                  <button type="button" class="sound-preview-btn" data-sound-kind="task_complete">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    <span>Preview</span>
+                  </button>
+                  <button type="button" class="sound-file-picker" data-sound-kind="task_complete">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                    <span>Choose file</span>
+                  </button>
                 </div>
               </div>
               <div class="models-sound-row">
@@ -822,8 +832,14 @@
                   <span>Permission prompt</span>
                 </label>
                 <div class="models-sound-row-actions">
-                  <button type="button" class="sound-preview-btn" data-sound-kind="permission">Preview</button>
-                  <button type="button" class="sound-file-picker" data-sound-kind="permission">Choose file</button>
+                  <button type="button" class="sound-preview-btn" data-sound-kind="permission">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    <span>Preview</span>
+                  </button>
+                  <button type="button" class="sound-file-picker" data-sound-kind="permission">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                    <span>Choose file</span>
+                  </button>
                 </div>
               </div>
               <div class="models-sound-row">
@@ -832,8 +848,14 @@
                   <span>Clarifying question</span>
                 </label>
                 <div class="models-sound-row-actions">
-                  <button type="button" class="sound-preview-btn" data-sound-kind="question">Preview</button>
-                  <button type="button" class="sound-file-picker" data-sound-kind="question">Choose file</button>
+                  <button type="button" class="sound-preview-btn" data-sound-kind="question">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                    <span>Preview</span>
+                  </button>
+                  <button type="button" class="sound-file-picker" data-sound-kind="question">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                    <span>Choose file</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -884,28 +906,6 @@
                   <div id="voice-model-progress-bar" class="connector-download-progress-fill"></div>
                 </div>
                 <div id="voice-model-progress-detail" class="connector-download-progress-speed">Speed: --</div>
-              </div>
-            </div>
-
-            <div class="models-sound-section voice-model-section">
-              <div class="voice-model-section-header">
-                <div class="voice-model-section-title">
-                  <div>
-                    <h5 class="voice-model-heading">Performance</h5>
-                    <p class="text-xs text-muted voice-model-desc">Choose how much background work and visual activity Ultron uses.</p>
-                  </div>
-                </div>
-              </div>
-              <div class="models-sound-row voice-model-row">
-                <div class="voice-model-row-info">
-                  <span class="voice-model-name">Runtime profile</span>
-                  <span id="setting-performance-profile-note" class="text-xs text-muted">Balanced daily use</span>
-                </div>
-                <select id="setting-performance-profile" class="tts-select">
-                  <option value="battery">Battery Saver</option>
-                  <option value="balanced" selected>Balanced</option>
-                  <option value="performance">Performance</option>
-                </select>
               </div>
             </div>
 
@@ -1049,6 +1049,104 @@
             </div>
           </div>
 
+          <!-- Advanced Options Tab -->
+          <div id="tab-performance" class="tab-pane hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 8px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <h4 style="margin: 0;">Advanced Options</h4>
+                <span class="models-sound-badge">Hardware &amp; Runtime</span>
+              </div>
+            </div>
+
+            <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">Configure system resource usage, background automation throttling, and runtime optimization profiles.</p>
+
+            <div class="models-sound-section voice-model-section" style="margin-top: 6px; padding-top: 0; border-top: none;">
+              <div class="voice-model-section-header">
+                <div class="voice-model-section-title">
+                  <div>
+                    <h5 class="voice-model-heading">Runtime Profile</h5>
+                    <p class="text-xs text-muted voice-model-desc">Choose how much background work, AI execution threads, and visual activity Ultron uses.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="models-sound-row voice-model-row">
+                <div class="voice-model-row-info">
+                  <span class="voice-model-name">Optimization preset</span>
+                  <span id="setting-performance-profile-note" class="text-xs text-muted">Balanced daily use</span>
+                </div>
+                <select id="setting-performance-profile" class="tts-select">
+                  <option value="battery">Battery Saver</option>
+                  <option value="balanced" selected>Balanced</option>
+                  <option value="performance">High Performance</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="models-sound-section voice-model-section">
+              <div class="voice-model-section-header">
+                <div class="voice-model-section-title">
+                  <div>
+                    <h5 class="voice-model-heading">Hardware Acceleration</h5>
+                    <p class="text-xs text-muted voice-model-desc">Leverage GPU acceleration for screen vision inference and UI rendering.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="models-sound-row voice-model-row">
+                <div class="voice-model-row-info">
+                  <span class="voice-model-name">GPU Hardware Acceleration</span>
+                  <span class="text-xs text-muted">DirectX / Vulkan hardware rendering</span>
+                </div>
+                <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
+                  <input type="checkbox" id="setting-gpu-acceleration" checked style="opacity: 0; width: 0; height: 0;">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="models-sound-section voice-model-section">
+              <div class="voice-model-section-header">
+                <div class="voice-model-section-title">
+                  <div>
+                    <h5 class="voice-model-heading">Background Execution</h5>
+                    <p class="text-xs text-muted voice-model-desc">Allow autonomous desktop workflows to proceed when Ultron is minimized.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="models-sound-row voice-model-row">
+                <div class="voice-model-row-info">
+                  <span class="voice-model-name">Keep Agents Running in Background</span>
+                  <span class="text-xs text-muted">Unthrottled task loops when window is hidden</span>
+                </div>
+                <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
+                  <input type="checkbox" id="setting-bg-execution" checked style="opacity: 0; width: 0; height: 0;">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="models-sound-section voice-model-section">
+              <div class="voice-model-section-header">
+                <div class="voice-model-section-title">
+                  <div>
+                    <h5 class="voice-model-heading">UI Controls &amp; Desktop Companion</h5>
+                    <p class="text-xs text-muted voice-model-desc">Configure floating companion bar behavior when Ultron is minimized.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="models-sound-row voice-model-row">
+                <div class="voice-model-row-info">
+                  <span class="voice-model-name">Show "Ask Ultron" Mini Pill on Minimize</span>
+                  <span class="text-xs text-muted">Displays compact pill widget above taskbar for instant companion access</span>
+                </div>
+                <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
+                  <input type="checkbox" id="setting-show-mini-pill" checked style="opacity: 0; width: 0; height: 0;">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+            </div>
+
+          </div>
+
           <!-- Desktop Automation Tab -->
           <div id="tab-desktop" class="tab-pane hidden">
             <h4>Desktop Automation</h4>
@@ -1070,8 +1168,18 @@
                 Priority #1 for desktop tasks. One-time download (~50MB). Auto-installs on first desktop task if not connected.
               </p>
               <div class="connector-actions">
-                <button id="btn-install-windows-uia" class="btn-faint" style="height: 34px; padding: 0 14px; font-size: 12px; border-radius: 6px; cursor: pointer;">Install / Connect</button>
-                <button id="btn-refresh-desktop-connectors" type="button" class="btn-faint connector-refresh-btn" style="height: 34px; padding: 0 14px; font-size: 12px; border-radius: 6px; cursor: pointer;">
+                <button id="btn-install-windows-uia" class="btn-faint" style="height: 34px; padding: 0 14px; font-size: 12px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <span>Install / Connect UI Automation</span>
+                </button>
+                <button id="btn-refresh-desktop-connectors" type="button" class="btn-faint connector-refresh-btn" style="height: 34px; padding: 0 14px; font-size: 12px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                  <svg class="connector-refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"></path>
+                  </svg>
                   <span class="connector-refresh-btn-spinner hidden" aria-hidden="true"></span>
                   <span class="connector-refresh-btn-label">Refresh status</span>
                 </button>
@@ -1128,7 +1236,10 @@
             <div class="automation-section">
               <div class="automation-section-header">
                 <h5 class="automation-section-title">Saved workflows</h5>
-                <button type="button" id="btn-add-workflow" class="sound-preview-btn">Add</button>
+                <button type="button" id="btn-add-workflow" class="sound-preview-btn" style="display: inline-flex; align-items: center; gap: 5px;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span>Add</span>
+                </button>
               </div>
               <p class="text-xs text-muted settings-section-intro">Multi-step routines Ultron can run on command. Say <em>run morning routine</em> or <em>save workflow called Backup: LIST_DIR Downloads then OPEN_APP Explorer</em>.</p>
               <div id="workflows-list" class="workflows-list"></div>
@@ -1141,7 +1252,10 @@
               <div class="schedule-add-row">
                 <select id="schedule-workflow-pick" class="tts-select" style="flex:1; max-width:none;"></select>
                 <input type="time" id="schedule-time-pick" class="override-input schedule-time-input">
-                <button type="button" id="btn-add-schedule" class="sound-preview-btn">Schedule</button>
+                <button type="button" id="btn-add-schedule" class="sound-preview-btn" style="display: inline-flex; align-items: center; gap: 5px;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                  <span>Schedule</span>
+                </button>
               </div>
             </div>
           </div>
