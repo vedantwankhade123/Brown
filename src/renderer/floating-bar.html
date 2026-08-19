@@ -30,7 +30,7 @@
     <!-- Upward-Opening Popovers Container (Positioned Above Controls) -->
     <div id="popover-container" class="popover-container">
       
-      <!-- 1. Plus (+) Menu Dropdown (Solid Dark) -->
+      <!-- Plus (+) Menu Dropdown (Solid Dark) -->
       <div id="plus-menu-dropdown" class="popover-card plus-menu-dropdown hidden">
         
         <!-- Attach files option -->
@@ -95,53 +95,6 @@
           <div class="toggle-indicator active"></div>
         </button>
 
-      </div>
-
-      <!-- 2. Expanded AI Response Screen (50% Expanded Screen on Top of Floating Bar) -->
-      <div id="answer-card" class="popover-card answer-card hidden">
-        <div class="answer-header">
-          <div class="answer-model-tag" id="answer-model-tag">
-            <img src="../../Assets/ultron-logo.png" alt="Ultron" class="answer-ultron-logo" onerror="this.src='../Assets/ultron-logo.png'" />
-            <span id="answer-model-label">Ultron Response</span>
-            <span class="answer-model-badge" id="answer-model-badge">AI</span>
-          </div>
-          <div class="answer-actions">
-            <button class="icon-btn-sm" id="copy-answer-btn" title="Copy answer">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-              </svg>
-              <span>Copy</span>
-            </button>
-            <button class="icon-btn-sm" id="expand-answer-btn" title="Open full chat in Main Window">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                <polyline points="15 3 21 3 21 9"></polyline>
-                <polyline points="9 21 3 21 3 15"></polyline>
-                <line x1="21" y1="3" x2="14" y2="10"></line>
-                <line x1="3" y1="21" x2="10" y2="14"></line>
-              </svg>
-              <span>Expand to Main</span>
-            </button>
-            <button class="icon-btn-sm" id="close-answer-btn" title="Close answer">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
-                <line x1="18" y1="6" x2="6" y2="18"></line>
-                <line x1="6" y1="6" x2="18" y2="18"></line>
-              </svg>
-            </button>
-          </div>
-        </div>
-        <div class="answer-body" id="answer-body">
-          <div class="answer-loading" id="answer-loading">
-            <div class="loading-wave">
-              <span class="wave-bar"></span>
-              <span class="wave-bar"></span>
-              <span class="wave-bar"></span>
-              <span class="wave-bar"></span>
-            </div>
-            <span>Ultron is generating response...</span>
-          </div>
-          <div class="answer-content markdown-body hidden" id="answer-content"></div>
-        </div>
       </div>
 
     </div>
@@ -240,7 +193,78 @@
       </div>
     </div>
 
-    <!-- Bottom Pill-Shaped Input Bar with External Maximize Button -->
+    <!-- 3. AI Response Screen (Docked directly on top of input, 90% width, with expand/contract) -->
+    <div id="answer-card" class="popover-card answer-card hidden">
+      <div class="answer-header" id="answer-header">
+        <div class="answer-model-tag" id="answer-model-tag" title="Click to toggle expanded / minimized view">
+          <img src="../../Assets/ultron-logo.png" alt="Ultron" class="answer-ultron-logo" onerror="this.src='../Assets/ultron-logo.png'" />
+          <span id="answer-model-label">Ultron Response</span>
+          <span class="answer-model-badge" id="answer-model-badge">AI</span>
+        </div>
+        <div class="answer-actions">
+          <!-- Edit Prompt Button (Pencil Icon) -->
+          <button class="icon-btn-sm" id="edit-prompt-btn" title="Edit prompt in input bar and resend">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+            </svg>
+            <span class="btn-label-text">Edit</span>
+          </button>
+
+          <!-- Copy Button (Shown when expanded) -->
+          <button class="icon-btn-sm" id="copy-answer-btn" title="Copy answer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span class="btn-label-text">Copy</span>
+          </button>
+
+          <!-- Open / Minimize Toggle Button -->
+          <button class="icon-btn-sm" id="toggle-contract-btn" title="Expand / Minimize response">
+            <svg class="icon-expand-up hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+              <polyline points="18 15 12 9 6 15"></polyline>
+            </svg>
+            <svg class="icon-contract-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+            <span id="contract-btn-text" class="btn-label-text">Minimize</span>
+          </button>
+
+          <!-- Expand to Main Window Full Chat -->
+          <button class="icon-btn-sm" id="expand-answer-btn" title="Open full chat in Main Window">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <polyline points="9 21 3 21 3 15"></polyline>
+              <line x1="21" y1="3" x2="14" y2="10"></line>
+              <line x1="3" y1="21" x2="10" y2="14"></line>
+            </svg>
+            <span class="btn-label-text">Expand</span>
+          </button>
+
+          <!-- Close / Clear (✕) -->
+          <button class="icon-btn-sm btn-close-danger" id="close-answer-btn" title="Close and clear answer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="answer-body" id="answer-body">
+        <div class="answer-loading" id="answer-loading">
+          <div class="loading-wave">
+            <span class="wave-bar"></span>
+            <span class="wave-bar"></span>
+            <span class="wave-bar"></span>
+            <span class="wave-bar"></span>
+          </div>
+          <span>Ultron is generating response...</span>
+        </div>
+        <div class="answer-content markdown-body hidden" id="answer-content"></div>
+      </div>
+    </div>
+
+    <!-- 4. Bottom Pill-Shaped Input Bar with External Maximize Button -->
     <div class="floating-input-row">
       <div id="capsule-bar" class="capsule-bar">
         

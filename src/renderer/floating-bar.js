@@ -32,6 +32,9 @@
   const copyAnswerBtn = document.getElementById('copy-answer-btn');
   const expandAnswerBtn = document.getElementById('expand-answer-btn');
   const closeAnswerBtn = document.getElementById('close-answer-btn');
+  const editPromptBtn = document.getElementById('edit-prompt-btn');
+  const toggleContractBtn = document.getElementById('toggle-contract-btn');
+  const answerHeader = document.getElementById('answer-header');
 
   // Actions & Options
   const plusToggleAgentTools = document.getElementById('plus-toggle-agent-tools');
@@ -175,7 +178,9 @@
     hidePlusMenu();
     hideModelDropdown();
     hideApprovalDropdown();
-    hideAnswerCard();
+    if (currentAnswerText && !answerCard.classList.contains('hidden')) {
+      contractAnswerCard();
+    }
     if (window.ultronAPI && window.ultronAPI.floatingBarSetMode) {
       window.ultronAPI.floatingBarSetMode({ miniMode: true });
     }
@@ -190,12 +195,12 @@
     promptInput.focus();
   }
 
-  // Helper to hide text/voice/approval mode pills when large popovers (plus/answer) are open
+  // Helper to hide text/voice/approval mode pills when large popovers (plus/expanded answer) are open
   function updateTopModesVisibility() {
     const topModes = document.getElementById('floating-top-modes');
     if (!topModes) return;
-    const isAnyLargePopoverOpen = !plusMenuDropdown.classList.contains('hidden') ||
-                                  !answerCard.classList.contains('hidden');
+    const isFullAnswerOpen = !answerCard.classList.contains('hidden') && !answerCard.classList.contains('contracted');
+    const isAnyLargePopoverOpen = !plusMenuDropdown.classList.contains('hidden') || isFullAnswerOpen;
     if (isAnyLargePopoverOpen) {
       topModes.classList.add('hidden');
     } else {
@@ -306,13 +311,50 @@
     hideApprovalDropdown();
   }
 
-  // Answer Card Controls (Expanded Screen)
+  // Answer Card Controls (Docked Response Screen with Contract/Expand)
+  function contractAnswerCard() {
+    if (!answerCard || answerCard.classList.contains('hidden')) return;
+    answerCard.classList.add('contracted');
+    if (toggleContractBtn) {
+      const up = toggleContractBtn.querySelector('.icon-expand-up');
+      const down = toggleContractBtn.querySelector('.icon-contract-down');
+      if (up) up.classList.remove('hidden');
+      if (down) down.classList.add('hidden');
+      const label = document.getElementById('contract-btn-text');
+      if (label) label.textContent = 'Open';
+    }
+    updateTopModesVisibility();
+  }
+
+  function expandAnswerCard() {
+    if (!answerCard || answerCard.classList.contains('hidden')) return;
+    answerCard.classList.remove('contracted');
+    if (toggleContractBtn) {
+      const up = toggleContractBtn.querySelector('.icon-expand-up');
+      const down = toggleContractBtn.querySelector('.icon-contract-down');
+      if (up) up.classList.add('hidden');
+      if (down) down.classList.remove('hidden');
+      const label = document.getElementById('contract-btn-text');
+      if (label) label.textContent = 'Minimize';
+    }
+    updateTopModesVisibility();
+  }
+
+  function toggleContractAnswerCard() {
+    if (answerCard.classList.contains('contracted')) {
+      expandAnswerCard();
+    } else {
+      contractAnswerCard();
+    }
+  }
+
   function showAnswerCard(title = 'Ultron · AI Response') {
     hidePlusMenu();
     hideModelDropdown();
     hideApprovalDropdown();
     answerModelLabel.textContent = title;
     answerCard.classList.remove('hidden');
+    expandAnswerCard();
     answerLoading.classList.remove('hidden');
     answerContent.classList.add('hidden');
     answerContent.innerHTML = '';
@@ -322,7 +364,9 @@
 
   function hideAnswerCard() {
     answerCard.classList.add('hidden');
+    answerCard.classList.remove('contracted');
     isStreaming = false;
+    currentAnswerText = '';
     updateTopModesVisibility();
   }
 
@@ -424,9 +468,9 @@
   async function executeQuery() {
     const rawQuery = promptInput.value.trim();
     if (!rawQuery) return;
-
     currentPromptText = rawQuery;
-    showAnswerCard(`Ultron · ${activeModel}`);
+    const preview = rawQuery.length > 32 ? rawQuery.substring(0, 30) + '...' : rawQuery;
+    showAnswerCard(`Ultron · ${activeModel}: "${preview}"`);
     isStreaming = true;
 
     try {
@@ -495,7 +539,7 @@
       .replace(/>/g, '&gt;');
   }
 
-  // Setup Event Listeners
+  // Event Listeners Setup
   function setupEventListeners() {
     // Mini-pill click -> Expand to full floating companion bar
     if (miniPillMainClick) {
@@ -604,7 +648,11 @@
           return;
         }
         if (!answerCard.classList.contains('hidden')) {
-          hideAnswerCard();
+          if (!answerCard.classList.contains('contracted')) {
+            contractAnswerCard();
+          } else {
+            hideAnswerCard();
+          }
           return;
         }
         if (window.ultronAPI && window.ultronAPI.floatingBarHide) {
@@ -624,17 +672,61 @@
       expandBtn.addEventListener('click', () => expandToFullApp());
     }
 
-    // Answer Card buttons
-    copyAnswerBtn.addEventListener('click', () => {
-      if (currentAnswerText) {
-        navigator.clipboard.writeText(currentAnswerText);
-        copyAnswerBtn.querySelector('span').textContent = 'Copied!';
-        setTimeout(() => { copyAnswerBtn.querySelector('span').textContent = 'Copy'; }, 2000);
-      }
-    });
+    // Edit Prompt Button (Pencil Icon)
+    if (editPromptBtn) {
+      editPromptBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (currentPromptText) {
+          promptInput.value = currentPromptText;
+        }
+        promptInput.focus();
+        promptInput.select();
+      });
+    }
 
-    expandAnswerBtn.addEventListener('click', () => expandToFullApp());
-    closeAnswerBtn.addEventListener('click', () => hideAnswerCard());
+    // Open / Minimize Response Toggle Button
+    if (toggleContractBtn) {
+      toggleContractBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleContractAnswerCard();
+      });
+    }
+
+    // Clicking header expands if contracted
+    if (answerHeader) {
+      answerHeader.addEventListener('click', (e) => {
+        if (!e.target.closest('button')) {
+          if (answerCard.classList.contains('contracted')) {
+            expandAnswerCard();
+          }
+        }
+      });
+    }
+
+    // Answer Card buttons
+    if (copyAnswerBtn) {
+      copyAnswerBtn.addEventListener('click', () => {
+        if (currentAnswerText) {
+          navigator.clipboard.writeText(currentAnswerText);
+          const lbl = copyAnswerBtn.querySelector('.btn-label-text');
+          if (lbl) lbl.textContent = 'Copied!';
+          setTimeout(() => { 
+            if (lbl) lbl.textContent = 'Copy'; 
+          }, 2000);
+        }
+      });
+    }
+
+    if (expandAnswerBtn) {
+      expandAnswerBtn.addEventListener('click', () => expandToFullApp());
+    }
+
+    if (closeAnswerBtn) {
+      closeAnswerBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        hideAnswerCard();
+      });
+    }
 
     // Dismiss popovers when clicking anywhere outside
     document.addEventListener('click', (e) => {
@@ -646,6 +738,9 @@
       }
       if (!e.target.closest('#approval-pill') && !e.target.closest('#approval-dropdown')) {
         hideApprovalDropdown();
+      }
+      if (!e.target.closest('#answer-card') && !e.target.closest('#capsule-bar') && !answerCard.classList.contains('hidden')) {
+        contractAnswerCard();
       }
     });
   }
