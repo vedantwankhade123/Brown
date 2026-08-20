@@ -20,6 +20,7 @@ Assets/*
 !Assets/installerHeader.bmp
 !Assets/ultron-app.png
 !Assets/apple.png
+!Assets/white-apple.png
 !Assets/android.png
 __pycache__/
 *.pyc
