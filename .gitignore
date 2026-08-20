@@ -18,6 +18,7 @@ Assets/*
 !Assets/gemini-logo.png
 !Assets/installerSidebar.bmp
 !Assets/installerHeader.bmp
+!Assets/ultron-app.png
 __pycache__/
 *.pyc
 
@@ -30,6 +31,7 @@ portfolio-builder/
 # Markdown documentation files
 *.md
 !README.md
+!ROADMAP_AND_PRD.md
 !RESEARCH_PROGRESS.md
 !RESEARCH_PAPER.md
 !FEATURES_AND_IMPROVEMENTS.md
