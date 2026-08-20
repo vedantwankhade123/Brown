@@ -10,6 +10,7 @@ CVS/
 memory/
 Assets/*
 !Assets/landing.png
+!Assets/landing-page.png
 !Assets/UltronWebsite.png
 !Assets/ollama-logo.png
 !Assets/ultron-logo.png
