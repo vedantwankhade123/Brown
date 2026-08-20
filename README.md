@@ -3,11 +3,11 @@
 [![Website](https://img.shields.io/badge/Website-ultron--brown--mu.vercel.app-7928CA?logo=vercel&logoColor=white)](https://ultron-brown-mu.vercel.app/)
 [![Release](https://img.shields.io/badge/Release-v1.0.13-0078D4?logo=github)](https://github.com/vedantwankhade123/Ultron/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D4?logo=windows)](https://github.com/vedantwankhade123/Ultron/releases)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 <p align="center">
   <a href="https://ultron-brown-mu.vercel.app/">
-    <img src="Assets/UltronWebsite.png" alt="Ultron official website — download and product overview" width="100%" />
+    <img src="Assets/landing-page.png" alt="Ultron official website — download and product overview" width="100%" />
   </a>
 </p>
 
