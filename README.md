@@ -133,4 +133,21 @@ All versions are available on the [GitHub Releases](https://github.com/vedantwan
 | **`v1.0.1`** | **Jul 8, 2026** — Full-width responsive download mirrors & dark glassmorphic styling polish | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.1) |
 | **`v1.0.0`** | **Jul 1, 2026** — 🎉 Initial public release: Offline Ollama LLMs, voice waveform UI & system tools | [View Release](https://github.com/vedantwankhade123/Ultron/releases/tag/v1.0.0) |
 
+---
 
+## 📄 License & Attribution
+
+This project is licensed under the **Apache License, Version 2.0**.
+
+- See the full [LICENSE](LICENSE) file for terms and conditions.
+- See the [NOTICE](NOTICE) file for original authorship and attribution details.
+
+```
+Copyright 2026 Vedant Wankhade
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
