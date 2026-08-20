@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://ultron-brown-mu.vercel.app/">
-    <img src="Assets/landing-page.png" alt="Ultron official website — download and product overview" width="100%" />
+    <img src="Assets/ultron-app.png" alt="Ultron AI Desktop Application Interface" width="100%" />
   </a>
 </p>
 
