@@ -276,11 +276,27 @@ Deploying autonomous agents directly on host operating systems requires rigorous
 
 ---
 
-## 8. Conclusion & Future Directions
+## 8. Architectural Evolution & Next-Generation Paradigms
 
-This paper presented **Ultron**, an autonomous, local, and privacy-preserving AI agent framework for Windows. By uniting quantized on-device LLMs with native UI Automation, Model Context Protocol services, deterministic safety gates, and an adaptive companion interface, Ultron demonstrates that local desktop agents can match or exceed cloud-based alternatives in speed, security, and everyday utility.
+Building upon the foundational offline agent architecture, ongoing developments and strategic enhancements for the Ultron system focus on four pivotal domains:
 
-Future research will expand Ultron's capabilities to cross-platform operating systems (Linux/macOS), integrate multimodal local visual perception (e.g., LLaVA/Moondream screen grounding), and incorporate federated local multi-agent communication protocols for distributed autonomous workflows.
+### 8.1 Continuous Multimodal "Computer Use" Vision Loop
+While accessibility trees and OS heuristic scrapers provide structured metadata for native applications, modern creative and scientific software (e.g., Photoshop, Blender, AutoCAD, Electron IDEs) frequently render UI components directly to custom canvas viewports lacking accessible DOM nodes. To achieve universal desktop interaction, Ultron integrates a continuous **Vision-Action Perception Loop**. Screen captures are processed through localized vision-language models (e.g., Qwen2-VL, UI-TARS) or hybrid cloud endpoints (Gemini 2.5 Flash, Claude 3.7 Computer Use), generating coordinate-grounded visual actions with closed-loop perceptual verification to recover from transient UI popups and state transitions autonomously.
+
+### 8.2 Local Vector Memory & Semantic File Search (Offline RAG)
+Transitioning from flat JSON conversation storage to an embedded, high-throughput vector database (`sqlite-vec` coupled with local quantized embeddings such as `bge-small-en-v1.5` and `all-MiniLM-L6-v2`), Ultron enables deep semantic retrieval across local user documents, source code repositories, and unstructured notes with zero external network transmission.
+
+### 8.3 Edge Mobile Small Language Model (SLM) Architecture
+To extend privacy-preserving conversational intelligence beyond the desktop without compromising device battery budgets or thermal thresholds, the **Ultron Mobile** architecture utilizes specialized Small Language Models (SLMs)—specifically Meta’s `Llama 3.2 1B/3B`, Google’s `Gemma 2 2B`, and `Qwen 2.5 1.5B`. Operating on quantized 4-bit GGUF weights via `llama.rn` (llama.cpp React Native bindings), mobile inference leverages the Apple Neural Engine / Metal on iOS and Qualcomm NPU / Vulkan on Android, delivering sub-second token generation for general conversational and Q&A workflows in a fully air-gapped environment.
+
+### 8.4 Cross-Platform Operating System Abstraction (macOS & Windows)
+By decoupling host system interactions into modular platform drivers (`win32` utilizing PowerShell / Windows UI Automation / DPAPI vs. `darwin` utilizing AppleScript / JXA / Accessibility APIs / Keychain), Ultron achieves unified multi-platform parity across Windows 10/11 and macOS (Apple Silicon M1–M4 & Intel x64) under a single synchronized CI/CD release matrix.
+
+---
+
+## 9. Conclusion
+
+This paper presented **Ultron**, an autonomous, local, and privacy-preserving AI agent framework. By uniting quantized on-device LLMs/SLMs with native OS Automation, Model Context Protocol services, deterministic safety gates, local vector memory, and cross-platform companion interfaces, Ultron demonstrates that private on-device agents can match or exceed cloud-dependent alternatives in speed, security, and everyday utility.
 
 ---
 
