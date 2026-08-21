@@ -3,7 +3,7 @@
   "version": "1.0.13",
   "description": "Local offline privacy-focused Windows AI Agent framework",
   "author": "Vedant Wankhade",
-  "license": "Apache-2.0",
+  "license": "Proprietary",
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
