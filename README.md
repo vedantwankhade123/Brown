@@ -1,9 +1,9 @@
 # Ultron: An Autonomous AI Agent for Operating Systems
 
 [![Website](https://img.shields.io/badge/Website-ultron--brown--mu.vercel.app-7928CA?logo=vercel&logoColor=white)](https://ultron-brown-mu.vercel.app/)
-[![Release](https://img.shields.io/badge/Release-v1.0.13-0078D4?logo=github)](https://github.com/vedantwankhade123/Ultron/releases)
+[![Release](https://img.shields.io/badge/Release-BETA%20v1-0078D4?logo=github)](https://github.com/vedantwankhade123/Ultron/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D4?logo=windows)](https://github.com/vedantwankhade123/Ultron/releases)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 <p align="center">
   <a href="https://ultron-brown-mu.vercel.app/">
@@ -135,19 +135,9 @@ All versions are available on the [GitHub Releases](https://github.com/vedantwan
 
 ---
 
-## 📄 License & Attribution
+## 📄 License & Intellectual Property
+ 
+Ultron and its associated codebases, architectures, and desktop/mobile applications are **Proprietary & Confidential Software**. All Rights Reserved.
 
-This project is licensed under the **Apache License, Version 2.0**.
-
-- See the full [LICENSE](LICENSE) file for terms and conditions.
-- See the [NOTICE](NOTICE) file for original authorship and attribution details.
-
-```
-Copyright 2026 Vedant Wankhade
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-```
+- See the full [LICENSE](LICENSE) file for proprietary terms and conditions.
+- Copyright (c) 2026 Vedant Wankhade. Unauthorized copying, distribution, or decompilation is strictly prohibited.
