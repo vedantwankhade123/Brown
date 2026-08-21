@@ -133,5 +133,44 @@ contextBridge.exposeInMainWorld('ultronAPI', {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('floating-bar:session-created', subscription);
     return () => ipcRenderer.removeListener('floating-bar:session-created', subscription);
-  }
+  },
+  getDesktopSyncInfo: () => ipcRenderer.invoke('desktop-sync:get-info'),
+  denyMobilePair: () => ipcRenderer.invoke('desktop-sync:deny-pair'),
+  approveMobileChats: () => ipcRenderer.invoke('desktop-sync:approve-chats'),
+  denyMobileChats: () => ipcRenderer.invoke('desktop-sync:deny-chats'),
+  onMobilePairRequest: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('mobile-pair-request', subscription);
+    return () => ipcRenderer.removeListener('mobile-pair-request', subscription);
+  },
+  onMobilePairComplete: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('mobile-pair-complete', subscription);
+    return () => ipcRenderer.removeListener('mobile-pair-complete', subscription);
+  },
+  onMobilePairDismissed: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('mobile-pair-dismissed', subscription);
+    return () => ipcRenderer.removeListener('mobile-pair-dismissed', subscription);
+  },
+  onMobileChatConsent: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('mobile-chat-consent', subscription);
+    return () => ipcRenderer.removeListener('mobile-chat-consent', subscription);
+  },
+  onMobileChatConsentDismissed: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('mobile-chat-consent-dismissed', subscription);
+    return () => ipcRenderer.removeListener('mobile-chat-consent-dismissed', subscription);
+  },
+  onMobileProfileUpdated: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('mobile-profile-updated', subscription);
+    return () => ipcRenderer.removeListener('mobile-profile-updated', subscription);
+  },
+  onMobileChatsImported: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('mobile-chats-imported', subscription);
+    return () => ipcRenderer.removeListener('mobile-chats-imported', subscription);
+  },
 });

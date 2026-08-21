@@ -20,10 +20,12 @@ Assets/*
 !Assets/installerHeader.bmp
 !Assets/ultron-app.png
 !Assets/apple.png
-!Assets/white-apple.png
 !Assets/android.png
+!Assets/hf-logo.png
 __pycache__/
 *.pyc
+mobile/
+.expo/
 
 # Local development / testing data (models, caches, experiments)
 Ultron-local/

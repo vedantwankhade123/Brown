@@ -8847,3 +8847,105 @@ body[data-performance-profile="battery"] .voice-mode-stage {
   --voice-mesh-bright: 0.5;
 }
 
+.mobile-pair-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.mobile-pair-modal.hidden {
+  display: none !important;
+}
+.mobile-pair-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(10px);
+}
+.mobile-pair-card {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  padding: 32px 28px 24px;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(28, 28, 30, 0.78);
+  backdrop-filter: blur(22px);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+  text-align: center;
+  overflow: hidden;
+}
+.mobile-pair-glow {
+  position: absolute;
+  top: -80px;
+  left: 50%;
+  width: 220px;
+  height: 220px;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.45), transparent 70%);
+  pointer-events: none;
+}
+.mobile-pair-kicker {
+  color: #60a5fa;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+.mobile-pair-title {
+  color: #f8fafc;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0 0 8px;
+}
+.mobile-pair-device {
+  color: #a1a1aa;
+  font-size: 13px;
+  margin: 0 0 22px;
+}
+.mobile-pair-code {
+  font-size: 42px;
+  font-weight: 800;
+  letter-spacing: 10px;
+  color: #ffffff;
+  text-shadow: 0 0 24px rgba(96, 165, 250, 0.65);
+  margin: 0 0 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.mobile-pair-timer {
+  color: #94a3b8;
+  font-size: 12px;
+  margin: 0 0 18px;
+}
+.mobile-pair-deny {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #e4e4e7;
+  border-radius: 9999px;
+  padding: 10px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.mobile-chat-consent-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+.mobile-chat-accept {
+  background: #ffffff;
+  border: none;
+  color: #000000;
+  border-radius: 9999px;
+  padding: 10px 22px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+

@@ -1855,6 +1855,36 @@
     </div>
   </div>
 
+  <!-- WhatsApp-style mobile pairing modal -->
+  <div id="mobile-pair-modal" class="mobile-pair-modal hidden" role="dialog" aria-modal="true">
+    <div class="mobile-pair-backdrop"></div>
+    <div class="mobile-pair-card">
+      <div class="mobile-pair-glow"></div>
+      <p class="mobile-pair-kicker">Ultron Mobile</p>
+      <h3 class="mobile-pair-title">Ultron Mobile is requesting to pair with this PC</h3>
+      <p id="mobile-pair-device" class="mobile-pair-device">A phone on your Wi-Fi is waiting for this code.</p>
+      <div id="mobile-pair-code" class="mobile-pair-code">————</div>
+      <p id="mobile-pair-timer" class="mobile-pair-timer">Code expires in 60s</p>
+      <button type="button" id="btn-mobile-pair-deny" class="mobile-pair-deny">Deny</button>
+    </div>
+  </div>
+
+  <!-- Phone chat transfer accept/deny -->
+  <div id="mobile-chat-consent-modal" class="mobile-pair-modal hidden" role="dialog" aria-modal="true">
+    <div class="mobile-pair-backdrop"></div>
+    <div class="mobile-pair-card">
+      <div class="mobile-pair-glow"></div>
+      <p class="mobile-pair-kicker">Ultron Mobile</p>
+      <h3 id="mobile-chat-consent-title" class="mobile-pair-title">Allow chat transfer?</h3>
+      <p id="mobile-chat-consent-detail" class="mobile-pair-device">Your phone is requesting to sync conversations with this PC.</p>
+      <p id="mobile-chat-consent-timer" class="mobile-pair-timer">Request expires in 60s</p>
+      <div class="mobile-chat-consent-actions">
+        <button type="button" id="btn-mobile-chat-deny" class="mobile-pair-deny">Deny</button>
+        <button type="button" id="btn-mobile-chat-accept" class="mobile-chat-accept">Accept</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Shared confirmation modal (delete chat, delete model, clear all, etc.) -->
   <div id="confirm-action-modal" class="confirm-action-modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-action-title">
     <div class="confirm-action-backdrop" data-confirm-dismiss="true"></div>
