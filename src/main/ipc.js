@@ -2675,6 +2675,45 @@ function getInstallationDefaultDataDir() {
       return { success: false, error: err.message };
     }
   });
+
+  ipcMain.handle('desktop-sync:get-info', async () => {
+    try {
+      const { getSyncInfo } = require('./desktop-sync-server');
+      return { success: true, ...getSyncInfo() };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('desktop-sync:deny-pair', async () => {
+    try {
+      const { denyPendingPair } = require('./desktop-sync-server');
+      denyPendingPair();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('desktop-sync:approve-chats', async () => {
+    try {
+      const { resolveChatConsent } = require('./desktop-sync-server');
+      resolveChatConsent(true);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('desktop-sync:deny-chats', async () => {
+    try {
+      const { resolveChatConsent } = require('./desktop-sync-server');
+      resolveChatConsent(false);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
 }
 
 module.exports = {

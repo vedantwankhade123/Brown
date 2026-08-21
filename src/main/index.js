@@ -2,6 +2,7 @@ const { app, BrowserWindow, shell, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { setupIpcHandlers, setMainWindow } = require('./ipc');
+const { startDesktopSyncServer, stopDesktopSyncServer } = require('./desktop-sync-server');
 const { initAutoUpdater } = require('./updater');
 const { createFloatingBarWindow } = require('./floating-bar-window');
 const mcpManager = require('./mcp-manager');
@@ -210,6 +211,12 @@ app.whenReady().then(() => {
     console.warn('[MAIN] Failed to initialize floating bar window:', err.message);
   }
 
+  try {
+    startDesktopSyncServer({ getMainWindow: () => mainWindow });
+  } catch (err) {
+    console.warn('[MAIN] Desktop sync server failed:', err.message);
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -224,6 +231,7 @@ app.on('window-all-closed', () => {
       mcpManager.shutdownMcp(),
       new Promise((resolve) => setTimeout(resolve, 3000))
     ]).finally(() => {
+      try { stopDesktopSyncServer(); } catch {}
       app.quit();
     });
   }

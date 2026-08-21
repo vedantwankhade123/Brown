@@ -4141,7 +4141,7 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
     const isContentRequest = intent === 'conversation' && isContentGenerationRequest(prompt);
     const skipConversationHistory = intent === 'conversation' && shouldSkipConversationHistory(prompt);
 
-    const systemPrompt = customSystemPromptOverride || agentSystemPrompt || (intent === 'conversation'
+    const systemPrompt = customSystemPromptOverride || window.localStorage.getItem('ultron-custom-system-prompt') || agentSystemPrompt || (intent === 'conversation'
       ? (isCodeRequest
         ? buildCodeGenerationSystemPrompt(prompt)
         : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt()))
@@ -15019,4 +15019,132 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
     saveAndRenderFloatingBarSession(payload.prompt, payload.answer);
   });
 }
+
+(function initMobilePairModal() {
+  const modal = document.getElementById('mobile-pair-modal');
+  const codeEl = document.getElementById('mobile-pair-code');
+  const timerEl = document.getElementById('mobile-pair-timer');
+  const deviceEl = document.getElementById('mobile-pair-device');
+  const denyBtn = document.getElementById('btn-mobile-pair-deny');
+  if (!modal || !window.ultronAPI) return;
+
+  let countdown = null;
+
+  function hidePairModal() {
+    modal.classList.add('hidden');
+    if (countdown) {
+      clearInterval(countdown);
+      countdown = null;
+    }
+  }
+
+  function showPairModal(payload) {
+    const code = (payload && payload.code) || '————';
+    const seconds = payload && payload.expiresIn ? payload.expiresIn : 60;
+    if (codeEl) codeEl.textContent = code;
+    if (deviceEl) {
+      deviceEl.textContent = (payload && payload.deviceName)
+        ? `${payload.deviceName} is waiting for this code.`
+        : 'A phone on your Wi-Fi is waiting for this code.';
+    }
+    let remaining = seconds;
+    if (timerEl) timerEl.textContent = `Code expires in ${remaining}s`;
+    modal.classList.remove('hidden');
+    if (countdown) clearInterval(countdown);
+    countdown = setInterval(() => {
+      remaining -= 1;
+      if (timerEl) timerEl.textContent = remaining > 0 ? `Code expires in ${remaining}s` : 'Code expired';
+      if (remaining <= 0) hidePairModal();
+    }, 1000);
+  }
+
+  if (denyBtn) {
+    denyBtn.addEventListener('click', () => {
+      hidePairModal();
+      if (window.ultronAPI.denyMobilePair) window.ultronAPI.denyMobilePair();
+    });
+  }
+
+  if (window.ultronAPI.onMobilePairRequest) {
+    window.ultronAPI.onMobilePairRequest(showPairModal);
+  }
+  if (window.ultronAPI.onMobilePairComplete) {
+    window.ultronAPI.onMobilePairComplete(hidePairModal);
+  }
+  if (window.ultronAPI.onMobilePairDismissed) {
+    window.ultronAPI.onMobilePairDismissed(hidePairModal);
+  }
+  if (window.ultronAPI.onMobileProfileUpdated) {
+    window.ultronAPI.onMobileProfileUpdated((profile) => {
+      if (!profile) return;
+      if (profile.displayName) window.localStorage.setItem('ultron-user-name', profile.displayName);
+      if (profile.geminiApiKey) window.localStorage.setItem('ultron-gemini-api-key', profile.geminiApiKey);
+      if (typeof profile.systemPrompt === 'string') {
+        window.localStorage.setItem('ultron-custom-system-prompt', profile.systemPrompt);
+      }
+    });
+  }
+  if (window.ultronAPI.onMobileChatsImported) {
+    window.ultronAPI.onMobileChatsImported(() => {
+      if (typeof reloadConversationsFromDisk === 'function') reloadConversationsFromDisk();
+    });
+  }
+})();
+
+(function initMobileChatConsentModal() {
+  const modal = document.getElementById('mobile-chat-consent-modal');
+  const titleEl = document.getElementById('mobile-chat-consent-title');
+  const detailEl = document.getElementById('mobile-chat-consent-detail');
+  const timerEl = document.getElementById('mobile-chat-consent-timer');
+  const acceptBtn = document.getElementById('btn-mobile-chat-accept');
+  const denyBtn = document.getElementById('btn-mobile-chat-deny');
+  if (!modal || !window.ultronAPI) return;
+
+  let countdown = null;
+
+  function hideConsentModal() {
+    modal.classList.add('hidden');
+    if (countdown) {
+      clearInterval(countdown);
+      countdown = null;
+    }
+  }
+
+  function showConsentModal(payload) {
+    const seconds = payload && payload.expiresIn ? payload.expiresIn : 60;
+    if (titleEl) titleEl.textContent = (payload && payload.title) || 'Allow chat transfer?';
+    if (detailEl) {
+      detailEl.textContent = (payload && payload.detail) || 'Your phone is requesting to sync conversations with this PC.';
+    }
+    let remaining = seconds;
+    if (timerEl) timerEl.textContent = `Request expires in ${remaining}s`;
+    modal.classList.remove('hidden');
+    if (countdown) clearInterval(countdown);
+    countdown = setInterval(() => {
+      remaining -= 1;
+      if (timerEl) timerEl.textContent = remaining > 0 ? `Request expires in ${remaining}s` : 'Request expired';
+      if (remaining <= 0) hideConsentModal();
+    }, 1000);
+  }
+
+  if (acceptBtn) {
+    acceptBtn.addEventListener('click', () => {
+      hideConsentModal();
+      if (window.ultronAPI.approveMobileChats) window.ultronAPI.approveMobileChats();
+    });
+  }
+  if (denyBtn) {
+    denyBtn.addEventListener('click', () => {
+      hideConsentModal();
+      if (window.ultronAPI.denyMobileChats) window.ultronAPI.denyMobileChats();
+    });
+  }
+  if (window.ultronAPI.onMobileChatConsent) {
+    window.ultronAPI.onMobileChatConsent(showConsentModal);
+  }
+  if (window.ultronAPI.onMobileChatConsentDismissed) {
+    window.ultronAPI.onMobileChatConsentDismissed(hideConsentModal);
+  }
+})();
+
 
