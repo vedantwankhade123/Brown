@@ -127,6 +127,7 @@
       }
     }
 
+    if (m.startsWith('hf.co/') || m.startsWith('huggingface/') || m.includes('huggingface')) return 'huggingface';
     if (m.startsWith('custom') || m.startsWith('http://') || m.startsWith('https://')) return 'custom';
     return 'ollama';
   }

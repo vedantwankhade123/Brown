@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   getInstalledApps: () => ipcRenderer.invoke('get-installed-apps'),
   downloadModel: (modelName) => ipcRenderer.invoke('download-model', modelName),
   cancelDownloadModel: (modelName) => ipcRenderer.invoke('cancel-download-model', modelName),
+  searchHuggingFaceModels: (query, limit) => ipcRenderer.invoke('search-huggingface-models', query, limit),
+  getHuggingFaceModelQuantizations: (repoId) => ipcRenderer.invoke('get-huggingface-model-quantizations', repoId),
   installOllama: () => ipcRenderer.invoke('install-ollama'),
   checkOllamaInstalled: () => ipcRenderer.invoke('check-ollama-installed'),
   startOllamaService: (exePath) => ipcRenderer.invoke('start-ollama-service', exePath),

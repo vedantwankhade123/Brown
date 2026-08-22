@@ -10,6 +10,7 @@ const { launchWindowsSandbox } = require('./sandbox');
 const { findInstalledAppSmart } = require('./app-matching');
 const { fetchWebPage } = require('./web-fetch');
 const mcpManager = require('./mcp-manager');
+const { searchHuggingFaceGgufModels, getModelQuantizations } = require('./huggingface-service');
 const { getWindowsNativeLocation } = require('./windows-geolocation');
 const { getUltronRuntimeRoot, getConnectorsRoot, getDefaultAgentDataDir, getStoragePathsSnapshot, updateAgentDataDir, updateConnectorsDir, getOllamaModelsDir, getOllamaInstallPath, provisionUltronFolderForOllama, ensureUltronStorageLayout } = require('./paths');
 
@@ -1468,6 +1469,26 @@ function setupIpcHandlers() {
       });
     } catch (err) {
       return { success: false, error: err.message };
+    }
+  });
+
+  // Search Hugging Face Hub for open-source GGUF models in real-time
+  ipcMain.handle('search-huggingface-models', async (event, query, limit = 20) => {
+    try {
+      const results = await searchHuggingFaceGgufModels(query || '', limit);
+      return { success: true, models: results };
+    } catch (err) {
+      return { success: false, error: err.message, models: [] };
+    }
+  });
+
+  // Query specific Hugging Face model repository files for available quantizations
+  ipcMain.handle('get-huggingface-model-quantizations', async (event, repoId) => {
+    try {
+      const quantizations = await getModelQuantizations(repoId);
+      return { success: true, quantizations };
+    } catch (err) {
+      return { success: false, error: err.message, quantizations: [] };
     }
   });
 

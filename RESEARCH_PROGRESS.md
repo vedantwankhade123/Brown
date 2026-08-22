@@ -1059,6 +1059,45 @@ This file tracks the engineering sprints, codebase additions, and mitigations du
 *   *Challenge:* Slow sequential boot pipelines causing skeleton loaders to delay UI availability and re-invoking geolocation probes on every settings modal open.
 *   *Mitigation:* Parallelized all initialization tasks, added startup location detection guards, and wired early cache retrieval to guarantee instantaneous settings rendering and fast boot times.
 
+---
+
+## 📅 Day 27: Hugging Face Model Provider & Real-Time GGUF Search Hub (Phase 2 Milestone)
+
+### 1. Key Accomplishments
+*   **Hugging Face Hub Provider Service**:
+    *   Created [src/main/huggingface-service.js](file:///d:/Ultron/src/main/huggingface-service.js) executing live REST queries directly against Hugging Face's Hub API (`https://huggingface.co/api/models?filter=gguf`) and repository tree endpoints (`/api/models/{repoId}/tree/main`).
+    *   Implemented automatic quantization file parsing (`Q4_K_M`, `Q5_K_M`, `Q8_0`, `FP16`), parameter size inference (`1B`, `7B`, `70B`), download count parsing, and like badges.
+*   **IPC & Preload Integration**:
+    *   Wired `search-huggingface-models` and `get-huggingface-model-quantizations` into [src/main/ipc.js](file:///d:/Ultron/src/main/ipc.js) and [src/preload/preload.js](file:///d:/Ultron/src/preload/preload.js).
+    *   Supported seamless 1-click downloading of community GGUF models (`hf.co/author/repo:quantization`) through the unified `download-model` IPC engine with streaming byte progress and speed indicators.
+*   **Unified Model Discovery & Live Search UI**:
+    *   Added provider filter selector tabs in [src/renderer/index.html](file:///d:/Ultron/src/renderer/index.html) (`All Providers`, `Ollama Library`, `Hugging Face Hub`).
+    *   Added Hugging Face Hub Connector card with live status in Settings → Models.
+    *   Implemented 300ms debounced live search in [src/renderer/renderer.js](file:///d:/Ultron/src/renderer/renderer.js) with live loading spinner `#hf-search-spinner`.
+    *   Curated `HUGGINGFACE_POPULAR_MODELS` with top verified GGUFs (Llama 3.2, DeepSeek-R1 Distill, Qwen 2.5 Coder, Gemma 2, Mistral, Phi-3.5).
+    *   Updated catalog cards and model pickers in both [src/renderer/renderer.js](file:///d:/Ultron/src/renderer/renderer.js) and [src/renderer/floating-bar.js](file:///d:/Ultron/src/renderer/floating-bar.js) to show `hf-logo.png` vs `ollama-logo.png` and dedicated `HF GGUF` badges.
+*   **Verification**: All security, agent, and Phase 2 Windows enhancement tests passed cleanly with 0 errors.
+*   **Carried Over from Yesterday:** None.
+*   **Pending for Tomorrow:** None.
+
+### 2. Codebase Additions & Modifications
+*   **Files Created/Modified:**
+    *   [src/main/huggingface-service.js](file:///d:/Ultron/src/main/huggingface-service.js) [NEW]
+    *   [tests/test-hf-service.js](file:///d:/Ultron/tests/test-hf-service.js) [NEW]
+    *   [src/main/ipc.js](file:///d:/Ultron/src/main/ipc.js) [MODIFIED]
+    *   [src/preload/preload.js](file:///d:/Ultron/src/preload/preload.js) [MODIFIED]
+    *   [src/agent/multi-provider-hub.js](file:///d:/Ultron/src/agent/multi-provider-hub.js) [MODIFIED]
+    *   [src/renderer/index.html](file:///d:/Ultron/src/renderer/index.html) [MODIFIED]
+    *   [src/renderer/index.css](file:///d:/Ultron/src/renderer/index.css) [MODIFIED]
+    *   [src/renderer/renderer.js](file:///d:/Ultron/src/renderer/renderer.js) [MODIFIED]
+    *   [src/renderer/floating-bar.js](file:///d:/Ultron/src/renderer/floating-bar.js) [MODIFIED]
+    *   [tests/phase2.test.js](file:///d:/Ultron/tests/phase2.test.js) [MODIFIED]
+    *   [RESEARCH_PROGRESS.md](file:///d:/Ultron/RESEARCH_PROGRESS.md) [MODIFIED]
+
+### 3. Engineering Challenges & Mitigations
+*   *Challenge:* Debouncing live queries to prevent Hugging Face Hub API rate limits while maintaining an instantaneous typing feel.
+*   *Mitigation:* Designed a 320ms leading-edge debounced fetcher with active query matching, cancellation of stale promises, and automatic fallback to pre-cached curated GGUF catalogs if offline.
+
 
 
 
