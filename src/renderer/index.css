@@ -5453,80 +5453,194 @@ button.hidden,
 }
 
 .catalog-model-card,
+.installed-model-card,
 .model-list-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px 16px;
-  background: #111113;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 20px;
+  background: #090a0d;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  transition: all 0.2s ease;
-  margin-bottom: 8px;
+  border-radius: 12px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-bottom: 10px;
+  box-sizing: border-box;
 }
 
 .catalog-model-card:hover,
+.installed-model-card:hover,
 .model-list-item:hover {
-  background: #161619;
-  border-color: rgba(255, 255, 255, 0.16);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  background: #0f1015;
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
-.catalog-model-info {
+.card-header-row {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.catalog-model-title-row {
+.card-header-left {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
-.catalog-model-name {
+.model-brand-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.card-model-title {
+  font-size: 14.5px;
   font-weight: 700;
-  font-size: 13.5px;
-  color: #ffffff;
+  color: #f8fafc;
   letter-spacing: -0.01em;
 }
 
-.catalog-model-badge {
-  font-size: 10px;
+.modality-badge-t {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 4px;
+  padding: 1px 6px;
+  line-height: 1.2;
+}
+
+.modality-badge-cloud {
+  background: rgba(56, 189, 248, 0.14);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  font-size: 10.5px;
   font-weight: 700;
-  padding: 2px 7px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.9);
-  text-transform: uppercase;
+  padding: 2px 7px;
 }
 
-.catalog-model-size-badge {
-  font-size: 10px;
+.modality-badge-reasoning {
+  background: rgba(234, 179, 8, 0.14);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+
+.modality-badge-vision {
+  background: rgba(168, 85, 247, 0.14);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+
+.modality-badge-code {
+  background: rgba(34, 197, 94, 0.14);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+
+.modality-badge-offline {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+
+.card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.card-token-metric {
+  font-size: 12px;
   font-weight: 500;
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.7);
+  color: #94a3b8;
+  letter-spacing: 0.01em;
 }
 
-.catalog-model-desc {
-  font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.65);
-  line-height: 1.4;
+.card-info-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+
+.card-info-btn:hover {
+  color: #cbd5e1;
+}
+
+.card-description-text {
+  font-size: 12.5px;
+  color: #94a3b8;
+  line-height: 1.55;
+  margin: 2px 0 4px 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
+.card-metadata-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.meta-author-link {
+  color: #cbd5e1;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.meta-divider {
+  color: rgba(255, 255, 255, 0.18);
+  font-size: 9px;
+}
+
+.meta-spec-item {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
 .btn-catalog-pull {
-  padding: 6px 18px;
+  padding: 6px 16px;
   font-size: 12px;
   font-weight: 600;
   border-radius: 6px;
@@ -5616,6 +5730,73 @@ button.hidden,
   background: rgba(255, 255, 255, 0.14);
   border-color: rgba(255, 255, 255, 0.25);
   transform: translateY(-1px);
+}
+
+/* Category Filter Bar (OpenRouter / AI Hub Tab Style) */
+.model-type-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  scrollbar-width: none;
+}
+
+.model-type-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.model-filter-chip {
+  background: transparent !important;
+  border: none !important;
+  color: #94a3b8;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 7px 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  border-bottom: 2px solid transparent !important;
+  margin-bottom: -1px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  border-radius: 0 !important;
+}
+
+.model-filter-chip:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.03) !important;
+}
+
+.model-filter-chip.active {
+  color: #ffffff !important;
+  font-weight: 700;
+  border-bottom: 2px solid #a3e635 !important;
+  background: transparent !important;
+}
+
+.model-filter-chip .filter-icon-span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.model-filter-chip .filter-count {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+  margin-left: 2px;
+}
+
+.model-filter-chip.active .filter-count {
+  color: #a3e635;
+  font-weight: 600;
 }
 
 /* Catalog Provider Filter Tabs */

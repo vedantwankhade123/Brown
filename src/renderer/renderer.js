@@ -7526,14 +7526,91 @@ function modelMatchesFilter(modelName, desc, tags = [], filter = 'all') {
   return resolvedTags.includes(filter);
 }
 
+function getModelBrandInfo(modelName, author = '', provider = '') {
+  const m = (modelName || '').toLowerCase();
+  const a = (author || '').toLowerCase();
+
+  if (m.includes('llama') || m.includes('meta') || a.includes('meta')) {
+    return {
+      brand: 'Meta',
+      author: author || 'meta',
+      avatar: `<div class="model-brand-avatar meta-avatar"><svg viewBox="0 0 24 24" width="14" height="14" fill="#0081fb"><path d="M12 5.5c-2.4 0-4.3 1.6-5.4 3.7C5.3 7 3.5 5.5 1.5 5.5 0.7 5.5 0 6.2 0 7c0 4.2 4.6 9.5 7.6 9.5 2.1 0 3.7-1.7 4.4-3.5.7 1.8 2.3 3.5 4.4 3.5 3 0 7.6-5.3 7.6-9.5 0-.8-.7-1.5-1.5-1.5-2 0-3.8 1.5-5.1 3.7C16.3 7.1 14.4 5.5 12 5.5z"/></svg></div>`,
+      prefix: 'Meta: '
+    };
+  }
+  if (m.includes('deepseek') || a.includes('deepseek')) {
+    return {
+      brand: 'DeepSeek',
+      author: author || 'deepseek',
+      avatar: `<div class="model-brand-avatar deepseek-avatar"><img src="../../Assets/Brand-Assets/deepseek-blue-logo.png" style="width: 14px; height: 14px; object-fit: contain;" /></div>`,
+      prefix: 'DeepSeek: '
+    };
+  }
+  if (m.includes('mistral') || a.includes('mistral')) {
+    return {
+      brand: 'Mistral',
+      author: author || 'mistralai',
+      avatar: `<div class="model-brand-avatar mistral-avatar"><svg viewBox="0 0 24 24" width="14" height="14" fill="#fd531e"><path d="M3 4h4v4H3zm14 0h4v4h-4zm-7 4h4v4h-4zM3 12h4v4H3zm14 0h4v4h-4zm-7 4h4v4h-4zM3 20h4v-4H3zm14 0h4v-4h-4z"/></svg></div>`,
+      prefix: 'Mistral: '
+    };
+  }
+  if (m.includes('qwen') || m.includes('alibaba') || a.includes('qwen')) {
+    return {
+      brand: 'Alibaba',
+      author: author || 'alibaba',
+      avatar: `<div class="model-brand-avatar qwen-avatar"><svg viewBox="0 0 24 24" width="14" height="14" fill="#8b5cf6"><circle cx="12" cy="12" r="9" stroke="#8b5cf6" stroke-width="2" fill="none"/><path d="M8 12h8M12 8v8" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round"/></svg></div>`,
+      prefix: 'Qwen: '
+    };
+  }
+  if (m.includes('gemma') || m.includes('gemini') || a.includes('google')) {
+    return {
+      brand: 'Google',
+      author: author || 'google',
+      avatar: `<div class="model-brand-avatar google-avatar"><img src="../../Assets/Brand-Assets/gemini-logo.png" style="width: 14px; height: 14px; object-fit: contain;" /></div>`,
+      prefix: 'Google: '
+    };
+  }
+  if (m.includes('phi') || m.includes('microsoft') || a.includes('microsoft')) {
+    return {
+      brand: 'Microsoft',
+      author: author || 'microsoft',
+      avatar: `<div class="model-brand-avatar ms-avatar"><svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="8" height="8" fill="#f25022"/><rect x="13" y="3" width="8" height="8" fill="#7fba00"/><rect x="3" y="13" width="8" height="8" fill="#00a4ef"/><rect x="13" y="13" width="8" height="8" fill="#ffb900"/></svg></div>`,
+      prefix: 'Microsoft: '
+    };
+  }
+  if (m.includes('gpt') || m.includes('openai')) {
+    return {
+      brand: 'OpenAI',
+      author: author || 'openai',
+      avatar: `<div class="model-brand-avatar openai-avatar"><img src="../../Assets/Brand-Assets/openai-white-logo.png" style="width: 14px; height: 14px; object-fit: contain;" /></div>`,
+      prefix: 'OpenAI: '
+    };
+  }
+  if (provider === 'huggingface' || m.startsWith('hf.co/')) {
+    return {
+      brand: 'Hugging Face',
+      author: author || 'community',
+      avatar: `<div class="model-brand-avatar hf-avatar"><img src="../../Assets/Brand-Assets/hf-logo.png" style="width: 14px; height: 14px; object-fit: contain;" /></div>`,
+      prefix: author ? `${author}: ` : 'HF: '
+    };
+  }
+  return {
+    brand: 'Ollama',
+    author: author || 'ollama',
+    avatar: `<div class="model-brand-avatar ollama-avatar"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" style="width: 14px; height: 14px; object-fit: contain;" /></div>`,
+    prefix: ''
+  };
+}
+
 const MODEL_CATALOG_FILTERS = [
-  { id: 'all', label: 'All' },
-  { id: 'cloud', label: 'Cloud' },
-  { id: 'offline', label: 'Offline' },
-  { id: 'thinking', label: 'Thinking' },
-  { id: 'vision', label: 'Vision' },
-  { id: 'code', label: 'Code' },
-  { id: 'embedding', label: 'Embedding' }
+  { id: 'all', label: 'All', iconHtml: '' },
+  { id: 'text', label: 'Text', iconHtml: '<span class="modality-badge-t" style="font-size: 9px; padding: 1px 4px; margin-right: 2px;">T</span>' },
+  { id: 'thinking', label: 'Reasoning', iconHtml: '⚡' },
+  { id: 'vision', label: 'Vision', iconHtml: '👁️' },
+  { id: 'code', label: 'Code', iconHtml: '💻' },
+  { id: 'offline', label: 'Offline', iconHtml: '💾' },
+  { id: 'cloud', label: 'Cloud', iconHtml: '☁️' },
+  { id: 'embedding', label: 'Embeddings', iconHtml: '🕸️' }
 ];
 
 let activeModelCatalogFilter = 'all';
@@ -7541,12 +7618,50 @@ let activeModelCatalogFilter = 'all';
 function renderModelTypeFilterBar(container) {
   if (!container) return;
   container.innerHTML = '';
-  MODEL_CATALOG_FILTERS.forEach(({ id, label }) => {
+
+  const allPool = [
+    ...(OLLAMA_CLOUD_PULL_MODELS || []),
+    ...(OLLAMA_POPULAR_MODELS || []),
+    ...(HUGGINGFACE_POPULAR_MODELS || []),
+    ...(installedModelsList || []).map(m => typeof m === 'string' ? { name: m } : m)
+  ];
+
+  const counts = {
+    all: allPool.length,
+    text: 0,
+    thinking: 0,
+    vision: 0,
+    code: 0,
+    offline: 0,
+    cloud: 0,
+    embedding: 0
+  };
+
+  allPool.forEach(m => {
+    const name = m.name || '';
+    const desc = m.desc || '';
+    const tags = m.tags || inferModelTags(name, desc);
+    const isCloud = name.endsWith('-cloud') || tags.includes('cloud');
+    if (isCloud) counts.cloud++;
+    else counts.offline++;
+    if (tags.includes('thinking')) counts.thinking++;
+    if (tags.includes('vision')) counts.vision++;
+    if (tags.includes('code')) counts.code++;
+    if (tags.includes('embedding')) counts.embedding++;
+    counts.text++;
+  });
+
+  MODEL_CATALOG_FILTERS.forEach(({ id, label, iconHtml }) => {
+    const countVal = counts[id] || 0;
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = `model-filter-chip${activeModelCatalogFilter === id ? ' active' : ''}`;
     btn.dataset.filter = id;
-    btn.textContent = label;
+    btn.innerHTML = `
+      ${iconHtml ? `<span class="filter-icon-span">${iconHtml}</span>` : ''}
+      <span>${label}</span>
+      <span class="filter-count">${countVal}</span>
+    `;
     btn.setAttribute('role', 'tab');
     btn.setAttribute('aria-selected', activeModelCatalogFilter === id ? 'true' : 'false');
     btn.addEventListener('click', (e) => {
@@ -7643,9 +7758,7 @@ function renderSettingsModels() {
     );
 
     const isHfModel = name.startsWith('hf.co/') || (catalogEntry && catalogEntry.provider === 'huggingface');
-    const providerBadge = isHfModel
-      ? `<span class="catalog-model-provider-badge hf"><img src="../../Assets/Brand-Assets/hf-logo.png" alt="HF" /> Hugging Face</span>`
-      : `<span class="catalog-model-provider-badge ollama"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" /> Ollama</span>`;
+    const brandInfo = getModelBrandInfo(name, catalogEntry?.author, isHfModel ? 'huggingface' : (isCloudModel ? 'cloud' : 'ollama'));
 
     // Parameter size tag (e.g. "8B", "20B", "3B", "7B")
     const paramBadge = catalogEntry?.size || (
@@ -7660,42 +7773,62 @@ function renderSettingsModels() {
     // Description text
     const descText = catalogEntry?.desc
       ? catalogEntry.desc
-      : (isHfModel ? 'Hugging Face GGUF model installed locally' : (isCloudModel ? 'Ollama Cloud model (free tier remote execution)' : 'Local offline model weight installed on your PC'));
+      : (isHfModel ? 'Hugging Face GGUF model installed locally on your PC.' : (isCloudModel ? 'Ollama Cloud model (free tier remote execution).' : 'Local offline model weight installed on your PC.'));
 
     // Tags
     const tags = catalogEntry?.tags ? [...catalogEntry.tags] : inferModelTags(name, descText);
-    if (!tags.includes('offline') && !isCloudModel) tags.unshift('offline');
-    if (isCloudModel && !tags.includes('cloud')) tags.unshift('cloud');
-    if (isHfModel && !tags.includes('huggingface')) tags.push('huggingface');
+    const isThinking = tags.includes('thinking');
+    const isVision = tags.includes('vision');
+    const isCode = tags.includes('code');
+
+    // Display title
+    let displayTitle = catalogEntry?.displayName || name;
+    if (!displayTitle.toLowerCase().startsWith(brandInfo.brand.toLowerCase()) && brandInfo.prefix) {
+      displayTitle = `${brandInfo.prefix}${displayTitle}`;
+    }
 
     // Active status
     const isActive = activeModel && (activeModel === name || activeModel.split(':')[0] === name.split(':')[0]);
 
     item.innerHTML = `
-      <div class="catalog-model-info">
-        <div class="catalog-model-title-row">
-          ${providerBadge}
-          <span class="catalog-model-name">${escapeHtml(name)}</span>
-          <span class="catalog-model-badge">${escapeHtml(paramBadge)}</span>
-          <span class="catalog-model-size-badge">${isCloudModel ? '📦 Cloud' : '💾 ' + escapeHtml(sizeText)}</span>
+      <div class="card-header-row">
+        <div class="card-header-left">
+          ${brandInfo.avatar}
+          <span class="card-model-title">${escapeHtml(displayTitle)}</span>
+          <span class="modality-badge-t">T</span>
+          ${isCloudModel ? '<span class="modality-badge-cloud">Cloud</span>' : '<span class="modality-badge-offline">Offline</span>'}
+          ${isThinking ? '<span class="modality-badge-reasoning">Reasoning</span>' : ''}
+          ${isVision ? '<span class="modality-badge-vision">Vision</span>' : ''}
+          ${isCode ? '<span class="modality-badge-code">Code</span>' : ''}
         </div>
-        <div class="catalog-model-desc">${escapeHtml(descText)}</div>
-        ${renderCatalogTagBadges(tags)}
+        <div class="card-header-right">
+          <span class="card-token-metric">${escapeHtml(paramBadge)} • ${escapeHtml(sizeText)}</span>
+          ${isActive
+            ? `<span class="badge-installed">ACTIVE</span>`
+            : `<button class="btn-select-model" data-model="${escapeHtml(name)}">Select</button>`
+          }
+          <button class="btn-delete-model" data-model="${escapeHtml(name)}" title="Delete this model">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              <line x1="10" y1="11" x2="10" y2="17"></line>
+              <line x1="14" y1="11" x2="14" y2="17"></line>
+            </svg>
+            Delete
+          </button>
+        </div>
       </div>
-      <div class="installed-model-actions" style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
-        ${isActive
-          ? `<span class="badge-installed" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">ACTIVE</span>`
-          : `<button class="btn-select-model" data-model="${escapeHtml(name)}">Select</button>`
-        }
-        <button class="btn-delete-model" data-model="${escapeHtml(name)}" title="Delete this model">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-            <line x1="10" y1="11" x2="10" y2="17"></line>
-            <line x1="14" y1="11" x2="14" y2="17"></line>
-          </svg>
-          Delete
-        </button>
+
+      <div class="card-description-text">${escapeHtml(descText)}</div>
+
+      <div class="card-metadata-row">
+        <span class="meta-item">by <span class="meta-author-link">${escapeHtml(brandInfo.author)}</span></span>
+        <span class="meta-divider">•</span>
+        <span class="meta-item">${isCloudModel ? 'Cloud Hosted' : '128K context'}</span>
+        <span class="meta-divider">•</span>
+        <span class="meta-item">${isCloudModel ? 'Free tier' : '$0.00 / free (offline)'}</span>
+        <span class="meta-divider">•</span>
+        <span class="meta-item">💾 ${escapeHtml(sizeText)} on disk</span>
       </div>
     `;
 
@@ -8851,38 +8984,55 @@ function renderOllamaCatalog(filterQuery = '') {
       actionButtonHtml = `<button class="btn-catalog-pull btn-cloud-use" data-model="${escapeHtml(model.name)}" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">Use Model</button>`;
     }
 
-    const providerBadge = isHuggingFace
-      ? `<span class="catalog-model-provider-badge hf"><img src="../../Assets/Brand-Assets/hf-logo.png" alt="HF" /> Hugging Face</span>`
-      : `<span class="catalog-model-provider-badge ollama"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" /> Ollama</span>`;
+    const brandInfo = getModelBrandInfo(model.name, model.author, isHuggingFace ? 'huggingface' : (isCloudModel ? 'cloud' : 'ollama'));
 
-    let statsHtml = '';
-    const formattedDl = formatCompactCount(model.downloads);
-    const formattedLikes = formatCompactCount(model.likes);
-    if (formattedDl || formattedLikes) {
-      statsHtml = `
-        <div class="catalog-model-stats">
-          ${formattedDl ? `<span class="catalog-model-stats-item">⬇ ${formattedDl}</span>` : ''}
-          ${formattedLikes ? `<span class="catalog-model-stats-item">❤️ ${formattedLikes}</span>` : ''}
-          ${model.author ? `<span class="catalog-model-stats-item" style="color: rgba(255,255,255,0.45);">by ${escapeHtml(model.author)}</span>` : ''}
-        </div>
-      `;
+    const isThinking = tags.includes('thinking');
+    const isVision = tags.includes('vision');
+    const isCode = tags.includes('code');
+
+    let displayTitle = model.displayName || model.name;
+    if (!displayTitle.toLowerCase().startsWith(brandInfo.brand.toLowerCase()) && brandInfo.prefix) {
+      displayTitle = `${brandInfo.prefix}${displayTitle}`;
     }
 
-    const displayName = model.displayName || model.name;
+    const formattedDl = formatCompactCount(model.downloads);
+    const formattedLikes = formatCompactCount(model.likes);
+    const paramText = model.size ? `${model.size} params` : (isCloudModel ? 'Cloud Hosted' : 'Weights');
+    const sizeOrContext = isCloudModel ? 'Free Cloud API' : (model.downloadSize || 'Est. ~4 GB');
 
     card.innerHTML = `
-      <div class="catalog-model-info">
-        <div class="catalog-model-title-row">
-          ${providerBadge}
-          <span class="catalog-model-name">${escapeHtml(displayName)}</span>
-          <span class="catalog-model-badge">${escapeHtml(model.size || 'GGUF')}</span>
-          <span class="catalog-model-size-badge">${isCloudModel ? '📦 Cloud' : '📦 ' + escapeHtml(model.downloadSize || 'Est. ~4 GB')}</span>
+      <div class="card-header-row">
+        <div class="card-header-left">
+          ${brandInfo.avatar}
+          <span class="card-model-title">${escapeHtml(displayTitle)}</span>
+          <span class="modality-badge-t">T</span>
+          ${isCloudModel ? '<span class="modality-badge-cloud">Cloud</span>' : '<span class="modality-badge-offline">Offline</span>'}
+          ${isThinking ? '<span class="modality-badge-reasoning">Reasoning</span>' : ''}
+          ${isVision ? '<span class="modality-badge-vision">Vision</span>' : ''}
+          ${isCode ? '<span class="modality-badge-code">Code</span>' : ''}
         </div>
-        <div class="catalog-model-desc">${escapeHtml(model.desc)}</div>
-        ${statsHtml}
-        ${renderCatalogTagBadges(tags)}
+        <div class="card-header-right">
+          <span class="card-token-metric">${escapeHtml(paramText)}</span>
+          <button class="card-info-btn" title="Model details">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          </button>
+          ${actionButtonHtml}
+        </div>
       </div>
-      ${actionButtonHtml}
+
+      <div class="card-description-text">${escapeHtml(model.desc || 'High-performance neural model weights.')}</div>
+
+      <div class="card-metadata-row">
+        <span class="meta-item">by <span class="meta-author-link">${escapeHtml(brandInfo.author)}</span></span>
+        <span class="meta-divider">•</span>
+        <span class="meta-item">${isCloudModel ? 'Cloud Hosted' : '128K context'}</span>
+        <span class="meta-divider">•</span>
+        <span class="meta-item">${isCloudModel ? 'Free tier' : '$0.00 / free (offline)'}</span>
+        <span class="meta-divider">•</span>
+        <span class="meta-item">📦 ${escapeHtml(sizeOrContext)}</span>
+        ${formattedDl ? `<span class="meta-divider">•</span><span class="meta-item">⬇ ${formattedDl} downloads</span>` : ''}
+        ${formattedLikes ? `<span class="meta-divider">•</span><span class="meta-item">❤️ ${formattedLikes}</span>` : ''}
+      </div>
     `;
     const pullBtn = card.querySelector('.btn-catalog-pull');
     if (pullBtn) {
