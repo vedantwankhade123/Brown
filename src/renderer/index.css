@@ -5457,13 +5457,13 @@ button.hidden,
 .model-list-item {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 20px;
+  gap: 6px;
+  padding: 14px 16px;
   background: #212121;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 12px;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   box-sizing: border-box;
 }
 
@@ -5472,27 +5472,28 @@ button.hidden,
 .model-list-item:hover {
   background: #2a2a2a;
   border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
+/* ---- Title Row: name left, tokens + info right ---- */
 .card-header-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .card-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 7px;
   min-width: 0;
+  flex-wrap: nowrap;
 }
 
 .model-brand-avatar {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   background: transparent !important;
   border: none !important;
   display: inline-flex;
@@ -5502,90 +5503,17 @@ button.hidden,
 }
 
 .card-model-title {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 700;
-  color: #f8fafc;
+  color: #f0f0f0;
   letter-spacing: -0.01em;
-}
-
-.modality-badge-t {
-  background: #2563eb;
-  color: #ffffff;
-  border: none;
-  font-size: 11px;
-  font-weight: 800;
-  border-radius: 4px;
-  padding: 2px 7px;
-  line-height: 1.2;
-}
-
-.modality-badge-cloud {
-  background: #0284c7;
-  color: #ffffff;
-  border: none;
-  font-size: 10.5px;
-  font-weight: 700;
-  border-radius: 4px;
-  padding: 2px 8px;
-}
-
-.modality-badge-reasoning {
-  background: #d97706;
-  color: #ffffff;
-  border: none;
-  font-size: 10.5px;
-  font-weight: 700;
-  border-radius: 4px;
-  padding: 2px 8px;
-}
-
-.modality-badge-vision {
-  background: #9333ea;
-  color: #ffffff;
-  border: none;
-  font-size: 10.5px;
-  font-weight: 700;
-  border-radius: 4px;
-  padding: 2px 8px;
-}
-
-.modality-badge-code {
-  background: #16a34a;
-  color: #ffffff;
-  border: none;
-  font-size: 10.5px;
-  font-weight: 700;
-  border-radius: 4px;
-  padding: 2px 8px;
-}
-
-.modality-badge-offline {
-  background: #475569;
-  color: #ffffff;
-  border: none;
-  font-size: 10.5px;
-  font-weight: 600;
-  border-radius: 4px;
-  padding: 2px 8px;
-}
-
-.btn-cloud-use {
-  background: #2563eb !important;
-  color: #ffffff !important;
-  border: none !important;
-  font-weight: 600 !important;
-  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.4);
-}
-
-.btn-cloud-use:hover {
-  background: #1d4ed8 !important;
-  transform: translateY(-1px);
+  line-height: 1.3;
 }
 
 .card-header-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   flex-shrink: 0;
   margin-left: auto;
 }
@@ -5594,7 +5522,7 @@ button.hidden,
   font-size: 12px;
   font-weight: 500;
   color: #94a3b8;
-  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 .card-info-btn {
@@ -5613,42 +5541,99 @@ button.hidden,
   color: #cbd5e1;
 }
 
+/* ---- Tag Pills Row (colored dot + label) ---- */
+.card-tags-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+
+.card-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #d4d4d8;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 14px;
+  padding: 3px 10px 3px 7px;
+  line-height: 1.3;
+}
+
+.card-tag-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ---- Description ---- */
 .card-description-text {
   font-size: 12.5px;
-  color: #94a3b8;
-  line-height: 1.55;
-  margin: 2px 0 4px 0;
+  color: #a1a1aa;
+  line-height: 1.5;
+  margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
+/* ---- Bottom Metadata Row ---- */
 .card-metadata-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   font-size: 12px;
-  color: #64748b;
+  color: #71717a;
   margin-top: 2px;
 }
 
 .meta-author-link {
-  color: #cbd5e1;
+  color: #a1a1aa;
   font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
 }
 
 .meta-divider {
-  color: rgba(255, 255, 255, 0.18);
-  font-size: 9px;
+  color: rgba(255, 255, 255, 0.15);
+  font-size: 10px;
+}
+
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  color: #71717a;
+  font-size: 12px;
 }
 
 .meta-spec-item {
   color: #94a3b8;
   font-weight: 400;
+}
+
+/* ---- Modality badges (hidden – replaced by tag pills) ---- */
+.modality-badge-t,
+.modality-badge-cloud,
+.modality-badge-offline,
+.modality-badge-reasoning,
+.modality-badge-vision,
+.modality-badge-code {
+  display: none;
+}
+
+/* ---- Action Buttons ---- */
+.card-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
 }
 
 .btn-catalog-pull {
@@ -5667,6 +5652,19 @@ button.hidden,
 
 .btn-catalog-pull:hover {
   background: #e4e4e7;
+  transform: translateY(-1px);
+}
+
+.btn-cloud-use {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-weight: 600 !important;
+  box-shadow: 0 1px 4px rgba(37, 99, 235, 0.4);
+}
+
+.btn-cloud-use:hover {
+  background: #1d4ed8 !important;
   transform: translateY(-1px);
 }
 
