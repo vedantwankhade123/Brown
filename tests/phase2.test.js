@@ -16,10 +16,16 @@ async function runPhase2Tests() {
   assert.strictEqual(UltronMultiProviderHub.detectProviderForModel('deepseek-chat'), 'deepseek');
   assert.strictEqual(UltronMultiProviderHub.detectProviderForModel('llama-3.3-70b-versatile'), 'groq');
   assert.strictEqual(UltronMultiProviderHub.detectProviderForModel('deepseek-r1-distill-llama-70b'), 'groq');
-  assert.strictEqual(UltronMultiProviderHub.detectProviderForModel('gemini-2.5-flash'), 'gemini');
+  assert.strictEqual(UltronMultiProviderHub.detectProviderForModel('hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M'), 'huggingface');
   assert.strictEqual(UltronMultiProviderHub.detectProviderForModel('phi3:latest'), 'ollama');
   assert.strictEqual(UltronMultiProviderHub.detectProviderForModel('mistral:latest'), 'ollama');
   console.log('✓ Multi-Provider Hub detection passed.');
+
+  console.log('Running Hugging Face Hub Provider tests...');
+  const { searchHuggingFaceGgufModels } = require('../src/main/huggingface-service');
+  const hfResults = await searchHuggingFaceGgufModels('llama', 2);
+  assert.ok(Array.isArray(hfResults));
+  console.log('✓ Hugging Face Hub Provider tests passed.');
 
   console.log('Running Local Vector RAG Engine tests...');
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ultron-rag-test-'));

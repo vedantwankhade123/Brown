@@ -176,12 +176,14 @@
     }
 
     models.forEach(model => {
-      const name = typeof model === 'string' ? model : model.name;
-      const provider = model.provider || (name.startsWith('gemini') ? 'gemini' : name.startsWith('gpt') || name.startsWith('o1') || name.startsWith('o3') ? 'openai' : name.startsWith('claude') ? 'claude' : name.startsWith('deepseek') ? 'deepseek' : 'ollama');
+      const provider = model.provider || (name.startsWith('hf.co/') ? 'huggingface' : name.startsWith('gemini') ? 'gemini' : name.startsWith('gpt') || name.startsWith('o1') || name.startsWith('o3') ? 'openai' : name.startsWith('claude') ? 'claude' : name.startsWith('deepseek') ? 'deepseek' : 'ollama');
+      const isHf = name.startsWith('hf.co/') || provider === 'huggingface';
       const isSelected = name === activeModel;
 
       let iconSrc = '../../Assets/Brand-Assets/ollama-white-logo.png';
-      if (provider === 'gemini' || name.includes('gemini')) {
+      if (isHf) {
+        iconSrc = '../../Assets/Brand-Assets/hf-logo.png';
+      } else if (provider === 'gemini' || name.includes('gemini')) {
         iconSrc = '../../Assets/Brand-Assets/gemini-logo.png';
       } else if (provider === 'openai' || name.includes('gpt') || name.includes('o1') || name.includes('o3')) {
         iconSrc = '../../Assets/Brand-Assets/openai-white-logo.png';
@@ -196,7 +198,9 @@
       }
 
       let badgeText = 'LOCAL';
-      if (model.type === 'cloud' || provider !== 'ollama') {
+      if (isHf) {
+        badgeText = 'HF GGUF';
+      } else if (model.type === 'cloud' || provider !== 'ollama') {
         badgeText = provider.toUpperCase();
       } else if (name.includes(':')) {
         badgeText = name.split(':')[1].toUpperCase();

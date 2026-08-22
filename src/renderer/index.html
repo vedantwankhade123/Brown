@@ -926,6 +926,25 @@
               <div id="custom-endpoint-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ Custom endpoint connected!</div>
             </div>
 
+            <!-- Hugging Face Hub Connector -->
+            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+              <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <img src="../../Assets/Brand-Assets/hf-logo.png" alt="Hugging Face" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
+                  <div style="display: flex; flex-direction: column;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Hugging Face Hub</span>
+                      <span id="hf-status-badge" style="background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3); font-size: 10px; padding: 2px 8px; border-radius: 4px;">GGUF Hub Active</span>
+                    </div>
+                    <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: https://huggingface.co/api/models</p>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
+                Directly search, download, and run thousands of community GGUF quantized models (<b>Llama 3.2</b>, <b>DeepSeek-R1</b>, <b>Qwen 2.5 Coder</b>, <b>Mistral</b>, and more) hosted on the Hugging Face Hub.
+              </p>
+            </div>
+
             <div class="connector-row">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; gap: 14px; margin-bottom: 12px;">
                 <img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama Logo" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
@@ -980,7 +999,7 @@
             </div>
             
             <div class="download-section">
-              <h5>Direct Download</h5>
+              <h5>Direct Download & Model Hub</h5>
               <!-- Initial trigger button to open the input field -->
               <button id="btn-show-download-fields" class="btn-primary-sm btn-add-models-trigger" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
@@ -992,17 +1011,38 @@
               </button>
               
               <div id="download-inputs-row" class="download-row hidden" style="display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 10px;">
+                <!-- Provider Selector Tabs (All, Ollama, Hugging Face) -->
+                <div id="catalog-provider-filters" class="catalog-provider-filters" role="tablist" aria-label="Filter model provider">
+                  <button type="button" class="provider-filter-pill active" data-provider="all">
+                    <span>All Providers</span>
+                  </button>
+                  <button type="button" class="provider-filter-pill" data-provider="ollama">
+                    <img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" class="provider-filter-icon" />
+                    <span>Ollama Library</span>
+                  </button>
+                  <button type="button" class="provider-filter-pill" data-provider="huggingface">
+                    <img src="../../Assets/Brand-Assets/hf-logo.png" alt="Hugging Face" class="provider-filter-icon" />
+                    <span>Hugging Face Hub</span>
+                  </button>
+                </div>
+
                 <div id="catalog-model-filters" class="model-type-filters" role="tablist" aria-label="Filter model catalog"></div>
+                
                 <div style="position: relative; width: 100%; display: flex; align-items: center;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="position: absolute; left: 10px; color: rgba(255, 255, 255, 0.4); pointer-events: none;">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>
-                  <input type="text" id="input-download-model" class="override-input" style="width: 100%; height: 36px; box-sizing: border-box; padding-left: 32px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px;" placeholder="Search catalog or type custom model tag (e.g. llama3)...">
+                  <input type="text" id="input-download-model" class="override-input" style="width: 100%; height: 38px; box-sizing: border-box; padding-left: 32px; padding-right: 32px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px;" placeholder="Search Ollama & Hugging Face Hub (e.g. llama3, deepseek-r1, qwen, bartowski/...)...">
+                  <div id="hf-search-spinner" class="hf-search-spinner hidden" style="position: absolute; right: 10px; display: none; align-items: center; justify-content: center;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.5" class="spin-animation" width="14" height="14">
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+                    </svg>
+                  </div>
                   <button id="btn-download-model" class="hidden" style="display: none;"></button>
                 </div>
                 
-                <!-- Popular Models Catalog Grid -->
+                <!-- Popular & Live Search Models Catalog Grid -->
                 <div id="ollama-catalog-list" class="ollama-catalog-list"></div>
                 <button id="btn-load-more-models" class="btn-load-more-models">Load More</button>
               </div>

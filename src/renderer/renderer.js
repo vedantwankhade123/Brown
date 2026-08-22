@@ -4784,6 +4784,8 @@ function getBrandAssetLogo(provider) {
       return '../../Assets/Brand-Assets/grok-white-logo.png';
     case 'custom':
       return '../../Assets/Brand-Assets/openrouter-white-logo.png';
+    case 'huggingface':
+      return '../../Assets/Brand-Assets/hf-logo.png';
     case 'ollama':
     default:
       return '../../Assets/Brand-Assets/ollama-white-logo.png';
@@ -4936,17 +4938,21 @@ function renderModelDropdownList() {
       const item = document.createElement('div');
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       
-      let badgeText = 'LOCAL';
+      const isHf = model.name.startsWith('hf.co/');
+      const modelLogo = isHf
+        ? '../../Assets/Brand-Assets/hf-logo.png'
+        : '../../Assets/Brand-Assets/ollama-white-logo.png';
+      let badgeText = isHf ? 'HF GGUF' : 'LOCAL';
       if (model.name.includes(':')) {
         badgeText = model.name.split(':')[1].toUpperCase();
       }
 
       item.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
+          <img src="${modelLogo}" alt="${isHf ? 'Hugging Face' : 'Ollama'}" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
           <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
         </div>
-        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.5); flex-shrink: 0; text-align: right; margin-left: 8px;">${badgeText}</span>
+        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: ${isHf ? '#fde047' : 'rgba(255,255,255,0.5)'}; flex-shrink: 0; text-align: right; margin-left: 8px;">${badgeText}</span>
       `;
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept(model.name);
@@ -7626,9 +7632,20 @@ function renderSettingsModels() {
     const isCloudModel = name.endsWith('-cloud');
 
     // Find catalog entry for rich description and size if available
-    const catalogEntry = [...(OLLAMA_CLOUD_PULL_MODELS || []), ...(OLLAMA_POPULAR_MODELS || [])].find(
-      c => c.name.toLowerCase() === name.toLowerCase() || c.name.split(':')[0] === name.split(':')[0]
+    const catalogEntry = [
+      ...(OLLAMA_CLOUD_PULL_MODELS || []),
+      ...(OLLAMA_POPULAR_MODELS || []),
+      ...(HUGGINGFACE_POPULAR_MODELS || [])
+    ].find(
+      c => c.name.toLowerCase() === name.toLowerCase() ||
+           c.name.split(':')[0] === name.split(':')[0] ||
+           (c.repoId && name.toLowerCase().includes(c.repoId.toLowerCase()))
     );
+
+    const isHfModel = name.startsWith('hf.co/') || (catalogEntry && catalogEntry.provider === 'huggingface');
+    const providerBadge = isHfModel
+      ? `<span class="catalog-model-provider-badge hf"><img src="../../Assets/Brand-Assets/hf-logo.png" alt="HF" /> Hugging Face</span>`
+      : `<span class="catalog-model-provider-badge ollama"><img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" /> Ollama</span>`;
 
     // Parameter size tag (e.g. "8B", "20B", "3B", "7B")
     const paramBadge = catalogEntry?.size || (
@@ -7643,12 +7660,13 @@ function renderSettingsModels() {
     // Description text
     const descText = catalogEntry?.desc
       ? catalogEntry.desc
-      : (isCloudModel ? 'Ollama Cloud model (free tier remote execution)' : 'Local offline model weight installed on your PC');
+      : (isHfModel ? 'Hugging Face GGUF model installed locally' : (isCloudModel ? 'Ollama Cloud model (free tier remote execution)' : 'Local offline model weight installed on your PC'));
 
     // Tags
     const tags = catalogEntry?.tags ? [...catalogEntry.tags] : inferModelTags(name, descText);
     if (!tags.includes('offline') && !isCloudModel) tags.unshift('offline');
     if (isCloudModel && !tags.includes('cloud')) tags.unshift('cloud');
+    if (isHfModel && !tags.includes('huggingface')) tags.push('huggingface');
 
     // Active status
     const isActive = activeModel && (activeModel === name || activeModel.split(':')[0] === name.split(':')[0]);
@@ -7656,6 +7674,7 @@ function renderSettingsModels() {
     item.innerHTML = `
       <div class="catalog-model-info">
         <div class="catalog-model-title-row">
+          ${providerBadge}
           <span class="catalog-model-name">${escapeHtml(name)}</span>
           <span class="catalog-model-badge">${escapeHtml(paramBadge)}</span>
           <span class="catalog-model-size-badge">${isCloudModel ? '📦 Cloud' : '💾 ' + escapeHtml(sizeText)}</span>
@@ -8586,51 +8605,200 @@ if (btnCancelDownload) {
 }
 
 // ==========================================
-// POPULAR OLLAMA MODELS CATALOG DATA & CONTROLLER
+// UNIFIED POPULAR & LIVE MODEL CATALOG CONTROLLER
+// (OLLAMA LIBRARY & HUGGING FACE GGUF HUB)
 // ==========================================
-// ==========================================
-// POPULAR OLLAMA MODELS CATALOG DATA & CONTROLLER
-// ==========================================
+let activeCatalogProviderFilter = 'all'; // 'all' | 'ollama' | 'huggingface'
+let liveHuggingFaceResults = [];
+let hfSearchDebounceTimer = null;
+let activeHfSearchQuery = '';
+
 const OLLAMA_CLOUD_PULL_MODELS = [
-  { name: 'gpt-oss:20b-cloud', size: '20B', downloadSize: 'Cloud', desc: 'Fast general tasks on Ollama Cloud (free tier — sign in in Settings → Models)', tags: ['cloud', 'thinking'] },
-  { name: 'gpt-oss:120b-cloud', size: '120B', downloadSize: 'Cloud', desc: 'Large reasoning model — runs on Ollama servers, not your GPU', tags: ['cloud', 'thinking'] },
-  { name: 'deepseek-v3.1:671b-cloud', size: '671B', downloadSize: 'Cloud', desc: 'DeepSeek v3.1 cloud inference via Ollama', tags: ['cloud', 'thinking'] },
-  { name: 'qwen3-coder:480b-cloud', size: '480B', downloadSize: 'Cloud', desc: 'Heavy code generation on Ollama Cloud', tags: ['cloud', 'code'] },
-  { name: 'minimax-m2.7-cloud', size: 'CLOUD', downloadSize: 'Cloud', desc: 'MiniMax M2.7 cloud model', tags: ['cloud'] },
+  { name: 'gpt-oss:20b-cloud', size: '20B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Fast general tasks on Ollama Cloud (free tier — sign in in Settings → Models)', tags: ['cloud', 'thinking'] },
+  { name: 'gpt-oss:120b-cloud', size: '120B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Large reasoning model — runs on Ollama servers, not your GPU', tags: ['cloud', 'thinking'] },
+  { name: 'deepseek-v3.1:671b-cloud', size: '671B', downloadSize: 'Cloud', provider: 'ollama', desc: 'DeepSeek v3.1 cloud inference via Ollama', tags: ['cloud', 'thinking'] },
+  { name: 'qwen3-coder:480b-cloud', size: '480B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Heavy code generation on Ollama Cloud', tags: ['cloud', 'code'] },
+  { name: 'minimax-m2.7-cloud', size: 'CLOUD', downloadSize: 'Cloud', provider: 'ollama', desc: 'MiniMax M2.7 cloud model', tags: ['cloud'] },
 ];
 
 const OLLAMA_POPULAR_MODELS = [
-  { name: 'llama3:latest', size: '8B', downloadSize: '4.7 GB', desc: 'Meta flagship open model for general AI tasks', tags: ['offline'] },
-  { name: 'mistral:latest', size: '7B', downloadSize: '4.1 GB', desc: 'Fast, high-accuracy general AI model by Mistral AI', tags: ['offline'] },
-  { name: 'phi3:latest', size: '3.8B', downloadSize: '2.2 GB', desc: 'Microsoft high-efficiency reasoning & logic model', tags: ['offline', 'thinking'] },
-  { name: 'gemma2:2b', size: '2B', downloadSize: '1.6 GB', desc: 'Google Gemma 2 compact model for low VRAM systems', tags: ['offline'] },
-  { name: 'gemma2:latest', size: '9B', downloadSize: '5.4 GB', desc: 'Google state-of-the-art open model with high precision', tags: ['offline'] },
-  { name: 'qwen2.5:latest', size: '7B', downloadSize: '4.7 GB', desc: 'Alibaba top-tier reasoning, math, and code model', tags: ['offline', 'thinking'] },
-  { name: 'deepseek-r1:latest', size: '7B', downloadSize: '4.7 GB', desc: 'DeepSeek advanced reasoning & chain-of-thought model', tags: ['offline', 'thinking'] },
-  { name: 'llava:latest', size: '7B', downloadSize: '4.5 GB', desc: 'Multimodal vision + text model for analyzing images', tags: ['offline', 'vision'] },
-  { name: 'nomic-embed-text:latest', size: '137M', downloadSize: '274 MB', desc: 'High performance text embedding & retrieval model', tags: ['offline', 'embedding'] },
-  { name: 'codellama:latest', size: '7B', downloadSize: '3.8 GB', desc: 'Meta specialized model for code generation & debugging', tags: ['offline', 'code'] },
-  { name: 'tinyllama:latest', size: '1.1B', downloadSize: '637 MB', desc: 'Ultra lightweight model for low resource PCs', tags: ['offline'] },
-  { name: 'llama3.2:1b', size: '1B', downloadSize: '1.3 GB', desc: 'Meta ultra-fast 1B model for rapid responses', tags: ['offline'] },
-  { name: 'llama3.2:3b', size: '3B', downloadSize: '2.0 GB', desc: 'Meta balanced 3B compact model', tags: ['offline'] },
-  { name: 'qwen2:7b', size: '7B', downloadSize: '4.4 GB', desc: 'Alibaba Qwen2 general intelligence model', tags: ['offline'] },
-  { name: 'starcoder2:latest', size: '3B', downloadSize: '1.7 GB', desc: 'BigCode high-speed code assistant', tags: ['offline', 'code'] },
-  { name: 'vicuna:latest', size: '7B', downloadSize: '3.8 GB', desc: 'LMSYS chat & conversation fine-tuned model', tags: ['offline'] },
-  { name: 'wizardlm2:latest', size: '7B', downloadSize: '4.1 GB', desc: 'Microsoft WizardLM2 complex reasoning model', tags: ['offline', 'thinking'] },
-  { name: 'orca-mini:latest', size: '3B', downloadSize: '1.9 GB', desc: 'Compact reasoning model for lightweight hardware', tags: ['offline', 'thinking'] },
-  { name: 'zephyr:latest', size: '7B', downloadSize: '4.1 GB', desc: 'HuggingFace direct preference optimized chat model', tags: ['offline'] },
-  { name: 'dolphin-mixtral:latest', size: '8x7B', downloadSize: '26 GB', desc: 'Dolphin uncensored conversational model', tags: ['offline'] }
+  { name: 'llama3:latest', size: '8B', downloadSize: '4.7 GB', provider: 'ollama', desc: 'Meta flagship open model for general AI tasks', tags: ['offline'] },
+  { name: 'mistral:latest', size: '7B', downloadSize: '4.1 GB', provider: 'ollama', desc: 'Fast, high-accuracy general AI model by Mistral AI', tags: ['offline'] },
+  { name: 'phi3:latest', size: '3.8B', downloadSize: '2.2 GB', provider: 'ollama', desc: 'Microsoft high-efficiency reasoning & logic model', tags: ['offline', 'thinking'] },
+  { name: 'gemma2:2b', size: '2B', downloadSize: '1.6 GB', provider: 'ollama', desc: 'Google Gemma 2 compact model for low VRAM systems', tags: ['offline'] },
+  { name: 'gemma2:latest', size: '9B', downloadSize: '5.4 GB', provider: 'ollama', desc: 'Google state-of-the-art open model with high precision', tags: ['offline'] },
+  { name: 'qwen2.5:latest', size: '7B', downloadSize: '4.7 GB', provider: 'ollama', desc: 'Alibaba top-tier reasoning, math, and code model', tags: ['offline', 'thinking'] },
+  { name: 'deepseek-r1:latest', size: '7B', downloadSize: '4.7 GB', provider: 'ollama', desc: 'DeepSeek advanced reasoning & chain-of-thought model', tags: ['offline', 'thinking'] },
+  { name: 'llava:latest', size: '7B', downloadSize: '4.5 GB', provider: 'ollama', desc: 'Multimodal vision + text model for analyzing images', tags: ['offline', 'vision'] },
+  { name: 'nomic-embed-text:latest', size: '137M', downloadSize: '274 MB', provider: 'ollama', desc: 'High performance text embedding & retrieval model', tags: ['offline', 'embedding'] },
+  { name: 'codellama:latest', size: '7B', downloadSize: '3.8 GB', provider: 'ollama', desc: 'Meta specialized model for code generation & debugging', tags: ['offline', 'code'] },
+  { name: 'tinyllama:latest', size: '1.1B', downloadSize: '637 MB', provider: 'ollama', desc: 'Ultra lightweight model for low resource PCs', tags: ['offline'] },
+  { name: 'llama3.2:1b', size: '1B', downloadSize: '1.3 GB', provider: 'ollama', desc: 'Meta ultra-fast 1B model for rapid responses', tags: ['offline'] },
+  { name: 'llama3.2:3b', size: '3B', downloadSize: '2.0 GB', provider: 'ollama', desc: 'Meta balanced 3B compact model', tags: ['offline'] },
+  { name: 'qwen2:7b', size: '7B', downloadSize: '4.4 GB', provider: 'ollama', desc: 'Alibaba Qwen2 general intelligence model', tags: ['offline'] },
+  { name: 'starcoder2:latest', size: '3B', downloadSize: '1.7 GB', provider: 'ollama', desc: 'BigCode high-speed code assistant', tags: ['offline', 'code'] },
+  { name: 'vicuna:latest', size: '7B', downloadSize: '3.8 GB', provider: 'ollama', desc: 'LMSYS chat & conversation fine-tuned model', tags: ['offline'] },
+  { name: 'wizardlm2:latest', size: '7B', downloadSize: '4.1 GB', provider: 'ollama', desc: 'Microsoft WizardLM2 complex reasoning model', tags: ['offline', 'thinking'] },
+  { name: 'orca-mini:latest', size: '3B', downloadSize: '1.9 GB', provider: 'ollama', desc: 'Compact reasoning model for lightweight hardware', tags: ['offline', 'thinking'] },
+  { name: 'zephyr:latest', size: '7B', downloadSize: '4.1 GB', provider: 'ollama', desc: 'HuggingFace direct preference optimized chat model', tags: ['offline'] },
+  { name: 'dolphin-mixtral:latest', size: '8x7B', downloadSize: '26 GB', provider: 'ollama', desc: 'Dolphin uncensored conversational model', tags: ['offline'] }
 ];
 
-let catalogLimit = 10;
+const HUGGINGFACE_POPULAR_MODELS = [
+  {
+    name: 'hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M',
+    displayName: 'Llama-3.2-1B-Instruct (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '1B',
+    downloadSize: '1.3 GB',
+    desc: 'Meta ultra-fast 1B instruct model quantized to Q4_K_M by bartowski',
+    tags: ['offline', 'huggingface'],
+    downloads: 384000,
+    likes: 420
+  },
+  {
+    name: 'hf.co/bartowski/Llama-3.2-3B-Instruct-GGUF:Q4_K_M',
+    displayName: 'Llama-3.2-3B-Instruct (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '3B',
+    downloadSize: '2.0 GB',
+    desc: 'Meta high-efficiency 3B compact instruct model quantized to Q4_K_M',
+    tags: ['offline', 'huggingface'],
+    downloads: 512000,
+    likes: 630
+  },
+  {
+    name: 'hf.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF:Q4_K_M',
+    displayName: 'DeepSeek-R1-Distill-Qwen-1.5B (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '1.5B',
+    downloadSize: '1.2 GB',
+    desc: 'DeepSeek advanced chain-of-thought reasoning distilled into compact Qwen 1.5B',
+    tags: ['offline', 'thinking', 'huggingface'],
+    downloads: 620000,
+    likes: 910
+  },
+  {
+    name: 'hf.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF:Q4_K_M',
+    displayName: 'DeepSeek-R1-Distill-Qwen-7B (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '7B',
+    downloadSize: '4.7 GB',
+    desc: 'DeepSeek R1 reasoning & problem-solving model quantized to Q4_K_M',
+    tags: ['offline', 'thinking', 'huggingface'],
+    downloads: 890000,
+    likes: 1250
+  },
+  {
+    name: 'hf.co/bartowski/Qwen2.5-Coder-1.5B-Instruct-GGUF:Q4_K_M',
+    displayName: 'Qwen2.5-Coder-1.5B-Instruct (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '1.5B',
+    downloadSize: '1.1 GB',
+    desc: 'Alibaba lightning-fast code generation and debugging model',
+    tags: ['offline', 'code', 'huggingface'],
+    downloads: 240000,
+    likes: 380
+  },
+  {
+    name: 'hf.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF:Q4_K_M',
+    displayName: 'Qwen2.5-Coder-7B-Instruct (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '7B',
+    downloadSize: '4.7 GB',
+    desc: 'Alibaba flagship coding intelligence model with deep syntax reasoning',
+    tags: ['offline', 'code', 'huggingface'],
+    downloads: 710000,
+    likes: 890
+  },
+  {
+    name: 'hf.co/bartowski/gemma-2-2b-it-GGUF:Q4_K_M',
+    displayName: 'Gemma-2-2B-IT (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '2B',
+    downloadSize: '1.6 GB',
+    desc: 'Google high precision compact conversational model',
+    tags: ['offline', 'huggingface'],
+    downloads: 310000,
+    likes: 290
+  },
+  {
+    name: 'hf.co/bartowski/Phi-3.5-mini-instruct-GGUF:Q4_K_M',
+    displayName: 'Phi-3.5-Mini-Instruct (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '3.8B',
+    downloadSize: '2.3 GB',
+    desc: 'Microsoft state-of-the-art multilingual logic & reasoning mini model',
+    tags: ['offline', 'thinking', 'huggingface'],
+    downloads: 180000,
+    likes: 310
+  },
+  {
+    name: 'hf.co/TheBloke/Mistral-7B-Instruct-v0.2-GGUF:Q4_K_M',
+    displayName: 'Mistral-7B-Instruct-v0.2 (GGUF)',
+    author: 'TheBloke',
+    provider: 'huggingface',
+    size: '7B',
+    downloadSize: '4.1 GB',
+    desc: 'TheBloke canonical quantization of Mistral 7B Instruct v0.2',
+    tags: ['offline', 'huggingface'],
+    downloads: 1450000,
+    likes: 2400
+  },
+  {
+    name: 'hf.co/bartowski/Llama-3.1-8B-Instruct-GGUF:Q4_K_M',
+    displayName: 'Llama-3.1-8B-Instruct (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '8B',
+    downloadSize: '4.9 GB',
+    desc: 'Meta 128k context flagship 8B general intelligence model',
+    tags: ['offline', 'huggingface'],
+    downloads: 980000,
+    likes: 1600
+  }
+];
+
+function formatCompactCount(num) {
+  if (!num || isNaN(num)) return null;
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(0) + 'k';
+  return String(num);
+}
+
+let catalogLimit = 12;
 
 function filterCatalogModels(models, filterQuery = '') {
   const query = filterQuery.toLowerCase().trim();
   return models.filter(m => {
     const tags = m.tags || inferModelTags(m.name, m.desc);
     const matchesType = modelMatchesFilter(m.name, m.desc, tags, activeModelCatalogFilter);
-    const matchesQuery = !query || m.name.toLowerCase().includes(query) || m.desc.toLowerCase().includes(query);
+    const matchesQuery = !query ||
+      m.name.toLowerCase().includes(query) ||
+      (m.displayName && m.displayName.toLowerCase().includes(query)) ||
+      (m.author && m.author.toLowerCase().includes(query)) ||
+      m.desc.toLowerCase().includes(query);
     return matchesType && matchesQuery;
+  });
+}
+
+function initCatalogProviderFilters() {
+  const providerButtons = document.querySelectorAll('#catalog-provider-filters .provider-filter-pill');
+  providerButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      providerButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeCatalogProviderFilter = btn.getAttribute('data-provider') || 'all';
+      renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+    });
   });
 }
 
@@ -8645,14 +8813,22 @@ function renderOllamaCatalog(filterQuery = '') {
   const query = filterQuery.toLowerCase().trim();
   const installedNames = new Set((installedModelsList || []).map(m => (typeof m === 'string' ? m : m.name).toLowerCase()));
 
-  function appendCatalogSection(title, titleColor, models, limitSlice = true) {
+  function appendCatalogSection(title, titleColor, models, limitSlice = true, badgeType = null) {
     const filtered = filterCatalogModels(models, filterQuery);
     if (filtered.length === 0) return false;
 
     const header = document.createElement('div');
     header.className = 'catalog-section-title';
-    header.style.cssText = `padding: 10px 2px 6px; font-size: 11px; font-weight: 600; color: ${titleColor}; letter-spacing: 0.02em;`;
-    header.textContent = title;
+    header.style.cssText = `display: flex; align-items: center; justify-content: space-between; padding: 10px 2px 6px; font-size: 11px; font-weight: 600; color: ${titleColor}; letter-spacing: 0.02em;`;
+    
+    let headerLeft = `<span>${escapeHtml(title)}</span>`;
+    if (badgeType === 'hf') {
+      headerLeft = `<div style="display: flex; align-items: center; gap: 6px;"><img src="../../Assets/Brand-Assets/hf-logo.png" style="width: 13px; height: 13px; object-fit: contain;" /><span>${escapeHtml(title)}</span></div>`;
+    } else if (badgeType === 'ollama') {
+      headerLeft = `<div style="display: flex; align-items: center; gap: 6px;"><img src="../../Assets/Brand-Assets/ollama-logo.png" style="width: 13px; height: 13px; object-fit: contain;" /><span>${escapeHtml(title)}</span></div>`;
+    }
+    
+    header.innerHTML = `${headerLeft}<span style="font-size: 10px; color: var(--text-muted); font-weight: normal;">${filtered.length} models</span>`;
     catalogListEl.appendChild(header);
 
     const visible = query ? filtered : (limitSlice ? filtered.slice(0, catalogLimit) : filtered);
@@ -8661,8 +8837,9 @@ function renderOllamaCatalog(filterQuery = '') {
   }
 
   function appendCatalogCard(model, installedSet) {
-    const isInstalled = installedSet.has(model.name.toLowerCase());
+    const isInstalled = installedSet.has(model.name.toLowerCase()) || (model.repoId && installedSet.has(`hf.co/${model.repoId}`.toLowerCase()));
     const isCloudModel = model.name.endsWith('-cloud') || (model.tags && model.tags.includes('cloud'));
+    const isHuggingFace = model.provider === 'huggingface' || model.name.startsWith('hf.co/');
     const tags = model.tags || inferModelTags(model.name, model.desc);
     const card = document.createElement('div');
     card.className = 'catalog-model-card';
@@ -8674,14 +8851,35 @@ function renderOllamaCatalog(filterQuery = '') {
       actionButtonHtml = `<button class="btn-catalog-pull btn-cloud-use" data-model="${escapeHtml(model.name)}" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">Use Model</button>`;
     }
 
+    const providerBadge = isHuggingFace
+      ? `<span class="catalog-model-provider-badge hf"><img src="../../Assets/Brand-Assets/hf-logo.png" alt="HF" /> Hugging Face</span>`
+      : `<span class="catalog-model-provider-badge ollama"><img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" /> Ollama</span>`;
+
+    let statsHtml = '';
+    const formattedDl = formatCompactCount(model.downloads);
+    const formattedLikes = formatCompactCount(model.likes);
+    if (formattedDl || formattedLikes) {
+      statsHtml = `
+        <div class="catalog-model-stats">
+          ${formattedDl ? `<span class="catalog-model-stats-item">⬇ ${formattedDl}</span>` : ''}
+          ${formattedLikes ? `<span class="catalog-model-stats-item">❤️ ${formattedLikes}</span>` : ''}
+          ${model.author ? `<span class="catalog-model-stats-item" style="color: rgba(255,255,255,0.45);">by ${escapeHtml(model.author)}</span>` : ''}
+        </div>
+      `;
+    }
+
+    const displayName = model.displayName || model.name;
+
     card.innerHTML = `
       <div class="catalog-model-info">
         <div class="catalog-model-title-row">
-          <span class="catalog-model-name">${escapeHtml(model.name)}</span>
-          <span class="catalog-model-badge">${escapeHtml(model.size)}</span>
+          ${providerBadge}
+          <span class="catalog-model-name">${escapeHtml(displayName)}</span>
+          <span class="catalog-model-badge">${escapeHtml(model.size || 'GGUF')}</span>
           <span class="catalog-model-size-badge">${isCloudModel ? '📦 Cloud' : '📦 ' + escapeHtml(model.downloadSize || 'Est. ~4 GB')}</span>
         </div>
         <div class="catalog-model-desc">${escapeHtml(model.desc)}</div>
+        ${statsHtml}
         ${renderCatalogTagBadges(tags)}
       </div>
       ${actionButtonHtml}
@@ -8710,29 +8908,50 @@ function renderOllamaCatalog(filterQuery = '') {
     catalogListEl.appendChild(card);
   }
 
-  const showCloudSection = activeModelCatalogFilter === 'all' || activeModelCatalogFilter === 'cloud';
+  const showOllama = activeCatalogProviderFilter === 'all' || activeCatalogProviderFilter === 'ollama';
+  const showHuggingFace = activeCatalogProviderFilter === 'all' || activeCatalogProviderFilter === 'huggingface';
+  const showCloudSection = (activeModelCatalogFilter === 'all' || activeModelCatalogFilter === 'cloud') && showOllama;
   const showLocalSection = activeModelCatalogFilter !== 'cloud';
 
-  const hasCloud = showCloudSection
-    ? appendCatalogSection('Ollama Cloud — pull & run via local Ollama (free tier)', '#34d399', OLLAMA_CLOUD_PULL_MODELS, false)
-    : false;
-  const hasLocal = showLocalSection
-    ? appendCatalogSection('Local Models — run on your PC', 'var(--text-muted)', OLLAMA_POPULAR_MODELS, true)
-    : false;
+  let hasCloud = false;
+  let hasOllama = false;
+  let hasHf = false;
+  let hasLiveHf = false;
 
-  const filteredLocalCount = filterCatalogModels(OLLAMA_POPULAR_MODELS, filterQuery).length;
+  // 1. Ollama Cloud Section
+  if (showCloudSection) {
+    hasCloud = appendCatalogSection('Ollama Cloud Models (Free Tier)', '#34d399', OLLAMA_CLOUD_PULL_MODELS, false, 'ollama');
+  }
 
-  if (!hasCloud && !hasLocal && query && !query.includes(' ')) {
+  // 2. Local Ollama Models Section
+  if (showOllama && showLocalSection) {
+    hasOllama = appendCatalogSection('Ollama Local Models', 'var(--text-muted)', OLLAMA_POPULAR_MODELS, true, 'ollama');
+  }
+
+  // 3. Hugging Face Predefined / Curated GGUF Models
+  if (showHuggingFace && showLocalSection) {
+    hasHf = appendCatalogSection('Hugging Face Popular GGUF Hub', '#fde047', HUGGINGFACE_POPULAR_MODELS, true, 'hf');
+  }
+
+  // 4. Live Hugging Face Search Results
+  if (showHuggingFace && liveHuggingFaceResults.length > 0 && query) {
+    hasLiveHf = appendCatalogSection(`Hugging Face Live Search ("${escapeHtml(query)}")`, '#60a5fa', liveHuggingFaceResults, false, 'hf');
+  }
+
+  const totalFilteredCount = (showOllama ? filterCatalogModels(OLLAMA_POPULAR_MODELS, filterQuery).length : 0) +
+                             (showHuggingFace ? filterCatalogModels(HUGGINGFACE_POPULAR_MODELS, filterQuery).length : 0);
+
+  if (!hasCloud && !hasOllama && !hasHf && !hasLiveHf && query && !query.includes(' ')) {
     appendCatalogCard({
       name: query,
       size: 'Custom Tag',
-      downloadSize: 'Ollama Library',
-      desc: `Pull custom model "${query}" directly from Ollama repository`,
+      downloadSize: 'Direct Pull',
+      desc: `Pull model tag "${query}" directly from repository`,
     }, installedNames);
-  } else if (!hasCloud && !hasLocal) {
+  } else if (!hasCloud && !hasOllama && !hasHf && !hasLiveHf) {
     catalogListEl.innerHTML = `
-      <div style="font-size: 12px; color: var(--text-muted); padding: 8px 0; text-align: center;">
-        No catalog match for "${escapeHtml(query)}". Type a valid model tag (e.g. <b>gemma2:2b</b> or <b>gpt-oss:20b-cloud</b>).
+      <div style="font-size: 12px; color: var(--text-muted); padding: 12px 0; text-align: center;">
+        No models found matching "${escapeHtml(query)}" for provider "${escapeHtml(activeCatalogProviderFilter)}".
       </div>
     `;
     if (btnLoadMore) btnLoadMore.style.display = 'none';
@@ -8740,7 +8959,7 @@ function renderOllamaCatalog(filterQuery = '') {
   }
 
   if (btnLoadMore) {
-    if (!query && showLocalSection && catalogLimit < filteredLocalCount) {
+    if (!query && showLocalSection && catalogLimit < totalFilteredCount) {
       btnLoadMore.style.display = 'block';
     } else {
       btnLoadMore.style.display = 'none';
@@ -8749,6 +8968,43 @@ function renderOllamaCatalog(filterQuery = '') {
 }
 
 initModelCatalogFilters();
+initCatalogProviderFilters();
+
+// Live Debounced Hugging Face Hub Search Controller
+function triggerLiveHuggingFaceSearch(query) {
+  const spinner = document.getElementById('hf-search-spinner');
+  clearTimeout(hfSearchDebounceTimer);
+
+  const cleanQuery = (query || '').trim();
+  if (!cleanQuery || cleanQuery.length < 2 || activeCatalogProviderFilter === 'ollama') {
+    liveHuggingFaceResults = [];
+    if (spinner) spinner.style.display = 'none';
+    renderOllamaCatalog(cleanQuery);
+    return;
+  }
+
+  if (spinner) spinner.style.display = 'flex';
+
+  hfSearchDebounceTimer = setTimeout(async () => {
+    activeHfSearchQuery = cleanQuery;
+    try {
+      if (window.ultronAPI && window.ultronAPI.searchHuggingFaceModels) {
+        const res = await window.ultronAPI.searchHuggingFaceModels(cleanQuery, 12);
+        if (res && res.success && Array.isArray(res.models)) {
+          liveHuggingFaceResults = res.models;
+        } else {
+          liveHuggingFaceResults = [];
+        }
+      }
+    } catch (e) {
+      console.warn('[HF Search] live query failed:', e);
+      liveHuggingFaceResults = [];
+    } finally {
+      if (spinner) spinner.style.display = 'none';
+      renderOllamaCatalog(cleanQuery);
+    }
+  }, 320);
+}
 
 // Bind show download fields triggers (both top and bottom buttons)
 const addModelsTriggers = document.querySelectorAll('.btn-add-models-trigger, #btn-show-download-fields, #btn-show-download-fields-top');
@@ -8758,7 +9014,7 @@ addModelsTriggers.forEach(btn => {
     const inputsRow = document.getElementById('download-inputs-row');
     if (inputsRow) {
       inputsRow.classList.remove('hidden');
-      catalogLimit = 10;
+      catalogLimit = 12;
       renderModelTypeFilterBar(document.getElementById('catalog-model-filters'));
       renderOllamaCatalog();
       if (inputDownloadModel) inputDownloadModel.focus();
@@ -8771,15 +9027,15 @@ const btnLoadMoreModels = document.getElementById('btn-load-more-models');
 if (btnLoadMoreModels) {
   btnLoadMoreModels.addEventListener('click', (e) => {
     e.preventDefault();
-    catalogLimit += 10;
+    catalogLimit += 12;
     renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
   });
 }
 
-// Bind catalog search input filter
+// Bind catalog search input filter & live HF search
 if (inputDownloadModel) {
   inputDownloadModel.addEventListener('input', () => {
-    renderOllamaCatalog(inputDownloadModel.value);
+    triggerLiveHuggingFaceSearch(inputDownloadModel.value);
   });
 }
 
