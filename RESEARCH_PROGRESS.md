@@ -1098,6 +1098,50 @@ This file tracks the engineering sprints, codebase additions, and mitigations du
 *   *Challenge:* Debouncing live queries to prevent Hugging Face Hub API rate limits while maintaining an instantaneous typing feel.
 *   *Mitigation:* Designed a 320ms leading-edge debounced fetcher with active query matching, cancellation of stale promises, and automatic fallback to pre-cached curated GGUF catalogs if offline.
 
+---
+
+## 📅 Day 28: Mobile-Desktop Companion Ecosystem, Stack Navigation & Brand Architecture (Phase 1 & 2 Polish)
+
+### 1. Key Accomplishments
+*   **Hierarchical Stack Navigation & Sub-View Backtracking**:
+    *   Replaced flat screen transitions in `mobile/App.tsx` with an explicit LIFO `screenStack: ScreenType[]`, ensuring deep transitions (`Settings` $\rightarrow$ `Desktop Sync` or `Model Store`) pop back to their origin rather than resetting to Chat.
+    *   Integrated nested `viewHistory: SettingsView[]` and React Native `BackHandler` inside `mobile/src/screens/SettingsScreen.tsx` for multi-level back-navigation (`Settings` $\rightarrow$ `Account` $\rightarrow$ `Edit Profile` $\rightarrow$ `Account` $\rightarrow$ `Settings` $\rightarrow$ `Chat`).
+*   **Dynamic Brand Logo Resolver & Multi-Model Parity**:
+    *   Engineered `mobile/src/components/ModelBrandLogo.tsx` dynamically mapping models (Gemma/Gemini, DeepSeek, Claude, OpenAI, Ollama, Hugging Face GGUF) to their authentic high-contrast brand assets.
+    *   Resolved dropdown menu scroll locking by configuring `modelDropdownCard` (`maxHeight: 340`) and `dropdownScroll` with nested touch handling.
+*   **Shared Workstation Capabilities & Live Offloading**:
+    *   Tagged live PC Ollama inference models with the **`Shared`** label in mobile model pickers (`8.9 GB • Shared from PC`).
+    *   Designed a dedicated **Shared Capabilities** card in `DesktopSyncScreen.tsx` displaying synchronized Ollama GPU inference, Gemini cloud keys, bidirectional chat memory, and persona configurations.
+*   **Adaptive Device Deduplication & Connection History**:
+    *   Updated `src/main/desktop-sync-server.js` `/pair/verify` to automatically revoke stale tokens and deduplicate active devices by device name/identity.
+    *   Implemented **Previously Connected Devices** on Desktop (`loadSyncStats`) and **Previously Connected Workstations** on Mobile with 1-click reconnect triggers and history clearing.
+*   **High-Resolution Proportional Native Splash Screen**:
+    *   Synthesized a high-resolution `1284 x 2778` portrait native splash screen (`mobile/Assets/splash.png`) with a pure black (`#000000`) background, centered 360px Ultron crest, and `Outfit_800ExtraBold` `ULTRON` wordmark with `OFFLINE INTELLIGENCE` subtitle.
+    *   Standardized in-app loading view (`isLoading`) in `mobile/App.tsx`.
+*   **Verification**: All mobile verification tests (`14/14 passed`) and desktop test suites (`100% passed`) verified successfully.
+
+### 2. Codebase Additions & Modifications
+*   **Files Created/Modified:**
+    *   [mobile/src/components/ModelBrandLogo.tsx](file:///d:/Ultron/mobile/src/components/ModelBrandLogo.tsx) [NEW]
+    *   [mobile/Assets/splash.png](file:///d:/Ultron/mobile/Assets/splash.png) [MODIFIED]
+    *   [mobile/app.json](file:///d:/Ultron/mobile/app.json) [MODIFIED]
+    *   [mobile/App.tsx](file:///d:/Ultron/mobile/App.tsx) [MODIFIED]
+    *   [mobile/src/screens/SettingsScreen.tsx](file:///d:/Ultron/mobile/src/screens/SettingsScreen.tsx) [MODIFIED]
+    *   [mobile/src/screens/DesktopSyncScreen.tsx](file:///d:/Ultron/mobile/src/screens/DesktopSyncScreen.tsx) [MODIFIED]
+    *   [mobile/src/components/MessageInput.tsx](file:///d:/Ultron/mobile/src/components/MessageInput.tsx) [MODIFIED]
+    *   [mobile/src/services/sync/DesktopSync.ts](file:///d:/Ultron/mobile/src/services/sync/DesktopSync.ts) [MODIFIED]
+    *   [src/main/desktop-sync-server.js](file:///d:/Ultron/src/main/desktop-sync-server.js) [MODIFIED]
+    *   [src/main/ipc.js](file:///d:/Ultron/src/main/ipc.js) [MODIFIED]
+    *   [src/preload/preload.js](file:///d:/Ultron/src/preload/preload.js) [MODIFIED]
+    *   [src/renderer/renderer.js](file:///d:/Ultron/src/renderer/renderer.js) [MODIFIED]
+    *   [Ultron Website/src/App.jsx](file:///d:/Ultron/Ultron%20Website/src/App.jsx) [MODIFIED]
+    *   [RESEARCH_PAPER.md](file:///d:/Ultron/RESEARCH_PAPER.md) [MODIFIED]
+    *   [RESEARCH_PROGRESS.md](file:///d:/Ultron/RESEARCH_PROGRESS.md) [MODIFIED]
+
+### 3. Engineering Challenges & Mitigations
+*   *Challenge:* State desynchronization and duplicate device cards when mobile clients reconnect or re-pair across intermittent Wi-Fi subnets.
+*   *Mitigation:* Built deterministic fingerprint-based token replacement into `desktop-sync-server.js` paired with LIFO history stores on both ends, guaranteeing clean, deduplicated single-instance representation.
+
 
 
 

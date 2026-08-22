@@ -1528,7 +1528,7 @@ async function typeMessageResponse(contentElement, fullText, options = {}) {
   finalizeAiMessageBubble(contentElement, fullText, { autoSpeak: options.autoSpeak !== false });
 }
 
-function renderChatMessage(sender, text, isAi = false) {
+function renderChatMessage(sender, text, isAi = false, options = {}) {
   const chatMain = document.querySelector('.chat-main');
   if (chatMain && chatMain.classList.contains('empty-state')) {
     chatMain.classList.remove('empty-state');
@@ -1539,6 +1539,40 @@ function renderChatMessage(sender, text, isAi = false) {
 
   const content = document.createElement('div');
   content.className = 'message-content';
+
+  if (!isAi && options.attachments && Array.isArray(options.attachments) && options.attachments.length > 0) {
+    const attachContainer = document.createElement('div');
+    attachContainer.className = 'user-message-attachments';
+    options.attachments.forEach(att => {
+      if (att.isImage && att.dataUrl) {
+        const img = document.createElement('img');
+        img.src = att.dataUrl;
+        img.className = 'user-message-image-thumb';
+        img.alt = att.name || 'Attached image';
+        attachContainer.appendChild(img);
+      } else {
+        const ext = att.name && att.name.includes('.') ? att.name.split('.').pop().toUpperCase() : 'FILE';
+        const extLower = ext.toLowerCase();
+        let badgeClass = 'attachment-badge';
+        if (extLower === 'pdf') badgeClass += ' badge-pdf';
+        else if (['doc', 'docx'].includes(extLower)) badgeClass += ' badge-doc';
+        else if (['js', 'ts', 'py', 'html', 'css', 'json', 'c', 'cpp'].includes(extLower)) badgeClass += ' badge-code';
+        else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(extLower)) badgeClass += ' badge-img';
+
+        const filePill = document.createElement('div');
+        filePill.className = 'user-message-file-pill';
+        const sizeStr = att.size ? `${(att.size / 1024).toFixed(1)} KB` : '';
+        filePill.innerHTML = `
+          <span class="${badgeClass}">${ext}</span>
+          <span class="file-name" title="${att.name}">${att.name}</span>
+          ${sizeStr ? `<span class="file-size">${sizeStr}</span>` : ''}
+        `;
+        attachContainer.appendChild(filePill);
+      }
+    });
+    content.appendChild(attachContainer);
+  }
+
   renderMessageContent(content, text);
 
   if (isAi) {
@@ -1555,7 +1589,7 @@ function renderChatMessage(sender, text, isAi = false) {
     actions.className = 'message-actions';
     const isThinking = isThinkingMarkup(text);
     actions.style.display = isThinking ? 'none' : 'flex';
-    actions.style.gap = '8px';
+    actions.style.gap = '4px';
     actions.style.marginTop = '6px';
     
     const btnCopy = document.createElement('button');
@@ -1577,17 +1611,8 @@ function renderChatMessage(sender, text, isAi = false) {
       btnCopy.style.color = '#34d399';
       setTimeout(() => {
         if (span) span.textContent = 'Copy';
-        btnCopy.style.color = 'var(--text-muted)';
+        btnCopy.style.color = '#ffffff';
       }, 2000);
-    });
-    
-    btnCopy.addEventListener('mouseenter', () => {
-      btnCopy.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
-      btnCopy.style.color = 'var(--accent-white)';
-    });
-    btnCopy.addEventListener('mouseleave', () => {
-      btnCopy.style.backgroundColor = 'transparent';
-      btnCopy.style.color = 'var(--text-muted)';
     });
     
     actions.appendChild(btnCopy);
@@ -1595,11 +1620,14 @@ function renderChatMessage(sender, text, isAi = false) {
     wrapper.appendChild(actions);
     messageDiv.appendChild(wrapper);
 
-    // Format code blocks for static rendered messages
+    // Format code blocks for static rendered messages & enhance for Code Canvas
     if (!isThinking) {
       setTimeout(() => {
         formatCodeBlocks(content);
         wrapMarkdownTables(content);
+        if (window.UltronCanvas && typeof window.UltronCanvas.enhanceMessageCodeBlocks === 'function') {
+          window.UltronCanvas.enhanceMessageCodeBlocks(content);
+        }
       }, 0);
     }
   } else {
@@ -1614,7 +1642,7 @@ function renderChatMessage(sender, text, isAi = false) {
     const actions = document.createElement('div');
     actions.className = 'message-actions user-actions';
     actions.style.display = 'flex';
-    actions.style.gap = '8px';
+    actions.style.gap = '4px';
     actions.style.marginTop = '4px';
     actions.style.justifyContent = 'flex-end';
 
@@ -1636,7 +1664,7 @@ function renderChatMessage(sender, text, isAi = false) {
       btnCopyUser.style.color = '#34d399';
       setTimeout(() => {
         if (span) span.textContent = 'Copy';
-        btnCopyUser.style.color = 'var(--text-muted)';
+        btnCopyUser.style.color = '#ffffff';
       }, 2000);
     });
 
@@ -2443,7 +2471,7 @@ function renderChecklist(tasks) {
 
 // Append Message to Chat Container and save in conversationsStore
 function appendChatMessage(sender, text, isAi = false, options = {}) {
-  const content = options.skipRender ? null : renderChatMessage(sender, text, isAi);
+  const content = options.skipRender ? null : renderChatMessage(sender, text, isAi, options);
 
   // Save message to current session inside conversationsStore
   if (!options.skipSave && currentSessionId && conversationsStore[currentSessionId]) {
@@ -5247,7 +5275,11 @@ if (modelSelectorBtn) {
       modelDropdown.classList.remove('hidden');
       if (modelSelectorWrapper) modelSelectorWrapper.classList.add('open');
 
-      // Refresh Ollama models in background (non-blocking)
+      // Proactively refresh Ollama models from tags API & IPC
+      refreshInstalledModelsFromOllama().then(() => {
+        renderModelDropdownList();
+      }).catch(() => {});
+
       if (window.ultronAPI && typeof window.ultronAPI.profileSystem === 'function') {
         window.ultronAPI.profileSystem().then(res => {
           if (res && Array.isArray(res.installedModels)) {
@@ -5466,35 +5498,39 @@ async function submitPrompt(overridePrompt) {
     ? overridePrompt.trim()
     : chatInput.value.trim();
   let currentImagePayloads = [];
+  const userAttachedVisuals = [];
+  let llmEnrichedPrompt = prompt;
   
   // Include attached files in prompt if present
   if (attachedFiles.length > 0) {
-    const fileSummaries = [];
     attachedFiles.forEach(f => {
+      userAttachedVisuals.push({
+        name: f.name,
+        size: f.size,
+        type: f.type,
+        isImage: f.isImage,
+        dataUrl: f.dataUrl
+      });
+
       if (f.isImage && f.dataUrl) {
         const base64Data = f.dataUrl.includes(',') ? f.dataUrl.split(',')[1] : f.dataUrl;
         currentImagePayloads.push({ mimeType: f.type || 'image/png', data: base64Data });
-        fileSummaries.push(`📷 Image: ${f.name} (${(f.size/1024).toFixed(1)} KB)`);
       } else if (f.textContent) {
         const ext = f.name.includes('.') ? f.name.split('.').pop().toLowerCase() : 'txt';
-        prompt = prompt ? `${prompt}\n\n📄 **Attached File: ${f.name}**\n\`\`\`${ext}\n${f.textContent}\n\`\`\`` : `📄 **Attached File: ${f.name}**\n\`\`\`${ext}\n${f.textContent}\n\`\`\``;
-        fileSummaries.push(`📄 File: ${f.name} (${(f.size/1024).toFixed(1)} KB)`);
-      } else {
-        fileSummaries.push(`📄 File: ${f.name} (${(f.size/1024).toFixed(1)} KB)`);
+        llmEnrichedPrompt = llmEnrichedPrompt 
+          ? `${llmEnrichedPrompt}\n\n📄 **Attached Document [${f.name}]**:\n\`\`\`${ext}\n${f.textContent}\n\`\`\`` 
+          : `📄 **Attached Document [${f.name}]**:\n\`\`\`${ext}\n${f.textContent}\n\`\`\``;
       }
     });
 
-    if (!prompt && fileSummaries.length > 0) {
-      prompt = `Attached files: ${fileSummaries.join(', ')}`;
-    }
     attachedFiles = [];
     renderAttachmentPreviews();
   }
 
-  if (!prompt) return;
+  if (!prompt && userAttachedVisuals.length === 0) return;
 
   const displayPrompt = prompt;
-  prompt = normalizePromptTypos(prompt);
+  prompt = normalizePromptTypos(llmEnrichedPrompt || prompt || 'Please analyze the attached file(s).');
 
   // Create a new AbortController for this request so the stop button can cancel it
   _activeAbortController = new AbortController();
@@ -5513,12 +5549,12 @@ async function submitPrompt(overridePrompt) {
   
   // 1. Add session history item if starting a session
   if (isFirstMessage) {
-    addSessionToHistory(makeSessionTitle(prompt));
+    addSessionToHistory(makeSessionTitle(displayPrompt || 'File analysis'));
   }
   
-  // 2. Render user message
-  appendChatMessage('User', displayPrompt, false);
-  logTrace(`Processing user request: "${prompt.substring(0, 40)}..."`, 'local');
+  // 2. Render user message with attached thumbnails and badges
+  appendChatMessage('User', displayPrompt, false, { attachments: userAttachedVisuals });
+  logTrace(`Processing user request: "${(displayPrompt || prompt).substring(0, 40)}..."`, 'local');
   stopTtsSpeech();
   
   try {
@@ -7450,6 +7486,9 @@ Write the final answer now.`;
 
 // Load historical conversation session
 function loadSession(id, title) {
+  if (typeof closeSettingsPanel === 'function') {
+    closeSettingsPanel();
+  }
   const chatMain = document.querySelector('.chat-main');
 
   if (activeChatTitle) activeChatTitle.textContent = title;
@@ -7822,6 +7861,7 @@ function renderSettingsModels() {
       const btnQuick = document.getElementById('btn-quick-download-phi3');
       if (btnQuick) {
         btnQuick.addEventListener('click', () => {
+          switchModelsViewTab('download');
           const inputModel = document.getElementById('input-download-model');
           const btnDownload = document.getElementById('btn-download-model');
           if (inputModel) inputModel.value = 'phi3:latest';
@@ -9288,8 +9328,58 @@ function renderOllamaCatalog(filterQuery = '') {
   }
 }
 
+let activeModelsViewSubTab = 'installed';
+
+function switchModelsViewTab(targetView = 'installed') {
+  activeModelsViewSubTab = targetView;
+  const btnInstalled = document.getElementById('tab-btn-installed-models');
+  const btnDownload = document.getElementById('tab-btn-download-models');
+  const viewInstalled = document.getElementById('installed-models-view');
+  const viewDownload = document.getElementById('download-models-view');
+
+  if (targetView === 'installed') {
+    if (btnInstalled) {
+      btnInstalled.classList.add('active');
+      btnInstalled.setAttribute('aria-selected', 'true');
+    }
+    if (btnDownload) {
+      btnDownload.classList.remove('active');
+      btnDownload.setAttribute('aria-selected', 'false');
+    }
+    if (viewInstalled) viewInstalled.classList.remove('hidden');
+    if (viewDownload) viewDownload.classList.add('hidden');
+    renderSettingsModels();
+  } else {
+    if (btnDownload) {
+      btnDownload.classList.add('active');
+      btnDownload.setAttribute('aria-selected', 'true');
+    }
+    if (btnInstalled) {
+      btnInstalled.classList.remove('active');
+      btnInstalled.setAttribute('aria-selected', 'false');
+    }
+    if (viewDownload) viewDownload.classList.remove('hidden');
+    if (viewInstalled) viewInstalled.classList.add('hidden');
+    const inputModel = document.getElementById('input-download-model');
+    renderOllamaCatalog(inputModel ? inputModel.value : '');
+  }
+}
+
+function initModelsViewTabs() {
+  const btnInstalled = document.getElementById('tab-btn-installed-models');
+  const btnDownload = document.getElementById('tab-btn-download-models');
+
+  if (btnInstalled) {
+    btnInstalled.addEventListener('click', () => switchModelsViewTab('installed'));
+  }
+  if (btnDownload) {
+    btnDownload.addEventListener('click', () => switchModelsViewTab('download'));
+  }
+}
+
 initModelCatalogFilters();
 initCatalogProviderFilters();
+initModelsViewTabs();
 
 // Live Debounced Hugging Face Hub Search Controller
 function triggerLiveHuggingFaceSearch(query) {
@@ -9395,6 +9485,9 @@ chatInput.addEventListener('keyup', adjustInputHeight);
 
 // New Chat Trigger handler
 const triggerNewChat = () => {
+  if (typeof closeSettingsPanel === 'function') {
+    closeSettingsPanel();
+  }
   chatMessagesContainer.innerHTML = '';
   currentSessionId = null;
   setSendingState(false);
@@ -10297,7 +10390,21 @@ async function processAndAttachFiles(files) {
         logTrace(`Failed to read image dataUrl for ${file.name}: ${err.message}`, 'error');
       }
     } else {
-      if (file.size < 2 * 1024 * 1024) {
+      const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+      if (isPdf) {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          if (window.ultronAPI && typeof window.ultronAPI.extractPdfText === 'function') {
+            const res = await window.ultronAPI.extractPdfText(bytes);
+            if (res && res.success && res.text) {
+              textContent = res.text;
+            }
+          }
+        } catch (err) {
+          logTrace(`Failed to extract text from PDF ${file.name}: ${err.message}`, 'error');
+        }
+      } else if (file.size < 4 * 1024 * 1024) {
         try {
           textContent = await new Promise((res, rej) => {
             const reader = new FileReader();
@@ -10526,23 +10633,27 @@ function renderAttachmentPreviews(hasImageWarning = false) {
       <span>⚠️ <b>${activeModel}</b> is a text-based model. Switch to Gemini or a Vision model to process image contents.</span>
       <button type="button" id="btn-switch-to-vision" style="background: #fbbf24; color: #000; border: none; padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 10px; cursor: pointer;">Switch to Gemini</button>
     `;
-    attachmentPreviewBar.appendChild(warnBanner);
-
     const switchBtn = warnBanner.querySelector('#btn-switch-to-vision');
     if (switchBtn) {
       switchBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        activeModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name
-          || activeModel;
+        activeModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name || activeModel;
         updateModelSelectorLabel();
         renderAttachmentPreviews();
-        logTrace(`Switched model to Gemini 3.0 Flash for image vision analysis`, 'system');
+        logTrace(`Switched model to Gemini for image vision analysis`, 'system');
       });
     }
   }
 
   attachedFiles.forEach((fileObj, index) => {
     const ext = fileObj.name.includes('.') ? fileObj.name.split('.').pop().toUpperCase() : 'FILE';
+    const extLower = ext.toLowerCase();
+    let badgeClass = 'attachment-badge';
+    if (extLower === 'pdf') badgeClass += ' badge-pdf';
+    else if (['doc', 'docx'].includes(extLower)) badgeClass += ' badge-doc';
+    else if (['js', 'ts', 'py', 'html', 'css', 'json', 'c', 'cpp'].includes(extLower)) badgeClass += ' badge-code';
+    else if (['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'].includes(extLower)) badgeClass += ' badge-img';
+
     const sizeKB = (fileObj.size / 1024).toFixed(1);
     
     const pill = document.createElement('div');
@@ -10550,7 +10661,7 @@ function renderAttachmentPreviews(hasImageWarning = false) {
 
     const thumbHtml = fileObj.isImage && fileObj.dataUrl
       ? `<img src="${fileObj.dataUrl}" class="attachment-pill-thumb" alt="Preview" />`
-      : `<span class="attachment-badge">${ext}</span>`;
+      : `<span class="${badgeClass}">${ext}</span>`;
 
     pill.innerHTML = `
       ${thumbHtml}
@@ -14119,8 +14230,8 @@ function applyMessageActionButtonStyles(btn) {
 
 function createSpeakMessageButton(getText) {
   const btnSpeak = document.createElement('button');
-  btnSpeak.className = 'btn-speak-msg message-action-btn';
-  btnSpeak.title = 'Read aloud';
+  btnSpeak.className = 'btn-speak-msg btn-listen-msg message-action-btn';
+  btnSpeak.title = 'Listen to response';
   applyMessageActionButtonStyles(btnSpeak);
   btnSpeak.innerHTML = `
     <svg class="message-action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -14128,7 +14239,7 @@ function createSpeakMessageButton(getText) {
       <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
       <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
     </svg>
-    <span>Speak</span>
+    <span>Listen</span>
   `;
 
   btnSpeak.addEventListener('click', async (e) => {
@@ -15792,7 +15903,9 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
   const modal = document.getElementById('mobile-pair-modal');
   const codeEl = document.getElementById('mobile-pair-code');
   const timerEl = document.getElementById('mobile-pair-timer');
-  const deviceEl = document.getElementById('mobile-pair-device');
+  const nameEl = document.getElementById('mobile-pair-device-name');
+  const titleEl = document.getElementById('mobile-pair-title');
+  const boxesContainer = document.getElementById('mobile-pair-code-boxes');
   const denyBtn = document.getElementById('btn-mobile-pair-deny');
   if (!modal || !window.ultronAPI) return;
 
@@ -15807,14 +15920,28 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
   }
 
   function showPairModal(payload) {
-    const code = (payload && payload.code) || '————';
+    const rawCode = (payload && payload.code) || '————';
+    const cleanCode = String(rawCode).replace(/\s+/g, '');
     const seconds = payload && payload.expiresIn ? payload.expiresIn : 60;
-    if (codeEl) codeEl.textContent = code;
-    if (deviceEl) {
-      deviceEl.textContent = (payload && payload.deviceName)
-        ? `${payload.deviceName} is waiting for this code.`
-        : 'A phone on your Wi-Fi is waiting for this code.';
+    const deviceName = (payload && (payload.deviceName || payload.device)) || 'Mobile Device';
+
+    if (titleEl) {
+      titleEl.textContent = 'Pairing Request';
     }
+
+    if (boxesContainer) {
+      boxesContainer.innerHTML = '';
+      for (let i = 0; i < 4; i++) {
+        const char = cleanCode[i] || '—';
+        const box = document.createElement('div');
+        box.className = 'code-char-box';
+        box.textContent = char;
+        boxesContainer.appendChild(box);
+      }
+    } else if (codeEl) {
+      codeEl.textContent = cleanCode;
+    }
+
     let remaining = seconds;
     if (timerEl) timerEl.textContent = `Code expires in ${remaining}s`;
     modal.classList.remove('hidden');
@@ -16275,8 +16402,23 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
           lanEl.textContent = `LAN IP: ${info.addresses.join(', ') || '127.0.0.1'} : ${info.port || 49200}`;
         }
 
+        const statusBadge = document.getElementById('sync-status-badge');
+        const activeDevices = info.activeDevices || [];
+        if (statusBadge) {
+          if (activeDevices.length > 0) {
+            statusBadge.textContent = '● Paired';
+            statusBadge.style.background = 'rgba(16, 185, 129, 0.2)';
+            statusBadge.style.color = '#34d399';
+            statusBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+          } else {
+            statusBadge.textContent = '● Disconnected';
+            statusBadge.style.background = '#27191b';
+            statusBadge.style.color = '#f87171';
+            statusBadge.style.borderColor = '#5a1c1e';
+          }
+        }
+
         if (devicesContainer) {
-          const activeDevices = info.activeDevices || [];
           if (activeDevices.length === 0) {
             devicesContainer.innerHTML = `
               <div class="sync-empty-state-card">
@@ -16351,27 +16493,27 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
             devicesContainer.innerHTML = '';
             activeDevices.forEach(d => {
               const devName = d.deviceName || 'Ultron Mobile Companion';
-              const isApple = (d.platform === 'ios' || d.platform === 'apple' || /iphone|ipad|ios|apple/i.test(devName));
+              const isApple = (d.platform === 'ios' || d.platform === 'apple' || /iphone|ipad|ios|apple|mac/i.test(devName));
               const brandName = isApple ? 'Apple iOS' : 'Android';
-              const logoSrc = isApple ? '../../Assets/Brand-Assets/apple-black-logo.png' : '../../Assets/Brand-Assets/android-logo.png';
+              const logoSrc = isApple ? '../../Assets/Brand-Assets/white-apple.png' : '../../Assets/Brand-Assets/android-logo.png';
 
               const row = document.createElement('div');
               row.className = 'paired-mobile-device-card';
-              row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--border-color); border-radius: 10px; font-size: 13px; transition: border-color 0.2s ease;';
+              row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--border-color); border-radius: 10px; font-size: 13px; transition: border-color 0.2s ease;';
               row.innerHTML = `
-                <div style="display: flex; align-items: center; gap: 12px;">
-                  <div style="width: 36px; height: 36px; border-radius: 8px; background: #ffffff; display: flex; align-items: center; justify-content: center; padding: 5px; box-sizing: border-box; border: 1px solid rgba(255, 255, 255, 0.25); box-shadow: 0 2px 8px rgba(0,0,0,0.25); flex-shrink: 0;">
-                    <img src="${logoSrc}" alt="${brandName}" style="width: 22px; height: 22px; object-fit: contain;" />
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <div style="display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex-shrink: 0; padding: 0; background: transparent;">
+                    <img src="${logoSrc}" alt="${brandName}" style="width: 24px; height: 24px; object-fit: contain; display: block;" />
                   </div>
                   <div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                      <span style="font-weight: 600; color: #ffffff; font-size: 13px;">${escapeHtml(devName)}</span>
+                      <span style="font-weight: 600; color: #ffffff; font-size: 13.5px;">${escapeHtml(devName)}</span>
                       <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: ${isApple ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34, 197, 94, 0.15)'}; color: ${isApple ? '#ffffff' : '#22c55e'}; border: 1px solid ${isApple ? 'rgba(255, 255, 255, 0.2)' : 'rgba(34, 197, 94, 0.3)'};">${brandName}</span>
                     </div>
-                    <div style="font-size: 11px; color: #a1a1aa; margin-top: 2px;">Paired: ${new Date(d.createdAt || Date.now()).toLocaleDateString()}</div>
+                    <div style="font-size: 11px; color: #a1a1aa; margin-top: 3px;">Paired: ${new Date(d.createdAt || Date.now()).toLocaleDateString()}</div>
                   </div>
                 </div>
-                <button type="button" class="btn-sync-revoke" style="background: transparent; border: 1px solid rgba(239, 68, 68, 0.35); color: #ef4444; border-radius: 6px; padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">Unpair</button>
+                <button type="button" class="btn-sync-revoke" style="background: #241416; border: 1px solid #5a1c1e; color: #f87171; border-radius: 6px; padding: 5px 14px; font-size: 11.5px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">Unpair</button>
               `;
               const btnRevoke = row.querySelector('.btn-sync-revoke');
               if (btnRevoke) {
@@ -16381,6 +16523,48 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
                 });
               }
               devicesContainer.appendChild(row);
+            });
+          }
+
+          if (info && info.previousDevices && info.previousDevices.length > 0) {
+            const prevHeader = document.createElement('div');
+            prevHeader.style.cssText = 'margin-top: 18px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;';
+            prevHeader.innerHTML = `
+              <span style="font-size: 11px; font-weight: 600; color: #a1a1aa; text-transform: uppercase; letter-spacing: 0.04em;">Previously Connected Devices</span>
+              <button type="button" class="btn-clear-prev-sync" style="background: transparent; border: none; color: #71717a; font-size: 11px; cursor: pointer; text-decoration: underline;">Clear History</button>
+            `;
+            const btnClearPrev = prevHeader.querySelector('.btn-clear-prev-sync');
+            if (btnClearPrev) {
+              btnClearPrev.addEventListener('click', async () => {
+                await window.ultronAPI.clearPreviousMobileDevices();
+                loadSyncStats();
+              });
+            }
+            devicesContainer.appendChild(prevHeader);
+
+            info.previousDevices.forEach(pd => {
+              const isApple = (pd.platform === 'ios' || pd.platform === 'apple' || /iphone|ipad|ios|apple|mac/i.test(pd.deviceName));
+              const brandName = isApple ? 'Apple iOS' : 'Android';
+              const logoSrc = isApple ? '../../Assets/Brand-Assets/white-apple.png' : '../../Assets/Brand-Assets/android-logo.png';
+              const prevRow = document.createElement('div');
+              prevRow.className = 'paired-mobile-device-card previous-device';
+              prevRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: rgba(255, 255, 255, 0.015); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 10px; font-size: 12.5px; margin-bottom: 6px; opacity: 0.8;';
+              prevRow.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; background: transparent;">
+                    <img src="${logoSrc}" alt="${brandName}" style="width: 20px; height: 20px; object-fit: contain; display: block; opacity: 0.7;" />
+                  </div>
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 500; color: #e4e4e7; font-size: 12.5px;">${escapeHtml(pd.deviceName || 'Mobile Device')}</span>
+                      <span style="font-size: 9.5px; font-weight: 500; padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, 0.06); color: #a1a1aa;">Disconnected</span>
+                    </div>
+                    <div style="font-size: 10.5px; color: #71717a; margin-top: 2px;">Last paired: ${new Date(pd.lastConnectedAt || Date.now()).toLocaleDateString()}</div>
+                  </div>
+                </div>
+                <span style="font-size: 11px; color: #71717a;">Unpaired</span>
+              `;
+              devicesContainer.appendChild(prevRow);
             });
           }
         }
@@ -16422,29 +16606,23 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
       });
     }
 
-    // Modal pair dismiss
-    const btnCancelPairModal = document.getElementById('btn-mobile-pair-cancel');
-    if (btnCancelPairModal) {
-      btnCancelPairModal.addEventListener('click', () => {
-        const modal = document.getElementById('mobile-pair-modal');
-        if (modal) modal.classList.add('hidden');
-        if (window.ultronAPI.denyMobilePair) window.ultronAPI.denyMobilePair();
-      });
-    }
-
-    if (window.ultronAPI.onMobilePairRequest) {
-      window.ultronAPI.onMobilePairRequest((payload) => {
-        const modal = document.getElementById('mobile-pair-modal');
-        const codeEl = document.getElementById('mobile-pair-modal-code');
-        const descEl = document.getElementById('mobile-pair-modal-desc');
-        const timerEl = document.getElementById('mobile-pair-modal-timer');
-
-        if (modal) modal.classList.remove('hidden');
-        if (codeEl && payload.code) codeEl.textContent = payload.code;
-        if (descEl && payload.deviceName) descEl.textContent = `Pairing request from ${payload.deviceName}. Enter this code:`;
-        if (timerEl) timerEl.textContent = `Expires in ${payload.expiresIn || 60}s`;
-      });
-    }
+    const btnRefreshSync = document.getElementById('btn-refresh-sync-stats');
+    const btnRefreshPaired = document.getElementById('btn-refresh-paired-devices');
+    const handleManualRefresh = async (btn) => {
+      if (btn) {
+        btn.style.transform = 'rotate(180deg)';
+        btn.style.opacity = '0.6';
+      }
+      await loadSyncStats();
+      if (btn) {
+        setTimeout(() => {
+          btn.style.transform = 'rotate(0deg)';
+          btn.style.opacity = '1';
+        }, 300);
+      }
+    };
+    if (btnRefreshSync) btnRefreshSync.addEventListener('click', () => handleManualRefresh(btnRefreshSync));
+    if (btnRefreshPaired) btnRefreshPaired.addEventListener('click', () => handleManualRefresh(btnRefreshPaired));
 
     if (window.ultronAPI.onMobilePairComplete) {
       window.ultronAPI.onMobilePairComplete(() => {
@@ -16460,6 +16638,16 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
 
     document.querySelector('.settings-tab-btn[data-tab="sync"]')?.addEventListener('click', loadSyncStats);
     loadSyncStats();
+
+    // Auto-refresh sync state every 3.5s if settings view is open
+    setInterval(() => {
+      const syncPane = document.getElementById('settings-sync-pane') || document.querySelector('.settings-tab-content[data-tab="sync"]');
+      const settingsModal = document.getElementById('settings-modal');
+      const isVisible = (!settingsModal || !settingsModal.classList.contains('hidden')) && (!syncPane || !syncPane.classList.contains('hidden'));
+      if (isVisible) {
+        loadSyncStats();
+      }
+    }, 3500);
   }
 
   // 5. Initialize all subsystems on DOM ready

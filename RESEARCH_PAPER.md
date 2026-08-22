@@ -260,6 +260,13 @@ To establish seamless cross-device continuity without compromising privacy, Ultr
 4. **Credential Propagation:** The desktop securely transfers API configuration (e.g., Gemini API keys) and custom system persona instructions to the mobile device, stored directly in the hardware-backed keystore (`expo-secure-store`).
 5. **Bidirectional SQLite Synchronization:** Both instances compute delta manifests of conversation sessions and messages, merging histories incrementally with deterministic conflict resolution based on millisecond timestamp ordering ($t_{\text{updated}}$).
 
+### 5.2 Live Local-to-Edge Capability Offloading ("Shared" Architecture)
+When mobile devices connect to an active workstation, Ultron activates the *Shared Capabilities Gateway*. Heavyweight desktop models (e.g., DeepSeek-R1 14B, LLaVA-13B, Gemma 2 9B) residing on the PC GPU are dynamically registered into the mobile prompt bar tagged as **`Shared`** (`Shared from PC`). Inference requests from mobile stream directly over local HTTP chunked transfer protocols to the desktop inference engine, allowing lightweight smartphones to execute flagship multi-billion parameter models with zero on-device VRAM penalties and negligible LAN overhead ($\Delta t < 12\text{ms}$). Upon physical disconnection or unpairing, the mobile client instantly restores its independent on-device profile and edge SLM runtime without state loss.
+
+### 5.3 Token Lifecycle, Dynamic Device Deduplication & Stack Navigation Hierarchy
+1. **Device Deduplication:** To prevent phantom device entries during Wi-Fi handoffs or repeated pairings, the desktop synchronization engine enforces identity-based token substitution. Re-pairing requests from an existing client fingerprint automatically supersede prior active tokens while archiving connection metadata into a historical ledger.
+2. **Hierarchical Stack Navigation:** Mobile interaction flows enforce a formal Last-In-First-Out (LIFO) stack automaton $\mathcal{S}_{\text{nav}} = [s_0, s_1, \dots, s_k]$. Transitioning across deeply nested sub-views (e.g., `Settings` $\to$ `Account` $\to$ `Edit Profile`) pushes frames onto the navigation stack; triggering backward transitions pops the top frame ($\text{pop}(\mathcal{S}_{\text{nav}})$), guaranteeing seamless hierarchical backtracking to the exact origin screen without unwanted resets to the root chat interface.
+
 ---
 
 ## 6. Empirical Evaluation & Comparative Benchmarks

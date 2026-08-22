@@ -2,7 +2,116 @@ const { ipcMain, exec, app, shell, dialog, clipboard, desktopCapturer, screen } 
 const { exec: cpExec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const zlib = require('zlib');
 const { pathToFileURL } = require('url');
+
+function extractTextFromPdfBuffer(buffer) {
+  try {
+    if (!Buffer.isBuffer(buffer)) {
+      buffer = Buffer.from(buffer);
+    }
+    const pdfString = buffer.toString('binary');
+    const textPieces = [];
+
+    // 1. Find all streams and decompress
+    const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+    let streamMatch;
+
+    while ((streamMatch = streamRegex.exec(pdfString)) !== null) {
+      const streamContent = streamMatch[1];
+      let uncompressed = streamContent;
+
+      try {
+        const streamBuffer = Buffer.from(streamContent, 'binary');
+        uncompressed = zlib.inflateSync(streamBuffer).toString('latin1');
+      } catch {
+        try {
+          const streamBuffer = Buffer.from(streamContent, 'binary');
+          uncompressed = zlib.inflateRawSync(streamBuffer).toString('latin1');
+        } catch {
+          uncompressed = streamContent;
+        }
+      }
+
+      // Extract text objects within BT ... ET
+      const btRegex = /BT[\s\S]*?ET/g;
+      let btMatch;
+      while ((btMatch = btRegex.exec(uncompressed)) !== null) {
+        const block = btMatch[0];
+        const tjRegex = /(?:\((.*?)\)\s*(?:Tj|'|"))|(?:\[(.*?)\]\s*TJ)/g;
+        let tjMatch;
+        while ((tjMatch = tjRegex.exec(block)) !== null) {
+          if (tjMatch[1] !== undefined) {
+            const cleanStr = cleanPdfString(tjMatch[1]);
+            if (cleanStr.trim()) textPieces.push(cleanStr);
+          } else if (tjMatch[2] !== undefined) {
+            const arrayItems = tjMatch[2].match(/\((.*?)\)|<([0-9a-fA-F]+)>/g) || [];
+            const arrayText = arrayItems.map(item => {
+              if (item.startsWith('(')) {
+                return cleanPdfString(item.slice(1, -1));
+              } else if (item.startsWith('<')) {
+                return decodeHexPdfString(item.slice(1, -1));
+              }
+              return '';
+            }).join('');
+            if (arrayText.trim()) textPieces.push(arrayText);
+          }
+        }
+      }
+
+      // Fallback in uncompressed stream
+      if (textPieces.length === 0) {
+        const rawParens = uncompressed.match(/\(([^()]{2,})\)/g);
+        if (rawParens) {
+          rawParens.forEach(p => {
+            const clean = cleanPdfString(p.slice(1, -1));
+            if (clean.length > 1 && !/^\s+$/.test(clean)) {
+              textPieces.push(clean);
+            }
+          });
+        }
+      }
+    }
+
+    if (textPieces.length === 0) {
+      const asciiRuns = pdfString.match(/[\x20-\x7E\r\n\t]{4,}/g) || [];
+      const filtered = asciiRuns.filter(s => !s.startsWith('%PDF') && !s.includes('obj') && !s.includes('endobj') && !s.includes('stream'));
+      textPieces.push(...filtered);
+    }
+
+    let fullText = textPieces.join(' ')
+      .replace(/\r\n/g, '\n')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n\s+/g, '\n')
+      .replace(/(\n{3,})/g, '\n\n')
+      .trim();
+
+    return fullText || 'Could not extract legible text from this PDF file.';
+  } catch (err) {
+    return `Error extracting PDF text: ${err.message}`;
+  }
+}
+
+function cleanPdfString(str) {
+  return str
+    .replace(/\\([0-7]{1,3})/g, (_, oct) => String.fromCharCode(parseInt(oct, 8)))
+    .replace(/\\n/g, '\n')
+    .replace(/\\r/g, '\r')
+    .replace(/\\t/g, '\t')
+    .replace(/\\b/g, '\b')
+    .replace(/\\f/g, '\f')
+    .replace(/\\\(/g, '(')
+    .replace(/\\\)/g, ')')
+    .replace(/\\\\/g, '\\');
+}
+
+function decodeHexPdfString(hex) {
+  try {
+    return Buffer.from(hex, 'hex').toString('utf8');
+  } catch {
+    return '';
+  }
+}
 
 const { verifyAndResolvePath, isPathBlacklisted, isCommandBlacklisted } = require('./security');
 const { profileHardware, queryLocalOllamaModels, getModelRecommendation } = require('./hardware');
@@ -2023,8 +2132,39 @@ function getInstallationDefaultDataDir() {
       if (!fs.existsSync(resolvedPath)) {
         return { success: false, error: `File not found: ${resolvedPath}` };
       }
+      const ext = path.extname(resolvedPath).toLowerCase();
+      if (ext === '.pdf') {
+        const buffer = fs.readFileSync(resolvedPath);
+        const text = extractTextFromPdfBuffer(buffer);
+        return { success: true, content: text, filePath: resolvedPath };
+      }
       const content = fs.readFileSync(resolvedPath, 'utf8');
       return { success: true, content, filePath: resolvedPath };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Extract text from PDF buffer or file path
+  ipcMain.handle('extract-pdf-text', async (event, payload) => {
+    try {
+      let buffer;
+      if (typeof payload === 'string') {
+        const resolvedPath = path.resolve(payload);
+        if (!fs.existsSync(resolvedPath)) {
+          return { success: false, error: 'File not found' };
+        }
+        buffer = fs.readFileSync(resolvedPath);
+      } else if (payload && (payload.buffer || Buffer.isBuffer(payload) || ArrayBuffer.isView(payload) || payload instanceof ArrayBuffer)) {
+        buffer = Buffer.isBuffer(payload) ? payload : Buffer.from(payload.buffer || payload);
+      } else if (payload && payload.data) {
+        buffer = Buffer.from(payload.data);
+      } else {
+        return { success: false, error: 'Invalid PDF payload' };
+      }
+
+      const text = extractTextFromPdfBuffer(buffer);
+      return { success: true, text };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -2719,6 +2859,15 @@ function getInstallationDefaultDataDir() {
     try {
       const { revokePairedDevice } = require('./desktop-sync-server');
       return revokePairedDevice(idOrPrefix);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('desktop-sync:clear-previous-devices', async () => {
+    try {
+      const { clearPreviousDevices } = require('./desktop-sync-server');
+      return clearPreviousDevices();
     } catch (err) {
       return { success: false, error: err.message };
     }

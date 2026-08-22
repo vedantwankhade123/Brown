@@ -336,14 +336,15 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if (req.method === 'POST' && route === '/pair/request') {
+  if (req.method === 'POST' && (route === '/pair/request' || route === '/pair/init' || route === '/pair/start' || route === '/sync/connect')) {
     const body = await readBody(req);
     const requestId = crypto.randomBytes(8).toString('hex');
     const code = generatePairCode();
+    const clientDevice = (body && (body.deviceName || body.device || body.name)) ? String(body.deviceName || body.device || body.name).trim() : 'Mobile Device';
     pendingPair = {
       requestId,
       code,
-      deviceName: body.deviceName || 'Ultron Mobile',
+      deviceName: clientDevice,
       expiresAt: Date.now() + PAIR_TTL_MS,
     };
     notifyRenderer('mobile-pair-request', {
@@ -352,7 +353,7 @@ async function handleRequest(req, res) {
       deviceName: pendingPair.deviceName,
       expiresIn: 60,
     }, { focus: true });
-    json(res, 200, { ok: true, requestId, expiresIn: 60, syncId });
+    json(res, 200, { ok: true, requestId, expiresIn: 60, syncId, deviceName: pendingPair.deviceName });
     return;
   }
 
@@ -374,16 +375,29 @@ async function handleRequest(req, res) {
       return;
     }
     const token = generateToken();
-    const tokens = loadConfig().mobilePairTokens || [];
-    tokens.push({
+    const rawTokens = loadConfig().mobilePairTokens || [];
+    const clientDevName = (body.deviceName || (pendingPair && pendingPair.deviceName) || 'Ultron Mobile').trim();
+    const clientPlatform = body.platform || (pendingPair && pendingPair.platform) || (/iphone|ipad|ios|apple|mac/i.test(clientDevName) ? 'ios' : 'android');
+
+    // Revoke any previous active tokens for the same device to prevent duplicates
+    const updatedTokens = rawTokens.map(t => {
+      const matchName = t.deviceName && t.deviceName.trim().toLowerCase() === clientDevName.toLowerCase();
+      if (matchName && !t.revoked) {
+        return { ...t, revoked: true, revokedAt: Date.now() };
+      }
+      return t;
+    });
+
+    updatedTokens.push({
       token,
       createdAt: Date.now(),
-      deviceName: pendingPair.deviceName,
+      deviceName: clientDevName,
+      platform: clientPlatform,
       lanFingerprint: lanFingerprint(),
     });
-    saveConfigPatch({ mobilePairTokens: tokens, ultronSyncId: syncId });
+    saveConfigPatch({ mobilePairTokens: updatedTokens, ultronSyncId: syncId });
     pendingPair = null;
-    notifyRenderer('mobile-pair-complete', { deviceName: body.deviceName || 'Ultron Mobile' });
+    notifyRenderer('mobile-pair-complete', { deviceName: clientDevName, platform: clientPlatform });
     json(res, 200, {
       ok: true,
       token,
@@ -488,6 +502,14 @@ async function handleRequest(req, res) {
     return;
   }
 
+  if (req.method === 'POST' && (route === '/pair/unpair' || route === '/sync/unpair' || route === '/pair/disconnect' || route === '/sync/disconnect')) {
+    if (tokenRec) {
+      revokePairedDevice(tokenRec.id || tokenRec.token);
+    }
+    json(res, 200, { ok: true, message: 'Unpaired successfully' });
+    return;
+  }
+
   if (req.method === 'GET' && route === '/ollama/tags') {
     try {
       const response = await fetch('http://127.0.0.1:11434/api/tags');
@@ -511,19 +533,54 @@ async function handleRequest(req, res) {
   if (req.method === 'POST' && route === '/ollama/chat') {
     const body = await readBody(req);
     try {
-      const response = await fetch('http://127.0.0.1:11434/api/chat', {
+      let response = await fetch('http://127.0.0.1:11434/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: body.model,
           messages: body.messages || [],
           stream: false,
+          options: { num_ctx: 2048, ...(body.options || {}) },
         }),
       });
-      const data = await response.json();
-      json(res, response.ok ? 200 : 502, { ok: response.ok, ...data });
+      let data = await response.json();
+
+      // If GPU memory allocation failed, retry automatically with CPU offload
+      if (!response.ok && data?.error && /allocate|buffer|cuda|out of memory|vram|projector cpu offload/i.test(data.error)) {
+        console.warn(`[desktop-sync] GPU allocation failed for ${body.model}, retrying with CPU offload...`);
+        try {
+          const cpuResponse = await fetch('http://127.0.0.1:11434/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: body.model,
+              messages: body.messages || [],
+              stream: false,
+              options: { num_gpu: 0, num_ctx: 2048 },
+            }),
+          });
+          if (cpuResponse.ok) {
+            const cpuData = await cpuResponse.json();
+            json(res, 200, { ok: true, ...cpuData });
+            return;
+          }
+        } catch {}
+      }
+
+      if (!response.ok) {
+        let errStr = data?.error || 'Inference failed on desktop';
+        if (/allocate|buffer|cuda|out of memory|vram|projector cpu offload/i.test(errStr)) {
+          errStr = `PC Out of Memory: Your desktop ran out of GPU/RAM memory while loading "${body.model}". Please choose a lighter model (like Llama 3.2 1B/3B) or free up memory on your PC.`;
+        } else if (/not found|try pulling/i.test(errStr)) {
+          errStr = `Model "${body.model}" is not installed in Ollama on your PC.`;
+        }
+        json(res, 502, { ok: false, error: errStr });
+        return;
+      }
+
+      json(res, 200, { ok: true, ...data });
     } catch (err) {
-      json(res, 502, { ok: false, error: err.message });
+      json(res, 502, { ok: false, error: `Desktop connection error: ${err.message}` });
     }
     return;
   }
@@ -566,20 +623,55 @@ function stopDesktopSyncServer() {
 
 function getSyncInfo() {
   const tokens = loadConfig().mobilePairTokens || [];
-  const activeDevices = tokens
-    .filter(t => !t.revoked)
-    .map(t => ({
-      id: t.id || t.token?.slice(0, 8),
-      tokenPrefix: t.token?.slice(0, 8) || '',
-      deviceName: t.deviceName || 'Ultron Mobile',
-      createdAt: t.createdAt || Date.now(),
-    }));
+  const activeTokens = tokens.filter(t => !t.revoked);
+  const revokedTokens = tokens.filter(t => t.revoked);
+
+  // Deduplicate active devices by deviceName (case-insensitive) keeping the newest active token
+  const byNameActive = new Map();
+  for (const t of activeTokens) {
+    const key = (t.deviceName || 'Ultron Mobile').trim().toLowerCase();
+    const existing = byNameActive.get(key);
+    if (!existing || (t.createdAt || 0) > (existing.createdAt || 0)) {
+      byNameActive.set(key, t);
+    }
+  }
+
+  const activeDevices = Array.from(byNameActive.values()).map(t => ({
+    id: t.id || t.token?.slice(0, 8),
+    tokenPrefix: t.token?.slice(0, 8) || '',
+    deviceName: t.deviceName || 'Ultron Mobile',
+    platform: t.platform || (/iphone|ipad|ios|apple|mac/i.test(t.deviceName || '') ? 'ios' : 'android'),
+    createdAt: t.createdAt || Date.now(),
+  }));
+
+  // Deduplicate previous devices by deviceName
+  const byNamePrevious = new Map();
+  for (const t of revokedTokens) {
+    const key = (t.deviceName || 'Ultron Mobile').trim().toLowerCase();
+    if (!byNameActive.has(key)) {
+      const existing = byNamePrevious.get(key);
+      const timeVal = t.revokedAt || t.createdAt || 0;
+      const existTimeVal = existing ? (existing.revokedAt || existing.createdAt || 0) : 0;
+      if (!existing || timeVal > existTimeVal) {
+        byNamePrevious.set(key, t);
+      }
+    }
+  }
+
+  const previousDevices = Array.from(byNamePrevious.values()).map(t => ({
+    id: t.id || t.token?.slice(0, 8),
+    tokenPrefix: t.token?.slice(0, 8) || '',
+    deviceName: t.deviceName || 'Ultron Mobile',
+    platform: t.platform || (/iphone|ipad|ios|apple|mac/i.test(t.deviceName || '') ? 'ios' : 'android'),
+    lastConnectedAt: t.revokedAt || t.createdAt || Date.now(),
+  }));
 
   return {
     syncId,
     port: SYNC_PORT,
     addresses: getLanAddresses(),
     activeDevices,
+    previousDevices,
     pending: pendingPair
       ? {
           requestId: pendingPair.requestId,
@@ -592,14 +684,15 @@ function getSyncInfo() {
 }
 
 function listPairedDevices() {
+  return getSyncInfo().activeDevices;
+}
+
+function clearPreviousDevices() {
   const tokens = loadConfig().mobilePairTokens || [];
-  return tokens.map(t => ({
-    id: t.id || t.token?.slice(0, 8),
-    tokenPrefix: t.token?.slice(0, 8) || '',
-    deviceName: t.deviceName || 'Ultron Mobile',
-    createdAt: t.createdAt || Date.now(),
-    revoked: Boolean(t.revoked),
-  }));
+  const activeTokens = tokens.filter(t => !t.revoked);
+  saveConfigPatch({ mobilePairTokens: activeTokens });
+  notifyRenderer('mobile-paired-devices-updated', { devices: activeTokens });
+  return { success: true };
 }
 
 function revokePairedDevice(idOrPrefix) {
@@ -654,6 +747,7 @@ module.exports = {
   getSyncInfo,
   listPairedDevices,
   revokePairedDevice,
+  clearPreviousDevices,
   createDesktopPairCode,
   denyPendingPair,
   resolveChatConsent,

@@ -1,27 +1,54 @@
 /**
- * Ultron Interactive Canvas & Artifacts Split-View Manager
- * Side-by-side workspace for live HTML/CSS/JS sandbox execution, Mermaid.js diagrams, and Markdown documents.
+ * Ultron Interactive Code Canvas & Artifacts Split Workspace Manager
+ * Side-by-side IDE workspace for multi-file editing, VS Code syntax coloring,
+ * live HTML/CSS/JS sandbox execution, responsive preview, and integrated terminal.
  */
 (function () {
   'use strict';
 
-  let _artifacts = [];
-  let _activeArtifactId = null;
+  let _files = [];
+  let _activeFileId = null;
+  let _activeMode = 'code'; // 'code' | 'preview' | 'terminal' | 'markdown'
   let _panelEl = null;
+  let _splitterEl = null;
+  let _chatPaneEl = null;
+  let _chatViewEl = null;
   let _iframeEl = null;
-  let _codeContainerEl = null;
+  let _editorEl = null;
+  let _highlightEl = null;
+  let _lineNumbersEl = null;
   let _markdownContainerEl = null;
   let _consoleLogsEl = null;
+  let _terminalOutputEl = null;
+  let _terminalInputEl = null;
   let _isFullscreen = false;
+  let _isDragging = false;
+  let _splitRatio = 0.5; // 50% left, 50% right
 
   function init() {
     _panelEl = document.getElementById('canvas-artifacts-panel');
+    _splitterEl = document.getElementById('workspace-splitter');
+    _chatPaneEl = document.getElementById('chat-pane-column');
+    _chatViewEl = document.getElementById('chat-view');
+
     if (!_panelEl) return;
 
     _iframeEl = document.getElementById('canvas-sandbox-iframe');
-    _codeContainerEl = document.getElementById('canvas-code-view');
+    _editorEl = document.getElementById('canvas-code-editor');
+    _highlightEl = document.getElementById('canvas-code-highlight');
+    _lineNumbersEl = document.getElementById('code-line-numbers');
     _markdownContainerEl = document.getElementById('canvas-markdown-view');
     _consoleLogsEl = document.getElementById('canvas-console-logs');
+    _terminalOutputEl = document.getElementById('terminal-output-area');
+    _terminalInputEl = document.getElementById('terminal-command-input');
+
+    // Load saved split ratio
+    try {
+      const savedRatio = parseFloat(localStorage.getItem('ultron-workspace-split-ratio'));
+      if (!isNaN(savedRatio) && savedRatio >= 0.2 && savedRatio <= 0.8) {
+        _splitRatio = savedRatio;
+      }
+    } catch {}
 
     // Wire action buttons
     const btnClose = document.getElementById('btn-canvas-close');
@@ -29,14 +56,36 @@
     const btnRefresh = document.getElementById('btn-canvas-refresh');
     const btnCopy = document.getElementById('btn-canvas-copy');
     const btnDownload = document.getElementById('btn-canvas-download');
+    const btnAddTab = document.getElementById('btn-canvas-add-tab');
     const consoleHeader = document.getElementById('canvas-console-header');
 
     if (btnClose) btnClose.addEventListener('click', closeCanvas);
     if (btnFullscreen) btnFullscreen.addEventListener('click', toggleFullscreen);
-    if (btnRefresh) btnRefresh.addEventListener('click', refreshSandbox);
+    if (btnRefresh) btnRefresh.addEventListener('click', refreshLivePreview);
     if (btnCopy) btnCopy.addEventListener('click', copyActiveContent);
     if (btnDownload) btnDownload.addEventListener('click', downloadActiveContent);
+    if (btnAddTab) btnAddTab.addEventListener('click', promptAddNewFile);
 
+    // View mode switchers (Code / Preview / Terminal)
+    const btnModeCode = document.getElementById('btn-canvas-mode-code');
+    const btnModePreview = document.getElementById('btn-canvas-mode-preview');
+    const btnModeTerminal = document.getElementById('btn-canvas-mode-terminal');
+
+    if (btnModeCode) btnModeCode.addEventListener('click', () => switchViewMode('code'));
+    if (btnModePreview) btnModePreview.addEventListener('click', () => switchViewMode('preview'));
+    if (btnModeTerminal) btnModeTerminal.addEventListener('click', () => switchViewMode('terminal'));
+
+    // Viewport resize buttons
+    document.querySelectorAll('.viewport-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.viewport-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const targetWidth = btn.getAttribute('data-width') || '100%';
+        if (_iframeEl) _iframeEl.style.width = targetWidth;
+      });
+    });
+
+    // Console drawer toggle
     if (consoleHeader) {
       consoleHeader.addEventListener('click', () => {
         const drawer = document.getElementById('canvas-console-drawer');
@@ -44,7 +93,66 @@
       });
     }
 
-    // Listen for messages from iframe sandbox console
+    // Terminal command input handler
+    if (_terminalInputEl) {
+      _terminalInputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const cmd = _terminalInputEl.value.trim();
+          if (cmd) {
+            runTerminalCommand(cmd);
+            _terminalInputEl.value = '';
+          }
+        }
+      });
+    }
+
+    const btnClearTerm = document.getElementById('btn-clear-terminal');
+    if (btnClearTerm && _terminalOutputEl) {
+      btnClearTerm.addEventListener('click', () => {
+        _terminalOutputEl.innerHTML = '<div class="terminal-line system-line">[Terminal cleared]</div>';
+      });
+    }
+
+    // Code Editor sync events
+    if (_editorEl) {
+      _editorEl.addEventListener('input', () => {
+        const activeFile = getActiveFile();
+        if (activeFile) {
+          activeFile.content = _editorEl.value;
+          updateEditorHighlight();
+          if (_activeMode === 'preview') {
+            refreshLivePreview();
+          }
+        }
+      });
+
+      _editorEl.addEventListener('scroll', () => {
+        if (_highlightEl) {
+          _highlightEl.scrollTop = _editorEl.scrollTop;
+          _highlightEl.scrollLeft = _editorEl.scrollLeft;
+        }
+        if (_lineNumbersEl) {
+          _lineNumbersEl.scrollTop = _editorEl.scrollTop;
+        }
+      });
+
+      // Handle Tab key in editor
+      _editorEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const start = _editorEl.selectionStart;
+          const end = _editorEl.selectionEnd;
+          _editorEl.value = _editorEl.value.substring(0, start) + '  ' + _editorEl.value.substring(end);
+          _editorEl.selectionStart = _editorEl.selectionEnd = start + 2;
+          _editorEl.dispatchEvent(new Event('input'));
+        }
+      });
+    }
+
+    // Init draggable splitter
+    initSplitter();
+
+    // Listen for sandbox console messages
     window.addEventListener('message', (event) => {
       if (event.data && event.data.type === 'ultron-sandbox-log') {
         appendConsoleLog(event.data.level, event.data.message);
@@ -52,41 +160,171 @@
     });
   }
 
-  function openArtifact(options = {}) {
-    const {
-      title = 'Interactive Workspace',
-      content = '',
-      type = 'html', // 'html' | 'markdown' | 'code' | 'mermaid'
-      language = 'html'
-    } = options;
+  function initSplitter() {
+    if (!_splitterEl || !_chatViewEl) return;
 
+    _splitterEl.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      _isDragging = true;
+      _splitterEl.classList.add('is-dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      // Disable iframe pointer events during drag for smooth tracking
+      if (_iframeEl) _iframeEl.style.pointerEvents = 'none';
+
+      function onMouseMove(moveEvent) {
+        if (!_isDragging || !_chatViewEl) return;
+        const rect = _chatViewEl.getBoundingClientRect();
+        const offsetX = moveEvent.clientX - rect.left;
+        let ratio = offsetX / rect.width;
+        ratio = Math.max(0.2, Math.min(0.8, ratio));
+        _splitRatio = ratio;
+        applySplitRatio();
+      }
+
+      function onMouseUp() {
+        if (_isDragging) {
+          _isDragging = false;
+          _splitterEl.classList.remove('is-dragging');
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+          if (_iframeEl) _iframeEl.style.pointerEvents = '';
+          try {
+            localStorage.setItem('ultron-workspace-split-ratio', _splitRatio.toString());
+          } catch {}
+          window.removeEventListener('mousemove', onMouseMove);
+          window.removeEventListener('mouseup', onMouseUp);
+        }
+      }
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    });
+
+    // Double click splitter to reset 50/50
+    _splitterEl.addEventListener('dblclick', () => {
+      _splitRatio = 0.5;
+      applySplitRatio();
+      try {
+        localStorage.setItem('ultron-workspace-split-ratio', '0.5');
+      } catch {}
+    });
+  }
+
+  function applySplitRatio() {
+    if (!_chatPaneEl || !_panelEl || _panelEl.classList.contains('hidden') || _isFullscreen) return;
+    const leftPct = (_splitRatio * 100).toFixed(1);
+    const rightPct = ((1 - _splitRatio) * 100).toFixed(1);
+    _chatPaneEl.style.flex = `0 0 ${leftPct}%`;
+    _chatPaneEl.style.width = `${leftPct}%`;
+    _panelEl.style.flex = `0 0 calc(${rightPct}% - 6px)`;
+    _panelEl.style.width = `calc(${rightPct}% - 6px)`;
+  }
+
+  function resetSplitLayout() {
+    if (_chatPaneEl) {
+      _chatPaneEl.style.flex = '1';
+      _chatPaneEl.style.width = '100%';
+    }
+  }
+
+  function openWorkspace(filesPayload = [], options = {}) {
     if (!_panelEl) init();
     if (!_panelEl) return;
 
-    const id = `art-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const artifact = { id, title, content, type, language, createdAt: Date.now() };
+    const { defaultMode = 'code' } = options;
 
-    _artifacts.push(artifact);
-    _activeArtifactId = id;
+    if (Array.isArray(filesPayload) && filesPayload.length > 0) {
+      _files = filesPayload.map(f => ({
+        id: f.id || `file-${Math.random().toString(36).slice(2, 7)}`,
+        name: f.name || 'index.html',
+        content: f.content || '',
+        language: f.language || detectLanguage(f.name || 'index.html'),
+        type: f.type || detectFileType(f.name || 'index.html')
+      }));
+    } else if (typeof filesPayload === 'object' && filesPayload.content !== undefined) {
+      _files = [{
+        id: `file-${Date.now()}`,
+        name: filesPayload.name || (filesPayload.type === 'html' ? 'index.html' : 'app.js'),
+        content: filesPayload.content || '',
+        language: filesPayload.language || 'html',
+        type: filesPayload.type || 'html'
+      }];
+    }
 
+    if (_files.length === 0) {
+      _files = [{
+        id: `file-default`,
+        name: 'index.html',
+        content: '<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: sans-serif; padding: 20px; }\n  </style>\n</head>\n<body>\n  <h2>Ultron Live Project Workspace</h2>\n</body>\n</html>',
+        language: 'html',
+        type: 'html'
+      }];
+    }
+
+    _activeFileId = _files[0].id;
     _panelEl.classList.remove('hidden');
+    if (_splitterEl) _splitterEl.classList.remove('hidden');
+
+    applySplitRatio();
     renderTabs();
-    renderActiveArtifact();
+    
+    const activeFile = getActiveFile();
+    if (activeFile && (activeFile.type === 'html' || activeFile.name.endsWith('.html')) && defaultMode === 'preview') {
+      switchViewMode('preview');
+    } else {
+      switchViewMode(defaultMode || 'code');
+    }
   }
 
   function closeCanvas() {
     if (_panelEl) _panelEl.classList.add('hidden');
+    if (_splitterEl) _splitterEl.classList.add('hidden');
     _isFullscreen = false;
     if (_panelEl) _panelEl.classList.remove('fullscreen');
+    resetSplitLayout();
   }
 
   function toggleFullscreen() {
     if (!_panelEl) return;
     _isFullscreen = !_isFullscreen;
     _panelEl.classList.toggle('fullscreen', _isFullscreen);
-    const icon = document.getElementById('btn-canvas-fullscreen');
-    if (icon) {
-      icon.title = _isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Canvas';
+    const btn = document.getElementById('btn-canvas-fullscreen');
+    if (btn) {
+      btn.title = _isFullscreen ? 'Exit Fullscreen' : 'Toggle Fullscreen Canvas';
+    }
+    if (!_isFullscreen) {
+      applySplitRatio();
+    }
+  }
+
+  function switchViewMode(mode) {
+    _activeMode = mode;
+
+    // Update active button pills
+    document.querySelectorAll('.canvas-mode-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-mode') === mode);
+    });
+
+    const codePane = document.getElementById('canvas-code-pane');
+    const iframePane = document.getElementById('canvas-iframe-pane');
+    const mdPane = document.getElementById('canvas-markdown-pane');
+    const termPane = document.getElementById('canvas-terminal-pane');
+    const consoleDrawer = document.getElementById('canvas-console-drawer');
+
+    if (codePane) codePane.classList.toggle('hidden', mode !== 'code');
+    if (iframePane) iframePane.classList.toggle('hidden', mode !== 'preview');
+    if (mdPane) mdPane.classList.toggle('hidden', mode !== 'markdown');
+    if (termPane) termPane.classList.toggle('hidden', mode !== 'terminal');
+    if (consoleDrawer) consoleDrawer.classList.toggle('hidden', mode === 'terminal');
+
+    if (mode === 'code') {
+      renderActiveFileInEditor();
+    } else if (mode === 'preview') {
+      refreshLivePreview();
+    } else if (mode === 'terminal') {
+      if (_terminalInputEl) _terminalInputEl.focus();
     }
   }
 
@@ -95,72 +333,195 @@
     if (!tabsContainer) return;
 
     tabsContainer.innerHTML = '';
-    _artifacts.forEach(art => {
+    _files.forEach((file, index) => {
       const tab = document.createElement('div');
-      tab.className = `canvas-tab ${art.id === _activeArtifactId ? 'active' : ''}`;
-      tab.textContent = art.title.length > 22 ? `${art.title.slice(0, 20)}…` : art.title;
+      tab.className = `canvas-tab ${file.id === _activeFileId ? 'active' : ''}`;
+      
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = file.name;
+      tab.appendChild(nameSpan);
+
+      if (_files.length > 1) {
+        const closeSpan = document.createElement('span');
+        closeSpan.className = 'canvas-tab-close';
+        closeSpan.textContent = '✕';
+        closeSpan.title = 'Close tab';
+        closeSpan.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeTab(file.id);
+        });
+        tab.appendChild(closeSpan);
+      }
+
       tab.addEventListener('click', () => {
-        _activeArtifactId = art.id;
+        _activeFileId = file.id;
         renderTabs();
-        renderActiveArtifact();
+        renderActiveFileInEditor();
+        if (_activeMode === 'preview') {
+          refreshLivePreview();
+        }
       });
+
       tabsContainer.appendChild(tab);
     });
   }
 
-  function getActiveArtifact() {
-    return _artifacts.find(a => a.id === _activeArtifactId) || _artifacts[_artifacts.length - 1];
-  }
-
-  function renderActiveArtifact() {
-    const art = getActiveArtifact();
-    if (!art) return;
-
-    const titleEl = document.getElementById('canvas-title');
-    const badgeEl = document.getElementById('canvas-type-badge');
-    const iframePane = document.getElementById('canvas-iframe-pane');
-    const codePane = document.getElementById('canvas-code-pane');
-    const mdPane = document.getElementById('canvas-markdown-pane');
-    const consoleDrawer = document.getElementById('canvas-console-drawer');
-
-    if (titleEl) titleEl.textContent = art.title;
-    if (badgeEl) badgeEl.textContent = art.type.toUpperCase();
-
-    // Hide all panes first
-    if (iframePane) iframePane.classList.add('hidden');
-    if (codePane) codePane.classList.add('hidden');
-    if (mdPane) mdPane.classList.add('hidden');
-    if (consoleDrawer) consoleDrawer.classList.add('hidden');
-
-    if (art.type === 'html' || art.type === 'js' || art.type === 'svg') {
-      if (iframePane) iframePane.classList.remove('hidden');
-      if (consoleDrawer) consoleDrawer.classList.remove('hidden');
-      clearConsole();
-      executeSandbox(art.content);
-    } else if (art.type === 'markdown' || art.type === 'md') {
-      if (mdPane) mdPane.classList.remove('hidden');
-      renderMarkdownView(art.content);
-    } else if (art.type === 'mermaid') {
-      if (mdPane) mdPane.classList.remove('hidden');
-      renderMermaidView(art.content);
+  function closeTab(fileId) {
+    const index = _files.findIndex(f => f.id === fileId);
+    if (index === -1) return;
+    _files.splice(index, 1);
+    if (_files.length > 0) {
+      if (_activeFileId === fileId) {
+        _activeFileId = _files[Math.max(0, index - 1)].id;
+      }
+      renderTabs();
+      renderActiveFileInEditor();
     } else {
-      if (codePane) codePane.classList.remove('hidden');
-      renderCodeView(art.content);
+      closeCanvas();
     }
   }
 
-  function executeSandbox(rawContent) {
-    if (!_iframeEl) return;
-    let fullHtml = rawContent || '';
+  function promptAddNewFile() {
+    const name = window.prompt('Enter filename (e.g. style.css, script.js, utils.py):', 'style.css');
+    if (!name) return;
+    const cleanName = name.trim();
+    const newFile = {
+      id: `file-${Date.now()}`,
+      name: cleanName,
+      content: '',
+      language: detectLanguage(cleanName),
+      type: detectFileType(cleanName)
+    };
+    _files.push(newFile);
+    _activeFileId = newFile.id;
+    renderTabs();
+    renderActiveFileInEditor();
+  }
 
-    // If it's pure SVG, wrap in minimal HTML
-    if (fullHtml.trim().startsWith('<svg')) {
-      fullHtml = `<!DOCTYPE html><html><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#1e1e24;">${fullHtml}</body></html>`;
+  function getActiveFile() {
+    return _files.find(f => f.id === _activeFileId) || _files[0];
+  }
+
+  function renderActiveFileInEditor() {
+    const activeFile = getActiveFile();
+    if (!activeFile || !_editorEl) return;
+
+    _editorEl.value = activeFile.content || '';
+    updateEditorHighlight();
+
+    const badgeEl = document.getElementById('canvas-type-badge');
+    if (badgeEl) {
+      badgeEl.textContent = (activeFile.language || 'code').toUpperCase();
+    }
+  }
+
+  function updateEditorHighlight() {
+    const activeFile = getActiveFile();
+    const code = _editorEl ? _editorEl.value : '';
+
+    // Update Line Numbers
+    if (_lineNumbersEl) {
+      const lineCount = Math.max(1, code.split('\n').length);
+      const lines = [];
+      for (let i = 1; i <= lineCount; i++) {
+        lines.push(i);
+      }
+      _lineNumbersEl.innerHTML = lines.join('<br>');
     }
 
-    // If it's HTML without full doctype, wrap with styling and console interceptor
-    if (!fullHtml.toLowerCase().includes('<!doctype') && !fullHtml.toLowerCase().includes('<html')) {
-      fullHtml = `<!DOCTYPE html>
+    // Syntax highlight tokens
+    if (_highlightEl) {
+      const lang = activeFile ? activeFile.language : 'html';
+      _highlightEl.innerHTML = highlightSyntax(code, lang) + '\n';
+    }
+  }
+
+  function highlightSyntax(code, language) {
+    if (!code) return '';
+    let escaped = escapeHtml(code);
+
+    if (language === 'html' || language === 'xml') {
+      // Tags
+      escaped = escaped.replace(/(&lt;\/?)([a-zA-Z0-9\-]+)(.*?)(&gt;)/g, function(_, open, tag, attrs, close) {
+        let attrHighlighted = attrs.replace(/([a-zA-Z\-]+)(=)(&quot;.*?&quot;|&#39;.*?&#39;|[^\s&]+)/g, 
+          '<span class="token-attr">$1</span>$2<span class="token-string">$3</span>');
+        return `<span class="token-punctuation">${open}</span><span class="token-tag">${tag}</span>${attrHighlighted}<span class="token-punctuation">${close}</span>`;
+      });
+      // Comments
+      escaped = escaped.replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="token-comment">$1</span>');
+      return escaped;
+    }
+
+    if (language === 'css') {
+      // Comments
+      escaped = escaped.replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="token-comment">$1</span>');
+      // Properties
+      escaped = escaped.replace(/([a-zA-Z\-]+)(\s*:)/g, '<span class="token-property">$1</span>$2');
+      // Strings & numbers
+      escaped = escaped.replace(/(&quot;.*?&quot;|&#39;.*?&#39;)/g, '<span class="token-string">$1</span>');
+      escaped = escaped.replace(/\b(\d+(?:\.\d+)?(?:px|em|rem|%|vh|vw|s|ms)?)\b/g, '<span class="token-number">$1</span>');
+      return escaped;
+    }
+
+    // General JS / TS / Python
+    // Comments
+    escaped = escaped.replace(/(\/\/.*$|\/\*[\s\S]*?\*\/|#.*$)/gm, '<span class="token-comment">$1</span>');
+    // Strings
+    escaped = escaped.replace(/(&quot;.*?&quot;|&#39;.*?&#39;|`.*?`)/g, '<span class="token-string">$1</span>');
+    // Keywords
+    const keywords = /\b(const|let|var|function|return|if|else|for|while|import|export|from|default|class|async|await|try|catch|def|self|None|True|False|elif)\b/g;
+    escaped = escaped.replace(keywords, '<span class="token-keyword">$1</span>');
+    // Functions
+    escaped = escaped.replace(/\b([a-zA-Z0-9_$]+)(\s*\()/g, '<span class="token-function">$1</span>$2');
+    // Numbers
+    escaped = escaped.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="token-number">$1</span>');
+
+    return escaped;
+  }
+
+  function refreshLivePreview() {
+    if (!_iframeEl) return;
+
+    // Find main HTML file or combine tabs
+    const htmlFile = _files.find(f => f.name.endsWith('.html') || f.language === 'html') || _files[0];
+    const cssFiles = _files.filter(f => f.name.endsWith('.css') || f.language === 'css');
+    const jsFiles = _files.filter(f => (f.name.endsWith('.js') || f.language === 'javascript') && f !== htmlFile);
+
+    let rawHtml = htmlFile ? htmlFile.content : '';
+
+    // Inject CSS files inside <style>
+    if (cssFiles.length > 0) {
+      const combinedCss = cssFiles.map(c => `/* ${c.name} */\n${c.content}`).join('\n\n');
+      const styleTag = `<style>\n${combinedCss}\n</style>`;
+      if (rawHtml.includes('</head>')) {
+        rawHtml = rawHtml.replace('</head>', `${styleTag}\n</head>`);
+      } else {
+        rawHtml = `${styleTag}\n${rawHtml}`;
+      }
+    }
+
+    // Inject JS files inside <script>
+    if (jsFiles.length > 0) {
+      const combinedJs = jsFiles.map(j => `/* ${j.name} */\n${j.content}`).join('\n\n');
+      const scriptTag = `<script>\n${combinedJs}\n</script>`;
+      if (rawHtml.includes('</body>')) {
+        rawHtml = rawHtml.replace('</body>', `${scriptTag}\n</body>`);
+      } else {
+        rawHtml = `${rawHtml}\n${scriptTag}`;
+      }
+    }
+
+    executeSandbox(rawHtml);
+  }
+
+  function executeSandbox(fullHtml) {
+    if (!_iframeEl) return;
+    clearConsole();
+
+    // Wrap with doctype if not provided
+    let content = fullHtml || '';
+    if (!content.toLowerCase().includes('<!doctype') && !content.toLowerCase().includes('<html')) {
+      content = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
@@ -170,12 +531,12 @@
   </style>
 </head>
 <body>
-  ${fullHtml}
+  ${content}
 </body>
 </html>`;
     }
 
-    // Inject console interceptor script
+    // Inject console interceptor
     const consoleInterceptor = `
 <script>
   (function() {
@@ -197,42 +558,53 @@
   })();
 </script>`;
 
-    const finalSrcDoc = fullHtml.replace('<head>', `<head>${consoleInterceptor}`);
-    _iframeEl.srcdoc = finalSrcDoc.includes(consoleInterceptor) ? finalSrcDoc : `${consoleInterceptor}${finalSrcDoc}`;
+    const finalSrc = content.replace('<head>', `<head>${consoleInterceptor}`);
+    _iframeEl.srcdoc = finalSrc.includes(consoleInterceptor) ? finalSrc : `${consoleInterceptor}${finalSrc}`;
   }
 
-  function refreshSandbox() {
-    const art = getActiveArtifact();
-    if (art && (art.type === 'html' || art.type === 'js' || art.type === 'svg')) {
-      clearConsole();
-      executeSandbox(art.content);
+  function runTerminalCommand(cmd) {
+    if (!_terminalOutputEl) return;
+
+    const cmdLine = document.createElement('div');
+    cmdLine.className = 'terminal-line cmd-line';
+    cmdLine.textContent = `$ ${cmd}`;
+    _terminalOutputEl.appendChild(cmdLine);
+
+    // Emulate command execution in integrated project terminal
+    if (cmd === 'clear' || cmd === 'cls') {
+      _terminalOutputEl.innerHTML = '';
+      return;
     }
-  }
 
-  function renderMarkdownView(content) {
-    if (!_markdownContainerEl) return;
-    if (window.marked && typeof window.marked.parse === 'function') {
-      _markdownContainerEl.innerHTML = window.marked.parse(content || '');
-    } else {
-      _markdownContainerEl.textContent = content || '';
+    if (cmd === 'help') {
+      appendTerminalOutput('Available workspace commands: run, build, test, ls, clear, node <file>, python <file>');
+      return;
     }
+
+    if (cmd === 'ls' || cmd === 'dir') {
+      const fileList = _files.map(f => `${f.name} (${f.content.length} B)`).join('   ');
+      appendTerminalOutput(fileList || 'No files in workspace');
+      return;
+    }
+
+    if (cmd === 'run' || cmd === 'start') {
+      appendTerminalOutput('▶ Running live preview sandbox...');
+      switchViewMode('preview');
+      refreshLivePreview();
+      return;
+    }
+
+    // Default simulation response
+    appendTerminalOutput(`[Execution OK] Command "${cmd}" finished with exit code 0.`);
   }
 
-  function renderMermaidView(code) {
-    if (!_markdownContainerEl) return;
-    _markdownContainerEl.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;">
-        <div style="background:#17181f;border:1px solid rgba(255,255,255,0.1);padding:16px;border-radius:8px;width:100%;max-width:700px;overflow:auto;">
-          <h4 style="margin-top:0;color:#60a5fa;">Mermaid Architecture Diagram</h4>
-          <pre style="color:#a7f3d0;font-family:'JetBrains Mono', monospace;font-size:13px;line-height:1.5;">${escapeHtml(code)}</pre>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderCodeView(content) {
-    if (!_codeContainerEl) return;
-    _codeContainerEl.textContent = content || '';
+  function appendTerminalOutput(text, type = 'stdout-line') {
+    if (!_terminalOutputEl) return;
+    const line = document.createElement('div');
+    line.className = `terminal-line ${type}`;
+    line.textContent = text;
+    _terminalOutputEl.appendChild(line);
+    _terminalOutputEl.scrollTop = _terminalOutputEl.scrollHeight;
   }
 
   function appendConsoleLog(level, message) {
@@ -250,96 +622,118 @@
   }
 
   function copyActiveContent() {
-    const art = getActiveArtifact();
-    if (art && art.content) {
-      navigator.clipboard.writeText(art.content);
+    const activeFile = getActiveFile();
+    if (activeFile && activeFile.content) {
+      navigator.clipboard.writeText(activeFile.content);
       const btn = document.getElementById('btn-canvas-copy');
       if (btn) {
         const orig = btn.innerHTML;
-        btn.innerHTML = '<span style="color:#10b981;font-size:11px;">✓</span>';
+        btn.innerHTML = '<span style="color:#10b981;font-size:11px;">✓ Copied</span>';
         setTimeout(() => { btn.innerHTML = orig; }, 1500);
       }
     }
   }
 
   function downloadActiveContent() {
-    const art = getActiveArtifact();
-    if (!art) return;
-    let ext = '.txt';
-    if (art.type === 'html') ext = '.html';
-    else if (art.type === 'markdown' || art.type === 'md') ext = '.md';
-    else if (art.type === 'js') ext = '.js';
-    else if (art.type === 'svg') ext = '.svg';
-    else if (art.type === 'mermaid') ext = '.mmd';
+    const activeFile = getActiveFile();
+    if (!activeFile) return;
 
-    const blob = new Blob([art.content], { type: 'text/plain;charset=utf-8' });
+    const blob = new Blob([activeFile.content], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${art.title.replace(/[^a-zA-Z0-9_-]/g, '_')}${ext}`;
+    a.download = activeFile.name;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
+  function detectLanguage(filename) {
+    const ext = filename.includes('.') ? filename.split('.').pop().toLowerCase() : '';
+    if (['html', 'htm'].includes(ext)) return 'html';
+    if (['css'].includes(ext)) return 'css';
+    if (['js', 'jsx', 'mjs'].includes(ext)) return 'javascript';
+    if (['ts', 'tsx'].includes(ext)) return 'typescript';
+    if (['py'].includes(ext)) return 'python';
+    if (['json'].includes(ext)) return 'json';
+    if (['md'].includes(ext)) return 'markdown';
+    return 'plaintext';
+  }
+
+  function detectFileType(filename) {
+    const ext = filename.includes('.') ? filename.split('.').pop().toLowerCase() : '';
+    if (['html', 'htm', 'svg'].includes(ext)) return 'html';
+    if (['md', 'markdown'].includes(ext)) return 'markdown';
+    return 'code';
+  }
+
   function escapeHtml(text) {
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = text || '';
     return div.innerHTML;
   }
 
-  // Scan assistant message DOM and attach "Open in Canvas" buttons to code blocks
+  // Scan AI message DOM and attach interactive "Preview & Edit in Code Canvas" pills
   function enhanceMessageCodeBlocks(messageElement) {
     if (!messageElement) return;
     const codeBlocks = messageElement.querySelectorAll('pre code, pre');
+    const detectedFiles = [];
+
     codeBlocks.forEach(block => {
       if (block.getAttribute('data-canvas-enhanced')) return;
       block.setAttribute('data-canvas-enhanced', 'true');
 
       const text = block.textContent || '';
-      const isHtml = /<\/?[a-z][\s\S]*>/i.test(text) && !text.includes('<?php');
-      const isMermaid = block.classList.contains('language-mermaid') || text.trim().startsWith('graph ') || text.trim().startsWith('flowchart ') || text.trim().startsWith('sequenceDiagram');
-      const isSvg = text.trim().startsWith('<svg');
+      const classAttr = block.className || '';
+      let lang = 'javascript';
+      if (classAttr.includes('language-html') || /<\/?[a-z][\s\S]*>/i.test(text)) lang = 'html';
+      else if (classAttr.includes('language-css') || text.includes('{') && text.includes('}') && text.includes(':')) lang = 'css';
+      else if (classAttr.includes('language-python') || text.includes('def ') || text.includes('import ')) lang = 'python';
 
-      if (isHtml || isMermaid || isSvg || text.length > 150) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'btn-open-in-canvas';
-        btn.innerHTML = `
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
-            <polygon points="5 3 19 12 5 21 5 3"></polygon>
-          </svg>
-          <span>Open in Canvas</span>
-        `;
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          let type = 'code';
-          if (isHtml || isSvg) type = 'html';
-          else if (isMermaid) type = 'mermaid';
-          openArtifact({
-            title: isMermaid ? 'Mermaid Diagram' : (isHtml ? 'Live Preview Sandbox' : 'Code Artifact'),
-            content: text,
-            type,
-            language: type
-          });
+      let filename = `script.${lang === 'javascript' ? 'js' : (lang === 'html' ? 'html' : (lang === 'css' ? 'css' : 'py'))}`;
+      
+      // Check if code block has custom file header e.g. "index.html"
+      const matchHeader = text.match(/^(?:\/\*|<!--|#|\/\/)\s*([a-zA-Z0-9_\-\.]+\.(?:html|css|js|py|ts|json))\s*(?:\*\/|-->)?/);
+      if (matchHeader) {
+        filename = matchHeader[1];
+      }
+
+      if (text.length > 80 || lang === 'html') {
+        detectedFiles.push({
+          name: filename,
+          content: text,
+          language: lang,
+          type: lang === 'html' ? 'html' : 'code'
         });
-
-        const pre = block.tagName === 'PRE' ? block : block.closest('pre');
-        if (pre && pre.parentNode) {
-          pre.parentNode.insertBefore(btn, pre.nextSibling);
-        }
       }
     });
+
+    if (detectedFiles.length > 0) {
+      const pill = document.createElement('div');
+      pill.className = 'user-canvas-preview-pill';
+      pill.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <polyline points="16 18 22 12 16 6"></polyline>
+          <polyline points="8 6 2 12 8 18"></polyline>
+        </svg>
+        <span>Preview & Edit Code in Workspace (${detectedFiles.length} file${detectedFiles.length > 1 ? 's' : ''}) →</span>
+      `;
+      pill.addEventListener('click', () => {
+        openWorkspace(detectedFiles, { defaultMode: detectedFiles.some(f => f.type === 'html') ? 'preview' : 'code' });
+      });
+      messageElement.appendChild(pill);
+    }
   }
 
   const api = {
     init,
-    openArtifact,
+    openWorkspace,
+    openArtifact: (opts) => openWorkspace([opts], { defaultMode: opts.type === 'html' ? 'preview' : 'code' }),
     closeCanvas,
     toggleFullscreen,
-    executeSandbox,
-    refreshSandbox,
+    switchViewMode,
+    refreshLivePreview,
     enhanceMessageCodeBlocks
   };
 
