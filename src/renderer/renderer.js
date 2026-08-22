@@ -12791,7 +12791,11 @@ function settleBootStep(promise, timeoutMs = 10000) {
   ]);
 }
 
-function runSplashIntroSequence() {
+const BOOT_TOTAL_DURATION_MS = 2000;
+const SPLASH_LOGO_DURATION_MS = Math.round(BOOT_TOTAL_DURATION_MS * 0.20); // 400ms (20%)
+const SKELETON_DURATION_MS = Math.round(BOOT_TOTAL_DURATION_MS * 0.80);    // 1600ms (80%)
+
+function runSplashIntroSequence(splashDurationMs = SPLASH_LOGO_DURATION_MS) {
   const splashScreen = document.getElementById('app-splash-screen');
   if (!splashScreen) {
     return Promise.resolve();
@@ -12807,11 +12811,11 @@ function runSplashIntroSequence() {
         splashScreen.style.display = 'none';
         splashScreen.style.pointerEvents = 'none';
         resolve();
-      }, 300);
+      }, 250);
     };
 
-    // Auto dismiss after 800ms
-    const timer = setTimeout(dismiss, 800);
+    // Auto dismiss after 20% duration
+    const timer = setTimeout(dismiss, splashDurationMs);
 
     // Instant skip on click or keypress
     splashScreen.addEventListener('click', () => {
@@ -12825,16 +12829,17 @@ function runSplashIntroSequence() {
   });
 }
 
-// Failsafe timer: Skeleton loader will NEVER stay stuck longer than 2.2s under any error
+// Failsafe timer: Skeleton loader will NEVER stay stuck longer than 3.8s under any error
 setTimeout(() => {
   hideSkeletonLoader();
-}, 2200);
+}, 3800);
 
 async function bootSystem() {
-  const splashPromise = runSplashIntroSequence();
+  // 1. Start Splash sequence (20% duration)
+  const splashPromise = runSplashIntroSequence(SPLASH_LOGO_DURATION_MS);
 
   try {
-    // 1. Instant Synchronous UI pre-renders
+    // 2. Instant Synchronous UI pre-renders
     updateWelcomeGreeting();
     setSendingState(false);
     initTraceEmptyState();
@@ -12843,7 +12848,7 @@ async function bootSystem() {
     initAutomationSettingsUI();
     startLiveMetricsPolling();
 
-    // 2. High-Speed Parallel Preloading of System Content, Models, Profiling & Configs
+    // 3. High-Speed Parallel Preloading of System Content, Models, Profiling & Configs
     const coreTasks = [
       settleBootStep(syncStoragePathOnBoot().then(() => loadStoragePathsUI())),
       settleBootStep(reloadConversationsFromDisk()),
@@ -12870,22 +12875,29 @@ async function bootSystem() {
       window.ultronAPI.setAuthorizedApps(bootAllowlist).catch(() => {});
     }
 
-    // Await all parallel boot tasks with timeout
-    await Promise.race([
-      Promise.allSettled(coreTasks),
-      new Promise(r => setTimeout(r, 1600))
+    // Wait for the splash screen (20% duration) to finish fading out, exposing the skeleton overlay
+    await splashPromise;
+
+    // 4. Skeleton Loader Phase (remaining 80% duration):
+    // Display skeleton loader while waiting for background resources and duration to complete
+    const skeletonMinWaitPromise = new Promise(resolve => setTimeout(resolve, SKELETON_DURATION_MS));
+
+    await Promise.all([
+      Promise.race([
+        Promise.allSettled(coreTasks),
+        new Promise(r => setTimeout(r, 2500))
+      ]),
+      skeletonMinWaitPromise
     ]);
 
     await checkAndRunFirstTimeOnboarding().catch(() => {});
     initVoiceChatModeAfterBoot();
 
-    await splashPromise;
-
-    // Render dropdown list and model label with hydrated data
+    // 5. Render dropdown list and model label with hydrated data
     renderModelDropdownList();
     updateModelSelectorLabel();
 
-    // Fade out skeleton smoothly
+    // 6. Resources loaded and skeleton duration complete -> Smoothly reveal app interface
     hideSkeletonLoader();
   } catch (err) {
     console.error('Boot sequence error:', err);
