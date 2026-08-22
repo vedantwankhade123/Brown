@@ -7615,88 +7615,109 @@ function modelMatchesFilter(modelName, desc, tags = [], filter = 'all') {
 function getModelBrandInfo(modelName, author = '', provider = '') {
   const m = (modelName || '').toLowerCase();
   const a = (author || '').toLowerCase();
+  const isHf = provider === 'huggingface' || m.startsWith('hf.co/');
 
-  if (m.includes('llama') || m.includes('meta') || a.includes('meta')) {
-    return {
-      brand: 'Meta',
-      author: author || 'meta',
-      avatar: `<div class="model-brand-avatar meta-avatar"><svg viewBox="0 0 24 24" width="14" height="14" fill="#0081fb"><path d="M12 5.5c-2.4 0-4.3 1.6-5.4 3.7C5.3 7 3.5 5.5 1.5 5.5 0.7 5.5 0 6.2 0 7c0 4.2 4.6 9.5 7.6 9.5 2.1 0 3.7-1.7 4.4-3.5.7 1.8 2.3 3.5 4.4 3.5 3 0 7.6-5.3 7.6-9.5 0-.8-.7-1.5-1.5-1.5-2 0-3.8 1.5-5.1 3.7C16.3 7.1 14.4 5.5 12 5.5z"/></svg></div>`,
-      prefix: 'Meta: '
-    };
-  }
-  if (m.includes('deepseek') || a.includes('deepseek')) {
-    return {
-      brand: 'DeepSeek',
-      author: author || 'deepseek',
-      avatar: `<div class="model-brand-avatar deepseek-avatar"><img src="../../Assets/Brand-Assets/deepseek-blue-logo.png" style="width: 14px; height: 14px; object-fit: contain;" /></div>`,
-      prefix: 'DeepSeek: '
-    };
-  }
-  if (m.includes('mistral') || a.includes('mistral')) {
-    return {
-      brand: 'Mistral',
-      author: author || 'mistralai',
-      avatar: `<div class="model-brand-avatar mistral-avatar"><svg viewBox="0 0 24 24" width="14" height="14" fill="#fd531e"><path d="M3 4h4v4H3zm14 0h4v4h-4zm-7 4h4v4h-4zM3 12h4v4H3zm14 0h4v4h-4zm-7 4h4v4h-4zM3 20h4v-4H3zm14 0h4v-4h-4z"/></svg></div>`,
-      prefix: 'Mistral: '
-    };
-  }
-  if (m.includes('qwen') || m.includes('alibaba') || a.includes('qwen')) {
-    return {
-      brand: 'Alibaba',
-      author: author || 'alibaba',
-      avatar: `<div class="model-brand-avatar qwen-avatar"><svg viewBox="0 0 24 24" width="14" height="14" fill="#8b5cf6"><circle cx="12" cy="12" r="9" stroke="#8b5cf6" stroke-width="2" fill="none"/><path d="M8 12h8M12 8v8" stroke="#8b5cf6" stroke-width="2" stroke-linecap="round"/></svg></div>`,
-      prefix: 'Qwen: '
-    };
-  }
-  if (m.includes('gemma') || m.includes('gemini') || a.includes('google')) {
-    return {
-      brand: 'Google',
-      author: author || 'google',
-      avatar: `<div class="model-brand-avatar google-avatar"><img src="../../Assets/Brand-Assets/gemini-logo.png" style="width: 14px; height: 14px; object-fit: contain;" /></div>`,
-      prefix: 'Google: '
-    };
-  }
-  if (m.includes('phi') || m.includes('microsoft') || a.includes('microsoft')) {
-    return {
-      brand: 'Microsoft',
-      author: author || 'microsoft',
-      avatar: `<div class="model-brand-avatar ms-avatar"><svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="8" height="8" fill="#f25022"/><rect x="13" y="3" width="8" height="8" fill="#7fba00"/><rect x="3" y="13" width="8" height="8" fill="#00a4ef"/><rect x="13" y="13" width="8" height="8" fill="#ffb900"/></svg></div>`,
-      prefix: 'Microsoft: '
-    };
-  }
-  if (m.includes('gpt') || m.includes('openai')) {
-    return {
-      brand: 'OpenAI',
-      author: author || 'openai',
-      avatar: `<div class="model-brand-avatar openai-avatar"><img src="../../Assets/Brand-Assets/openai-white-logo.png" style="width: 14px; height: 14px; object-fit: contain;" /></div>`,
-      prefix: 'OpenAI: '
-    };
-  }
-  if (provider === 'huggingface' || m.startsWith('hf.co/')) {
+  if (isHf) {
     return {
       brand: 'Hugging Face',
       author: author || 'community',
-      avatar: `<div class="model-brand-avatar hf-avatar"><img src="../../Assets/Brand-Assets/hf-logo.png" style="width: 14px; height: 14px; object-fit: contain;" /></div>`,
-      prefix: author ? `${author}: ` : 'HF: '
+      avatar: `<div class="model-brand-avatar hf-avatar"><img src="../../Assets/Brand-Assets/hf-logo.png" alt="Hugging Face" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
+      prefix: ''
     };
   }
+
+  // Cloud multi-providers
+  if (provider === 'gemini' || m.includes('gemini')) {
+    return {
+      brand: 'Google Gemini',
+      author: author || 'google',
+      avatar: `<div class="model-brand-avatar google-avatar"><img src="../../Assets/Brand-Assets/gemini-logo.png" alt="Gemini" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
+      prefix: ''
+    };
+  }
+  if (provider === 'openai' || m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) {
+    return {
+      brand: 'OpenAI',
+      author: author || 'openai',
+      avatar: `<div class="model-brand-avatar openai-avatar"><img src="../../Assets/Brand-Assets/openai-white-logo.png" alt="OpenAI" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
+      prefix: ''
+    };
+  }
+  if (provider === 'anthropic' || m.includes('claude')) {
+    return {
+      brand: 'Anthropic',
+      author: author || 'anthropic',
+      avatar: `<div class="model-brand-avatar anthropic-avatar"><img src="../../Assets/Brand-Assets/claude-logo.png" alt="Claude" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
+      prefix: ''
+    };
+  }
+  if (provider === 'deepseek' || (m.includes('deepseek') && provider === 'cloud')) {
+    return {
+      brand: 'DeepSeek',
+      author: author || 'deepseek',
+      avatar: `<div class="model-brand-avatar deepseek-avatar"><img src="../../Assets/Brand-Assets/deepseek-blue-logo.png" alt="DeepSeek" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
+      prefix: ''
+    };
+  }
+  if (provider === 'groq') {
+    return {
+      brand: 'Groq',
+      author: author || 'groq',
+      avatar: `<div class="model-brand-avatar groq-avatar"><img src="../../Assets/Brand-Assets/grok-white-logo.png" alt="Groq" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
+      prefix: ''
+    };
+  }
+
+  // Default Ollama local or cloud models
   return {
     brand: 'Ollama',
     author: author || 'ollama',
-    avatar: `<div class="model-brand-avatar ollama-avatar"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" style="width: 14px; height: 14px; object-fit: contain;" /></div>`,
+    avatar: `<div class="model-brand-avatar ollama-avatar"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
     prefix: ''
   };
 }
 
 const MODEL_CATALOG_FILTERS = [
-  { id: 'all', label: 'All', iconHtml: '' },
-  { id: 'text', label: 'Text', iconHtml: '<span class="modality-badge-t" style="font-size: 9px; padding: 1px 4px; margin-right: 2px;">T</span>' },
-  { id: 'thinking', label: 'Reasoning', iconHtml: '⚡' },
-  { id: 'vision', label: 'Vision', iconHtml: '👁️' },
-  { id: 'code', label: 'Code', iconHtml: '💻' },
-  { id: 'offline', label: 'Offline', iconHtml: '💾' },
-  { id: 'cloud', label: 'Cloud', iconHtml: '☁️' },
-  { id: 'embedding', label: 'Embeddings', iconHtml: '🕸️' }
+  { 
+    id: 'all', 
+    label: 'All', 
+    iconHtml: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:2px;"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`
+  },
+  { 
+    id: 'text', 
+    label: 'Text', 
+    iconHtml: `<span class="modality-badge-t" style="font-size: 9px; padding: 1px 4px; margin-right: 2px;">T</span>` 
+  },
+  { 
+    id: 'thinking', 
+    label: 'Reasoning', 
+    iconHtml: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#facc15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>` 
+  },
+  { 
+    id: 'vision', 
+    label: 'Vision', 
+    iconHtml: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#c084fc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:2px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>` 
+  },
+  { 
+    id: 'code', 
+    label: 'Code', 
+    iconHtml: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:2px;"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>` 
+  },
+  { 
+    id: 'offline', 
+    label: 'Offline', 
+    iconHtml: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#e2e8f0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:2px;"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>` 
+  },
+  { 
+    id: 'cloud', 
+    label: 'Cloud', 
+    iconHtml: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:2px;"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path></svg>` 
+  },
+  { 
+    id: 'embedding', 
+    label: 'Embeddings', 
+    iconHtml: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:2px;"><circle cx="6" cy="6" r="3"></circle><circle cx="18" cy="18" r="3"></circle><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="6" r="3"></circle><line x1="9" y1="6" x2="15" y2="6"></line><line x1="9" y1="18" x2="15" y2="18"></line><line x1="6" y1="9" x2="6" y2="15"></line><line x1="18" y1="9" x2="18" y2="15"></line></svg>` 
+  }
 ];
 
 let activeModelCatalogFilter = 'all';
@@ -7868,10 +7889,8 @@ function renderSettingsModels() {
     const isCode = tags.includes('code');
 
     // Display title
-    let displayTitle = catalogEntry?.displayName || name;
-    if (!displayTitle.toLowerCase().startsWith(brandInfo.brand.toLowerCase()) && brandInfo.prefix) {
-      displayTitle = `${brandInfo.prefix}${displayTitle}`;
-    }
+    const displayTitle = catalogEntry?.displayName || name;
+    const authorName = catalogEntry?.author || (isHfModel ? 'huggingface' : (isCloudModel ? 'ollama' : 'local'));
 
     // Active status
     const isActive = activeModel && (activeModel === name || activeModel.split(':')[0] === name.split(':')[0]);
@@ -7908,13 +7927,13 @@ function renderSettingsModels() {
       <div class="card-description-text">${escapeHtml(descText)}</div>
 
       <div class="card-metadata-row">
-        <span class="meta-item">by <span class="meta-author-link">${escapeHtml(brandInfo.author)}</span></span>
+        <span class="meta-item">by <span class="meta-author-link">${escapeHtml(authorName)}</span></span>
         <span class="meta-divider">•</span>
-        <span class="meta-item">${isCloudModel ? 'Cloud Hosted' : '128K context'}</span>
+        <span class="meta-item"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:3px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>${isCloudModel ? 'Cloud Hosted' : '128K context'}</span>
         <span class="meta-divider">•</span>
         <span class="meta-item">${isCloudModel ? 'Free tier' : '$0.00 / free (offline)'}</span>
         <span class="meta-divider">•</span>
-        <span class="meta-item">💾 ${escapeHtml(sizeText)} on disk</span>
+        <span class="meta-item"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:3px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>${escapeHtml(sizeText)} on disk</span>
       </div>
     `;
 
@@ -9076,10 +9095,8 @@ function renderOllamaCatalog(filterQuery = '') {
     const isVision = tags.includes('vision');
     const isCode = tags.includes('code');
 
-    let displayTitle = model.displayName || model.name;
-    if (!displayTitle.toLowerCase().startsWith(brandInfo.brand.toLowerCase()) && brandInfo.prefix) {
-      displayTitle = `${brandInfo.prefix}${displayTitle}`;
-    }
+    const displayTitle = model.displayName || model.name;
+    const authorName = model.author || (isHuggingFace ? 'huggingface' : (isCloudModel ? 'ollama' : 'community'));
 
     const formattedDl = formatCompactCount(model.downloads);
     const formattedLikes = formatCompactCount(model.likes);
@@ -9109,15 +9126,15 @@ function renderOllamaCatalog(filterQuery = '') {
       <div class="card-description-text">${escapeHtml(model.desc || 'High-performance neural model weights.')}</div>
 
       <div class="card-metadata-row">
-        <span class="meta-item">by <span class="meta-author-link">${escapeHtml(brandInfo.author)}</span></span>
+        <span class="meta-item">by <span class="meta-author-link">${escapeHtml(authorName)}</span></span>
         <span class="meta-divider">•</span>
-        <span class="meta-item">${isCloudModel ? 'Cloud Hosted' : '128K context'}</span>
+        <span class="meta-item"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:3px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>${isCloudModel ? 'Cloud Hosted' : '128K context'}</span>
         <span class="meta-divider">•</span>
         <span class="meta-item">${isCloudModel ? 'Free tier' : '$0.00 / free (offline)'}</span>
         <span class="meta-divider">•</span>
-        <span class="meta-item">📦 ${escapeHtml(sizeOrContext)}</span>
-        ${formattedDl ? `<span class="meta-divider">•</span><span class="meta-item">⬇ ${formattedDl} downloads</span>` : ''}
-        ${formattedLikes ? `<span class="meta-divider">•</span><span class="meta-item">❤️ ${formattedLikes}</span>` : ''}
+        <span class="meta-item"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:3px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>${escapeHtml(sizeOrContext)}</span>
+        ${formattedDl ? `<span class="meta-divider">•</span><span class="meta-item"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:3px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>${formattedDl} downloads</span>` : ''}
+        ${formattedLikes ? `<span class="meta-divider">•</span><span class="meta-item"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="#f43f5e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:3px;"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>${formattedLikes}</span>` : ''}
       </div>
     `;
     const pullBtn = card.querySelector('.btn-catalog-pull');
