@@ -5459,7 +5459,7 @@ button.hidden,
   flex-direction: column;
   gap: 8px;
   padding: 16px 20px;
-  background: #090a0d;
+  background: #212121;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -5470,7 +5470,7 @@ button.hidden,
 .catalog-model-card:hover,
 .installed-model-card:hover,
 .model-list-item:hover {
-  background: #0f1015;
+  background: #2a2a2a;
   border-color: rgba(255, 255, 255, 0.18);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
@@ -5710,25 +5710,29 @@ button.hidden,
 }
 
 .btn-load-more-models {
-  width: fit-content;
-  align-self: flex-start;
-  padding: 6px 14px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 6px;
-  color: #ffffff;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: #212121;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  color: #f8fafc;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
-  margin-top: 6px;
+  margin-top: 10px;
   margin-bottom: 24px;
+  align-self: center;
 }
 
 .btn-load-more-models:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: #2a2a2a;
   border-color: rgba(255, 255, 255, 0.25);
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
 }
 
 /* Category Filter Bar (OpenRouter / AI Hub Tab Style) */
