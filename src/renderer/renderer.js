@@ -4721,6 +4721,24 @@ async function connectGemini(apiKey, options = {}) {
   }
 }
 
+function hasAnyConfiguredModels() {
+  const hasLocal = Array.isArray(installedModelsList) && installedModelsList.length > 0;
+  if (hasLocal) return true;
+
+  const hasGeminiKey = Boolean((localStorage.getItem('ultron-gemini-api-key') || '').trim());
+  if (hasGeminiKey && Array.isArray(ONLINE_GEMINI_MODELS) && ONLINE_GEMINI_MODELS.length > 0) return true;
+
+  const cloudModels = getInstalledCloudModels();
+  if (Array.isArray(cloudModels) && cloudModels.length > 0) return true;
+
+  if (window.UltronMultiProviderHub && typeof window.UltronMultiProviderHub.getAvailableModels === 'function') {
+    const configured = window.UltronMultiProviderHub.getAvailableModels(true);
+    if (configured.length > 0) return true;
+  }
+
+  return false;
+}
+
 function getAnyAvailableDefaultModel() {
   const local = selectBestInstalledLocalModel();
   if (local) return local;
@@ -4729,6 +4747,9 @@ function getAnyAvailableDefaultModel() {
   if (hasGeminiKey && ONLINE_GEMINI_MODELS.length) {
     return pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name || '';
   }
+
+  const cloud = getInstalledCloudModels();
+  if (cloud.length > 0) return cloud[0].name;
 
   if (window.UltronMultiProviderHub && typeof window.UltronMultiProviderHub.getAvailableModels === 'function') {
     const configured = window.UltronMultiProviderHub.getAvailableModels(true);
@@ -4741,6 +4762,28 @@ function getAnyAvailableDefaultModel() {
 function updateModelSelectorLabel() {
   if (!modelSelectorLabel) return;
 
+  const hasModels = hasAnyConfiguredModels();
+
+  if (!hasModels) {
+    activeModel = '';
+    modelSelectorLabel.style.display = 'inline-flex';
+    modelSelectorLabel.style.alignItems = 'center';
+    modelSelectorLabel.style.gap = '6px';
+    modelSelectorLabel.innerHTML = `
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; display: block;">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+      </svg>
+      <span style="color: #f59e0b; font-size: 12px; font-weight: 600; line-height: 1; display: inline-block;">No Models</span>
+    `;
+    if (modelSelectorBtn) {
+      modelSelectorBtn.title = 'No models installed or configured. Click to download or connect a model.';
+    }
+    syncModelAttachmentCapabilities();
+    return;
+  }
+
   if (!activeModel) {
     activeModel = getAnyAvailableDefaultModel();
   }
@@ -4749,7 +4792,14 @@ function updateModelSelectorLabel() {
     modelSelectorLabel.style.display = 'inline-flex';
     modelSelectorLabel.style.alignItems = 'center';
     modelSelectorLabel.style.gap = '6px';
-    modelSelectorLabel.innerHTML = '<span style="color: var(--text-muted); font-size: 12px; font-weight: 500;">Select model</span>';
+    modelSelectorLabel.innerHTML = `
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink: 0; display: block;">
+        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+      </svg>
+      <span style="color: #f59e0b; font-size: 12px; font-weight: 600; line-height: 1; display: inline-block;">No Models</span>
+    `;
     syncModelAttachmentCapabilities();
     return;
   }
@@ -4766,6 +4816,10 @@ function updateModelSelectorLabel() {
     <img src="${logoSrc}" alt="${provider}" style="width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; display: block; margin: 0;" />
     <span style="line-height: 1; display: inline-block; margin: 0; padding: 0;">${name}</span>
   `;
+
+  if (modelSelectorBtn) {
+    modelSelectorBtn.title = `Active Model: ${name} (${provider})`;
+  }
 
   syncModelAttachmentCapabilities();
 }
@@ -4968,6 +5022,38 @@ function renderModelDropdownList() {
     });
   }
   
+  if (!hasAnyRenderedModel) {
+    modelDropdownList.innerHTML = '';
+    const emptyState = document.createElement('div');
+    emptyState.style.cssText = 'padding: 16px 14px; text-align: center; color: var(--text-muted); font-size: 12px;';
+    emptyState.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: center; gap: 6px; color: #f59e0b; font-weight: 600; margin-bottom: 6px;">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+          <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        </svg>
+        <span>No Models Available</span>
+      </div>
+      <p style="margin: 0 0 10px 0; color: #a1a1aa; font-size: 11px; line-height: 1.4;">
+        Download local models from the Models tab or configure cloud providers in Settings.
+      </p>
+      <button id="btn-dropdown-go-models" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #ffffff; padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; cursor: pointer;">
+        Browse Models Catalog
+      </button>
+    `;
+    const btnGo = emptyState.querySelector('#btn-dropdown-go-models');
+    if (btnGo) {
+      btnGo.addEventListener('click', () => {
+        if (modelDropdown) modelDropdown.classList.add('hidden');
+        if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
+        const navModels = document.querySelector('[data-view="models"]');
+        if (navModels) navModels.click();
+      });
+    }
+    modelDropdownList.appendChild(emptyState);
+  }
+
   updateModelSelectorLabel();
 }
 
