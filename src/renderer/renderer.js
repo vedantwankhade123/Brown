@@ -8866,20 +8866,32 @@ const OLLAMA_POPULAR_MODELS = [
   { name: 'gemma2:2b', size: '2B', downloadSize: '1.6 GB', provider: 'ollama', desc: 'Google Gemma 2 compact model for low VRAM systems', tags: ['offline'] },
   { name: 'gemma2:latest', size: '9B', downloadSize: '5.4 GB', provider: 'ollama', desc: 'Google state-of-the-art open model with high precision', tags: ['offline'] },
   { name: 'qwen2.5:latest', size: '7B', downloadSize: '4.7 GB', provider: 'ollama', desc: 'Alibaba top-tier reasoning, math, and code model', tags: ['offline', 'thinking'] },
+  { name: 'qwen2.5-coder:latest', size: '7B', downloadSize: '4.7 GB', provider: 'ollama', desc: 'Alibaba code-specialized model with expert programming logic', tags: ['offline', 'code'] },
+  { name: 'qwen2.5-coder:1.5b', size: '1.5B', downloadSize: '986 MB', provider: 'ollama', desc: 'Ultra-fast lightweight coding model for low VRAM PCs', tags: ['offline', 'code'] },
   { name: 'deepseek-r1:latest', size: '7B', downloadSize: '4.7 GB', provider: 'ollama', desc: 'DeepSeek advanced reasoning & chain-of-thought model', tags: ['offline', 'thinking'] },
+  { name: 'deepseek-coder-v2:latest', size: '16B', downloadSize: '8.9 GB', provider: 'ollama', desc: 'DeepSeek mixture-of-experts code model supporting 300+ languages', tags: ['offline', 'code'] },
+  { name: 'mistral-nemo:latest', size: '12B', downloadSize: '7.1 GB', provider: 'ollama', desc: 'Mistral & NVIDIA state-of-the-art 12B model with 128k context', tags: ['offline'] },
+  { name: 'phi4:latest', size: '14B', downloadSize: '9.1 GB', provider: 'ollama', desc: 'Microsoft groundbreaking 14B reasoning & math model', tags: ['offline', 'thinking'] },
   { name: 'llava:latest', size: '7B', downloadSize: '4.5 GB', provider: 'ollama', desc: 'Multimodal vision + text model for analyzing images', tags: ['offline', 'vision'] },
+  { name: 'moondream:latest', size: '1.8B', downloadSize: '1.7 GB', provider: 'ollama', desc: 'Tiny, highly efficient visual reasoning and image analysis model', tags: ['offline', 'vision'] },
+  { name: 'bakllava:latest', size: '7B', downloadSize: '4.7 GB', provider: 'ollama', desc: 'Mistral-based multimodal model with enhanced vision grounding', tags: ['offline', 'vision'] },
   { name: 'nomic-embed-text:latest', size: '137M', downloadSize: '274 MB', provider: 'ollama', desc: 'High performance text embedding & retrieval model', tags: ['offline', 'embedding'] },
+  { name: 'bge-m3:latest', size: '567M', downloadSize: '1.1 GB', provider: 'ollama', desc: 'BAAI multi-lingual, multi-granularity dense embedding model', tags: ['offline', 'embedding'] },
+  { name: 'snowflake-arctic-embed:latest', size: '137M', downloadSize: '274 MB', provider: 'ollama', desc: 'Snowflake high-accuracy semantic text embedding model', tags: ['offline', 'embedding'] },
   { name: 'codellama:latest', size: '7B', downloadSize: '3.8 GB', provider: 'ollama', desc: 'Meta specialized model for code generation & debugging', tags: ['offline', 'code'] },
   { name: 'tinyllama:latest', size: '1.1B', downloadSize: '637 MB', provider: 'ollama', desc: 'Ultra lightweight model for low resource PCs', tags: ['offline'] },
   { name: 'llama3.2:1b', size: '1B', downloadSize: '1.3 GB', provider: 'ollama', desc: 'Meta ultra-fast 1B model for rapid responses', tags: ['offline'] },
   { name: 'llama3.2:3b', size: '3B', downloadSize: '2.0 GB', provider: 'ollama', desc: 'Meta balanced 3B compact model', tags: ['offline'] },
-  { name: 'qwen2:7b', size: '7B', downloadSize: '4.4 GB', provider: 'ollama', desc: 'Alibaba Qwen2 general intelligence model', tags: ['offline'] },
+  { name: 'smollm2:1.7b', size: '1.7B', downloadSize: '1.0 GB', provider: 'ollama', desc: 'HuggingFace ultra-compact mobile and edge model', tags: ['offline'] },
+  { name: 'smollm2:360m', size: '360M', downloadSize: '229 MB', provider: 'ollama', desc: 'HuggingFace micro language model for instant completions', tags: ['offline'] },
   { name: 'starcoder2:latest', size: '3B', downloadSize: '1.7 GB', provider: 'ollama', desc: 'BigCode high-speed code assistant', tags: ['offline', 'code'] },
+  { name: 'granite3-dense:8b', size: '8B', downloadSize: '4.9 GB', provider: 'ollama', desc: 'IBM Granite Enterprise-grade general language model', tags: ['offline'] },
+  { name: 'hermes3:8b', size: '8B', downloadSize: '4.7 GB', provider: 'ollama', desc: 'Nous Research Hermes 3 steerable agentic LLM', tags: ['offline', 'thinking'] },
   { name: 'vicuna:latest', size: '7B', downloadSize: '3.8 GB', provider: 'ollama', desc: 'LMSYS chat & conversation fine-tuned model', tags: ['offline'] },
   { name: 'wizardlm2:latest', size: '7B', downloadSize: '4.1 GB', provider: 'ollama', desc: 'Microsoft WizardLM2 complex reasoning model', tags: ['offline', 'thinking'] },
   { name: 'orca-mini:latest', size: '3B', downloadSize: '1.9 GB', provider: 'ollama', desc: 'Compact reasoning model for lightweight hardware', tags: ['offline', 'thinking'] },
   { name: 'zephyr:latest', size: '7B', downloadSize: '4.1 GB', provider: 'ollama', desc: 'HuggingFace direct preference optimized chat model', tags: ['offline'] },
-  { name: 'dolphin-mixtral:latest', size: '8x7B', downloadSize: '26 GB', provider: 'ollama', desc: 'Dolphin uncensored conversational model', tags: ['offline'] }
+  { name: 'command-r:latest', size: '35B', downloadSize: '20 GB', provider: 'ollama', desc: 'Cohere flagship RAG and tool-use model for complex tasks', tags: ['offline', 'thinking'] }
 ];
 
 const HUGGINGFACE_POPULAR_MODELS = [
@@ -8956,6 +8968,54 @@ const HUGGINGFACE_POPULAR_MODELS = [
     likes: 890
   },
   {
+    name: 'hf.co/bartowski/Mistral-Nemo-Instruct-2407-GGUF:Q4_K_M',
+    displayName: 'Mistral-Nemo-Instruct-2407 (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '12B',
+    downloadSize: '7.1 GB',
+    desc: 'Mistral & NVIDIA state-of-the-art 12B model quantized to Q4_K_M',
+    tags: ['offline', 'huggingface'],
+    downloads: 430000,
+    likes: 680
+  },
+  {
+    name: 'hf.co/bartowski/Phi-4-GGUF:Q4_K_M',
+    displayName: 'Phi-4 (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '14B',
+    downloadSize: '8.9 GB',
+    desc: 'Microsoft flagship 14B mathematical reasoning model quantized to Q4_K_M',
+    tags: ['offline', 'thinking', 'huggingface'],
+    downloads: 580000,
+    likes: 1100
+  },
+  {
+    name: 'hf.co/bartowski/SmolLM2-1.7B-Instruct-GGUF:Q4_K_M',
+    displayName: 'SmolLM2-1.7B-Instruct (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '1.7B',
+    downloadSize: '1.0 GB',
+    desc: 'HuggingFace ultra-compact high speed instruct model quantized to Q4_K_M',
+    tags: ['offline', 'huggingface'],
+    downloads: 190000,
+    likes: 270
+  },
+  {
+    name: 'hf.co/bartowski/Hermes-3-Llama-3.1-8B-GGUF:Q4_K_M',
+    displayName: 'Hermes-3-Llama-3.1-8B (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '8B',
+    downloadSize: '4.9 GB',
+    desc: 'Nous Research Hermes 3 fine-tuned on Llama 3.1 with agentic tool capability',
+    tags: ['offline', 'thinking', 'huggingface'],
+    downloads: 340000,
+    likes: 560
+  },
+  {
     name: 'hf.co/bartowski/gemma-2-2b-it-GGUF:Q4_K_M',
     displayName: 'Gemma-2-2B-IT (GGUF)',
     author: 'bartowski',
@@ -8966,6 +9026,18 @@ const HUGGINGFACE_POPULAR_MODELS = [
     tags: ['offline', 'huggingface'],
     downloads: 310000,
     likes: 290
+  },
+  {
+    name: 'hf.co/bartowski/gemma-2-9b-it-GGUF:Q4_K_M',
+    displayName: 'Gemma-2-9B-IT (GGUF)',
+    author: 'bartowski',
+    provider: 'huggingface',
+    size: '9B',
+    downloadSize: '5.5 GB',
+    desc: 'Google flagship Gemma 2 9B instruction-tuned model quantized to Q4_K_M',
+    tags: ['offline', 'huggingface'],
+    downloads: 640000,
+    likes: 850
   },
   {
     name: 'hf.co/bartowski/Phi-3.5-mini-instruct-GGUF:Q4_K_M',
@@ -9212,8 +9284,14 @@ function renderOllamaCatalog(filterQuery = '') {
   }
 
   if (btnLoadMore) {
-    if (!query && showLocalSection && catalogLimit < totalFilteredCount) {
-      btnLoadMore.style.display = 'block';
+    if (showLocalSection && catalogLimit < totalFilteredCount) {
+      btnLoadMore.style.display = 'inline-flex';
+      btnLoadMore.innerHTML = `
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+        Load More Models (${Math.min(catalogLimit, totalFilteredCount)} of ${totalFilteredCount})
+      `;
     } else {
       btnLoadMore.style.display = 'none';
     }
