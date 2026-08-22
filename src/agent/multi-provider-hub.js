@@ -153,8 +153,8 @@
   }
 
   function getCustomEndpointUrl() {
-    if (typeof window === 'undefined') return 'http://localhost:1234/v1';
-    return window.localStorage.getItem('ultron-custom-endpoint-url') || 'http://localhost:1234/v1';
+    if (typeof window === 'undefined') return '';
+    return (window.localStorage.getItem('ultron-custom-endpoint-url') || '').trim();
   }
 
   function setCustomEndpointUrl(url) {
@@ -731,7 +731,9 @@
     }
 
     if (providerId === 'custom') {
-      const cleanBase = endpoint.replace(/\/+$/, '');
+      const customUrl = (endpoint || getCustomEndpointUrl()).trim();
+      if (!customUrl && !key) return [];
+      const cleanBase = (customUrl || 'http://localhost:1234/v1').replace(/\/+$/, '');
       const targetUrl = cleanBase.endsWith('/models') ? cleanBase : `${cleanBase}/models`;
       try {
         const res = await fetch(targetUrl, {
@@ -759,17 +761,20 @@
         }
       } catch {}
 
-      const fallback = [{
-        id: 'custom-model',
-        name: 'custom-model',
-        displayName: 'Custom Server Model',
-        provider: 'custom',
-        tag: 'CUSTOM',
-        speed: 'Custom'
-      }];
-      discoveredModelsCache.custom = fallback;
-      saveDiscoveredModelsCache();
-      return fallback;
+      if (customUrl || key) {
+        const fallback = [{
+          id: 'custom-model',
+          name: 'custom-model',
+          displayName: 'Custom Server Model',
+          provider: 'custom',
+          tag: 'CUSTOM',
+          speed: 'Custom'
+        }];
+        discoveredModelsCache.custom = fallback;
+        saveDiscoveredModelsCache();
+        return fallback;
+      }
+      return [];
     }
 
     return [];
@@ -817,6 +822,7 @@
       const isConfigured = hasKey || hasCustom;
 
       if (!includeConfiguredOnly || isConfigured) {
+        if (providerId === 'custom' && !isConfigured) return;
         const cached = discoveredModelsCache[providerId];
         const models = (Array.isArray(cached) && cached.length > 0) ? cached : (provider.models || []);
 
