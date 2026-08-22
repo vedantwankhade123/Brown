@@ -7822,13 +7822,8 @@ function renderSettingsModels() {
       const btnQuick = document.getElementById('btn-quick-download-phi3');
       if (btnQuick) {
         btnQuick.addEventListener('click', () => {
-          const btnShow = document.getElementById('btn-show-download-fields');
-          const inputsRow = document.getElementById('download-inputs-row');
           const inputModel = document.getElementById('input-download-model');
           const btnDownload = document.getElementById('btn-download-model');
-          
-          if (btnShow) btnShow.style.display = 'none';
-          if (inputsRow) inputsRow.classList.remove('hidden');
           if (inputModel) inputModel.value = 'phi3:latest';
           if (btnDownload) btnDownload.click();
         });
@@ -8753,15 +8748,6 @@ btnDownloadModel.addEventListener('click', async () => {
   
   logTrace(`Triggering background weight pull: "ollama pull ${modelName}"`, 'system');
   
-  const btnShowDownload = document.getElementById('btn-show-download-fields');
-  if (btnShowDownload) {
-    btnShowDownload.style.setProperty('display', 'none', 'important');
-    btnShowDownload.classList.add('hidden');
-  }
-  if (inputsRow) {
-    inputsRow.style.setProperty('display', 'none', 'important');
-    inputsRow.classList.add('hidden');
-  }
   if (progressContainer) {
     progressContainer.style.setProperty('display', 'block', 'important');
     progressContainer.classList.remove('hidden');
@@ -8809,18 +8795,10 @@ btnDownloadModel.addEventListener('click', async () => {
     // Unsubscribe from real-time events
     cleanProgressEvent();
     
-    // Hide progress bar container and restore initial trigger button
+    // Hide progress bar container
     if (progressContainer) {
       progressContainer.style.setProperty('display', 'none', 'important');
       progressContainer.classList.add('hidden');
-    }
-    if (btnShowDownload) {
-      btnShowDownload.style.setProperty('display', 'flex', 'important');
-      btnShowDownload.classList.remove('hidden');
-    }
-    if (inputsRow) {
-      inputsRow.style.setProperty('display', 'none', 'important');
-      inputsRow.classList.add('hidden');
     }
   }
 });
@@ -9337,21 +9315,9 @@ function triggerLiveHuggingFaceSearch(query) {
   }, 320);
 }
 
-// Bind show download fields triggers (both top and bottom buttons)
-const addModelsTriggers = document.querySelectorAll('.btn-add-models-trigger, #btn-show-download-fields, #btn-show-download-fields-top');
-addModelsTriggers.forEach(btn => {
-  btn.addEventListener('click', () => {
-    addModelsTriggers.forEach(b => b.style.display = 'none');
-    const inputsRow = document.getElementById('download-inputs-row');
-    if (inputsRow) {
-      inputsRow.classList.remove('hidden');
-      catalogLimit = 12;
-      renderModelTypeFilterBar(document.getElementById('catalog-model-filters'));
-      renderOllamaCatalog();
-      if (inputDownloadModel) inputDownloadModel.focus();
-    }
-  });
-});
+// Initialize model catalog & filter bar directly
+renderModelTypeFilterBar(document.getElementById('catalog-model-filters'));
+renderOllamaCatalog();
 
 // Bind catalog Load More button
 const btnLoadMoreModels = document.getElementById('btn-load-more-models');
@@ -14904,10 +14870,10 @@ async function prepareSettingsPanelState() {
 
   await loadStoragePathsUI();
 
-  const btnShowDownload = document.getElementById('btn-show-download-fields');
   const inputsRow = document.getElementById('download-inputs-row');
-  if (btnShowDownload) btnShowDownload.style.display = 'flex';
-  if (inputsRow) inputsRow.classList.add('hidden');
+  if (inputsRow) inputsRow.classList.remove('hidden');
+  renderModelTypeFilterBar(document.getElementById('catalog-model-filters'));
+  renderOllamaCatalog();
 
   updateMemoryUIState();
 }
