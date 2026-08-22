@@ -983,14 +983,6 @@
             <div class="models-section">
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <h5 style="margin: 0;">Installed Models</h5>
-                <button id="btn-show-download-fields-top" class="btn-primary-sm btn-add-models-trigger" style="padding: 0 14px; font-size: 12px; height: 32px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box;">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <line x1="12" y1="8" x2="12" y2="16"></line>
-                    <line x1="8" y1="12" x2="16" y2="12"></line>
-                  </svg>
-                  Add Models
-                </button>
               </div>
               <div id="installed-model-filters" class="model-type-filters" role="tablist" aria-label="Filter installed models"></div>
               <div id="settings-models-list" class="models-list-container">
@@ -1000,17 +992,8 @@
             
             <div class="download-section">
               <h5>Direct Download & Model Hub</h5>
-              <!-- Initial trigger button to open the input field -->
-              <button id="btn-show-download-fields" class="btn-primary-sm btn-add-models-trigger" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
-                  <circle cx="12" cy="12" r="10"></circle>
-                  <line x1="12" y1="8" x2="12" y2="16"></line>
-                  <line x1="8" y1="12" x2="16" y2="12"></line>
-                </svg>
-                Add Models
-              </button>
               
-              <div id="download-inputs-row" class="download-row hidden" style="display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 10px;">
+              <div id="download-inputs-row" class="download-row" style="display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 10px;">
                 <!-- Provider Selector Tabs (All, Ollama, Hugging Face) -->
                 <div id="catalog-provider-filters" class="catalog-provider-filters" role="tablist" aria-label="Filter model provider">
                   <button type="button" class="provider-filter-pill active" data-provider="all">
