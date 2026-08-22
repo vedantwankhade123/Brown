@@ -960,7 +960,7 @@ body.platform-win32 .chat-header-actions {
   display: flex;
   gap: 14px;
   width: 100%;
-  max-width: 780px;
+  max-width: 680px;
   min-width: 0;
   flex-shrink: 0;
   overflow: visible;
@@ -968,6 +968,8 @@ body.platform-win32 .chat-header-actions {
   box-sizing: border-box;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   transition: opacity 0.2s ease;
+  margin-left: auto !important;
+  margin-right: auto !important;
 }
 
 .chat-message:last-child {
@@ -1061,7 +1063,9 @@ body.platform-win32 .chat-header-actions {
   align-items: flex-start;
   gap: 12px;
   width: 100%;
-  max-width: 780px;
+  max-width: 680px;
+  margin-left: auto !important;
+  margin-right: auto !important;
 }
 
 .chat-message.ai .message-wrapper,
@@ -1077,9 +1081,10 @@ body.platform-win32 .chat-header-actions {
   border: none !important;
   box-shadow: none !important;
   padding: 14px 4px !important;
-  margin-left: auto;
+  margin-left: auto !important;
+  margin-right: auto !important;
   width: 100%;
-  max-width: 780px;
+  max-width: 680px;
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
@@ -1101,12 +1106,12 @@ body.platform-win32 .chat-header-actions {
 .chat-message.user .message-content {
   background-color: #202124;
   border: 1px solid var(--border-color);
-  border-radius: 14px 14px 2px 14px;
-  padding: 8px 14px;
+  border-radius: 18px 18px 4px 18px;
+  padding: 10px 16px;
   box-shadow: 0 3px 12px rgba(0, 0, 0, 0.25);
   color: #e3e3e3;
   font-size: 14.5px;
-  line-height: 1.4;
+  line-height: 1.45;
   flex: 0 0 auto !important;
   width: fit-content !important;
   max-width: 100% !important;
@@ -2458,6 +2463,18 @@ body.platform-win32 .chat-header-actions {
   color: #ffffff;
 }
 
+.connector-logo-img {
+  width: 34px !important;
+  height: 34px !important;
+  object-fit: contain !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  border-radius: 8px !important;
+  padding: 4px !important;
+  box-sizing: border-box !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+}
+
 .settings-panel .models-section h5,
 .settings-panel .download-section h5 {
   font-size: 13px;
@@ -2692,6 +2709,175 @@ body.platform-win32 .chat-header-actions {
   color: rgba(255, 255, 255, 0.82);
 }
 
+/* ==========================================================================
+   Mobile Sync - Premium Animated Empty State
+   ========================================================================== */
+.sync-empty-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 20px;
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.sync-empty-svg-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 320px;
+  height: 120px;
+  margin-bottom: 12px;
+}
+
+.sync-empty-illustration {
+  width: 100%;
+  height: 100%;
+  max-height: 120px;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.sync-empty-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  margin: 0 0 6px 0;
+  letter-spacing: -0.01em;
+}
+
+.sync-empty-desc {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  margin: 0;
+  line-height: 1.5;
+  max-width: 440px;
+}
+
+/* Dotted Connection Line Flow Animations */
+.connection-left {
+  animation: syncFlowLeft 2s linear infinite;
+}
+
+.connection-right {
+  animation: syncFlowRight 2s linear infinite;
+}
+
+@keyframes syncFlowLeft {
+  from {
+    stroke-dashoffset: 14;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes syncFlowRight {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -14;
+  }
+}
+
+/* Sync Symbol Subtle Rotation */
+.sync-icon {
+  transform-origin: center;
+  animation: syncIconRotate 3.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+@keyframes syncIconRotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  42% {
+    transform: rotate(180deg);
+  }
+  50% {
+    transform: rotate(180deg);
+  }
+  92% {
+    transform: rotate(360deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Traveling Data Pulses */
+.pulse-phone-to-laptop {
+  animation: dataPulseForward 3.6s ease-in-out infinite;
+}
+
+.pulse-laptop-to-phone {
+  animation: dataPulseBackward 3.6s ease-in-out infinite;
+}
+
+@keyframes dataPulseForward {
+  0% {
+    opacity: 0;
+    transform: translateX(88px);
+  }
+  6% {
+    opacity: 1;
+  }
+  38% {
+    opacity: 1;
+  }
+  44% {
+    opacity: 0;
+    transform: translateX(232px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(232px);
+  }
+}
+
+@keyframes dataPulseBackward {
+  0%, 50% {
+    opacity: 0;
+    transform: translateX(232px);
+  }
+  56% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  94% {
+    opacity: 0;
+    transform: translateX(88px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(88px);
+  }
+}
+
+/* Prefers-reduced-motion Support */
+@media (prefers-reduced-motion: reduce) {
+  .connection-left,
+  .connection-right,
+  .sync-icon,
+  .pulse-phone-to-laptop,
+  .pulse-laptop-to-phone {
+    animation: none !important;
+  }
+  .pulse-phone-to-laptop,
+  .pulse-laptop-to-phone {
+    display: none !important;
+  }
+}
+
 /* Storage tab — bottom breathing room */
 #tab-storage.tab-pane {
   gap: 12px;
@@ -2912,6 +3098,76 @@ body.platform-win32 .chat-header-actions {
   margin-bottom: 10px;
 }
 
+.account-location-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.account-location-title-group .account-section-label {
+  margin-bottom: 0 !important;
+}
+
+.account-info-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.account-info-btn {
+  background: transparent;
+  border: none;
+  padding: 3px;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.4);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.account-info-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.account-info-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  color: #e4e4e7;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+  z-index: 100;
+}
+
+.account-info-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: #18181b;
+}
+
+.account-info-wrapper:hover .account-info-tooltip,
+.account-info-btn:focus + .account-info-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
 .account-auto-location-toggle {
   display: inline-flex;
   align-items: center;
@@ -2938,6 +3194,12 @@ body.platform-win32 .chat-header-actions {
   justify-content: center;
   gap: 6px;
   min-width: 88px;
+  height: 36px !important;
+  padding: 0 16px !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+  border-radius: 6px !important;
+  flex-shrink: 0;
 }
 
 .account-detect-btn.is-detecting {
@@ -2957,6 +3219,33 @@ body.platform-win32 .chat-header-actions {
 .settings-panel .account-detect-btn.is-detected:hover {
   background-color: rgba(255, 255, 255, 0.1) !important;
   color: rgba(255, 255, 255, 0.88) !important;
+}
+
+.account-refresh-btn {
+  width: 36px !important;
+  height: 36px !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px !important;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  color: rgba(255, 255, 255, 0.75) !important;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.account-refresh-btn:hover {
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+
+.account-refresh-btn:active .account-refresh-icon,
+.account-refresh-btn.is-refreshing .account-refresh-icon {
+  animation: connector-refresh-spin 0.6s linear infinite;
 }
 
 .account-detect-btn.is-detecting .account-detect-spinner {
@@ -2998,15 +3287,6 @@ body.platform-win32 .chat-header-actions {
   flex: 1;
   margin-bottom: 0 !important;
   min-width: 0;
-}
-
-.account-detect-btn {
-  height: 36px !important;
-  padding: 0 16px !important;
-  font-size: 12px !important;
-  white-space: nowrap;
-  border-radius: 6px !important;
-  flex-shrink: 0;
 }
 
 .account-location-status {
@@ -4743,24 +5023,26 @@ body.platform-win32 .chat-header-actions {
   align-items: flex-start;
   gap: 12px;
   width: 100%;
-  padding: 10px;
-  background: transparent;
-  border: 1px solid transparent;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 10px;
   color: #ffffff;
   text-align: left;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   box-sizing: border-box;
 }
 
 .perm-popover-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .perm-popover-item.active {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.07) !important;
+  border: 1px solid rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
 .perm-item-icon {

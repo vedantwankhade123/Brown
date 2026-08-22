@@ -430,13 +430,77 @@
           : { success: false, message: readRes.error || 'Read failed.', errorCode: 'READ_FAILED' });
       }
 
-      if (toolCall.type === 'LIST_DIR') {
-        const listRes = await withTimeout(window.ultronAPI.listDir(toolCall.target));
-        if (listRes.success) {
-          const names = listRes.items.map(i => `${i.isDirectory ? '[DIR]' : '[FILE]'} ${i.name}`).join('\n');
-          return schema.normalizeToolResult({ success: true, message: `Listed ${listRes.dirPath}`, evidence: names });
+      if (toolCall.type === 'SYSTEM_CONTROL') {
+        const action = String(toolCall.action || toolCall.target || '').toUpperCase();
+        if (action === 'SET_VOLUME' || toolCall.level !== undefined) {
+          const lvl = toolCall.level !== undefined ? toolCall.level : parseInt(toolCall.target || '50', 10);
+          const res = await withTimeout(window.ultronAPI.windowsSetVolume(lvl));
+          return schema.normalizeToolResult({ success: res.success, message: `Master volume set to ${lvl}%` });
         }
-        return schema.normalizeToolResult({ success: false, message: listRes.error || 'List failed.', errorCode: 'LIST_FAILED' });
+        if (action === 'GET_VOLUME') {
+          const res = await withTimeout(window.ultronAPI.windowsGetVolume());
+          return schema.normalizeToolResult({ success: res.success, message: `Current volume: ${res.level}%, Muted: ${res.isMuted}` });
+        }
+        if (action === 'TOGGLE_MUTE' || action === 'MUTE') {
+          const res = await withTimeout(window.ultronAPI.windowsToggleMute());
+          return schema.normalizeToolResult({ success: res.success, message: 'Audio mute toggled.' });
+        }
+        if (action.startsWith('MEDIA_') || ['PLAY', 'PAUSE', 'NEXT', 'PREV', 'STOP'].includes(action)) {
+          const key = action.replace('MEDIA_', '').toLowerCase();
+          const res = await withTimeout(window.ultronAPI.windowsMediaKey(key));
+          return schema.normalizeToolResult({ success: res.success, message: `Media control ${key} triggered.` });
+        }
+        if (action === 'LOCK') {
+          const res = await withTimeout(window.ultronAPI.windowsLock());
+          return schema.normalizeToolResult({ success: res.success, message: 'Workstation locked.' });
+        }
+        if (action === 'SLEEP') {
+          const res = await withTimeout(window.ultronAPI.windowsSleep());
+          return schema.normalizeToolResult({ success: res.success, message: 'System entering sleep mode.' });
+        }
+        if (action === 'SET_BRIGHTNESS') {
+          const res = await withTimeout(window.ultronAPI.windowsSetBrightness(toolCall.level || 50));
+          return schema.normalizeToolResult({ success: res.success, message: `Display brightness set to ${toolCall.level || 50}%` });
+        }
+        if (action === 'GET_BRIGHTNESS') {
+          const res = await withTimeout(window.ultronAPI.windowsGetBrightness());
+          return schema.normalizeToolResult({ success: res.success, message: `Display brightness: ${res.brightness}%` });
+        }
+        return schema.normalizeToolResult({ success: false, message: `Unknown system control: ${action}` });
+      }
+
+      if (toolCall.type === 'CLIPBOARD_ACTION') {
+        const action = String(toolCall.action || 'READ').toUpperCase();
+        if (action === 'READ' && navigator.clipboard) {
+          const text = await navigator.clipboard.readText();
+          return schema.normalizeToolResult({ success: true, message: 'Clipboard content read.', evidence: text });
+        }
+        if (action === 'WRITE' && navigator.clipboard) {
+          const text = toolCall.text || toolCall.content || toolCall.target || '';
+          await navigator.clipboard.writeText(text);
+          if (window.UltronClipboardManager) window.UltronClipboardManager.pushItem(text);
+          return schema.normalizeToolResult({ success: true, message: 'Copied text to clipboard.' });
+        }
+        return schema.normalizeToolResult({ success: false, message: 'Clipboard action failed.' });
+      }
+
+      if (toolCall.type === 'RAG_SEARCH') {
+        const query = toolCall.query || toolCall.target || '';
+        const searchRes = await withTimeout(window.ultronAPI.ragSearch({ query, topK: toolCall.topK || 4 }));
+        if (searchRes.success && searchRes.results && searchRes.results.length > 0) {
+          const snippets = searchRes.results.map((r, i) => `[${i + 1}] ${r.fileName} (score: ${r.score}):\n${r.snippet}`).join('\n\n');
+          return schema.normalizeToolResult({
+            success: true,
+            message: `Found ${searchRes.results.length} relevant document excerpts.`,
+            evidence: snippets,
+            raw: searchRes.results
+          });
+        }
+        return schema.normalizeToolResult({
+          success: true,
+          message: 'No closely matching documents found in Knowledge Base.',
+          evidence: ''
+        });
       }
 
       return schema.normalizeToolResult({ success: false, message: `Unsupported tool: ${toolCall.type}`, errorCode: 'UNSUPPORTED' });

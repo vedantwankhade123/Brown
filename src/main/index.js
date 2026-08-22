@@ -50,7 +50,9 @@ function createWindow() {
     show: false,
     backgroundColor: isWin32 ? TITLE_BAR_COLOR : WINDOW_BG,
     title: 'Ultron: Autonomous Local AI Agent',
-    icon: path.join(__dirname, '..', '..', 'Assets', isWin32 ? 'ultron-logo.ico' : 'ultron-logo.png'),
+    icon: fs.existsSync(path.join(__dirname, '..', '..', 'Assets', 'Brand-Assets', isWin32 ? 'ultron-logo.ico' : 'ultron-logo.png'))
+      ? path.join(__dirname, '..', '..', 'Assets', 'Brand-Assets', isWin32 ? 'ultron-logo.ico' : 'ultron-logo.png')
+      : path.join(__dirname, '..', '..', 'Assets', isWin32 ? 'ultron-logo.ico' : 'ultron-logo.png'),
     ...(isWin32
       ? {
           titleBarStyle: 'hidden',

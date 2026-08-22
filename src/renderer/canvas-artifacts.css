@@ -1,0 +1,321 @@
+/* Ultron Interactive Canvas & Artifacts Split-View Styling */
+
+.canvas-split-container {
+  display: flex;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.canvas-panel {
+  display: flex;
+  flex-direction: column;
+  width: 50%;
+  min-width: 360px;
+  max-width: 80%;
+  height: 100%;
+  background-color: #0d0e12;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.6);
+  z-index: 25;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  position: relative;
+}
+
+.canvas-panel.hidden {
+  display: none !important;
+}
+
+.canvas-panel.fullscreen {
+  position: fixed;
+  top: 36px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100% !important;
+  max-width: 100% !important;
+  z-index: 999;
+  border-left: none;
+}
+
+/* Header */
+.canvas-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background-color: #121318;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  height: 48px;
+  user-select: none;
+}
+
+.canvas-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.canvas-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: rgba(66, 133, 244, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(66, 133, 244, 0.3);
+}
+
+.canvas-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f3f4f6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.canvas-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.canvas-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.canvas-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.canvas-btn.active {
+  background: rgba(66, 133, 244, 0.2);
+  color: #60a5fa;
+  border-color: rgba(66, 133, 244, 0.4);
+}
+
+/* Tabs Bar */
+.canvas-tabs-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: #090a0d;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+}
+
+.canvas-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #9ca3af;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.canvas-tab:hover {
+  color: #e5e7eb;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.canvas-tab.active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Body / Viewer */
+.canvas-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  background: #000000;
+}
+
+.canvas-view-pane {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.canvas-view-pane.hidden {
+  display: none !important;
+}
+
+/* Sandbox iframe */
+.canvas-iframe-wrapper {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: #ffffff;
+}
+
+.canvas-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #ffffff;
+}
+
+/* Code & Markdown Viewers */
+.canvas-code-container {
+  padding: 16px;
+  margin: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #e5e7eb;
+  background: #0d0e12;
+  overflow: auto;
+  flex: 1;
+  white-space: pre;
+}
+
+.canvas-markdown-container {
+  padding: 24px;
+  color: #e5e7eb;
+  font-size: 14px;
+  line-height: 1.7;
+  overflow: auto;
+  flex: 1;
+  background: #0d0e12;
+}
+
+.canvas-markdown-container h1, .canvas-markdown-container h2, .canvas-markdown-container h3 {
+  color: #ffffff;
+  margin-top: 1.2em;
+  margin-bottom: 0.6em;
+}
+
+.canvas-markdown-container pre {
+  background: #17181f;
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.canvas-markdown-container table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+}
+
+.canvas-markdown-container th, .canvas-markdown-container td {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: left;
+}
+
+.canvas-markdown-container th {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Console Drawer */
+.canvas-console-drawer {
+  height: 120px;
+  background: #08090b;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.canvas-console-drawer.collapsed {
+  height: 28px;
+}
+
+.canvas-console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  background: #101116;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.canvas-console-logs {
+  flex: 1;
+  padding: 8px 12px;
+  overflow-y: auto;
+  color: #d1d5db;
+}
+
+.canvas-log-line {
+  margin: 2px 0;
+  word-break: break-all;
+}
+
+.canvas-log-line.error {
+  color: #ef4444;
+}
+
+.canvas-log-line.warn {
+  color: #f59e0b;
+}
+
+.canvas-log-line.info {
+  color: #3b82f6;
+}
+
+/* Inline Open in Canvas button */
+.btn-open-in-canvas {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(66, 133, 244, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(66, 133, 244, 0.3);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  margin: 6px 0;
+  transition: all 0.15s ease;
+}
+
+.btn-open-in-canvas:hover {
+  background: rgba(66, 133, 244, 0.28);
+  border-color: rgba(66, 133, 244, 0.6);
+  color: #93c5fd;
+  transform: translateY(-1px);
+}

@@ -29,6 +29,21 @@
       label: 'Web search & fetch',
       description: 'DuckDuckGo search and page fetch',
       toolTypes: ['SEARCH', 'WEB_FETCH']
+    },
+    system_control: {
+      label: 'System & Hardware',
+      description: 'Control volume, brightness, power, and media',
+      toolTypes: ['SYSTEM_CONTROL']
+    },
+    knowledge_rag: {
+      label: 'Knowledge Base (RAG)',
+      description: 'Search local personal files and notes',
+      toolTypes: ['RAG_SEARCH']
+    },
+    clipboard: {
+      label: 'Clipboard & Transforms',
+      description: 'Read and transform clipboard content',
+      toolTypes: ['CLIPBOARD_ACTION']
     }
   };
 
@@ -37,7 +52,10 @@
     shell: 'ask',
     app_control: 'always',
     screen: 'ask',
-    web: 'always'
+    web: 'always',
+    system_control: 'always',
+    knowledge_rag: 'always',
+    clipboard: 'always'
   };
 
   function getCapabilityMode(groupId) {
