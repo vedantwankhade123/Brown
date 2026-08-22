@@ -9136,7 +9136,7 @@ function renderOllamaCatalog(filterQuery = '') {
     if (isInstalled) {
       actionButtonHtml = `<span class="badge-installed">INSTALLED</span>`;
     } else if (isCloudModel) {
-      actionButtonHtml = `<button class="btn-catalog-pull btn-cloud-use" data-model="${escapeHtml(model.name)}" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">Use Model</button>`;
+      actionButtonHtml = `<button class="btn-catalog-pull btn-cloud-use" data-model="${escapeHtml(model.name)}" style="background: #2563eb; color: #ffffff; font-weight: 600; border: none;">Use Model</button>`;
     }
 
     const brandInfo = getModelBrandInfo(model.name, model.author, isHuggingFace ? 'huggingface' : (isCloudModel ? 'cloud' : 'ollama'));
@@ -9166,9 +9166,6 @@ function renderOllamaCatalog(filterQuery = '') {
         </div>
         <div class="card-header-right">
           <span class="card-token-metric">${escapeHtml(paramText)}</span>
-          <button class="card-info-btn" title="Model details">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-          </button>
           ${actionButtonHtml}
         </div>
       </div>
