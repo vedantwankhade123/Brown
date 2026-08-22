@@ -2788,9 +2788,10 @@ body.platform-win32 .chat-header-actions {
   }
 }
 
-/* Sync Symbol Subtle Rotation */
+/* Sync Symbol In-Place Rotation */
 .sync-icon {
-  transform-origin: center;
+  transform-origin: 160px 60px;
+  transform-box: view-box;
   animation: syncIconRotate 3.6s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 }
 
