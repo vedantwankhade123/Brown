@@ -9,6 +9,7 @@ CVS/
 .DS_Store
 memory/
 Assets/*
+!Assets/Brand-Assets/**
 !Assets/landing.png
 !Assets/landing-page.png
 !Assets/UltronWebsite.png

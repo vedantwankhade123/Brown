@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ultron: Autonomous Local AI Agent</title>
   <link rel="stylesheet" href="index.css">
+  <link rel="stylesheet" href="canvas-artifacts.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +15,7 @@
   <!-- Windows custom title bar: logo + app name -->
   <div class="app-window-titlebar">
     <div class="app-titlebar-brand">
-      <img src="../../Assets/ultron-logo.png" class="app-titlebar-logo" alt="">
+      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="app-titlebar-logo" alt="">
       <span class="app-titlebar-name">Ultron <span class="beta-badge-pill">BETA</span></span>
     </div>
   </div>
@@ -23,7 +24,7 @@
   <div id="app-splash-screen" class="app-splash-screen">
     <div class="splash-card">
       <div class="splash-logo-container">
-        <img src="../../Assets/ultron-logo.png" class="splash-logo-img" alt="Ultron Logo">
+        <img src="../../Assets/Brand-Assets/ultron-logo.png" class="splash-logo-img" alt="Ultron Logo">
       </div>
       <div class="splash-text-container">
         <h1 class="splash-brand-title shiny-text">Ultron</h1>
@@ -61,7 +62,7 @@
       <!-- Title Header -->
       <div class="brand-header">
         <div class="brand-left">
-          <img src="../../Assets/ultron-logo.png" class="brand-logo" alt="Ultron Logo">
+          <img src="../../Assets/Brand-Assets/ultron-logo.png" class="brand-logo" alt="Ultron Logo">
           <span class="brand-name">Ultron <span class="beta-badge-pill">BETA</span></span>
         </div>
         <button id="btn-toggle-left-sidebar" class="btn-toggle-left-sidebar" title="Collapse navigation">
@@ -188,7 +189,7 @@
               <span></span>
               <span></span>
             </div>
-            <img src="../../Assets/ultron-logo.png" class="voice-mode-logo" alt="Ultron">
+            <img src="../../Assets/Brand-Assets/ultron-logo.png" class="voice-mode-logo" alt="Ultron">
           </div>
           <p id="voice-mode-caption" class="voice-mode-caption" aria-hidden="true" data-role=""></p>
           <button type="button" id="voice-mode-status" class="voice-mode-status">Tap to start listening</button>
@@ -223,14 +224,11 @@
           <button type="button" id="voice-mode-stop-mic" class="voice-mode-bar-btn" title="Toggle microphone">
             <svg class="voice-mode-mic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-              <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
-              <line x1="12" y1="19" x2="12" y2="23"></line>
-              <line x1="8" y1="23" x2="16" y2="23"></line>
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
             </svg>
             <svg class="voice-mode-mic-off hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-              <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
-              <line x1="4" y1="4" x2="20" y2="20"></line>
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
             </svg>
           </button>
           <button type="button" id="voice-mode-exit" class="voice-mode-bar-btn voice-mode-bar-exit" title="Exit voice mode">
@@ -245,7 +243,7 @@
 
     <!-- WELCOME SCREEN -->
     <div id="welcome-screen" class="welcome-screen">
-      <img src="../../Assets/ultron-logo.png" class="welcome-logo" alt="Ultron Logo">
+      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="welcome-logo" alt="Ultron Logo">
       <h1 id="welcome-title" class="welcome-title">Good evening, User</h1>
       <p class="welcome-subtitle">How can Ultron assist you today?</p>
     </div>
@@ -545,6 +543,50 @@
     </div>
     </div>
 
+    <!-- INTERACTIVE CANVAS & ARTIFACTS SPLIT-VIEW PANEL -->
+    <div id="canvas-artifacts-panel" class="canvas-panel hidden">
+      <div class="canvas-header">
+        <div class="canvas-header-left">
+          <span id="canvas-type-badge" class="canvas-type-badge">HTML</span>
+          <span id="canvas-title" class="canvas-title">Interactive Workspace</span>
+        </div>
+        <div class="canvas-header-actions">
+          <button id="btn-canvas-refresh" class="canvas-btn" title="Refresh sandbox">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+          </button>
+          <button id="btn-canvas-copy" class="canvas-btn" title="Copy content">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          </button>
+          <button id="btn-canvas-download" class="canvas-btn" title="Download file">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          </button>
+          <button id="btn-canvas-fullscreen" class="canvas-btn" title="Fullscreen Canvas">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+          </button>
+          <button id="btn-canvas-close" class="canvas-btn" title="Close Canvas">✕</button>
+        </div>
+      </div>
+      <div id="canvas-tabs-bar" class="canvas-tabs-bar"></div>
+      <div class="canvas-body">
+        <div id="canvas-iframe-pane" class="canvas-view-pane">
+          <iframe id="canvas-sandbox-iframe" class="canvas-iframe" sandbox="allow-scripts allow-modals"></iframe>
+        </div>
+        <div id="canvas-code-pane" class="canvas-view-pane hidden">
+          <pre id="canvas-code-view" class="canvas-code-container"></pre>
+        </div>
+        <div id="canvas-markdown-pane" class="canvas-view-pane hidden">
+          <div id="canvas-markdown-view" class="canvas-markdown-container"></div>
+        </div>
+        <div id="canvas-console-drawer" class="canvas-console-drawer collapsed">
+          <div id="canvas-console-header" class="canvas-console-header">
+            <span>Console Output</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="18 15 12 9 6 15"></polyline></svg>
+          </div>
+          <div id="canvas-console-logs" class="canvas-console-logs"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Settings (inline, replaces chat view) -->
     <div id="settings-panel" class="settings-panel hidden">
       <div class="settings-panel-body-layout">
@@ -557,6 +599,19 @@
           <div class="settings-tab-btn" data-tab="models">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
             Models
+          </div>
+          <div class="settings-tab-btn" data-tab="knowledge">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+            Knowledge Base
+          </div>
+          <div class="settings-tab-btn" data-tab="sync">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+              <path d="M4 6h10v8H4z"></path>
+              <path d="M2 17h12l-1.5-3H4.5L2 17z"></path>
+              <rect x="14" y="8" width="8" height="13" rx="1.5"></rect>
+              <line x1="17" y1="18" x2="19" y2="18"></line>
+            </svg>
+            Mobile Sync
           </div>
           <div class="settings-tab-btn" data-tab="desktop">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
@@ -613,7 +668,6 @@
                 <div class="profile-text">
                   <span class="profile-detail-name" id="account-name">User</span>
                   <span class="profile-detail-email" id="account-email">user@example.com</span>
-                  <span class="profile-badge">Local AI Engine</span>
                 </div>
               </div>
             </div>
@@ -636,9 +690,18 @@
 
             <div class="account-location-card">
               <div class="account-location-card-header">
-                <div>
-                  <label for="setting-home-location" class="account-section-label">Home city</label>
-                  <p class="account-section-hint">For weather, local search, and “near me” results.</p>
+                <div class="account-location-title-group">
+                  <label for="setting-home-location" class="account-section-label">Location</label>
+                  <div class="account-info-wrapper">
+                    <button type="button" class="account-info-btn" id="btn-location-info" title="For weather, local search, and “near me” results." aria-label="Location information">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                      </svg>
+                    </button>
+                    <div class="account-info-tooltip" id="location-info-tooltip">For weather, local search, and “near me” results.</div>
+                  </div>
                 </div>
                 <label class="account-auto-location-toggle" title="Detect location on startup and keep it updated">
                   <input type="checkbox" id="setting-auto-location" checked>
@@ -647,12 +710,19 @@
               </div>
               <div class="account-location-row">
                 <input type="text" id="setting-home-location" class="override-input account-input account-location-input" placeholder="e.g. Mumbai, India" />
-                <button id="btn-detect-location" type="button" class="btn-faint account-detect-btn">
+                <button id="btn-detect-location" type="button" class="btn-faint account-detect-btn is-detected" title="Location detection status">
                   <span class="account-detect-spinner hidden" aria-hidden="true"></span>
-                  <span class="account-detect-label">Detect</span>
+                  <span class="account-detect-label">Detected</span>
+                </button>
+                <button id="btn-refresh-location" type="button" class="btn-faint account-refresh-btn" title="Re-detect location manually" aria-label="Re-detect location">
+                  <svg class="account-refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                    <path d="M23 4v6h-6"></path>
+                    <path d="M1 20v-6h6"></path>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                  </svg>
                 </button>
               </div>
-              <p id="setting-location-status" class="text-xs text-muted account-location-status">Detecting location…</p>
+              <p id="setting-location-status" class="text-xs text-muted account-location-status"></p>
             </div>
             
             <p class="text-xs text-muted account-footer-note">Google OAuth authentication will be connected here for secure loopbacks.</p>
@@ -666,7 +736,7 @@
             <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 14px;">
-                  <img src="../../Assets/gemini-logo.png" alt="Gemini Logo" style="width: 32px; height: 32px; object-fit: contain; background-color: #ffffff; border-radius: 6px; padding: 4px; box-sizing: border-box; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />
+                  <img src="../../Assets/Brand-Assets/gemini-logo.png" alt="Gemini Logo" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
                   <div style="display: flex; flex-direction: column;">
                     <div style="display: flex; align-items: center; gap: 8px;">
                       <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Google Gemini</span>
@@ -696,9 +766,169 @@
               <div id="gemini-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ Gemini API key saved!</div>
             </div>
 
+            <!-- OpenAI API Connector -->
+            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+              <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <img src="../../Assets/Brand-Assets/openai-black-logo.png" alt="OpenAI" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
+                  <div style="display: flex; flex-direction: column;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">OpenAI</span>
+                      <span id="openai-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Not configured</span>
+                    </div>
+                    <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: https://api.openai.com/v1</p>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
+                Enable OpenAI models (<b>GPT-4o</b>, <b>GPT-4o Mini</b>, <b>o3-mini</b>, and <b>o1</b>). Get an API key at <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #60a5fa; text-decoration: underline;">platform.openai.com</a>.
+              </p>
+              <div id="openai-key-trigger-container" style="margin-top: 10px;">
+                <button id="btn-toggle-openai-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span id="openai-key-btn-text">Add Key</span>
+                </button>
+              </div>
+              <div id="openai-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+                <input type="password" id="input-openai-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste OpenAI API Key (sk-proj-...)" />
+                <button id="btn-save-openai-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+                <button id="btn-cancel-openai-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
+              </div>
+              <div id="openai-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ OpenAI connected!</div>
+            </div>
+
+            <!-- Anthropic Claude API Connector -->
+            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+              <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <img src="../../Assets/Brand-Assets/claude-logo.png" alt="Claude" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
+                  <div style="display: flex; flex-direction: column;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Anthropic Claude</span>
+                      <span id="anthropic-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Not configured</span>
+                    </div>
+                    <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: https://api.anthropic.com</p>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
+                Enable Anthropic Claude models (<b>Claude 3.7 Sonnet</b>, <b>Claude 3.5 Sonnet</b>, and <b>Claude 3.5 Haiku</b>). Get an API key at <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color: #60a5fa; text-decoration: underline;">console.anthropic.com</a>.
+              </p>
+              <div id="anthropic-key-trigger-container" style="margin-top: 10px;">
+                <button id="btn-toggle-anthropic-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span id="anthropic-key-btn-text">Add Key</span>
+                </button>
+              </div>
+              <div id="anthropic-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+                <input type="password" id="input-anthropic-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Anthropic API Key (sk-ant-...)" />
+                <button id="btn-save-anthropic-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+                <button id="btn-cancel-anthropic-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
+              </div>
+              <div id="anthropic-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ Anthropic Claude connected!</div>
+            </div>
+
+            <!-- DeepSeek API Connector -->
+            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+              <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <img src="../../Assets/Brand-Assets/deepseek-blue-logo.png" alt="DeepSeek" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
+                  <div style="display: flex; flex-direction: column;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">DeepSeek API</span>
+                      <span id="deepseek-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Not configured</span>
+                    </div>
+                    <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: https://api.deepseek.com</p>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
+                Enable DeepSeek frontier models (<b>DeepSeek-R1</b> for reasoning and <b>DeepSeek-V3</b>). Get an API key at <a href="https://platform.deepseek.com/api_keys" target="_blank" style="color: #60a5fa; text-decoration: underline;">platform.deepseek.com</a>.
+              </p>
+              <div id="deepseek-key-trigger-container" style="margin-top: 10px;">
+                <button id="btn-toggle-deepseek-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span id="deepseek-key-btn-text">Add Key</span>
+                </button>
+              </div>
+              <div id="deepseek-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+                <input type="password" id="input-deepseek-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste DeepSeek API Key (sk-...)" />
+                <button id="btn-save-deepseek-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+                <button id="btn-cancel-deepseek-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
+              </div>
+              <div id="deepseek-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ DeepSeek connected!</div>
+            </div>
+
+            <!-- Groq Cloud Connector -->
+            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+              <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <img src="../../Assets/Brand-Assets/grok-white-logo.png" alt="Groq" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25); filter: invert(1);" />
+                  <div style="display: flex; flex-direction: column;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Groq Cloud</span>
+                      <span id="groq-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Not configured</span>
+                    </div>
+                    <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: https://api.groq.com/openai/v1</p>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
+                Enable ultra-fast LPU inference (<b>Llama 3.3 70B</b>, <b>DeepSeek-R1 Distill 70B</b> at 300+ tok/s). Get a free API key at <a href="https://console.groq.com/keys" target="_blank" style="color: #60a5fa; text-decoration: underline;">console.groq.com</a>.
+              </p>
+              <div id="groq-key-trigger-container" style="margin-top: 10px;">
+                <button id="btn-toggle-groq-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span id="groq-key-btn-text">Add Key</span>
+                </button>
+              </div>
+              <div id="groq-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
+                <input type="password" id="input-groq-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Groq API Key (gsk_...)" />
+                <button id="btn-save-groq-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+                <button id="btn-cancel-groq-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
+              </div>
+              <div id="groq-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ Groq Cloud connected!</div>
+            </div>
+
+            <!-- Custom Models Server Connector -->
+            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+              <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <img src="../../Assets/Brand-Assets/openrouter-green-logo.png" alt="Custom Models" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
+                  <div style="display: flex; flex-direction: column;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Custom Models (LM Studio / vLLM / OpenRouter)</span>
+                      <span id="custom-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Local Port</span>
+                    </div>
+                    <p class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: http://localhost:1234/v1</p>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
+                Connect to any custom local LLM server or proxy (<b>LM Studio</b>, <b>vLLM</b>, <b>text-generation-webui</b>, or <b>OpenRouter</b>).
+              </p>
+              <div id="custom-endpoint-trigger-container" style="margin-top: 10px;">
+                <button id="btn-toggle-custom-endpoint-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span id="custom-endpoint-btn-text">Configure Endpoint</span>
+                </button>
+              </div>
+              <div id="custom-endpoint-input-container" class="hidden" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="text" id="input-custom-endpoint-url" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Endpoint URL (e.g. http://localhost:1234/v1)" />
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input type="password" id="input-custom-endpoint-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Optional API Key (for OpenRouter, vLLM, etc.)" />
+                  <button id="btn-save-custom-endpoint" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Endpoint</button>
+                  <button id="btn-cancel-custom-endpoint" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
+                </div>
+              </div>
+              <div id="custom-endpoint-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ Custom endpoint connected!</div>
+            </div>
+
             <div class="connector-row">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; gap: 14px; margin-bottom: 12px;">
-                <img src="../../Assets/ollama-logo.png" alt="Ollama Logo" style="width: 32px; height: 32px; object-fit: contain; background-color: #ffffff; border-radius: 6px; padding: 4px; box-sizing: border-box; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));" />
+                <img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama Logo" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
                 <div style="display: flex; flex-direction: column;">
                   <div class="connector-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 0;">
                     <span id="ollama-connector-title" class="connector-title" style="font-weight: 600; font-size: 14px;">Connect Ollama</span>
@@ -1049,6 +1279,214 @@
             </div>
           </div>
 
+          <!-- Knowledge Base (Local Vector RAG) Tab -->
+          <div id="tab-knowledge" class="tab-pane hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 12px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <h4 style="margin: 0;">Knowledge Base (Local Vector RAG)</h4>
+                <span class="models-sound-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3);">100% Offline</span>
+              </div>
+            </div>
+            <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.5;">
+              Index local folders, project notes, PDFs, and code files into a local semantic vector database. Ultron retrieves relevant excerpts automatically during chat and agent workflows with zero cloud data transmission.
+            </p>
+
+            <!-- Actions Bar -->
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px;">
+              <button id="btn-rag-add-folder" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; background: #ffffff !important; color: #000000 !important; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
+                <span>Add Folder</span>
+              </button>
+              <button id="btn-rag-reindex" class="btn-faint" style="height: 36px; padding: 0 14px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                <span>Re-index All</span>
+              </button>
+              <button id="btn-rag-clear" class="btn-faint" style="height: 36px; padding: 0 14px; font-size: 12px; color: #ef4444; border-color: rgba(239, 68, 68, 0.2);">Clear Index</button>
+            </div>
+
+            <!-- Indexing Progress Bar -->
+            <div id="rag-progress-container" class="hidden" style="margin-bottom: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px;">
+              <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
+                <span id="rag-progress-label" style="color: #60a5fa;">Indexing documents…</span>
+                <span id="rag-progress-stats" style="color: #a1a1aa;">0 files</span>
+              </div>
+              <div style="width: 100%; height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden;">
+                <div id="rag-progress-bar" style="width: 0%; height: 100%; background: #3b82f6; transition: width 0.2s ease;"></div>
+              </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px;">
+              <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+                <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Indexed Sources</div>
+                <div id="rag-stat-sources" style="font-size: 18px; font-weight: 700; color: #ffffff; margin-top: 4px;">0</div>
+              </div>
+              <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+                <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Vector Chunks</div>
+                <div id="rag-stat-chunks" style="font-size: 18px; font-weight: 700; color: #60a5fa; margin-top: 4px;">0</div>
+              </div>
+              <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+                <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Search Engine</div>
+                <div style="font-size: 13px; font-weight: 600; color: #10b981; margin-top: 6px;">Cosine Vector Space</div>
+              </div>
+            </div>
+
+            <!-- Sources List -->
+            <div style="margin-bottom: 24px;">
+              <h5 style="margin: 0 0 10px 0;">Indexed Folders &amp; Documents</h5>
+              <div id="rag-sources-list" style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="padding: 16px; text-align: center; color: #6b7280; font-size: 13px; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px dashed var(--border-color);">
+                  No folders or documents added yet. Click "Add Folder" to index local notes or code repositories.
+                </div>
+              </div>
+            </div>
+
+            <!-- Test Query Sandbox -->
+            <div style="border-top: 1px solid var(--border-color); padding-top: 16px;">
+              <h5 style="margin: 0 0 8px 0;">Semantic Query Test</h5>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0;">Test how Ultron matches natural language queries against your indexed document vector chunks.</p>
+              <div style="display: flex; gap: 8px;">
+                <input type="text" id="input-rag-test-query" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; font-size: 12px;" placeholder="e.g. Find database connection config or API endpoints..." />
+                <button id="btn-rag-test-search" class="btn-faint" style="height: 36px; padding: 0 16px; font-size: 12px;">Search Index</button>
+              </div>
+              <div id="rag-test-results" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;"></div>
+            </div>
+          </div>
+
+          <!-- Mobile Sync & LAN Companion Tab -->
+          <div id="tab-sync" class="tab-pane hidden">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 12px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20" style="color: #60a5fa; flex-shrink: 0;">
+                  <path d="M4 6h10v8H4z"></path>
+                  <path d="M2 17h12l-1.5-3H4.5L2 17z"></path>
+                  <rect x="14" y="8" width="8" height="13" rx="1.5"></rect>
+                  <line x1="17" y1="18" x2="19" y2="18"></line>
+                </svg>
+                <h4 style="margin: 0;">Mobile Sync &amp; Companion</h4>
+                <span class="models-sound-badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3);">LAN Port 49200</span>
+              </div>
+            </div>
+            <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.5;">
+              Pair your iPhone or Android device running the <b>Ultron Mobile</b> app with this PC over your local home/office Wi-Fi. Query desktop models, sync chats, and share API configurations privately.
+            </p>
+
+            <!-- Sync Info Card -->
+            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 10px; padding: 16px; margin-bottom: 18px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
+                      <path d="M4 6h10v8H4z"></path>
+                      <path d="M2 17h12l-1.5-3H4.5L2 17z"></path>
+                      <rect x="14" y="8" width="8" height="13" rx="1.5"></rect>
+                      <line x1="17" y1="18" x2="19" y2="18"></line>
+                    </svg>
+                  </div>
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span id="sync-desktop-id" style="font-weight: 700; font-size: 15px; color: #ffffff; font-family: 'JetBrains Mono', monospace;">ULTRON-WIN-DETECTING</span>
+                      <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">● Ready for Pairing</span>
+                    </div>
+                    <p id="sync-lan-endpoint" class="text-xs text-muted" style="margin: 2px 0 0 0;">LAN Endpoint: 0.0.0.0:49200</p>
+                    <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px;">
+                      <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #cbd5e1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); padding: 2px 8px; border-radius: 6px;">
+                        <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 12px; height: 12px; object-fit: contain;" /> Android
+                      </span>
+                      <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #cbd5e1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); padding: 2px 8px; border-radius: 6px;">
+                        <img src="../../Assets/Brand-Assets/white-apple.png" alt="Apple iOS" style="width: 12px; height: 12px; object-fit: contain;" /> Apple iOS
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <button id="btn-generate-pair-code" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; background: #ffffff !important; color: #000000 !important; font-weight: 600;">
+                  Generate Pair Code
+                </button>
+              </div>
+
+              <!-- Pair Code Display Banner (Hidden until generated) -->
+              <div id="sync-pair-code-banner" class="hidden" style="background: rgba(66, 133, 244, 0.08); border: 1px dashed rgba(66, 133, 244, 0.35); border-radius: 8px; padding: 14px; text-align: center; margin-top: 12px;">
+                <p style="margin: 0 0 6px 0; font-size: 12px; color: #93c5fd;">Enter this 4-letter code in your Ultron Mobile app:</p>
+                <div id="sync-pair-code-display" style="font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #60a5fa;">----</div>
+                <p id="sync-pair-code-timer" style="margin: 6px 0 0 0; font-size: 11px; color: #a1a1aa;">Code expires in 60s</p>
+              </div>
+            </div>
+
+            <!-- Paired Devices Table -->
+            <div>
+              <h5 style="margin: 0 0 10px 0;">Paired Mobile Devices</h5>
+              <div id="sync-paired-devices-container" style="display: flex; flex-direction: column; gap: 8px;">
+                <div class="sync-empty-state-card">
+                  <div class="sync-empty-svg-wrapper">
+                    <svg class="sync-empty-illustration" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
+                      <defs>
+                        <filter id="sync-subtle-glow" x="-20%" y="-20%" width="140%" height="140%">
+                          <feGaussianBlur stdDeviation="1.5" result="blur" />
+                          <feMerge>
+                            <feMergeNode in="blur" />
+                            <feMergeNode in="SourceGraphic" />
+                          </feMerge>
+                        </filter>
+                        <linearGradient id="sync-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                          <stop offset="0%" stop-color="rgba(96, 165, 250, 0.18)" />
+                          <stop offset="100%" stop-color="rgba(255, 255, 255, 0.04)" />
+                        </linearGradient>
+                      </defs>
+
+                      <!-- Connection Lines -->
+                      <line x1="88" y1="60" x2="138" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
+                      <line x1="182" y1="60" x2="232" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
+                      <line x1="88" y1="60" x2="138" y2="60" class="connection-left" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
+                      <line x1="182" y1="60" x2="232" y2="60" class="connection-right" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
+
+                      <!-- Traveling Data Pulses -->
+                      <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-phone-to-laptop" fill="#ffffff" filter="url(#sync-subtle-glow)" />
+                      <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-laptop-to-phone" fill="#ffffff" filter="url(#sync-subtle-glow)" />
+
+                      <!-- Smartphone (Left) -->
+                      <g class="phone" transform="translate(42, 22)">
+                        <rect x="0" y="0" width="46" height="76" rx="8" ry="8" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
+                        <rect x="4" y="7" width="38" height="62" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
+                        <rect x="16" y="3" width="14" height="2.5" rx="1.2" fill="rgba(255, 255, 255, 0.6)" />
+                        <line x1="9" y1="18" x2="25" y2="18" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
+                        <line x1="9" y1="24" x2="35" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
+                        <line x1="9" y1="30" x2="29" y2="30" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
+                        <circle cx="23" cy="50" r="4" stroke="rgba(96, 165, 250, 0.7)" stroke-width="1" fill="rgba(96, 165, 250, 0.15)" />
+                        <circle cx="23" cy="50" r="1.5" fill="#60a5fa" />
+                        <line x1="16" y1="72" x2="30" y2="72" stroke="rgba(255, 255, 255, 0.5)" stroke-width="1.5" stroke-linecap="round" />
+                      </g>
+
+                      <!-- Sync Symbol (Center) -->
+                      <g class="sync-container" transform="translate(160, 60)">
+                        <circle cx="0" cy="0" r="18" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" fill="url(#sync-ring-grad)" />
+                        <g class="sync-icon">
+                          <path d="M-8 -6 A 10 10 0 0 1 8 -3" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
+                          <path d="M5 -5 L8 -3 L6 0" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                          <path d="M8 6 A 10 10 0 0 1 -8 3" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
+                          <path d="M-5 5 L-8 3 L-6 0" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                        </g>
+                      </g>
+
+                      <!-- Laptop Screen (Right) -->
+                      <g class="laptop" transform="translate(232, 26)">
+                        <rect x="6" y="0" width="76" height="52" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
+                        <rect x="10" y="4" width="68" height="42" rx="2" ry="2" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
+                        <circle cx="44" cy="2" r="0.8" fill="rgba(255, 255, 255, 0.5)" />
+                        <line x1="16" y1="12" x2="36" y2="12" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
+                        <line x1="16" y1="18" x2="54" y2="18" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
+                        <line x1="16" y1="24" x2="46" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
+                        <path d="M0 54 H88 L83 61 H5 Z" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" stroke-linejoin="round" fill="rgba(255, 255, 255, 0.04)" />
+                        <line x1="38" y1="55" x2="50" y2="55" stroke="rgba(255, 255, 255, 0.4)" stroke-width="1.5" stroke-linecap="round" />
+                      </g>
+                    </svg>
+                  </div>
+                  <h6 class="sync-empty-title">No mobile devices paired yet</h6>
+                  <p class="sync-empty-desc">Click “Generate Pair Code” and enter the code in your mobile app to connect your device.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Advanced Options Tab -->
           <div id="tab-performance" class="tab-pane hidden">
             <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 8px;">
@@ -1319,17 +1757,62 @@
           
           <!-- Permissions Tab -->
           <div id="tab-permissions" class="tab-pane hidden">
-            <h4>Permissions</h4>
-            <div class="setting-item">
-              <label>Agent Mode</label>
-              <select id="settings-default-security" class="security-dropdown">
-                <option value="Review">Review Mode (Human Validation)</option>
-                <option value="Containment">Containment Mode (Sandbox)</option>
-                <option value="Adaptive">Adaptive Auto Mode (Smart)</option>
-                <option value="Trusted">Full Trusted Automation Mode</option>
-              </select>
+            <div style="margin-bottom: 24px;">
+              <h4 style="margin: 0 0 6px 0;">Ultron Action Authorization</h4>
+              <p class="text-xs text-muted" style="margin: 0 0 14px 0; line-height: 1.4;">Configure execution safety boundaries for file edits, terminal commands, web research, and autonomous tools.</p>
+              
+              <div class="perm-popover-list settings-perm-list" style="display: flex; flex-direction: column; gap: 8px; max-width: 580px;">
+                <!-- Option 1: Prompt Every Action -->
+                <button type="button" class="perm-popover-item mode-option" data-mode="Review" role="button" style="padding: 12px 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; cursor: pointer; transition: all 0.15s ease;">
+                  <div class="perm-item-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                      <path d="M9 12l2 2 4-4"></path>
+                    </svg>
+                  </div>
+                  <div class="perm-item-content">
+                    <span class="perm-item-title" style="font-size: 14px; font-weight: 600; color: #ffffff;">Prompt Every Action</span>
+                    <span class="perm-item-desc" style="font-size: 12px; color: rgba(255, 255, 255, 0.6); margin-top: 2px;">Require explicit confirmation before editing files, running shell commands, or accessing the web</span>
+                  </div>
+                  <svg class="perm-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </button>
+
+                <!-- Option 2: Smart Auto-Approval (Default) -->
+                <button type="button" class="perm-popover-item mode-option" data-mode="Adaptive" role="button" style="padding: 12px 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; cursor: pointer; transition: all 0.15s ease;">
+                  <div class="perm-item-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                      <path d="M13 9.5V7l-4.5 5.5h3.5v3l4.5-5.5h-3.5z"></path>
+                    </svg>
+                  </div>
+                  <div class="perm-item-content">
+                    <span class="perm-item-title" style="font-size: 14px; font-weight: 600; color: #ffffff;">Smart Auto-Approval</span>
+                    <span class="perm-item-desc" style="font-size: 12px; color: rgba(255, 255, 255, 0.6); margin-top: 2px;">Automatically approve routine system ops while prompting for potentially risky actions</span>
+                  </div>
+                  <svg class="perm-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </button>
+
+                <!-- Option 3: Full Autonomous Mode -->
+                <button type="button" class="perm-popover-item mode-option item-full-access" data-mode="Trusted" role="button" style="padding: 12px 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; cursor: pointer; transition: all 0.15s ease;">
+                  <div class="perm-item-icon warning-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
+                    </svg>
+                  </div>
+                  <div class="perm-item-content">
+                    <span class="perm-item-title warning-title" style="font-size: 14px; font-weight: 600;">Full Autonomous Mode</span>
+                    <span class="perm-item-desc warning-desc" style="font-size: 12px; margin-top: 2px;">Grant unrestricted background execution for seamless automated workflows</span>
+                  </div>
+                  <svg class="perm-item-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
+                </button>
+              </div>
             </div>
-            <p class="text-xs text-muted">This establishes the validation container mode when initiating new chat threads.</p>
 
             <div class="automation-section capability-section">
               <h5 class="automation-section-title">Capability gates</h5>
@@ -1436,7 +1919,7 @@
             <div class="developer-settings-card about-settings-card">
               <div class="about-app-intro">
                 <div class="about-app-brand">
-                  <img src="../../Assets/ultron-logo.png" class="about-app-logo" alt="Ultron">
+                  <img src="../../Assets/Brand-Assets/ultron-logo.png" class="about-app-logo" alt="Ultron">
                   <div>
                     <h4 class="about-app-title">Ultron <span class="about-app-version-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); vertical-align: middle; margin-left: 6px;">v1.0.13</span></h4>
                     <p class="developer-tagline">Local &amp; Offline Windows AI Agent</p>
@@ -1565,10 +2048,9 @@
       </div>
       <div class="section-body">
         <select id="select-security-mode" class="security-dropdown">
-          <option value="Review">Review Mode (Human Validation)</option>
-          <option value="Containment">Containment Mode (Sandbox)</option>
-          <option value="Adaptive">Adaptive Auto Mode (Smart)</option>
-          <option value="Trusted">Full Trusted Automation Mode</option>
+          <option value="Review">Prompt Every Action</option>
+          <option value="Adaptive">Smart Auto-Approval</option>
+          <option value="Trusted">Full Autonomous Mode</option>
         </select>
       </div>
     </div>
@@ -1652,7 +2134,7 @@
   <!-- First-Time Setup & Onboarding View (Cursor-inspired) -->
   <div id="onboarding-screen" class="onboarding-screen hidden">
     <div class="onboarding-container">
-      <img src="../../Assets/ultron-logo.png" class="onboarding-logo-img" alt="Ultron Logo" />
+      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="onboarding-logo-img" alt="Ultron Logo" />
 
       <!-- Step 0: Welcome -->
       <div id="onboard-step-0" class="onboard-step onboard-welcome">
@@ -1906,6 +2388,53 @@
     </div>
   </div>
 
+  <!-- SMART AI CLIPBOARD MANAGER MODAL -->
+  <div id="clipboard-manager-modal" class="settings-modal-overlay hidden">
+    <div class="settings-panel-card" style="max-width: 680px; height: 560px; display: flex; flex-direction: column;">
+      <div class="settings-panel-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 16px;">📋</span>
+          <h4 style="margin: 0; font-size: 15px;">Smart AI Clipboard Manager</h4>
+          <span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.08); color: #9ca3af;">Alt+V</span>
+        </div>
+        <button id="btn-clipboard-close" class="btn-settings-close">✕</button>
+      </div>
+      <div style="padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; gap: 10px; align-items: center;">
+        <input type="text" id="clipboard-search-input" placeholder="Search clipboard history..." class="override-input" style="flex: 1; height: 36px; padding: 0 12px; font-size: 13px;">
+        <button id="btn-clipboard-clear" class="btn-faint" style="height: 36px; padding: 0 12px; font-size: 12px;">Clear All</button>
+      </div>
+      <div id="clipboard-history-list" style="flex: 1; overflow-y: auto; padding: 12px 20px; display: flex; flex-direction: column; gap: 10px;"></div>
+    </div>
+  </div>
+
+  <!-- MOBILE PAIR REQUEST MODAL -->
+  <div id="mobile-pair-modal" class="settings-modal-overlay hidden">
+    <div class="settings-panel-card" style="max-width: 440px; padding: 24px; text-align: center;">
+      <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(66,133,244,0.15); color: #60a5fa; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
+      </div>
+      <h4 style="margin: 0 0 8px 0; color: #fff;">Pair Ultron Mobile App</h4>
+      <p id="mobile-pair-modal-desc" style="color: #9ca3af; font-size: 13px; margin: 0 0 16px 0;">Enter this 4-letter code on your phone to complete LAN pairing:</p>
+      <div id="mobile-pair-modal-code" style="font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #60a5fa; background: rgba(66,133,244,0.1); border: 1px dashed rgba(66,133,244,0.4); border-radius: 10px; padding: 12px; margin-bottom: 12px;">----</div>
+      <p id="mobile-pair-modal-timer" style="font-size: 12px; color: #a1a1aa; margin: 0 0 20px 0;">Expires in 60 seconds</p>
+      <div style="display: flex; gap: 10px; justify-content: center;">
+        <button id="btn-mobile-pair-cancel" class="btn-faint" style="padding: 8px 20px;">Dismiss</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MOBILE CHAT CONSENT MODAL -->
+  <div id="mobile-consent-modal" class="settings-modal-overlay hidden">
+    <div class="settings-panel-card" style="max-width: 440px; padding: 24px;">
+      <h4 id="mobile-consent-title" style="margin: 0 0 8px 0; color: #fff;">Chat Transfer Request</h4>
+      <p id="mobile-consent-detail" style="color: #9ca3af; font-size: 13px; margin: 0 0 20px 0;">Your paired phone wants to import chat conversations to this PC.</p>
+      <div style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button id="btn-mobile-consent-deny" class="btn-deny">Deny</button>
+        <button id="btn-mobile-consent-approve" class="btn-accept">Approve Transfer</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../agent/app-registry.js"></script>
   <script src="../agent/agent-automation-safety.js"></script>
   <script src="../agent/agent-session-permissions.js"></script>
@@ -1926,6 +2455,9 @@
   <script src="../agent/agent-memory.js"></script>
   <script src="../agent/agent-executor.js"></script>
   <script src="../agent/agent-prompt.js"></script>
+  <script src="../agent/multi-provider-hub.js"></script>
+  <script src="canvas-artifacts.js"></script>
+  <script src="clipboard-manager.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

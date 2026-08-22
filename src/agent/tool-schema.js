@@ -36,7 +36,7 @@
     let cleaned = text;
     cleaned = cleaned.replace(/```(?:json)?\s*\{[\s\S]*?"tool"\s*:\s*"[^"]+"[\s\S]*?\}\s*```/gi, '');
     cleaned = cleaned.replace(/\{[^{}]*"tool"\s*:\s*"[A-Z_][A-Z0-9_]*"[^{}]*\}/g, '');
-    cleaned = cleaned.replace(/^\s*(OPEN_APP|FOCUS_APP|OPEN_URL|OPEN_FILE|WRITE_FILE|READ_FILE|CAPTURE_SCREEN|TYPE_TEXT|HOTKEY|EXECUTE|SEARCH|WEB_FETCH|LIST_DIR|CLICK|DOUBLE_CLICK|SCROLL|WAIT)\s*:.*$/gmi, '');
+    cleaned = cleaned.replace(/^\s*(OPEN_APP|FOCUS_APP|OPEN_URL|OPEN_FILE|WRITE_FILE|READ_FILE|CAPTURE_SCREEN|TYPE_TEXT|HOTKEY|EXECUTE|SEARCH|WEB_FETCH|LIST_DIR|CLICK|DOUBLE_CLICK|SCROLL|WAIT|SYSTEM_CONTROL|CLIPBOARD_ACTION|RAG_SEARCH)\s*:.*$/gmi, '');
     cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
     return cleaned;
   }

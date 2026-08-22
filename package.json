@@ -72,7 +72,7 @@
           ]
         }
       ],
-      "icon": "Assets/ultron-logo.ico",
+      "icon": "Assets/Brand-Assets/ultron-logo.ico",
       "certificateFile": null,
       "cscLink": null
     },
@@ -97,9 +97,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Ultron AI",
       "uninstallDisplayName": "Ultron AI",
-      "installerIcon": "Assets/ultron-logo.ico",
-      "uninstallerIcon": "Assets/ultron-logo.ico",
-      "installerHeaderIcon": "Assets/ultron-logo.ico",
+      "installerIcon": "Assets/Brand-Assets/ultron-logo.ico",
+      "uninstallerIcon": "Assets/Brand-Assets/ultron-logo.ico",
+      "installerHeaderIcon": "Assets/Brand-Assets/ultron-logo.ico",
       "installerSidebar": "Assets/installerSidebar.bmp",
       "uninstallerSidebar": "Assets/installerSidebar.bmp",
       "installerHeader": "Assets/installerHeader.bmp",

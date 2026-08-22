@@ -2685,6 +2685,33 @@ function getInstallationDefaultDataDir() {
     }
   });
 
+  ipcMain.handle('desktop-sync:list-devices', async () => {
+    try {
+      const { listPairedDevices } = require('./desktop-sync-server');
+      return { success: true, devices: listPairedDevices() };
+    } catch (err) {
+      return { success: false, error: err.message, devices: [] };
+    }
+  });
+
+  ipcMain.handle('desktop-sync:revoke-device', async (_event, idOrPrefix) => {
+    try {
+      const { revokePairedDevice } = require('./desktop-sync-server');
+      return revokePairedDevice(idOrPrefix);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('desktop-sync:create-pair-code', async () => {
+    try {
+      const { createDesktopPairCode } = require('./desktop-sync-server');
+      return createDesktopPairCode();
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('desktop-sync:deny-pair', async () => {
     try {
       const { denyPendingPair } = require('./desktop-sync-server');
@@ -2710,6 +2737,188 @@ function getInstallationDefaultDataDir() {
       const { resolveChatConsent } = require('./desktop-sync-server');
       resolveChatConsent(false);
       return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // ==========================================
+  // MULTI-PROVIDER MODEL HUB IPC HANDLERS
+  // ==========================================
+  ipcMain.handle('save-provider-keys', async (_event, keys = {}) => {
+    try {
+      const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
+      let config = {};
+      if (fs.existsSync(configPath)) {
+        try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch (e) {}
+      }
+      config.providerKeys = { ...(config.providerKeys || {}), ...keys };
+      if (keys.gemini) config.geminiApiKey = keys.gemini;
+      if (keys.customUrl) config.customEndpointUrl = keys.customUrl;
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('load-provider-keys', async () => {
+    try {
+      const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        const keys = config.providerKeys || {};
+        if (!keys.gemini && config.geminiApiKey) keys.gemini = config.geminiApiKey;
+        if (!keys.customUrl && config.customEndpointUrl) keys.customUrl = config.customEndpointUrl;
+        return { success: true, keys };
+      }
+      return { success: true, keys: {} };
+    } catch (err) {
+      return { success: false, error: err.message, keys: {} };
+    }
+  });
+
+  // ==========================================
+  // LOCAL VECTOR RAG KNOWLEDGE BASE IPC HANDLERS
+  // ==========================================
+  ipcMain.handle('rag:add-sources', async (_event, targetPaths = []) => {
+    try {
+      const rag = require('./rag-engine');
+      return await rag.addSources(targetPaths);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:remove-source', async (_event, sourcePath) => {
+    try {
+      const rag = require('./rag-engine');
+      return await rag.removeSource(sourcePath);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:reindex', async (event) => {
+    try {
+      const rag = require('./rag-engine');
+      return await rag.reindexAll((progress) => {
+        event.sender.send('rag:index-progress', progress);
+      });
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:search', async (_event, payload = {}) => {
+    try {
+      const rag = require('./rag-engine');
+      const query = typeof payload === 'string' ? payload : (payload.query || '');
+      const options = typeof payload === 'object' ? payload : {};
+      const results = await rag.searchKnowledge(query, options);
+      return { success: true, results };
+    } catch (err) {
+      return { success: false, error: err.message, results: [] };
+    }
+  });
+
+  ipcMain.handle('rag:clear', async () => {
+    try {
+      const rag = require('./rag-engine');
+      return rag.clearIndex();
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:get-stats', async () => {
+    try {
+      const rag = require('./rag-engine');
+      return { success: true, ...rag.getStats() };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // ==========================================
+  // NATIVE WINDOWS SYSTEM CONTROLS IPC HANDLERS
+  // ==========================================
+  ipcMain.handle('windows:get-volume', async () => {
+    try {
+      const winCtrl = require('./windows-controls');
+      return await winCtrl.getVolume();
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('windows:set-volume', async (_event, level) => {
+    try {
+      const winCtrl = require('./windows-controls');
+      return await winCtrl.setVolume(level);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('windows:toggle-mute', async () => {
+    try {
+      const winCtrl = require('./windows-controls');
+      return await winCtrl.toggleMute();
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('windows:media-key', async (_event, action) => {
+    try {
+      const winCtrl = require('./windows-controls');
+      return await winCtrl.sendMediaKey(action);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('windows:lock', async () => {
+    try {
+      const winCtrl = require('./windows-controls');
+      return await winCtrl.lockWorkstation();
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('windows:sleep', async () => {
+    try {
+      const winCtrl = require('./windows-controls');
+      return await winCtrl.sleepSystem();
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('windows:restart', async () => {
+    try {
+      const winCtrl = require('./windows-controls');
+      return await winCtrl.restartSystem();
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('windows:get-brightness', async () => {
+    try {
+      const winCtrl = require('./windows-controls');
+      return await winCtrl.getBrightness();
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('windows:set-brightness', async (_event, level) => {
+    try {
+      const winCtrl = require('./windows-controls');
+      return await winCtrl.setBrightness(level);
     } catch (err) {
       return { success: false, error: err.message };
     }

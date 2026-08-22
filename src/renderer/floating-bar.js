@@ -92,16 +92,21 @@
   }
 
   // Load Real Installed Offline Models
+  // Load Real Installed Offline Models & Discovered Cloud Models
   async function loadOfflineModels() {
     let installedModels = [];
 
-    // Probe local Ollama endpoint directly
+    // 1. Probe local Ollama endpoint directly
     try {
       const response = await fetch('http://127.0.0.1:11434/api/tags');
       if (response.ok) {
         const data = await response.json();
         if (data && Array.isArray(data.models) && data.models.length > 0) {
-          installedModels = data.models;
+          installedModels = data.models.map(m => ({
+            name: typeof m === 'string' ? m : m.name,
+            provider: 'ollama',
+            type: 'local'
+          }));
         }
       }
     } catch (err) {
@@ -109,40 +114,91 @@
         if (window.ultronAPI && window.ultronAPI.profileSystem) {
           const sys = await window.ultronAPI.profileSystem();
           if (sys && sys.localModels && sys.localModels.length > 0) {
-            installedModels = sys.localModels;
+            installedModels = sys.localModels.map(m => ({
+              name: typeof m === 'string' ? m : m.name,
+              provider: 'ollama',
+              type: 'local'
+            }));
           }
         }
       } catch (e) {}
     }
 
+    // 2. Probe discovered cloud models from localStorage
+    try {
+      const cachedDiscovered = localStorage.getItem('ultron-discovered-provider-models');
+      if (cachedDiscovered) {
+        const discovered = JSON.parse(cachedDiscovered);
+        for (const [provider, list] of Object.entries(discovered)) {
+          if (Array.isArray(list)) {
+            list.forEach(m => {
+              if (m && m.id) {
+                installedModels.push({
+                  name: m.id,
+                  provider: provider,
+                  type: 'cloud'
+                });
+              }
+            });
+          }
+        }
+      }
+    } catch (e) {}
+
+    const savedModel = localStorage.getItem('ultron-active-model') || '';
+    const availableNames = installedModels.map(m => m.name);
+
     if (installedModels.length > 0) {
-      const names = installedModels.map(m => typeof m === 'string' ? m : m.name);
-      if (names.includes('phi3:latest')) {
-        activeModel = 'phi3:latest';
-      } else if (names.includes('gemma4:latest')) {
-        activeModel = 'gemma4:latest';
+      if (savedModel && availableNames.includes(savedModel)) {
+        activeModel = savedModel;
       } else {
-        activeModel = names[0];
+        activeModel = availableNames[0];
       }
     } else {
-      installedModels = [{ name: 'phi3:latest' }, { name: 'gemma4:latest' }];
-      activeModel = 'phi3:latest';
+      activeModel = 'Select Model';
     }
 
     updateModelSelectorLabel();
     renderModelDropdownList(installedModels);
   }
 
-  function renderModelDropdownList(models) {
+  function renderModelDropdownList(models = []) {
     if (!modelDropdownList) return;
     modelDropdownList.innerHTML = '';
 
+    if (!models || models.length === 0) {
+      const emptyItem = document.createElement('div');
+      emptyItem.className = 'model-dropdown-empty';
+      emptyItem.style.cssText = 'padding: 14px 12px; font-size: 12px; color: rgba(255,255,255,0.45); text-align: center; line-height: 1.4;';
+      emptyItem.textContent = 'No models installed or connected.';
+      modelDropdownList.appendChild(emptyItem);
+      return;
+    }
+
     models.forEach(model => {
       const name = typeof model === 'string' ? model : model.name;
+      const provider = model.provider || (name.startsWith('gemini') ? 'gemini' : name.startsWith('gpt') || name.startsWith('o1') || name.startsWith('o3') ? 'openai' : name.startsWith('claude') ? 'claude' : name.startsWith('deepseek') ? 'deepseek' : 'ollama');
       const isSelected = name === activeModel;
 
-      let badgeText = 'LATEST';
-      if (name.includes(':')) {
+      let iconSrc = '../../Assets/Brand-Assets/ollama-white-logo.png';
+      if (provider === 'gemini' || name.includes('gemini')) {
+        iconSrc = '../../Assets/Brand-Assets/gemini-logo.png';
+      } else if (provider === 'openai' || name.includes('gpt') || name.includes('o1') || name.includes('o3')) {
+        iconSrc = '../../Assets/Brand-Assets/openai-white-logo.png';
+      } else if (provider === 'claude' || name.includes('claude')) {
+        iconSrc = '../../Assets/Brand-Assets/claude-logo.png';
+      } else if (provider === 'deepseek' || name.includes('deepseek')) {
+        iconSrc = '../../Assets/Brand-Assets/deepseek-blue-logo.png';
+      } else if (provider === 'groq') {
+        iconSrc = '../../Assets/Brand-Assets/grok-white-logo.png';
+      } else if (provider === 'custom') {
+        iconSrc = '../../Assets/Brand-Assets/openrouter-white-logo.png';
+      }
+
+      let badgeText = 'LOCAL';
+      if (model.type === 'cloud' || provider !== 'ollama') {
+        badgeText = provider.toUpperCase();
+      } else if (name.includes(':')) {
         badgeText = name.split(':')[1].toUpperCase();
       }
 
@@ -150,7 +206,7 @@
       item.className = `model-dropdown-item ${isSelected ? 'active' : ''}`;
       item.innerHTML = `
         <div class="model-dropdown-item-left">
-          <img src="../../Assets/ollama-logo.png" alt="Ollama" class="model-ollama-icon" onerror="this.src='../Assets/ollama-logo.png'" />
+          <img src="${iconSrc}" alt="${provider}" class="model-ollama-icon" onerror="this.src='../../Assets/Brand-Assets/ollama-white-logo.png'" />
           <span class="model-dropdown-name">${escapeHtml(name)}</span>
         </div>
         <span class="model-dropdown-badge">${badgeText}</span>
@@ -158,6 +214,7 @@
 
       item.addEventListener('click', () => {
         activeModel = name;
+        localStorage.setItem('ultron-active-model', name);
         updateModelSelectorLabel();
         hideModelDropdown();
         renderModelDropdownList(models);
@@ -170,7 +227,7 @@
 
   function updateModelSelectorLabel() {
     if (modelSelectorLabel) {
-      modelSelectorLabel.textContent = activeModel;
+      modelSelectorLabel.textContent = activeModel || 'Select Model';
     }
   }
 
@@ -1089,7 +1146,14 @@
       });
     }
 
-    // Dismiss popovers when clicking anywhere outside
+    // Window blur or click outside: hide expanded floating bar and show mini Ask Ultron pill
+    window.addEventListener('blur', () => {
+      if (!floatingWrapper.classList.contains('hidden')) {
+        showMiniPillMode();
+      }
+    });
+
+    // Dismiss popovers or collapse to mini pill when clicking outside
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#btn-plus-menu') && !e.target.closest('#plus-menu-dropdown')) {
         hidePlusMenu();
@@ -1102,6 +1166,17 @@
       }
       if (!e.target.closest('#answer-card') && !e.target.closest('#capsule-bar') && !e.target.closest('#session-cards-container') && !answerCard.classList.contains('hidden')) {
         hideAnswerCard();
+      }
+
+      // If clicked outside all floating interactive widgets, collapse to mini pill
+      if (!floatingWrapper.classList.contains('hidden') &&
+          !e.target.closest('#capsule-bar') &&
+          !e.target.closest('#answer-card') &&
+          !e.target.closest('#session-cards-container') &&
+          !e.target.closest('.popover-card') &&
+          !e.target.closest('#floating-top-modes') &&
+          !e.target.closest('#mini-pill-widget')) {
+        showMiniPillMode();
       }
     });
   }

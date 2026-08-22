@@ -565,13 +565,80 @@ function stopDesktopSyncServer() {
 }
 
 function getSyncInfo() {
+  const tokens = loadConfig().mobilePairTokens || [];
+  const activeDevices = tokens
+    .filter(t => !t.revoked)
+    .map(t => ({
+      id: t.id || t.token?.slice(0, 8),
+      tokenPrefix: t.token?.slice(0, 8) || '',
+      deviceName: t.deviceName || 'Ultron Mobile',
+      createdAt: t.createdAt || Date.now(),
+    }));
+
   return {
     syncId,
     port: SYNC_PORT,
     addresses: getLanAddresses(),
+    activeDevices,
     pending: pendingPair
-      ? { requestId: pendingPair.requestId, expiresAt: pendingPair.expiresAt, deviceName: pendingPair.deviceName }
+      ? {
+          requestId: pendingPair.requestId,
+          code: pendingPair.code,
+          expiresAt: pendingPair.expiresAt,
+          deviceName: pendingPair.deviceName
+        }
       : null,
+  };
+}
+
+function listPairedDevices() {
+  const tokens = loadConfig().mobilePairTokens || [];
+  return tokens.map(t => ({
+    id: t.id || t.token?.slice(0, 8),
+    tokenPrefix: t.token?.slice(0, 8) || '',
+    deviceName: t.deviceName || 'Ultron Mobile',
+    createdAt: t.createdAt || Date.now(),
+    revoked: Boolean(t.revoked),
+  }));
+}
+
+function revokePairedDevice(idOrPrefix) {
+  const tokens = loadConfig().mobilePairTokens || [];
+  const updated = tokens.map(t => {
+    const match = (t.id && t.id === idOrPrefix) || (t.token && t.token.startsWith(idOrPrefix));
+    if (match) {
+      return { ...t, revoked: true, revokedAt: Date.now() };
+    }
+    return t;
+  });
+  saveConfigPatch({ mobilePairTokens: updated });
+  notifyRenderer('mobile-paired-devices-updated', { devices: listPairedDevices() });
+  return { success: true, devices: listPairedDevices() };
+}
+
+function createDesktopPairCode() {
+  const requestId = crypto.randomBytes(8).toString('hex');
+  const code = generatePairCode();
+  pendingPair = {
+    requestId,
+    code,
+    deviceName: 'Ultron Mobile Companion',
+    expiresAt: Date.now() + PAIR_TTL_MS,
+  };
+  notifyRenderer('mobile-pair-request', {
+    requestId,
+    code,
+    deviceName: pendingPair.deviceName,
+    expiresIn: 60,
+  });
+  return {
+    success: true,
+    code,
+    requestId,
+    expiresIn: 60,
+    syncId,
+    port: SYNC_PORT,
+    addresses: getLanAddresses(),
   };
 }
 
@@ -585,6 +652,9 @@ module.exports = {
   startDesktopSyncServer,
   stopDesktopSyncServer,
   getSyncInfo,
+  listPairedDevices,
+  revokePairedDevice,
+  createDesktopPairCode,
   denyPendingPair,
   resolveChatConsent,
 };

@@ -71,7 +71,7 @@ const searchSpinner = document.getElementById('search-spinner');
 
 let currentPermissionId = null;
 let activeSubgoals = [];
-let activeModel = "phi4"; // Default model
+let activeModel = ""; // Initially empty until detected or selected
 let currentSessionId = null;
 let installedModelsList = [];
 let searchTimeout = null;
@@ -1544,7 +1544,7 @@ function renderChatMessage(sender, text, isAi = false) {
   if (isAi) {
     const avatar = document.createElement('div');
     avatar.className = 'avatar ai';
-    avatar.innerHTML = `<img src="../../Assets/ultron-logo.png" alt="Ultron" />`;
+    avatar.innerHTML = `<img src="../../Assets/Brand-Assets/ultron-logo.png" alt="Ultron" />`;
     messageDiv.appendChild(avatar);
     
     const wrapper = document.createElement('div');
@@ -1658,7 +1658,12 @@ function renderChatMessage(sender, text, isAi = false) {
 
   chatMessagesContainer.appendChild(messageDiv);
   chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
-  if (isAi) markAiContentVoicePending(content);
+  if (isAi) {
+    markAiContentVoicePending(content);
+    if (window.UltronCanvas && typeof window.UltronCanvas.enhanceMessageCodeBlocks === 'function') {
+      window.UltronCanvas.enhanceMessageCodeBlocks(content);
+    }
+  }
   return content;
 }
 
@@ -2569,12 +2574,20 @@ async function autoDetectHomeLocation(options = {}) {
   const autoEnabled = isAutoLocationEnabled();
   const manual = isManualHomeLocation();
 
+  // If location is already present and user did not click manual detect / force refresh, use saved location immediately without network/IPC detection
+  if (savedLoc && !forceRefresh && reason !== 'manual') {
+    if (inputEl) inputEl.value = savedLoc;
+    if (statusEl) statusEl.textContent = `Location: ${savedLoc}`;
+    setDetectLocationButtonState('detected');
+    return { applied: false, label: savedLoc, source: 'saved' };
+  }
+
   if (!autoEnabled && reason !== 'manual' && !forceRefresh) {
     if (inputEl && savedLoc) inputEl.value = savedLoc;
     if (statusEl) {
       statusEl.textContent = savedLoc
-        ? `Using saved home city: ${savedLoc} (auto-detect off)`
-        : 'Auto-detect is off. Enter your city or click Detect.';
+        ? `Using saved location: ${savedLoc} (auto-detect off)`
+        : 'Auto-detect is off. Enter your location or click Refresh.';
     }
     syncDetectLocationButtonFromSavedLocation();
     return { applied: false, label: savedLoc, source: 'saved' };
@@ -2582,8 +2595,8 @@ async function autoDetectHomeLocation(options = {}) {
 
   if (manual && savedLoc && !forceRefresh && !allowManualOverride) {
     if (inputEl) inputEl.value = savedLoc;
-    if (statusEl) statusEl.textContent = `Using saved home city: ${savedLoc}`;
-    setDetectLocationButtonState('idle');
+    if (statusEl) statusEl.textContent = `Using saved location: ${savedLoc}`;
+    setDetectLocationButtonState('detected');
     return { applied: false, label: savedLoc, source: 'saved-manual' };
   }
 
@@ -2617,7 +2630,7 @@ async function autoDetectHomeLocation(options = {}) {
 
       if (statusEl) {
         statusEl.textContent = manual && savedLoc && !shouldApply
-          ? `Using saved home city: ${savedLoc}`
+          ? `Using saved location: ${savedLoc}`
           : `Auto-detected (${sourceLabel}): ${labelToUse}`;
       }
       if (!silent) {
@@ -2629,11 +2642,11 @@ async function autoDetectHomeLocation(options = {}) {
     if (inputEl && savedLoc) inputEl.value = savedLoc;
     if (statusEl) {
       statusEl.textContent = savedLoc
-        ? `Using saved home city: ${savedLoc} (live detection unavailable)`
+        ? `Using saved location: ${savedLoc} (live detection unavailable)`
         : 'Could not detect location. Enable Windows Location or enter your city manually.';
     }
   } catch (e) {
-    if (statusEl) statusEl.textContent = 'Detection failed. Enter your city manually or try again.';
+    if (statusEl) statusEl.textContent = 'Detection failed. Enter your city manually or click Refresh.';
   } finally {
     if (detectionSucceeded) {
       setDetectLocationButtonState('detected');
@@ -4174,18 +4187,24 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       finalUserPrompt = `${prompt}\n\n[Formatting Instruction: Respond using standard Markdown table syntax (| Header 1 | Header 2 |). DO NOT write HTML/CSS code.]`;
     }
 
-    // Route Online Google Gemini models if selected (skipped in local-only mode)
-    if (activeModel && activeModel.startsWith('gemini') && getLocalAiMode() !== 'local-only') {
-      const apiKey = localStorage.getItem('ultron-gemini-api-key') || '';
-      if (!apiKey || !apiKey.trim()) {
-        return `⚠️ **Google Gemini API Key Required**\n\nYou selected **${activeModel}**, but no Gemini API key is configured.\n\n**To connect Google Gemini:**\n1. Open **Settings > Models**.\n2. Paste your free Google Gemini API Key from [Google AI Studio](https://aistudio.google.com/app/apikey).\n3. Click **Save Key**.`;
-      }
+    // Route Multi-Provider models (Google Gemini, OpenAI, Anthropic Claude, DeepSeek, Groq, Custom)
+    const provider = window.UltronMultiProviderHub ? window.UltronMultiProviderHub.detectProviderForModel(activeModel) : 'ollama';
+    if (provider !== 'ollama' && getLocalAiMode() !== 'local-only') {
       try {
-        const geminiOutput = await queryGeminiAPI(finalUserPrompt, systemPrompt, activeModel, apiKey, extraMessages, visionImages);
-        return geminiOutput;
+        const output = await window.UltronMultiProviderHub.queryProvider({
+          provider,
+          model: activeModel,
+          prompt: finalUserPrompt,
+          systemPrompt,
+          messages: extraMessages,
+          temperature: isCodeRequest ? 0.15 : (intent === 'conversation' ? 0.7 : 0.2),
+          visionImages,
+          signal: _activeAbortController ? _activeAbortController.signal : undefined
+        });
+        return output;
       } catch (err) {
-        logTrace(`Gemini API execution error: ${err.message}`, 'system');
-        return `⚠️ **Google Gemini API Error**\n\n${err.message}\n\nPlease verify your API key in **Settings > Models** or switch models in the top dropdown selector.`;
+        logTrace(`${provider} API execution error: ${err.message}`, 'system');
+        return `⚠️ **${provider.toUpperCase()} Provider Error**\n\n${err.message}\n\nPlease check your configuration in **Settings > Models** or select another model from the dropdown.`;
       }
     }
 
@@ -4702,55 +4721,97 @@ async function connectGemini(apiKey, options = {}) {
   }
 }
 
-function updateModelSelectorLabel() {
-  if (!modelSelectorLabel) return;
+function getAnyAvailableDefaultModel() {
+  const local = selectBestInstalledLocalModel();
+  if (local) return local;
+
   const hasGeminiKey = Boolean((localStorage.getItem('ultron-gemini-api-key') || '').trim());
-  let name = activeModel;
-  
-  if (!hasGeminiKey && (!name || name.toLowerCase().includes('gemini'))) {
-    const firstLocal = selectBestInstalledLocalModel() || 'phi3:latest';
-    activeModel = firstLocal;
-    name = firstLocal;
-  } else if (!name) {
-    name = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name || selectBestInstalledLocalModel() || 'phi3:latest';
-    activeModel = name;
+  if (hasGeminiKey && ONLINE_GEMINI_MODELS.length) {
+    return pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name || '';
   }
 
-  const isGemini = ONLINE_GEMINI_MODELS.some(m => m.name === name) || name.toLowerCase().includes('gemini');
-  const logoSrc = isGemini ? '../../Assets/gemini-logo.png' : '../../Assets/ollama-logo.png';
-  const filterStyle = isGemini ? '' : 'filter: brightness(0) invert(1);';
+  if (window.UltronMultiProviderHub && typeof window.UltronMultiProviderHub.getAvailableModels === 'function') {
+    const configured = window.UltronMultiProviderHub.getAvailableModels(true);
+    if (configured.length > 0) return configured[0].name;
+  }
+
+  return '';
+}
+
+function updateModelSelectorLabel() {
+  if (!modelSelectorLabel) return;
+
+  if (!activeModel) {
+    activeModel = getAnyAvailableDefaultModel();
+  }
+
+  if (!activeModel) {
+    modelSelectorLabel.style.display = 'inline-flex';
+    modelSelectorLabel.style.alignItems = 'center';
+    modelSelectorLabel.style.gap = '6px';
+    modelSelectorLabel.innerHTML = '<span style="color: var(--text-muted); font-size: 12px; font-weight: 500;">Select model</span>';
+    syncModelAttachmentCapabilities();
+    return;
+  }
+
+  const name = activeModel;
+  const provider = window.UltronMultiProviderHub ? window.UltronMultiProviderHub.detectProviderForModel(name) : 'ollama';
+  const logoSrc = getBrandAssetLogo(provider);
 
   modelSelectorLabel.style.display = 'inline-flex';
   modelSelectorLabel.style.alignItems = 'center';
   modelSelectorLabel.style.gap = '6px';
 
   modelSelectorLabel.innerHTML = `
-    <img src="${logoSrc}" alt="Logo" style="width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; display: block; margin: 0; ${filterStyle}" />
+    <img src="${logoSrc}" alt="${provider}" style="width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; display: block; margin: 0;" />
     <span style="line-height: 1; display: inline-block; margin: 0; padding: 0;">${name}</span>
   `;
 
   syncModelAttachmentCapabilities();
 }
 
+function getBrandAssetLogo(provider) {
+  switch (provider) {
+    case 'gemini':
+      return '../../Assets/Brand-Assets/gemini-logo.png';
+    case 'openai':
+      return '../../Assets/Brand-Assets/openai-white-logo.png';
+    case 'anthropic':
+      return '../../Assets/Brand-Assets/claude-logo.png';
+    case 'deepseek':
+      return '../../Assets/Brand-Assets/deepseek-blue-logo.png';
+    case 'groq':
+      return '../../Assets/Brand-Assets/grok-white-logo.png';
+    case 'custom':
+      return '../../Assets/Brand-Assets/openrouter-white-logo.png';
+    case 'ollama':
+    default:
+      return '../../Assets/Brand-Assets/ollama-white-logo.png';
+  }
+}
+
 function renderModelDropdownList() {
+  if (!modelDropdownList) return;
   modelDropdownList.innerHTML = '';
   
+  let hasAnyRenderedModel = false;
   const hasGeminiKey = Boolean((localStorage.getItem('ultron-gemini-api-key') || '').trim());
 
-  // Render only models confirmed available for this API key.
+  // Render Google Gemini section
   if (hasGeminiKey && geminiConnectionState === 'connected' && ONLINE_GEMINI_MODELS.length > 0) {
     const onlineHeader = document.createElement('div');
     onlineHeader.className = 'model-dropdown-section-title';
     onlineHeader.style.cssText = 'padding: 8px 12px 4px 12px; font-size: 11px; font-weight: 600; color: #60a5fa; letter-spacing: 0.02em; text-transform: none;';
-    onlineHeader.textContent = 'Online Models';
+    onlineHeader.textContent = 'Google Gemini';
     modelDropdownList.appendChild(onlineHeader);
 
     ONLINE_GEMINI_MODELS.filter(m => isGeminiChatModel(m.name)).forEach(model => {
+      hasAnyRenderedModel = true;
       const item = document.createElement('div');
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       item.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="../../Assets/gemini-logo.png" alt="Gemini" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
+          <img src="../../Assets/Brand-Assets/gemini-logo.png" alt="Gemini" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
           <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
         </div>
         <span class="model-badge" style="font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.5); flex-shrink: 0; text-align: right; margin-left: 8px;">${model.tag}</span>
@@ -4761,19 +4822,62 @@ function renderModelDropdownList() {
         updateModelSelectorLabel();
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
-        modelDropdown.classList.add('hidden');
-        modelSelectorWrapper.classList.remove('open');
+        if (modelDropdown) modelDropdown.classList.add('hidden');
+        if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
         logTrace(`Chat context model shifted to Online Model: "${activeModel}"`, 'local');
       });
       modelDropdownList.appendChild(item);
     });
-  } else {
-    // If activeModel is currently a Gemini model but no key exists, fallback to first local offline model
-    if (activeModel && activeModel.toLowerCase().includes('gemini')) {
-      const firstLocal = selectBestInstalledLocalModel() || 'phi3:latest';
-      activeModel = firstLocal;
-      updateModelSelectorLabel();
-    }
+  }
+
+  // Render Multi-Provider models (OpenAI, Claude, DeepSeek, Groq, Custom)
+  if (window.UltronMultiProviderHub && typeof window.UltronMultiProviderHub.getAvailableModels === 'function') {
+    const hubModels = window.UltronMultiProviderHub.getAvailableModels(true);
+    const providers = [
+      { id: 'openai', label: 'OpenAI', color: '#10a37f' },
+      { id: 'anthropic', label: 'Anthropic Claude', color: '#d97706' },
+      { id: 'deepseek', label: 'DeepSeek API', color: '#3b82f6' },
+      { id: 'groq', label: 'Groq Cloud', color: '#f97316' },
+      { id: 'custom', label: 'Custom Models', color: '#8b5cf6' }
+    ];
+
+    providers.forEach(p => {
+      const pModels = hubModels.filter(m => m.provider === p.id);
+      if (pModels.length > 0) {
+        const pHeader = document.createElement('div');
+        pHeader.className = 'model-dropdown-section-title';
+        pHeader.style.cssText = `padding: 10px 12px 4px 12px; font-size: 11px; font-weight: 600; color: ${p.color}; letter-spacing: 0.02em; text-transform: none; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;`;
+        pHeader.textContent = p.label;
+        modelDropdownList.appendChild(pHeader);
+
+        const pLogo = getBrandAssetLogo(p.id);
+
+        pModels.forEach(model => {
+          hasAnyRenderedModel = true;
+          const item = document.createElement('div');
+          item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
+          const badgeTag = model.tag || (p.id === 'custom' ? 'CUSTOM' : p.id.toUpperCase());
+          item.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
+              <img src="${pLogo}" alt="${p.label}" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
+              <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.displayName || model.name}</span>
+            </div>
+            <span class="model-badge" style="font-size: 10px; font-weight: 600; color: ${p.color}; flex-shrink: 0; text-align: right; margin-left: 8px;">${badgeTag}</span>
+          `;
+          item.addEventListener('click', async () => {
+            await unloadOllamaModelsExcept('');
+            activeModel = model.name;
+            updateModelSelectorLabel();
+            modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
+            item.classList.add('active');
+            if (modelDropdown) modelDropdown.classList.add('hidden');
+            if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
+            logTrace(`Chat context model shifted to ${p.label}: "${activeModel}"`, 'system');
+          });
+          modelDropdownList.appendChild(item);
+        });
+      }
+    });
   }
 
   const cloudModels = getInstalledCloudModels();
@@ -4785,11 +4889,12 @@ function renderModelDropdownList() {
     modelDropdownList.appendChild(cloudHeader);
 
     cloudModels.forEach((model) => {
+      hasAnyRenderedModel = true;
       const item = document.createElement('div');
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       item.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="../../Assets/ollama-logo.png" alt="Ollama Cloud" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
+          <img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama Cloud" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
           <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
         </div>
         <span class="model-badge" style="font-size: 10px; font-weight: 600; color: #34d399; flex-shrink: 0; text-align: right; margin-left: 8px;">CLOUD</span>
@@ -4800,8 +4905,8 @@ function renderModelDropdownList() {
         updateModelSelectorLabel();
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
-        modelDropdown.classList.add('hidden');
-        modelSelectorWrapper.classList.remove('open');
+        if (modelDropdown) modelDropdown.classList.add('hidden');
+        if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
         logTrace(`Chat context model shifted to Ollama Cloud: "${activeModel}"`, 'local');
       });
       modelDropdownList.appendChild(item);
@@ -4827,6 +4932,7 @@ function renderModelDropdownList() {
     modelDropdownList.appendChild(emptyItem);
   } else {
     uniqueModels.forEach(model => {
+      hasAnyRenderedModel = true;
       const item = document.createElement('div');
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       
@@ -4837,7 +4943,7 @@ function renderModelDropdownList() {
 
       item.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="../../Assets/ollama-logo.png" alt="Ollama" style="width: 16px; height: 16px; object-fit: contain; filter: brightness(0) invert(1); flex-shrink: 0;" />
+          <img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
           <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
         </div>
         <span class="model-badge" style="font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.5); flex-shrink: 0; text-align: right; margin-left: 8px;">${badgeText}</span>
@@ -4848,8 +4954,8 @@ function renderModelDropdownList() {
         updateModelSelectorLabel();
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
-        modelDropdown.classList.add('hidden');
-        modelSelectorWrapper.classList.remove('open');
+        if (modelDropdown) modelDropdown.classList.add('hidden');
+        if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
         logTrace(`Chat context model shifted to Local Model: "${activeModel}"`, 'local');
       });
       modelDropdownList.appendChild(item);
@@ -4881,7 +4987,7 @@ async function runOnboardingProfiler() {
     }
     if (statRecommendation) statRecommendation.textContent = `${recommendation.toUpperCase()} (Quantized)`;
     
-    // Set active model to an actually installed model from Ollama or Gemini if key exists
+    // Set active model to an actually installed model from Ollama, Gemini, or Multi-Providers
     const hasGeminiKey = Boolean((localStorage.getItem('ultron-gemini-api-key') || '').trim());
     const installedMatch = installedModelsList.find(m => m.name === recommendation || (m.name && m.name.split(':')[0] === recommendation.split(':')[0]));
     if (installedMatch) {
@@ -4891,7 +4997,7 @@ async function runOnboardingProfiler() {
     } else if (hasGeminiKey && ONLINE_GEMINI_MODELS.length) {
       activeModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0].name;
     } else {
-      activeModel = 'phi3:latest';
+      activeModel = getAnyAvailableDefaultModel();
     }
     
     logTrace(`Onboarding Profiler: Total RAM resolved as ${stats.totalRamGB} GB`, 'system');
@@ -5025,27 +5131,54 @@ if (settingsDefaultSecurity) {
 }
 
 // Custom model dropdown toggle and click-outside close
-modelSelectorBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  const isOpen = !modelDropdown.classList.contains('hidden');
-  if (isOpen) {
-    modelDropdown.classList.add('hidden');
-    modelSelectorWrapper.classList.remove('open');
-  } else {
-    // Open instantly with cached model list
-    renderModelDropdownList();
-    modelDropdown.classList.remove('hidden');
-    modelSelectorWrapper.classList.add('open');
+if (modelSelectorBtn) {
+  modelSelectorBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!modelDropdown) return;
+    const isOpen = !modelDropdown.classList.contains('hidden');
+    if (isOpen) {
+      modelDropdown.classList.add('hidden');
+      if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
+    } else {
+      // Close plus menu if open
+      const plusDropdown = document.getElementById('plus-menu-dropdown');
+      if (plusDropdown) plusDropdown.classList.add('hidden');
+      const plusWrapper = document.getElementById('plus-menu-wrapper');
+      if (plusWrapper) plusWrapper.classList.remove('open');
 
-    // Refresh Ollama models in background (non-blocking)
-    window.ultronAPI.profileSystem().then(res => {
-      if (res && Array.isArray(res.installedModels)) {
-        installedModelsList = res.installedModels;
-        renderModelDropdownList(); // silently re-render with fresh data
+      // Open instantly with rendered model list
+      try {
+        renderModelDropdownList();
+      } catch (err) {
+        console.error('Error rendering model dropdown:', err);
       }
-    }).catch(() => {});
-  }
-});
+      modelDropdown.classList.remove('hidden');
+      if (modelSelectorWrapper) modelSelectorWrapper.classList.add('open');
+
+      // Refresh Ollama models in background (non-blocking)
+      if (window.ultronAPI && typeof window.ultronAPI.profileSystem === 'function') {
+        window.ultronAPI.profileSystem().then(res => {
+          if (res && Array.isArray(res.installedModels)) {
+            installedModelsList = res.installedModels;
+            renderModelDropdownList();
+          }
+        }).catch(() => {});
+      }
+    }
+  });
+}
+
+const btnDropdownDownloadModels = document.getElementById('btn-dropdown-download-models');
+if (btnDropdownDownloadModels) {
+  btnDropdownDownloadModels.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (modelDropdown) modelDropdown.classList.add('hidden');
+    if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
+    if (typeof openSettingsPanel === 'function') {
+      openSettingsPanel('models');
+    }
+  });
+}
 
 document.addEventListener('click', (e) => {
   if (modelSelectorWrapper && !modelSelectorWrapper.contains(e.target)) {
@@ -8845,14 +8978,28 @@ async function loadAccountDetails(options = {}) {
     ? window.UltronLocationContext.getSavedLocation()
     : (window.localStorage.getItem('ultron-user-location') || '');
   if (inputHomeLocation && savedLoc) inputHomeLocation.value = savedLoc;
+  if (locationStatus && savedLoc) {
+    locationStatus.textContent = `Location: ${savedLoc}`;
+  }
+  syncDetectLocationButtonFromSavedLocation();
   if (autoLocToggle) {
     autoLocToggle.checked = window.localStorage.getItem('ultron-auto-location-enabled') !== 'false';
   }
-  await autoDetectHomeLocation({
-    silent: true,
-    reason: options.locationReason || 'account-load',
-    forceRefresh: options.forceLocationRefresh || false
-  });
+
+  // Detect location ONCE on startup or when explicitly forced
+  if (options.forceLocationRefresh) {
+    await autoDetectHomeLocation({
+      silent: true,
+      reason: options.locationReason || 'account-load',
+      forceRefresh: true
+    });
+  } else if (!savedLoc && options.locationReason === 'startup') {
+    await autoDetectHomeLocation({
+      silent: true,
+      reason: 'startup',
+      forceRefresh: false
+    });
+  }
 }
 
 async function checkAndRunFirstTimeOnboarding() {
@@ -12422,25 +12569,17 @@ function runSplashIntroSequence() {
   });
 }
 
+// Failsafe timer: Skeleton loader will NEVER stay stuck longer than 2.2s under any error
+setTimeout(() => {
+  hideSkeletonLoader();
+}, 2200);
+
 async function bootSystem() {
   const splashPromise = runSplashIntroSequence();
 
   try {
-    if (window.UltronAgentPrompt && typeof window.UltronAgentPrompt.loadUltronAgentConfig === 'function') {
-      try {
-        await window.UltronAgentPrompt.loadUltronAgentConfig();
-        if (typeof window.UltronAgentPrompt.startUltronAgentConfigHotReload === 'function') {
-          window.UltronAgentPrompt.startUltronAgentConfigHotReload();
-        }
-      } catch (err) {
-        console.warn('Ultron agent config preload failed:', err);
-      }
-    }
-
-    await settleBootStep(syncStoragePathOnBoot());
-    await settleBootStep(loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: true }));
+    // 1. Instant Synchronous UI pre-renders
     updateWelcomeGreeting();
-    await checkAndRunFirstTimeOnboarding();
     setSendingState(false);
     initTraceEmptyState();
     renderChecklist([]);
@@ -12448,22 +12587,49 @@ async function bootSystem() {
     initAutomationSettingsUI();
     startLiveMetricsPolling();
 
-    if (window.UltronAgentMemory && typeof window.UltronAgentMemory.loadTaskMemory === 'function') {
+    // 2. High-Speed Parallel Preloading of System Content, Models, Profiling & Configs
+    const coreTasks = [
+      settleBootStep(syncStoragePathOnBoot().then(() => loadStoragePathsUI())),
+      settleBootStep(reloadConversationsFromDisk()),
+      settleBootStep(loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: false })),
+      settleBootStep(checkOllamaStartup().then(() => runOnboardingProfiler())),
+      settleBootStep(initMultiProviderUI()),
+      settleBootStep(syncSecurityMode()),
+      settleBootStep((async () => {
+        if (window.UltronAgentPrompt?.loadUltronAgentConfig) {
+          await window.UltronAgentPrompt.loadUltronAgentConfig().catch(() => {});
+          if (window.UltronAgentPrompt?.startUltronAgentConfigHotReload) {
+            window.UltronAgentPrompt.startUltronAgentConfigHotReload();
+          }
+        }
+      })())
+    ];
+
+    if (window.UltronAgentMemory?.loadTaskMemory) {
       _learnedTaskMemory = window.UltronAgentMemory.loadTaskMemory().map(item => item.text || item);
     }
 
     const bootAllowlist = getSavedAuthorizedAppsMap();
-    if (bootAllowlist && window.ultronAPI && typeof window.ultronAPI.setAuthorizedApps === 'function') {
+    if (bootAllowlist && window.ultronAPI?.setAuthorizedApps) {
       window.ultronAPI.setAuthorizedApps(bootAllowlist).catch(() => {});
     }
-    await settleBootStep(reloadConversationsFromDisk());
-    await settleBootStep(checkOllamaStartup().then(() => runOnboardingProfiler()));
 
+    // Await all parallel boot tasks with timeout
+    await Promise.race([
+      Promise.allSettled(coreTasks),
+      new Promise(r => setTimeout(r, 1600))
+    ]);
+
+    await checkAndRunFirstTimeOnboarding().catch(() => {});
     initVoiceChatModeAfterBoot();
 
     await splashPromise;
-    await new Promise(r => setTimeout(r, 600));
 
+    // Render dropdown list and model label with hydrated data
+    renderModelDropdownList();
+    updateModelSelectorLabel();
+
+    // Fade out skeleton smoothly
     hideSkeletonLoader();
   } catch (err) {
     console.error('Boot sequence error:', err);
@@ -14365,18 +14531,21 @@ if (btnCancelEditAccount && accountEditForm) {
   });
 }
 
-// Home location settings
+// Location settings
 const settingHomeLocation = document.getElementById('setting-home-location');
 const btnDetectLocation = document.getElementById('btn-detect-location');
+const btnRefreshLocation = document.getElementById('btn-refresh-location');
 const settingAutoLocation = document.getElementById('setting-auto-location');
+const btnLocationInfo = document.getElementById('btn-location-info');
+const locationInfoTooltip = document.getElementById('location-info-tooltip');
 
 if (settingHomeLocation) {
   settingHomeLocation.addEventListener('change', () => {
     window.localStorage.setItem(MANUAL_LOCATION_KEY, 'true');
     persistHomeLocation(settingHomeLocation.value);
-    setDetectLocationButtonState('idle');
+    setDetectLocationButtonState(settingHomeLocation.value.trim() ? 'detected' : 'idle');
     loadAccountDetails();
-    logTrace(`Home location ${settingHomeLocation.value.trim() ? 'set manually' : 'cleared'}: "${settingHomeLocation.value.trim()}"`, 'system');
+    logTrace(`Location ${settingHomeLocation.value.trim() ? 'set manually' : 'cleared'}: "${settingHomeLocation.value.trim()}"`, 'system');
   });
 }
 
@@ -14392,8 +14561,8 @@ if (settingAutoLocation) {
       const saved = settingHomeLocation?.value?.trim() || '';
       if (statusEl) {
         statusEl.textContent = saved
-          ? `Using saved home city: ${saved} (auto-detect off)`
-          : 'Auto-detect off. Enter your city or click Detect.';
+          ? `Using saved location: ${saved} (auto-detect off)`
+          : 'Auto-detect off. Enter your location or click Refresh.';
       }
     }
   });
@@ -14403,6 +14572,28 @@ if (btnDetectLocation) {
   btnDetectLocation.addEventListener('click', async () => {
     window.localStorage.setItem(MANUAL_LOCATION_KEY, 'false');
     await autoDetectHomeLocation({ forceRefresh: true, reason: 'manual', allowManualOverride: true });
+  });
+}
+
+if (btnRefreshLocation) {
+  btnRefreshLocation.addEventListener('click', async () => {
+    btnRefreshLocation.classList.add('is-refreshing');
+    window.localStorage.setItem(MANUAL_LOCATION_KEY, 'false');
+    await autoDetectHomeLocation({ forceRefresh: true, reason: 'manual', allowManualOverride: true });
+    btnRefreshLocation.classList.remove('is-refreshing');
+  });
+}
+
+if (btnLocationInfo && locationInfoTooltip) {
+  btnLocationInfo.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isVisible = locationInfoTooltip.style.visibility === 'visible';
+    locationInfoTooltip.style.visibility = isVisible ? 'hidden' : 'visible';
+    locationInfoTooltip.style.opacity = isVisible ? '0' : '1';
+  });
+  document.addEventListener('click', () => {
+    locationInfoTooltip.style.visibility = '';
+    locationInfoTooltip.style.opacity = '';
   });
 }
 
@@ -15146,5 +15337,559 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
     window.ultronAPI.onMobileChatConsentDismissed(hideConsentModal);
   }
 })();
+
+// =========================================================================
+// ULTRON PHASE 2 MASTER ORCHESTRATION SUITE
+// Multi-Provider Hub, Local Vector RAG, Desktop Sync, Canvas, & VAD Interruption
+// =========================================================================
+(function initUltronPhase2Suite() {
+  'use strict';
+
+  // 1. Initialize Canvas & Smart Clipboard
+  if (window.UltronCanvas && typeof window.UltronCanvas.init === 'function') {
+    window.UltronCanvas.init();
+  }
+  if (window.UltronClipboardManager && typeof window.UltronClipboardManager.init === 'function') {
+    window.UltronClipboardManager.init();
+  }
+
+  // 2. Multi-Provider API Key Store & Connection Handlers
+  async function initMultiProviderUI() {
+    if (!window.ultronAPI) return;
+
+    try {
+      const res = await window.ultronAPI.loadProviderKeys();
+      if (res && res.success && res.keys && window.UltronMultiProviderHub) {
+        const keys = res.keys;
+        if (keys.openai) window.UltronMultiProviderHub.setStoredApiKey('openai', keys.openai);
+        if (keys.anthropic) window.UltronMultiProviderHub.setStoredApiKey('anthropic', keys.anthropic);
+        if (keys.deepseek) window.UltronMultiProviderHub.setStoredApiKey('deepseek', keys.deepseek);
+        if (keys.groq) window.UltronMultiProviderHub.setStoredApiKey('groq', keys.groq);
+        if (keys.customUrl) window.UltronMultiProviderHub.setCustomEndpointUrl(keys.customUrl);
+        if (keys.customKey) window.UltronMultiProviderHub.setStoredApiKey('custom', keys.customKey);
+      }
+    } catch {}
+
+    function setupProviderCard(providerId, options = {}) {
+      const isCustom = Boolean(options.isCustom);
+      const input = document.getElementById(options.inputId || `input-${providerId}-api-key`);
+      const toggleBtn = document.getElementById(options.toggleBtnId || `btn-toggle-${providerId}-key-input`);
+      const btnText = document.getElementById(options.btnTextId || `${providerId}-key-btn-text`);
+      const container = document.getElementById(options.containerId || `${providerId}-key-input-container`);
+      const saveBtn = document.getElementById(options.saveBtnId || `btn-save-${providerId}-key`);
+      const cancelBtn = document.getElementById(options.cancelBtnId || `btn-cancel-${providerId}-key`);
+      const feedback = document.getElementById(options.feedbackId || `${providerId}-key-feedback`);
+      const badge = document.getElementById(options.badgeId || `${providerId}-status-badge`);
+      const customKeyInput = isCustom ? document.getElementById('input-custom-endpoint-key') : null;
+
+      let isEditing = false;
+
+      function updateBadge(connected, errorMsg = '') {
+        if (!badge) return;
+        badge.textContent = connected ? 'Connected' : 'Not configured';
+        badge.style.background = connected ? 'rgba(34, 197, 94, 0.14)' : 'rgba(161, 161, 170, 0.12)';
+        badge.style.color = connected ? '#4ade80' : '#a1a1aa';
+        badge.style.borderColor = connected ? 'rgba(34, 197, 94, 0.35)' : 'rgba(161, 161, 170, 0.25)';
+        if (errorMsg) badge.title = errorMsg;
+      }
+
+      function updateUI() {
+        let savedVal = '';
+        if (isCustom) {
+          savedVal = (window.UltronMultiProviderHub ? window.UltronMultiProviderHub.getCustomEndpointUrl() : '') || localStorage.getItem('ultron-custom-endpoint-url') || '';
+          if (input) input.value = savedVal;
+          if (customKeyInput) {
+            customKeyInput.value = (window.UltronMultiProviderHub ? window.UltronMultiProviderHub.getStoredApiKey('custom') : '') || '';
+          }
+          if (btnText) btnText.textContent = savedVal ? 'Edit Endpoint' : 'Configure Endpoint';
+          updateBadge(Boolean(savedVal));
+        } else {
+          savedVal = (window.UltronMultiProviderHub ? window.UltronMultiProviderHub.getStoredApiKey(providerId) : '') || '';
+          if (input) input.value = savedVal;
+          if (btnText) btnText.textContent = savedVal ? 'Edit Key' : 'Add Key';
+          updateBadge(Boolean(savedVal));
+        }
+
+        if (!isEditing) {
+          if (container) container.classList.add('hidden');
+          if (toggleBtn) toggleBtn.style.display = 'inline-flex';
+        } else {
+          if (container) container.classList.remove('hidden');
+          if (toggleBtn) toggleBtn.style.display = 'none';
+        }
+      }
+
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+          isEditing = true;
+          updateUI();
+          if (input) {
+            input.focus();
+            input.select();
+          }
+        });
+      }
+
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          isEditing = false;
+          updateUI();
+        });
+      }
+
+      if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+          const val = input ? input.value.trim() : '';
+          const customKey = customKeyInput ? customKeyInput.value.trim() : '';
+
+          if (val) {
+            saveBtn.disabled = true;
+            saveBtn.textContent = 'Connecting…';
+
+            let testRes = { success: false };
+            if (window.UltronMultiProviderHub) {
+              if (isCustom) {
+                window.UltronMultiProviderHub.setCustomEndpointUrl(val);
+                if (customKey) window.UltronMultiProviderHub.setStoredApiKey('custom', customKey);
+                testRes = await window.UltronMultiProviderHub.testProviderConnection('custom', customKey, val);
+              } else {
+                window.UltronMultiProviderHub.setStoredApiKey(providerId, val);
+                testRes = await window.UltronMultiProviderHub.testProviderConnection(providerId, val);
+              }
+            }
+
+            saveBtn.disabled = false;
+            saveBtn.textContent = isCustom ? 'Save Endpoint' : 'Save Key';
+
+            if (testRes && testRes.success) {
+              if (window.ultronAPI && typeof window.ultronAPI.saveProviderKeys === 'function') {
+                const patch = {};
+                if (isCustom) {
+                  patch.customUrl = val;
+                  if (customKey) patch.customKey = customKey;
+                } else {
+                  patch[providerId] = val;
+                }
+                await window.ultronAPI.saveProviderKeys(patch).catch(() => {});
+              }
+
+              updateBadge(true);
+              const modelCount = Array.isArray(testRes.models) ? testRes.models.length : 0;
+              if (feedback) {
+                feedback.textContent = `✓ Connected — ${modelCount > 0 ? `${modelCount} models available.` : 'Connected successfully.'}`;
+                feedback.style.color = '#34d399';
+                feedback.classList.remove('hidden');
+                setTimeout(() => feedback.classList.add('hidden'), 5000);
+              }
+              isEditing = false;
+              updateUI();
+              renderModelDropdownList();
+              updateModelSelectorLabel();
+            } else {
+              updateBadge(false, testRes?.error || 'Connection failed');
+              if (feedback) {
+                feedback.textContent = `Could not connect: ${testRes?.error || 'Verification failed. Please check key/URL.'}`;
+                feedback.style.color = '#f87171';
+                feedback.classList.remove('hidden');
+              }
+            }
+          } else {
+            // Remove key / URL
+            if (window.UltronMultiProviderHub) {
+              if (isCustom) {
+                window.UltronMultiProviderHub.setCustomEndpointUrl('');
+                window.UltronMultiProviderHub.setStoredApiKey('custom', '');
+              } else {
+                window.UltronMultiProviderHub.setStoredApiKey(providerId, '');
+              }
+            }
+            if (window.ultronAPI && typeof window.ultronAPI.saveProviderKeys === 'function') {
+              const patch = {};
+              if (isCustom) patch.customUrl = '';
+              else patch[providerId] = '';
+              await window.ultronAPI.saveProviderKeys(patch).catch(() => {});
+            }
+            isEditing = false;
+            updateBadge(false);
+            updateUI();
+            if (feedback) feedback.classList.add('hidden');
+            renderModelDropdownList();
+            updateModelSelectorLabel();
+          }
+        });
+      }
+
+      updateUI();
+    }
+
+    setupProviderCard('openai');
+    setupProviderCard('anthropic');
+    setupProviderCard('deepseek');
+    setupProviderCard('groq');
+    setupProviderCard('custom', {
+      isCustom: true,
+      inputId: 'input-custom-endpoint-url',
+      toggleBtnId: 'btn-toggle-custom-endpoint-input',
+      btnTextId: 'custom-endpoint-btn-text',
+      containerId: 'custom-endpoint-input-container',
+      saveBtnId: 'btn-save-custom-endpoint',
+      cancelBtnId: 'btn-cancel-custom-endpoint',
+      feedbackId: 'custom-endpoint-feedback',
+      badgeId: 'custom-status-badge'
+    });
+  }
+
+  // 3. Local Vector RAG Knowledge Base UI Handlers
+  async function initRagUI() {
+    if (!window.ultronAPI || !window.ultronAPI.ragGetStats) return;
+
+    async function loadRagStats() {
+      try {
+        const stats = await window.ultronAPI.ragGetStats();
+        if (!stats) return;
+
+        const statSources = document.getElementById('rag-stat-sources');
+        const statChunks = document.getElementById('rag-stat-chunks');
+        const listEl = document.getElementById('rag-sources-list');
+
+        if (statSources) statSources.textContent = stats.totalSources || 0;
+        if (statChunks) statChunks.textContent = stats.totalChunks || 0;
+
+        if (listEl) {
+          if (!stats.sources || stats.sources.length === 0) {
+            listEl.innerHTML = `
+              <div style="padding: 16px; text-align: center; color: #6b7280; font-size: 13px; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px dashed var(--border-color);">
+                No folders or documents added yet. Click "Add Folder" to index local notes or code repositories.
+              </div>
+            `;
+          } else {
+            listEl.innerHTML = '';
+            stats.sources.forEach(src => {
+              const row = document.createElement('div');
+              row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; font-size: 13px;';
+              row.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+                  <span style="font-size: 16px;">📁</span>
+                  <div style="overflow: hidden;">
+                    <div style="font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${src.name || src.path}</div>
+                    <div style="font-size: 11px; color: #a1a1aa; margin-top: 2px;">${src.fileCount || 0} files • ${src.chunkCount || 0} vector chunks</div>
+                  </div>
+                </div>
+                <button type="button" class="btn-rag-remove" style="background: transparent; border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer;">Remove</button>
+              `;
+              const btnRemove = row.querySelector('.btn-rag-remove');
+              if (btnRemove) {
+                btnRemove.addEventListener('click', async () => {
+                  await window.ultronAPI.ragRemoveSource(src.path);
+                  loadRagStats();
+                });
+              }
+              listEl.appendChild(row);
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('[rag-ui] error loading stats:', err.message);
+      }
+    }
+
+    const btnAddFolder = document.getElementById('btn-rag-add-folder');
+    if (btnAddFolder) {
+      btnAddFolder.addEventListener('click', async () => {
+        if (window.ultronAPI.selectDirectory) {
+          const selected = await window.ultronAPI.selectDirectory();
+          if (selected) {
+            const addRes = await window.ultronAPI.ragAddSources([selected]);
+            if (addRes && addRes.success) {
+              loadRagStats();
+            }
+          }
+        }
+      });
+    }
+
+    const btnReindex = document.getElementById('btn-rag-reindex');
+    const progressContainer = document.getElementById('rag-progress-container');
+    const progressBar = document.getElementById('rag-progress-bar');
+    const progressStats = document.getElementById('rag-progress-stats');
+
+    if (btnReindex) {
+      btnReindex.addEventListener('click', async () => {
+        if (progressContainer) progressContainer.classList.remove('hidden');
+        if (progressBar) progressBar.style.width = '30%';
+        btnReindex.textContent = 'Indexing…';
+
+        const res = await window.ultronAPI.ragReindex();
+        if (progressBar) progressBar.style.width = '100%';
+        if (progressStats) progressStats.textContent = `${res.totalFiles || 0} files (${res.totalChunks || 0} chunks)`;
+
+        setTimeout(() => {
+          if (progressContainer) progressContainer.classList.add('hidden');
+          btnReindex.textContent = 'Re-index All';
+          loadRagStats();
+        }, 1200);
+      });
+    }
+
+    const btnClear = document.getElementById('btn-rag-clear');
+    if (btnClear) {
+      btnClear.addEventListener('click', async () => {
+        if (confirm('Clear all indexed knowledge from the local vector database?')) {
+          await window.ultronAPI.ragClear();
+          loadRagStats();
+        }
+      });
+    }
+
+    const inputTestQuery = document.getElementById('input-rag-test-query');
+    const btnTestSearch = document.getElementById('btn-rag-test-search');
+    const resultsContainer = document.getElementById('rag-test-results');
+
+    if (btnTestSearch && inputTestQuery) {
+      btnTestSearch.addEventListener('click', async () => {
+        const q = inputTestQuery.value.trim();
+        if (!q) return;
+        btnTestSearch.textContent = 'Searching…';
+        const res = await window.ultronAPI.ragSearch({ query: q, topK: 4 });
+        btnTestSearch.textContent = 'Search Index';
+
+        if (resultsContainer) {
+          resultsContainer.innerHTML = '';
+          if (!res || !res.results || res.results.length === 0) {
+            resultsContainer.innerHTML = '<div style="font-size: 12px; color: #a1a1aa; padding: 8px;">No matching vector chunks found.</div>';
+          } else {
+            res.results.forEach((r, idx) => {
+              const card = document.createElement('div');
+              card.style.cssText = 'background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; font-size: 12px;';
+              card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                  <span style="font-weight: 600; color: #60a5fa;">#${idx + 1} ${r.fileName}</span>
+                  <span style="color: #34d399; font-weight: 600;">Match: ${(r.score * 100).toFixed(1)}%</span>
+                </div>
+                <div style="color: #d1d5db; line-height: 1.4; font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: pre-wrap;">${escapeHtml(r.snippet)}</div>
+              `;
+              resultsContainer.appendChild(card);
+            });
+          }
+        }
+      });
+    }
+
+    // Refresh when knowledge tab opens
+    document.querySelector('.settings-tab-btn[data-tab="knowledge"]')?.addEventListener('click', loadRagStats);
+    loadRagStats();
+  }
+
+  // 4. Desktop Sync & Mobile Companion UI Handlers
+  async function initDesktopSyncUI() {
+    if (!window.ultronAPI || !window.ultronAPI.getDesktopSyncInfo) return;
+
+    async function loadSyncStats() {
+      try {
+        const info = await window.ultronAPI.getDesktopSyncInfo();
+        if (!info) return;
+
+        const idEl = document.getElementById('sync-desktop-id');
+        const lanEl = document.getElementById('sync-lan-endpoint');
+        const devicesContainer = document.getElementById('sync-paired-devices-container');
+
+        if (idEl && info.syncId) idEl.textContent = info.syncId;
+        if (lanEl && Array.isArray(info.addresses)) {
+          lanEl.textContent = `LAN IP: ${info.addresses.join(', ') || '127.0.0.1'} : ${info.port || 49200}`;
+        }
+
+        if (devicesContainer) {
+          const activeDevices = info.activeDevices || [];
+          if (activeDevices.length === 0) {
+            devicesContainer.innerHTML = `
+              <div class="sync-empty-state-card">
+                <div class="sync-empty-svg-wrapper">
+                  <svg class="sync-empty-illustration" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
+                    <defs>
+                      <filter id="sync-subtle-glow-dyn" x="-20%" y="-20%" width="140%" height="140%">
+                        <feGaussianBlur stdDeviation="1.5" result="blur" />
+                        <feMerge>
+                          <feMergeNode in="blur" />
+                          <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                      </filter>
+                      <linearGradient id="sync-ring-grad-dyn" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="rgba(96, 165, 250, 0.18)" />
+                        <stop offset="100%" stop-color="rgba(255, 255, 255, 0.04)" />
+                      </linearGradient>
+                    </defs>
+
+                    <!-- Connection Lines -->
+                    <line x1="88" y1="60" x2="138" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
+                    <line x1="182" y1="60" x2="232" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
+                    <line x1="88" y1="60" x2="138" y2="60" class="connection-left" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
+                    <line x1="182" y1="60" x2="232" y2="60" class="connection-right" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
+
+                    <!-- Traveling Data Pulses -->
+                    <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-phone-to-laptop" fill="#ffffff" filter="url(#sync-subtle-glow-dyn)" />
+                    <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-laptop-to-phone" fill="#ffffff" filter="url(#sync-subtle-glow-dyn)" />
+
+                    <!-- Smartphone (Left) -->
+                    <g class="phone" transform="translate(42, 22)">
+                      <rect x="0" y="0" width="46" height="76" rx="8" ry="8" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
+                      <rect x="4" y="7" width="38" height="62" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
+                      <rect x="16" y="3" width="14" height="2.5" rx="1.2" fill="rgba(255, 255, 255, 0.6)" />
+                      <line x1="9" y1="18" x2="25" y2="18" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
+                      <line x1="9" y1="24" x2="35" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
+                      <line x1="9" y1="30" x2="29" y2="30" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
+                      <circle cx="23" cy="50" r="4" stroke="rgba(96, 165, 250, 0.7)" stroke-width="1" fill="rgba(96, 165, 250, 0.15)" />
+                      <circle cx="23" cy="50" r="1.5" fill="#60a5fa" />
+                      <line x1="16" y1="72" x2="30" y2="72" stroke="rgba(255, 255, 255, 0.5)" stroke-width="1.5" stroke-linecap="round" />
+                    </g>
+
+                    <!-- Sync Symbol (Center) -->
+                    <g class="sync-container" transform="translate(160, 60)">
+                      <circle cx="0" cy="0" r="18" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" fill="url(#sync-ring-grad-dyn)" />
+                      <g class="sync-icon">
+                        <path d="M-8 -6 A 10 10 0 0 1 8 -3" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
+                        <path d="M5 -5 L8 -3 L6 0" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                        <path d="M8 6 A 10 10 0 0 1 -8 3" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
+                        <path d="M-5 5 L-8 3 L-6 0" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                      </g>
+                    </g>
+
+                    <!-- Laptop Screen (Right) -->
+                    <g class="laptop" transform="translate(232, 26)">
+                      <rect x="6" y="0" width="76" height="52" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
+                      <rect x="10" y="4" width="68" height="42" rx="2" ry="2" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
+                      <circle cx="44" cy="2" r="0.8" fill="rgba(255, 255, 255, 0.5)" />
+                      <line x1="16" y1="12" x2="36" y2="12" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
+                      <line x1="16" y1="18" x2="54" y2="18" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
+                      <line x1="16" y1="24" x2="46" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
+                      <path d="M0 54 H88 L83 61 H5 Z" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" stroke-linejoin="round" fill="rgba(255, 255, 255, 0.04)" />
+                      <line x1="38" y1="55" x2="50" y2="55" stroke="rgba(255, 255, 255, 0.4)" stroke-width="1.5" stroke-linecap="round" />
+                    </g>
+                  </svg>
+                </div>
+                <h6 class="sync-empty-title">No mobile devices paired yet</h6>
+                <p class="sync-empty-desc">Click “Generate Pair Code” and enter the code in your mobile app to connect your device.</p>
+              </div>
+            `;
+          } else {
+            devicesContainer.innerHTML = '';
+            activeDevices.forEach(d => {
+              const devName = d.deviceName || 'Ultron Mobile Companion';
+              const isApple = (d.platform === 'ios' || d.platform === 'apple' || /iphone|ipad|ios|apple/i.test(devName));
+              const brandName = isApple ? 'Apple iOS' : 'Android';
+              const logoSrc = isApple ? '../../Assets/Brand-Assets/apple-black-logo.png' : '../../Assets/Brand-Assets/android-logo.png';
+
+              const row = document.createElement('div');
+              row.className = 'paired-mobile-device-card';
+              row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--border-color); border-radius: 10px; font-size: 13px; transition: border-color 0.2s ease;';
+              row.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="width: 36px; height: 36px; border-radius: 8px; background: #ffffff; display: flex; align-items: center; justify-content: center; padding: 5px; box-sizing: border-box; border: 1px solid rgba(255, 255, 255, 0.25); box-shadow: 0 2px 8px rgba(0,0,0,0.25); flex-shrink: 0;">
+                    <img src="${logoSrc}" alt="${brandName}" style="width: 22px; height: 22px; object-fit: contain;" />
+                  </div>
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; color: #ffffff; font-size: 13px;">${escapeHtml(devName)}</span>
+                      <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: ${isApple ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34, 197, 94, 0.15)'}; color: ${isApple ? '#ffffff' : '#22c55e'}; border: 1px solid ${isApple ? 'rgba(255, 255, 255, 0.2)' : 'rgba(34, 197, 94, 0.3)'};">${brandName}</span>
+                    </div>
+                    <div style="font-size: 11px; color: #a1a1aa; margin-top: 2px;">Paired: ${new Date(d.createdAt || Date.now()).toLocaleDateString()}</div>
+                  </div>
+                </div>
+                <button type="button" class="btn-sync-revoke" style="background: transparent; border: 1px solid rgba(239, 68, 68, 0.35); color: #ef4444; border-radius: 6px; padding: 5px 12px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">Unpair</button>
+              `;
+              const btnRevoke = row.querySelector('.btn-sync-revoke');
+              if (btnRevoke) {
+                btnRevoke.addEventListener('click', async () => {
+                  await window.ultronAPI.revokeMobilePairedDevice(d.id || d.tokenPrefix);
+                  loadSyncStats();
+                });
+              }
+              devicesContainer.appendChild(row);
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('[sync-ui] error loading info:', err.message);
+      }
+    }
+
+    const btnGenPair = document.getElementById('btn-generate-pair-code');
+    const pairBanner = document.getElementById('sync-pair-code-banner');
+    const pairCodeDisplay = document.getElementById('sync-pair-code-display');
+    const pairTimer = document.getElementById('sync-pair-code-timer');
+
+    let _pairCountdown = null;
+
+    if (btnGenPair) {
+      btnGenPair.addEventListener('click', async () => {
+        btnGenPair.textContent = 'Generating…';
+        const res = await window.ultronAPI.createMobilePairCode();
+        btnGenPair.textContent = 'Generate Pair Code';
+
+        if (res && res.success && res.code) {
+          if (pairBanner) pairBanner.classList.remove('hidden');
+          if (pairCodeDisplay) pairCodeDisplay.textContent = res.code;
+
+          let remaining = res.expiresIn || 60;
+          if (pairTimer) pairTimer.textContent = `Code expires in ${remaining}s`;
+
+          if (_pairCountdown) clearInterval(_pairCountdown);
+          _pairCountdown = setInterval(() => {
+            remaining -= 1;
+            if (pairTimer) pairTimer.textContent = remaining > 0 ? `Code expires in ${remaining}s` : 'Code expired';
+            if (remaining <= 0) {
+              clearInterval(_pairCountdown);
+              if (pairBanner) pairBanner.classList.add('hidden');
+            }
+          }, 1000);
+        }
+      });
+    }
+
+    // Modal pair dismiss
+    const btnCancelPairModal = document.getElementById('btn-mobile-pair-cancel');
+    if (btnCancelPairModal) {
+      btnCancelPairModal.addEventListener('click', () => {
+        const modal = document.getElementById('mobile-pair-modal');
+        if (modal) modal.classList.add('hidden');
+        if (window.ultronAPI.denyMobilePair) window.ultronAPI.denyMobilePair();
+      });
+    }
+
+    if (window.ultronAPI.onMobilePairRequest) {
+      window.ultronAPI.onMobilePairRequest((payload) => {
+        const modal = document.getElementById('mobile-pair-modal');
+        const codeEl = document.getElementById('mobile-pair-modal-code');
+        const descEl = document.getElementById('mobile-pair-modal-desc');
+        const timerEl = document.getElementById('mobile-pair-modal-timer');
+
+        if (modal) modal.classList.remove('hidden');
+        if (codeEl && payload.code) codeEl.textContent = payload.code;
+        if (descEl && payload.deviceName) descEl.textContent = `Pairing request from ${payload.deviceName}. Enter this code:`;
+        if (timerEl) timerEl.textContent = `Expires in ${payload.expiresIn || 60}s`;
+      });
+    }
+
+    if (window.ultronAPI.onMobilePairComplete) {
+      window.ultronAPI.onMobilePairComplete(() => {
+        const modal = document.getElementById('mobile-pair-modal');
+        if (modal) modal.classList.add('hidden');
+        loadSyncStats();
+      });
+    }
+
+    if (window.ultronAPI.onMobilePairedDevicesUpdated) {
+      window.ultronAPI.onMobilePairedDevicesUpdated(loadSyncStats);
+    }
+
+    document.querySelector('.settings-tab-btn[data-tab="sync"]')?.addEventListener('click', loadSyncStats);
+    loadSyncStats();
+  }
+
+  // 5. Initialize all subsystems on DOM ready
+  initMultiProviderUI();
+  initRagUI();
+  initDesktopSyncUI();
+})();
+
 
 

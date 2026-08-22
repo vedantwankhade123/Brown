@@ -135,6 +135,9 @@ contextBridge.exposeInMainWorld('ultronAPI', {
     return () => ipcRenderer.removeListener('floating-bar:session-created', subscription);
   },
   getDesktopSyncInfo: () => ipcRenderer.invoke('desktop-sync:get-info'),
+  listMobilePairedDevices: () => ipcRenderer.invoke('desktop-sync:list-devices'),
+  revokeMobilePairedDevice: (id) => ipcRenderer.invoke('desktop-sync:revoke-device', id),
+  createMobilePairCode: () => ipcRenderer.invoke('desktop-sync:create-pair-code'),
   denyMobilePair: () => ipcRenderer.invoke('desktop-sync:deny-pair'),
   approveMobileChats: () => ipcRenderer.invoke('desktop-sync:approve-chats'),
   denyMobileChats: () => ipcRenderer.invoke('desktop-sync:deny-chats'),
@@ -152,6 +155,11 @@ contextBridge.exposeInMainWorld('ultronAPI', {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('mobile-pair-dismissed', subscription);
     return () => ipcRenderer.removeListener('mobile-pair-dismissed', subscription);
+  },
+  onMobilePairedDevicesUpdated: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('mobile-paired-devices-updated', subscription);
+    return () => ipcRenderer.removeListener('mobile-paired-devices-updated', subscription);
   },
   onMobileChatConsent: (callback) => {
     const subscription = (event, data) => callback(data);
@@ -173,4 +181,29 @@ contextBridge.exposeInMainWorld('ultronAPI', {
     ipcRenderer.on('mobile-chats-imported', subscription);
     return () => ipcRenderer.removeListener('mobile-chats-imported', subscription);
   },
+  // Multi-Provider Hub
+  saveProviderKeys: (keys) => ipcRenderer.invoke('save-provider-keys', keys),
+  loadProviderKeys: () => ipcRenderer.invoke('load-provider-keys'),
+  // Local Vector RAG
+  ragAddSources: (paths) => ipcRenderer.invoke('rag:add-sources', paths),
+  ragRemoveSource: (sourcePath) => ipcRenderer.invoke('rag:remove-source', sourcePath),
+  ragReindex: () => ipcRenderer.invoke('rag:reindex'),
+  ragSearch: (payload) => ipcRenderer.invoke('rag:search', payload),
+  ragClear: () => ipcRenderer.invoke('rag:clear'),
+  ragGetStats: () => ipcRenderer.invoke('rag:get-stats'),
+  onRagIndexProgress: (callback) => {
+    const subscription = (event, data) => callback(data);
+    ipcRenderer.on('rag:index-progress', subscription);
+    return () => ipcRenderer.removeListener('rag:index-progress', subscription);
+  },
+  // Native Windows Controls
+  windowsGetVolume: () => ipcRenderer.invoke('windows:get-volume'),
+  windowsSetVolume: (level) => ipcRenderer.invoke('windows:set-volume', level),
+  windowsToggleMute: () => ipcRenderer.invoke('windows:toggle-mute'),
+  windowsMediaKey: (action) => ipcRenderer.invoke('windows:media-key', action),
+  windowsLock: () => ipcRenderer.invoke('windows:lock'),
+  windowsSleep: () => ipcRenderer.invoke('windows:sleep'),
+  windowsRestart: () => ipcRenderer.invoke('windows:restart'),
+  windowsGetBrightness: () => ipcRenderer.invoke('windows:get-brightness'),
+  windowsSetBrightness: (level) => ipcRenderer.invoke('windows:set-brightness', level),
 });
