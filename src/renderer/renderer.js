@@ -7645,7 +7645,7 @@ function renderSettingsModels() {
     const isHfModel = name.startsWith('hf.co/') || (catalogEntry && catalogEntry.provider === 'huggingface');
     const providerBadge = isHfModel
       ? `<span class="catalog-model-provider-badge hf"><img src="../../Assets/Brand-Assets/hf-logo.png" alt="HF" /> Hugging Face</span>`
-      : `<span class="catalog-model-provider-badge ollama"><img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" /> Ollama</span>`;
+      : `<span class="catalog-model-provider-badge ollama"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" /> Ollama</span>`;
 
     // Parameter size tag (e.g. "8B", "20B", "3B", "7B")
     const paramBadge = catalogEntry?.size || (
@@ -8825,7 +8825,7 @@ function renderOllamaCatalog(filterQuery = '') {
     if (badgeType === 'hf') {
       headerLeft = `<div style="display: flex; align-items: center; gap: 6px;"><img src="../../Assets/Brand-Assets/hf-logo.png" style="width: 13px; height: 13px; object-fit: contain;" /><span>${escapeHtml(title)}</span></div>`;
     } else if (badgeType === 'ollama') {
-      headerLeft = `<div style="display: flex; align-items: center; gap: 6px;"><img src="../../Assets/Brand-Assets/ollama-logo.png" style="width: 13px; height: 13px; object-fit: contain;" /><span>${escapeHtml(title)}</span></div>`;
+      headerLeft = `<div style="display: flex; align-items: center; gap: 6px;"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" style="width: 13px; height: 13px; object-fit: contain;" /><span>${escapeHtml(title)}</span></div>`;
     }
     
     header.innerHTML = `${headerLeft}<span style="font-size: 10px; color: var(--text-muted); font-weight: normal;">${filtered.length} models</span>`;
@@ -8853,7 +8853,7 @@ function renderOllamaCatalog(filterQuery = '') {
 
     const providerBadge = isHuggingFace
       ? `<span class="catalog-model-provider-badge hf"><img src="../../Assets/Brand-Assets/hf-logo.png" alt="HF" /> Hugging Face</span>`
-      : `<span class="catalog-model-provider-badge ollama"><img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" /> Ollama</span>`;
+      : `<span class="catalog-model-provider-badge ollama"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" /> Ollama</span>`;
 
     let statsHtml = '';
     const formattedDl = formatCompactCount(model.downloads);
