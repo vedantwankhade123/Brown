@@ -224,11 +224,11 @@ export const PairedDevicesEmptyState: React.FC<PairedDevicesEmptyStateProps> = (
           </g>
 
           {/* 4. Sync Symbol (Center) */}
-          <g className="sync-container" transform="translate(160, 60)">
+          <g className="sync-container">
             {/* Subtle Outer Ring */}
             <circle
-              cx="0"
-              cy="0"
+              cx="160"
+              cy="60"
               r="18"
               stroke="rgba(255, 255, 255, 0.12)"
               strokeWidth="1"
@@ -238,14 +238,14 @@ export const PairedDevicesEmptyState: React.FC<PairedDevicesEmptyStateProps> = (
             <g className="sync-icon">
               {/* Top Arc & Arrow */}
               <path
-                d="M-8 -6 A 10 10 0 0 1 8 -3"
+                d="M 152 54 A 10 10 0 0 1 168 57"
                 stroke="#ffffff"
                 strokeWidth="1.5"
                 strokeLinecap="round"
                 fill="none"
               />
               <path
-                d="M5 -5 L8 -3 L6 0"
+                d="M 165 55 L 168 57 L 166 60"
                 stroke="#ffffff"
                 strokeWidth="1.5"
                 strokeLinecap="round"
@@ -254,14 +254,14 @@ export const PairedDevicesEmptyState: React.FC<PairedDevicesEmptyStateProps> = (
               />
               {/* Bottom Arc & Arrow */}
               <path
-                d="M8 6 A 10 10 0 0 1 -8 3"
+                d="M 168 66 A 10 10 0 0 1 152 63"
                 stroke="#ffffff"
                 strokeWidth="1.5"
                 strokeLinecap="round"
                 fill="none"
               />
               <path
-                d="M-5 5 L-8 3 L-6 0"
+                d="M 155 65 L 152 63 L 154 60"
                 stroke="#ffffff"
                 strokeWidth="1.5"
                 strokeLinecap="round"
