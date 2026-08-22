@@ -241,8 +241,10 @@
       </div>
     </div>
 
-    <!-- WELCOME SCREEN -->
-    <div id="welcome-screen" class="welcome-screen">
+    <!-- LEFT CHAT PANE COLUMN -->
+    <div id="chat-pane-column" class="chat-pane-column">
+      <!-- WELCOME SCREEN -->
+      <div id="welcome-screen" class="welcome-screen">
       <img src="../../Assets/Brand-Assets/ultron-logo.png" class="welcome-logo" alt="Ultron Logo">
       <h1 id="welcome-title" class="welcome-title">Good evening, User</h1>
       <p class="welcome-subtitle">How can Ultron assist you today?</p>
@@ -543,48 +545,119 @@
     </div>
     </div>
 
-    <!-- INTERACTIVE CANVAS & ARTIFACTS SPLIT-VIEW PANEL -->
+    <!-- Resizable Drag Splitter between Chat and Code Canvas -->
+    <div id="workspace-splitter" class="workspace-splitter hidden" title="Drag to resize, double-click to reset 50/50">
+      <div class="splitter-handle"></div>
+    </div>
+
+    <!-- INTERACTIVE CODE CANVAS & WORKSPACE SPLIT-VIEW PANEL -->
     <div id="canvas-artifacts-panel" class="canvas-panel hidden">
       <div class="canvas-header">
         <div class="canvas-header-left">
+          <!-- View Mode Switcher: Code vs Live Preview vs Terminal -->
+          <div class="canvas-mode-toggle" role="tablist" aria-label="Canvas view mode">
+            <button type="button" id="btn-canvas-mode-code" class="canvas-mode-btn active" data-mode="code" title="View & edit source code">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+              <span>Code</span>
+            </button>
+            <button type="button" id="btn-canvas-mode-preview" class="canvas-mode-btn" data-mode="preview" title="Live interactive web preview">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              <span>Preview</span>
+            </button>
+            <button type="button" id="btn-canvas-mode-terminal" class="canvas-mode-btn" data-mode="terminal" title="Integrated project terminal">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+              <span>Terminal</span>
+            </button>
+          </div>
           <span id="canvas-type-badge" class="canvas-type-badge">HTML</span>
-          <span id="canvas-title" class="canvas-title">Interactive Workspace</span>
         </div>
         <div class="canvas-header-actions">
-          <button id="btn-canvas-refresh" class="canvas-btn" title="Refresh sandbox">
+          <button type="button" id="btn-canvas-add-tab" class="canvas-btn" title="Create new file tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+          </button>
+          <button type="button" id="btn-canvas-refresh" class="canvas-btn" title="Run code & refresh live preview">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
           </button>
-          <button id="btn-canvas-copy" class="canvas-btn" title="Copy content">
+          <button type="button" id="btn-canvas-copy" class="canvas-btn" title="Copy code to clipboard">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           </button>
-          <button id="btn-canvas-download" class="canvas-btn" title="Download file">
+          <button type="button" id="btn-canvas-download" class="canvas-btn" title="Download project file">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           </button>
-          <button id="btn-canvas-fullscreen" class="canvas-btn" title="Fullscreen Canvas">
+          <button type="button" id="btn-canvas-fullscreen" class="canvas-btn" title="Toggle Fullscreen Canvas">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
           </button>
-          <button id="btn-canvas-close" class="canvas-btn" title="Close Canvas">✕</button>
+          <button type="button" id="btn-canvas-close" class="canvas-btn" title="Close Canvas">✕</button>
         </div>
       </div>
+      <!-- Multi-file Tabs Bar (VS Code style) -->
       <div id="canvas-tabs-bar" class="canvas-tabs-bar"></div>
+      
       <div class="canvas-body">
-        <div id="canvas-iframe-pane" class="canvas-view-pane">
-          <iframe id="canvas-sandbox-iframe" class="canvas-iframe" sandbox="allow-scripts allow-modals"></iframe>
+        <!-- 1. Code Editor View (VS Code styling + line numbers + editable textarea) -->
+        <div id="canvas-code-pane" class="canvas-view-pane">
+          <div class="code-editor-container">
+            <div id="code-line-numbers" class="code-line-numbers">1</div>
+            <div class="code-editor-area">
+              <pre id="canvas-code-highlight" class="code-highlight-layer" aria-hidden="true"></pre>
+              <textarea id="canvas-code-editor" class="code-editor-textarea" spellcheck="false" placeholder="Write or edit code here..."></textarea>
+            </div>
+          </div>
         </div>
-        <div id="canvas-code-pane" class="canvas-view-pane hidden">
-          <pre id="canvas-code-view" class="canvas-code-container"></pre>
+
+        <!-- 2. Live Preview Sandbox View -->
+        <div id="canvas-iframe-pane" class="canvas-view-pane hidden">
+          <div class="preview-address-bar">
+            <div class="preview-status-indicator">
+              <span class="preview-dot"></span>
+              <span id="preview-url-label">localhost:preview</span>
+            </div>
+            <div class="preview-viewport-controls">
+              <button type="button" class="viewport-btn active" data-width="100%" title="Desktop (100%)">Desktop</button>
+              <button type="button" class="viewport-btn" data-width="768px" title="Tablet (768px)">Tablet</button>
+              <button type="button" class="viewport-btn" data-width="375px" title="Mobile (375px)">Mobile</button>
+            </div>
+          </div>
+          <div class="preview-iframe-wrapper">
+            <iframe id="canvas-sandbox-iframe" class="canvas-iframe" sandbox="allow-scripts allow-modals allow-forms allow-same-origin"></iframe>
+          </div>
         </div>
+
+        <!-- 3. Markdown / Documentation View -->
         <div id="canvas-markdown-pane" class="canvas-view-pane hidden">
           <div id="canvas-markdown-view" class="canvas-markdown-container"></div>
         </div>
+
+        <!-- 4. Integrated Terminal View -->
+        <div id="canvas-terminal-pane" class="canvas-view-pane hidden">
+          <div class="terminal-container">
+            <div class="terminal-topbar">
+              <span class="terminal-title">Project Terminal</span>
+              <button type="button" id="btn-clear-terminal" class="btn-clear-terminal" title="Clear terminal output">Clear</button>
+            </div>
+            <div id="terminal-output-area" class="terminal-output-area">
+              <div class="terminal-line system-line">[Ultron Agent Workspace Terminal v1.0] Ready.</div>
+            </div>
+            <div class="terminal-input-row">
+              <span class="terminal-prompt">$</span>
+              <input type="text" id="terminal-command-input" class="terminal-command-input" placeholder="Run command in workspace..." />
+            </div>
+          </div>
+        </div>
+
+        <!-- Console Drawer -->
         <div id="canvas-console-drawer" class="canvas-console-drawer collapsed">
           <div id="canvas-console-header" class="canvas-console-header">
-            <span>Console Output</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="console-dot"></span>
+              <span>Console Output</span>
+            </div>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><polyline points="18 15 12 9 6 15"></polyline></svg>
           </div>
           <div id="canvas-console-logs" class="canvas-console-logs"></div>
         </div>
       </div>
+    </div>
     </div>
 
     <!-- Settings (inline, replaces chat view) -->
@@ -894,7 +967,17 @@
             <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 14px;">
-                  <img src="../../Assets/Brand-Assets/openrouter-black-logo.png" alt="Custom Models" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
+                  <div class="custom-models-logo-stack" title="LM Studio, vLLM & OpenRouter">
+                    <div class="stacked-logo-item" style="z-index: 3;" title="LM Studio">
+                      <img src="../../Assets/Brand-Assets/lm-studio.png" alt="LM Studio" class="stacked-logo-img" />
+                    </div>
+                    <div class="stacked-logo-item" style="z-index: 2;" title="vLLM">
+                      <img src="../../Assets/Brand-Assets/vllm-color.png" alt="vLLM" class="stacked-logo-img" />
+                    </div>
+                    <div class="stacked-logo-item" style="z-index: 1;" title="OpenRouter">
+                      <img src="../../Assets/Brand-Assets/openrouter-black-logo.png" alt="OpenRouter" class="stacked-logo-img" />
+                    </div>
+                  </div>
                   <div style="display: flex; flex-direction: column;">
                     <div style="display: flex; align-items: center; gap: 8px;">
                       <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Custom Models (LM Studio / vLLM / OpenRouter)</span>
@@ -980,20 +1063,35 @@
               <button id="btn-install-ollama" class="btn-primary-sm hidden" style="height: 36px; box-sizing: border-box;">Download & Install Ollama</button>
             </div>
             
-            <div class="models-section">
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                <h5 style="margin: 0;">Installed Models</h5>
-              </div>
+            <!-- Segmented View Toggle: Installed Models vs Download Models -->
+            <div class="models-view-tabs" role="tablist" aria-label="Toggle Installed or Download Models">
+              <button type="button" id="tab-btn-installed-models" class="models-view-tab-btn active" role="tab" aria-selected="true" aria-controls="installed-models-view">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                  <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                </svg>
+                <span>Installed Models</span>
+              </button>
+              <button type="button" id="tab-btn-download-models" class="models-view-tab-btn" role="tab" aria-selected="false" aria-controls="download-models-view">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                  <polyline points="7 10 12 15 17 10"></polyline>
+                  <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                <span>Download Models</span>
+              </button>
+            </div>
+            
+            <div id="installed-models-view" class="models-section">
               <div id="installed-model-filters" class="model-type-filters" role="tablist" aria-label="Filter installed models"></div>
               <div id="settings-models-list" class="models-list-container">
                 <!-- dynamically populated -->
               </div>
             </div>
             
-            <div class="download-section">
-              <h5>Direct Download & Model Hub</h5>
-              
-              <div id="download-inputs-row" class="download-row" style="display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 10px;">
+            <div id="download-models-view" class="download-section hidden">
+              <div id="download-inputs-row" class="download-row" style="display: flex; flex-direction: column; gap: 10px; width: 100%; margin-top: 4px;">
                 <!-- Provider Selector Tabs (All, Ollama, Hugging Face) -->
                 <div id="catalog-provider-filters" class="catalog-provider-filters" role="tablist" aria-label="Filter model provider">
                   <button type="button" class="provider-filter-pill active" data-provider="all">
@@ -1395,11 +1493,11 @@
             </p>
 
             <!-- Sync Info Card -->
-            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 10px; padding: 16px; margin-bottom: 18px;">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 16px; margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: center; gap: 14px;">
-                  <div style="width: 44px; height: 44px; border-radius: 10px; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
+                  <div style="display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0 4px 0 0;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="34" height="34">
                       <path d="M4 6h10v8H4z"></path>
                       <path d="M2 17h12l-1.5-3H4.5L2 17z"></path>
                       <rect x="14" y="8" width="8" height="13" rx="1.5"></rect>
@@ -1409,26 +1507,33 @@
                   <div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                       <span id="sync-desktop-id" style="font-weight: 700; font-size: 15px; color: #ffffff; font-family: 'JetBrains Mono', monospace;">ULTRON-WIN-DETECTING</span>
-                      <span style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">● Ready for Pairing</span>
+                      <span id="sync-status-badge" style="font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">● Ready for Pairing</span>
                     </div>
                     <p id="sync-lan-endpoint" class="text-xs text-muted" style="margin: 2px 0 0 0;">LAN Endpoint: 0.0.0.0:49200</p>
-                    <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px;">
-                      <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #cbd5e1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); padding: 2px 8px; border-radius: 6px;">
-                        <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 12px; height: 12px; object-fit: contain;" /> Android
+                    <div style="display: flex; align-items: center; gap: 14px; margin-top: 5px;">
+                      <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; color: #94a3b8;">
+                        <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 13px; height: 13px; object-fit: contain;" /> Android
                       </span>
-                      <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #cbd5e1; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); padding: 2px 8px; border-radius: 6px;">
-                        <img src="../../Assets/Brand-Assets/white-apple.png" alt="Apple iOS" style="width: 12px; height: 12px; object-fit: contain;" /> Apple iOS
+                      <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; color: #94a3b8;">
+                        <img src="../../Assets/Brand-Assets/white-apple.png" alt="Apple iOS" style="width: 13px; height: 13px; object-fit: contain;" /> Apple iOS
                       </span>
                     </div>
                   </div>
                 </div>
-                <button id="btn-generate-pair-code" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; background: #ffffff !important; color: #000000 !important; font-weight: 600;">
-                  Generate Pair Code
-                </button>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button id="btn-refresh-sync-stats" class="btn-secondary-sm" title="Refresh Live State" style="height: 36px; width: 36px; padding: 0; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px; color: #ffffff; cursor: pointer; transition: all 0.2s ease;">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                    </svg>
+                  </button>
+                  <button id="btn-generate-pair-code" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; background: #ffffff !important; color: #000000 !important; font-weight: 600;">
+                    Generate Pair Code
+                  </button>
+                </div>
               </div>
 
               <!-- Pair Code Display Banner (Hidden until generated) -->
-              <div id="sync-pair-code-banner" class="hidden" style="background: rgba(66, 133, 244, 0.08); border: 1px dashed rgba(66, 133, 244, 0.35); border-radius: 8px; padding: 14px; text-align: center; margin-top: 12px;">
+              <div id="sync-pair-code-banner" class="hidden" style="background: rgba(66, 133, 244, 0.08); border: 1px dashed rgba(66, 133, 244, 0.35); border-radius: 8px; padding: 12px; text-align: center; margin-top: 10px;">
                 <p style="margin: 0 0 6px 0; font-size: 12px; color: #93c5fd;">Enter this 4-letter code in your Ultron Mobile app:</p>
                 <div id="sync-pair-code-display" style="font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #60a5fa;">----</div>
                 <p id="sync-pair-code-timer" style="margin: 6px 0 0 0; font-size: 11px; color: #a1a1aa;">Code expires in 60s</p>
@@ -1437,7 +1542,15 @@
 
             <!-- Paired Devices Table -->
             <div>
-              <h5 style="margin: 0 0 10px 0;">Paired Mobile Devices</h5>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                <h5 style="margin: 0;">Paired Mobile Devices</h5>
+                <button id="btn-refresh-paired-devices" style="display: flex; align-items: center; gap: 5px; background: transparent; border: none; color: #94a3b8; font-size: 11.5px; font-weight: 600; cursor: pointer; padding: 2px 6px;">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                  </svg>
+                  Refresh
+                </button>
+              </div>
               <div id="sync-paired-devices-container" style="display: flex; flex-direction: column; gap: 8px;">
                 <div class="sync-empty-state-card">
                   <div class="sync-empty-svg-wrapper">
@@ -2360,15 +2473,24 @@
     </div>
   </div>
 
-  <!-- WhatsApp-style mobile pairing modal -->
+  <!-- Device Sync Mobile Pairing Modal -->
   <div id="mobile-pair-modal" class="mobile-pair-modal hidden" role="dialog" aria-modal="true">
     <div class="mobile-pair-backdrop"></div>
     <div class="mobile-pair-card">
       <div class="mobile-pair-glow"></div>
-      <p class="mobile-pair-kicker">Ultron Mobile</p>
-      <h3 class="mobile-pair-title">Ultron Mobile is requesting to pair with this PC</h3>
-      <p id="mobile-pair-device" class="mobile-pair-device">A phone on your Wi-Fi is waiting for this code.</p>
-      <div id="mobile-pair-code" class="mobile-pair-code">————</div>
+      <div class="mobile-pair-kicker-tag">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#60a5fa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+        </svg>
+        <span>Device Sync</span>
+      </div>
+      <h3 id="mobile-pair-title" class="mobile-pair-title">Pairing Request</h3>
+      <div id="mobile-pair-code-boxes" class="mobile-pair-code-boxes">
+        <div class="code-char-box">—</div>
+        <div class="code-char-box">—</div>
+        <div class="code-char-box">—</div>
+        <div class="code-char-box">—</div>
+      </div>
       <p id="mobile-pair-timer" class="mobile-pair-timer">Code expires in 60s</p>
       <button type="button" id="btn-mobile-pair-deny" class="mobile-pair-deny">Deny</button>
     </div>
@@ -2427,22 +2549,6 @@
         <button id="btn-clipboard-clear" class="btn-faint" style="height: 36px; padding: 0 12px; font-size: 12px;">Clear All</button>
       </div>
       <div id="clipboard-history-list" style="flex: 1; overflow-y: auto; padding: 12px 20px; display: flex; flex-direction: column; gap: 10px;"></div>
-    </div>
-  </div>
-
-  <!-- MOBILE PAIR REQUEST MODAL -->
-  <div id="mobile-pair-modal" class="settings-modal-overlay hidden">
-    <div class="settings-panel-card" style="max-width: 440px; padding: 24px; text-align: center;">
-      <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(66,133,244,0.15); color: #60a5fa; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg>
-      </div>
-      <h4 style="margin: 0 0 8px 0; color: #fff;">Pair Ultron Mobile App</h4>
-      <p id="mobile-pair-modal-desc" style="color: #9ca3af; font-size: 13px; margin: 0 0 16px 0;">Enter this 4-letter code on your phone to complete LAN pairing:</p>
-      <div id="mobile-pair-modal-code" style="font-family: 'JetBrains Mono', monospace; font-size: 32px; font-weight: 700; letter-spacing: 8px; color: #60a5fa; background: rgba(66,133,244,0.1); border: 1px dashed rgba(66,133,244,0.4); border-radius: 10px; padding: 12px; margin-bottom: 12px;">----</div>
-      <p id="mobile-pair-modal-timer" style="font-size: 12px; color: #a1a1aa; margin: 0 0 20px 0;">Expires in 60 seconds</p>
-      <div style="display: flex; gap: 10px; justify-content: center;">
-        <button id="btn-mobile-pair-cancel" class="btn-faint" style="padding: 8px 20px;">Dismiss</button>
-      </div>
     </div>
   </div>
 

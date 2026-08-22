@@ -91,10 +91,10 @@
     }
   }
 
-  // Load Real Installed Offline Models
   // Load Real Installed Offline Models & Discovered Cloud Models
   async function loadOfflineModels() {
     let installedModels = [];
+    const seenNames = new Set();
 
     // 1. Probe local Ollama endpoint directly
     try {
@@ -102,29 +102,60 @@
       if (response.ok) {
         const data = await response.json();
         if (data && Array.isArray(data.models) && data.models.length > 0) {
-          installedModels = data.models.map(m => ({
-            name: typeof m === 'string' ? m : m.name,
-            provider: 'ollama',
-            type: 'local'
-          }));
+          data.models.forEach(m => {
+            const mName = typeof m === 'string' ? m : m.name;
+            if (mName && !seenNames.has(mName)) {
+              seenNames.add(mName);
+              installedModels.push({
+                name: mName,
+                provider: 'ollama',
+                type: 'local'
+              });
+            }
+          });
         }
       }
-    } catch (err) {
-      try {
-        if (window.ultronAPI && window.ultronAPI.profileSystem) {
-          const sys = await window.ultronAPI.profileSystem();
-          if (sys && sys.localModels && sys.localModels.length > 0) {
-            installedModels = sys.localModels.map(m => ({
-              name: typeof m === 'string' ? m : m.name,
-              provider: 'ollama',
-              type: 'local'
-            }));
-          }
-        }
-      } catch (e) {}
-    }
+    } catch (err) {}
 
-    // 2. Probe discovered cloud models from localStorage
+    // 1b. Fallback to window.ultronAPI.profileSystem()
+    try {
+      if (window.ultronAPI && typeof window.ultronAPI.profileSystem === 'function') {
+        const sys = await window.ultronAPI.profileSystem();
+        const list = sys && (sys.installedModels || sys.localModels);
+        if (Array.isArray(list)) {
+          list.forEach(m => {
+            const mName = typeof m === 'string' ? m : m.name;
+            if (mName && !seenNames.has(mName)) {
+              seenNames.add(mName);
+              installedModels.push({
+                name: mName,
+                provider: 'ollama',
+                type: 'local'
+              });
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 2. Add Google Gemini models if configured
+    try {
+      const hasGeminiKey = Boolean((localStorage.getItem('ultron-gemini-api-key') || '').trim());
+      if (hasGeminiKey) {
+        ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'].forEach(gName => {
+          if (!seenNames.has(gName)) {
+            seenNames.add(gName);
+            installedModels.push({
+              name: gName,
+              provider: 'gemini',
+              type: 'cloud'
+            });
+          }
+        });
+      }
+    } catch (e) {}
+
+    // 3. Probe discovered cloud models from localStorage
     try {
       const cachedDiscovered = localStorage.getItem('ultron-discovered-provider-models');
       if (cachedDiscovered) {
@@ -132,9 +163,11 @@
         for (const [provider, list] of Object.entries(discovered)) {
           if (Array.isArray(list)) {
             list.forEach(m => {
-              if (m && m.id) {
+              const mName = m && (m.id || m.name);
+              if (mName && !seenNames.has(mName)) {
+                seenNames.add(mName);
                 installedModels.push({
-                  name: m.id,
+                  name: mName,
                   provider: provider,
                   type: 'cloud'
                 });
@@ -151,7 +184,7 @@
     if (installedModels.length > 0) {
       if (savedModel && availableNames.includes(savedModel)) {
         activeModel = savedModel;
-      } else {
+      } else if (!activeModel || activeModel === 'Select Model' || !availableNames.includes(activeModel)) {
         activeModel = availableNames[0];
       }
     } else {
@@ -176,6 +209,9 @@
     }
 
     models.forEach(model => {
+      const name = typeof model === 'string' ? model : (model.name || model.id || '');
+      if (!name) return;
+
       const provider = model.provider || (name.startsWith('hf.co/') ? 'huggingface' : name.startsWith('gemini') ? 'gemini' : name.startsWith('gpt') || name.startsWith('o1') || name.startsWith('o3') ? 'openai' : name.startsWith('claude') ? 'claude' : name.startsWith('deepseek') ? 'deepseek' : 'ollama');
       const isHf = name.startsWith('hf.co/') || provider === 'huggingface';
       const isSelected = name === activeModel;
@@ -322,6 +358,7 @@
     if (isHidden) {
       hidePlusMenu();
       hideApprovalDropdown();
+      loadOfflineModels();
       modelDropdown.classList.remove('hidden');
       modelSelectorBtn.classList.add('open');
     } else {
