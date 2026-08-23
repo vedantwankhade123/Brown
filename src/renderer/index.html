@@ -211,6 +211,14 @@
             <div id="voice-mode-models-list" class="voice-mode-models-list"></div>
           </div>
         </div>
+        <div id="voice-mode-engine-toggle" class="voice-mode-engine-toggle" role="group" aria-label="Voice Engine Toggle">
+          <button type="button" id="btn-voice-engine-local" class="voice-engine-btn active" title="Local Offline Voice (Ollama + Kokoro TTS)">
+            <span class="engine-dot-icon">🎙️</span> Local Voice
+          </button>
+          <button type="button" id="btn-voice-engine-gemini" class="voice-engine-btn" title="Gemini Live (Native Audio Dialog, Vision & Translate)">
+            <span class="engine-dot-icon">⚡</span> Gemini Live
+          </button>
+        </div>
         <div id="voice-mode-bar" class="voice-mode-bar hidden">
           <button type="button" id="voice-mode-pause" class="voice-mode-bar-btn" title="Pause conversation">
             <svg class="voice-mode-icon-pause" viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
@@ -266,9 +274,10 @@
             </svg>
           </div>
           <div class="permission-title-area">
-            <h4 class="permission-title">Review Mode Authorization Required</h4>
+            <h4 class="permission-title">Action Authorization Required</h4>
             <p id="perm-reason-text" class="permission-subtitle">The agent requested execution of a local subsystem modification.</p>
           </div>
+          <span id="perm-risk-badge" class="perm-risk-badge hidden">Medium risk</span>
         </div>
         
         <div class="code-block-container">
@@ -286,6 +295,7 @@
           <button id="btn-perm-deny" class="btn-deny">Deny</button>
           <button id="btn-perm-accept" class="btn-accept">Allow once</button>
           <button id="btn-perm-accept-session" class="btn-accept btn-accept-session">Allow for session</button>
+          <button id="btn-perm-accept-always" class="btn-accept btn-accept-always">Always allow this category</button>
         </div>
       </div>
     </div>
@@ -584,6 +594,9 @@
           <button type="button" id="btn-canvas-download" class="canvas-btn" title="Download project file">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           </button>
+          <button type="button" id="btn-canvas-save-disk" class="canvas-btn" title="Save all workspace files to disk (Documents\Ultron Projects)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+          </button>
           <button type="button" id="btn-canvas-fullscreen" class="canvas-btn" title="Toggle Fullscreen Canvas">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
           </button>
@@ -665,6 +678,13 @@
       <div class="settings-panel-body-layout">
         <!-- Settings Sidebar (Left side of modal) -->
         <aside class="settings-sidebar">
+          <div class="settings-sidebar-header">
+            <h3 class="settings-sidebar-title">Settings</h3>
+            <div class="settings-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="settings-search-input" placeholder="Search" autocomplete="off" aria-label="Search settings" />
+            </div>
+          </div>
           <div class="settings-tab-btn active" data-tab="account">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
             Account
@@ -824,7 +844,7 @@
               </p>
               <!-- Initial Add Key Trigger Button -->
               <div id="gemini-key-trigger-container" style="margin-top: 10px;">
-                <button id="btn-toggle-gemini-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                <button id="btn-toggle-gemini-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
                   <svg id="gemini-key-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   <span id="gemini-key-btn-text">Add Key</span>
                 </button>
@@ -833,7 +853,7 @@
               <!-- Collapsible Input Field & Save Key Form (Hidden initially) -->
               <div id="gemini-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
                 <input type="password" id="input-gemini-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Gemini API Key (AIzaSy...)" />
-                <button id="btn-save-gemini-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+                <button id="btn-save-gemini-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
                 <button id="btn-cancel-gemini-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
               <div id="gemini-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ Gemini API key saved!</div>
@@ -857,14 +877,14 @@
                 Enable OpenAI models (<b>GPT-4o</b>, <b>GPT-4o Mini</b>, <b>o3-mini</b>, and <b>o1</b>). Get an API key at <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #60a5fa; text-decoration: underline;">platform.openai.com</a>.
               </p>
               <div id="openai-key-trigger-container" style="margin-top: 10px;">
-                <button id="btn-toggle-openai-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                <button id="btn-toggle-openai-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   <span id="openai-key-btn-text">Add Key</span>
                 </button>
               </div>
               <div id="openai-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
                 <input type="password" id="input-openai-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste OpenAI API Key (sk-proj-...)" />
-                <button id="btn-save-openai-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+                <button id="btn-save-openai-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
                 <button id="btn-cancel-openai-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
               <div id="openai-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ OpenAI connected!</div>
@@ -888,14 +908,14 @@
                 Enable Anthropic Claude models (<b>Claude 3.7 Sonnet</b>, <b>Claude 3.5 Sonnet</b>, and <b>Claude 3.5 Haiku</b>). Get an API key at <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color: #60a5fa; text-decoration: underline;">console.anthropic.com</a>.
               </p>
               <div id="anthropic-key-trigger-container" style="margin-top: 10px;">
-                <button id="btn-toggle-anthropic-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                <button id="btn-toggle-anthropic-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   <span id="anthropic-key-btn-text">Add Key</span>
                 </button>
               </div>
               <div id="anthropic-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
                 <input type="password" id="input-anthropic-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Anthropic API Key (sk-ant-...)" />
-                <button id="btn-save-anthropic-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+                <button id="btn-save-anthropic-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
                 <button id="btn-cancel-anthropic-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
               <div id="anthropic-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ Anthropic Claude connected!</div>
@@ -919,14 +939,14 @@
                 Enable DeepSeek frontier models (<b>DeepSeek-R1</b> for reasoning and <b>DeepSeek-V3</b>). Get an API key at <a href="https://platform.deepseek.com/api_keys" target="_blank" style="color: #60a5fa; text-decoration: underline;">platform.deepseek.com</a>.
               </p>
               <div id="deepseek-key-trigger-container" style="margin-top: 10px;">
-                <button id="btn-toggle-deepseek-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                <button id="btn-toggle-deepseek-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   <span id="deepseek-key-btn-text">Add Key</span>
                 </button>
               </div>
               <div id="deepseek-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
                 <input type="password" id="input-deepseek-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste DeepSeek API Key (sk-...)" />
-                <button id="btn-save-deepseek-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+                <button id="btn-save-deepseek-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
                 <button id="btn-cancel-deepseek-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
               <div id="deepseek-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ DeepSeek connected!</div>
@@ -950,14 +970,14 @@
                 Enable ultra-fast LPU inference (<b>Llama 3.3 70B</b>, <b>DeepSeek-R1 Distill 70B</b> at 300+ tok/s). Get a free API key at <a href="https://console.groq.com/keys" target="_blank" style="color: #60a5fa; text-decoration: underline;">console.groq.com</a>.
               </p>
               <div id="groq-key-trigger-container" style="margin-top: 10px;">
-                <button id="btn-toggle-groq-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                <button id="btn-toggle-groq-key-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   <span id="groq-key-btn-text">Add Key</span>
                 </button>
               </div>
               <div id="groq-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
                 <input type="password" id="input-groq-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Groq API Key (gsk_...)" />
-                <button id="btn-save-groq-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
+                <button id="btn-save-groq-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
                 <button id="btn-cancel-groq-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
               <div id="groq-key-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ Groq Cloud connected!</div>
@@ -991,7 +1011,7 @@
                 Connect to any custom local LLM server or proxy (<b>LM Studio</b>, <b>vLLM</b>, <b>text-generation-webui</b>, or <b>OpenRouter</b>).
               </p>
               <div id="custom-endpoint-trigger-container" style="margin-top: 10px;">
-                <button id="btn-toggle-custom-endpoint-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                <button id="btn-toggle-custom-endpoint-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   <span id="custom-endpoint-btn-text">Configure Endpoint</span>
                 </button>
@@ -1002,7 +1022,7 @@
                 </div>
                 <div style="display: flex; gap: 8px; align-items: center;">
                   <input type="password" id="input-custom-endpoint-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Optional API Key (for OpenRouter, vLLM, etc.)" />
-                  <button id="btn-save-custom-endpoint" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Endpoint</button>
+                  <button id="btn-save-custom-endpoint" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Endpoint</button>
                   <button id="btn-cancel-custom-endpoint" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
                 </div>
               </div>
@@ -1412,9 +1432,18 @@
               Index local folders, project notes, PDFs, and code files into a local semantic vector database. Ultron retrieves relevant excerpts automatically during chat and agent workflows with zero cloud data transmission.
             </p>
 
+            <!-- Auto-learn toggle: zero-setup mode for non-technical users -->
+            <div style="display: flex; align-items: flex-start; gap: 12px; background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;">
+              <input type="checkbox" id="rag-auto-toggle" checked style="margin-top: 2px; accent-color: #3b82f6; width: 15px; height: 15px; cursor: pointer; flex-shrink: 0;" />
+              <div>
+                <div style="font-size: 13px; font-weight: 600; color: #ffffff;">Auto-learn from your activity</div>
+                <div style="font-size: 11.5px; color: #a1a1aa; margin-top: 3px; line-height: 1.5;">Ultron quietly indexes projects you open and files it works on, then recalls relevant notes automatically during chat. Everything stays on this PC. Turn off anytime.</div>
+              </div>
+            </div>
+
             <!-- Actions Bar -->
             <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px;">
-              <button id="btn-rag-add-folder" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; background: #ffffff !important; color: #000000 !important; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+              <button id="btn-rag-add-folder" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; background: #6366f1 !important; color: #ffffff !important; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
                 <span>Add Folder</span>
               </button>
@@ -1457,7 +1486,7 @@
               <h5 style="margin: 0 0 10px 0;">Indexed Folders &amp; Documents</h5>
               <div id="rag-sources-list" style="display: flex; flex-direction: column; gap: 8px;">
                 <div style="padding: 16px; text-align: center; color: #6b7280; font-size: 13px; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px dashed var(--border-color);">
-                  No folders or documents added yet. Click "Add Folder" to index local notes or code repositories.
+                  No folders or documents added yet. With Auto-learn on, projects you open and files Ultron works on appear here automatically — or click "Add Folder" to add any folder.
                 </div>
               </div>
             </div>
@@ -1489,7 +1518,7 @@
               </div>
             </div>
             <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.5;">
-              Pair your iPhone or Android device running the <b>Ultron Mobile</b> app with this PC over your local home/office Wi-Fi. Query desktop models, sync chats, and share API configurations privately.
+              Pair your Android device running the <b>Ultron Mobile</b> app with this PC over your local home/office Wi-Fi. Query desktop models, sync chats, and share API configurations privately.
             </p>
 
             <!-- Sync Info Card -->
@@ -1514,9 +1543,6 @@
                       <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; color: #94a3b8;">
                         <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 13px; height: 13px; object-fit: contain;" /> Android
                       </span>
-                      <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; color: #94a3b8;">
-                        <img src="../../Assets/Brand-Assets/white-apple.png" alt="Apple iOS" style="width: 13px; height: 13px; object-fit: contain;" /> Apple iOS
-                      </span>
                     </div>
                   </div>
                 </div>
@@ -1526,7 +1552,7 @@
                       <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
                     </svg>
                   </button>
-                  <button id="btn-generate-pair-code" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; background: #ffffff !important; color: #000000 !important; font-weight: 600;">
+                  <button id="btn-generate-pair-code" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; background: #6366f1 !important; color: #ffffff !important; font-weight: 600;">
                     Generate Pair Code
                   </button>
                 </div>
@@ -1854,8 +1880,8 @@
               <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Agent Storage &amp; Memory</label>
               <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
                 <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. %LOCALAPPDATA%\UltronData\data">
-                <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
-                <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
+                <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
+                <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
               </div>
               <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
                 Conversations, agent memory, and session data. Defaults to <code style="font-size:11px;">%LOCALAPPDATA%\UltronData\data</code>.
@@ -1866,8 +1892,8 @@
               <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Connectors &amp; Downloads</label>
               <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
                 <input type="text" id="setting-connectors-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. D:\Ultron\connectors">
-                <button id="btn-browse-connectors" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
-                <button id="btn-reset-connectors" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #ffffff !important; color: #000000 !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
+                <button id="btn-browse-connectors" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
+                <button id="btn-reset-connectors" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
               </div>
               <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
                 Desktop automation connectors (UI Automation, MCP servers). Defaults to <code style="font-size:11px;">{Ultron-local or Ultron-AI}\connectors</code>.
@@ -2000,6 +2026,7 @@
                 </div>
                 <label id="btn-mark-all-apps-label" class="apps-mark-all-label">
                   <input type="checkbox" id="chk-mark-all-apps" />
+                  <span class="mark-all-dot" aria-hidden="true"></span>
                   <span>Mark All</span>
                 </label>
                 <div class="apps-view-toggle" role="group" aria-label="Apps view mode">
@@ -2069,7 +2096,7 @@
                   Powered by local Ollama neural models with seamless fallback to Google Gemini cloud intelligence when requested, Ultron delivers fast, autonomous capabilities while keeping you in complete control.
                 </p>
 
-                <div class="about-specs-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 16px;">
+                <div class="about-specs-grid" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 16px;">
                   <div class="about-spec-item" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 8px; padding: 12px;">
                     <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Version</div>
                     <div style="font-size: 14px; color: #f3f4f6; font-weight: 600; margin-top: 4px;">v1.0.13 Release</div>
@@ -2078,19 +2105,15 @@
                     <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Platform</div>
                     <div style="font-size: 14px; color: #f3f4f6; font-weight: 600; margin-top: 4px;">Windows (x64)</div>
                   </div>
-                  <div class="about-spec-item" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 8px; padding: 12px;">
-                    <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Privacy Model</div>
-                    <div style="font-size: 14px; color: #10b981; font-weight: 600; margin-top: 4px;">100% Local Sandbox</div>
-                  </div>
                 </div>
 
-                <div class="developer-links-container" style="margin-top: 18px; display: flex; gap: 12px; flex-wrap: wrap;">
-                  <a href="https://github.com/vedantwankhade123/Ultron" target="_blank" class="developer-social-link" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #f3f4f6; text-decoration: none; font-size: 13px; transition: background 0.15s;">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-                    <span>GitHub Repository</span>
+                <div class="developer-links-container" style="margin-top: 24px; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+                  <a href="https://ultron.dev/download?platform=android" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 26px; background: #ffffff; border: none; border-radius: 9999px; color: #0a0a0a; text-decoration: none; font-size: 13px; font-weight: 700; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s;">
+                    <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 16px; height: 16px; object-fit: contain;" />
+                    <span>Download For Android</span>
                   </a>
-                  <a href="https://github.com/vedantwankhade123/Ultron/releases" target="_blank" class="developer-social-link" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 8px; color: #f3f4f6; text-decoration: none; font-size: 13px; transition: background 0.15s;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  <a href="https://github.com/vedantwankhade123/Ultron/releases" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #a1a1aa; text-decoration: none; font-size: 12px; transition: color 0.15s;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                     <span>Releases &amp; Changelog</span>
                   </a>
                 </div>
@@ -2109,8 +2132,14 @@
   <aside id="analytics-sidebar" class="analytics-sidebar collapsed">
     <!-- Top header for analytics sidebar -->
     <div class="analytics-header">
-      <span class="header-title">System Metrics</span>
-      <button id="btn-toggle-right-sidebar-close" class="btn-toggle-right-sidebar" title="Collapse metrics panel">
+      <div class="sidebar-top-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <line x1="15" y1="3" x2="15" y2="21"></line>
+        </svg>
+        <span>Session</span>
+      </div>
+      <button id="btn-toggle-right-sidebar-close" class="btn-toggle-right-sidebar" title="Collapse panel">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
           <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
           <line x1="15" y1="3" x2="15" y2="21"></line>
@@ -2118,129 +2147,13 @@
       </button>
     </div>
     
-    <div class="analytics-sidebar-body">
-    <!-- Hardware Interface Card (Collapsible) -->
-    <div id="section-hardware" class="right-section collapsible">
-      <div class="section-header-clickable">
-        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
-          <rect x="9" y="9" width="6" height="6"></rect>
-          <line x1="9" y1="1" x2="9" y2="4"></line>
-          <line x1="15" y1="1" x2="15" y2="4"></line>
-          <line x1="9" y1="20" x2="9" y2="23"></line>
-          <line x1="15" y1="20" x2="15" y2="23"></line>
-          <line x1="20" y1="9" x2="23" y2="9"></line>
-          <line x1="20" y1="15" x2="23" y2="15"></line>
-          <line x1="1" y1="9" x2="4" y2="9"></line>
-          <line x1="1" y1="15" x2="4" y2="15"></line>
-        </svg>
-        <span class="section-title">Engine</span>
-        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
+    <!-- Session pane: tasks, files changed, artifacts and uploads of the active chat -->
+    <div id="sidebar-session-pane" class="sidebar-session-pane">
+      <div id="session-panel-empty" class="session-panel-empty">
+        No session activity yet.<br>Files Ultron creates, opens or reads — and the task plan — will appear here.
       </div>
-      <div class="section-body">
-        <div class="hardware-card">
-          <div class="card-body">
-            <div class="info-row">
-              <span class="info-label">Active Profile:</span>
-              <span id="stat-recommendation" class="info-value value-mono">Detecting...</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">System Memory:</span>
-              <span id="stat-ram" class="info-value value-mono">-- GB</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Memory In Use:</span>
-              <span id="stat-ram-live" class="info-value value-mono">-- %</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">CPU Load:</span>
-              <span id="stat-cpu-live" class="info-value value-mono">-- %</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Core Threads:</span>
-              <span id="stat-cpu" class="info-value value-mono">-- Cores</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">GPU Adapter:</span>
-              <span id="stat-gpu" class="info-value value-mono value-truncate">--</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <div id="session-panel-content" class="session-panel-content"></div>
     </div>
-
-    <!-- Security Mode Picker (Collapsible) -->
-    <div id="section-security" class="right-section collapsible">
-      <div class="section-header-clickable">
-        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
-        </svg>
-        <span class="section-title">Security</span>
-        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
-      </div>
-      <div class="section-body">
-        <select id="select-security-mode" class="security-dropdown">
-          <option value="Review">Prompt Every Action</option>
-          <option value="Adaptive">Smart Auto-Approval</option>
-          <option value="Trusted">Full Autonomous Mode</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- Task List Tracker (Collapsible) -->
-    <div id="section-checklist" class="right-section collapsible">
-      <div class="section-header-clickable">
-        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="9 11 12 14 22 4"></polyline>
-          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
-        </svg>
-        <span class="section-title">Tasks</span>
-        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
-      </div>
-      <div class="section-body">
-        <div id="task-checklist-container" class="checklist-container">
-          <!-- populated dynamically -->
-        </div>
-      </div>
-    </div>
-
-    <!-- Real-Time Trace Log (Collapsible) -->
-    <div id="section-trace" class="right-section collapsible">
-      <div class="section-header-clickable">
-        <svg class="section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="8" y1="6" x2="21" y2="6"></line>
-          <line x1="8" y1="12" x2="21" y2="12"></line>
-          <line x1="8" y1="18" x2="21" y2="18"></line>
-          <line x1="3" y1="6" x2="3.01" y2="6"></line>
-          <line x1="3" y1="12" x2="3.01" y2="12"></line>
-          <line x1="3" y1="18" x2="3.01" y2="18"></line>
-        </svg>
-        <span class="section-title">Logs</span>
-        <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
-      </div>
-      <div class="section-body">
-        <div class="trace-filter-row" style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap;">
-          <button type="button" class="trace-filter-btn active" data-trace-filter="all">All</button>
-          <button type="button" class="trace-filter-btn" data-trace-filter="system">System</button>
-          <button type="button" class="trace-filter-btn" data-trace-filter="local">Agent</button>
-          <button type="button" class="trace-filter-btn" data-trace-filter="permission">Permission</button>
-          <button type="button" class="trace-filter-btn" data-trace-filter="error">Error</button>
-        </div>
-        <div id="trace-logs-stream" class="trace-container">
-          <!-- populated dynamically -->
-        </div>
-      </div>
-    </div>
-    
-    </div><!-- /.analytics-sidebar-body -->
   </aside>
 
   <!-- Natural Language Spotlight Command Search Overlay -->
@@ -2358,93 +2271,99 @@
           </div>
 
           <div id="onboard-step-4" class="onboard-step hidden">
-            <div class="onboard-quick-layout">
-              <div class="onboard-quick-list" role="list">
-                <div class="onboard-quick-item is-active" role="listitem">
-                  <div class="onboard-quick-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            <div class="onboard-requirements-container">
+              <p class="onboard-requirements-desc">Configure core AI components for your PC. Download them now for full offline capabilities, or skip and set up anytime in Settings.</p>
+              
+              <div class="onboard-components-grid">
+                <!-- Card 1: Ollama Local LLM -->
+                <div class="onboard-comp-card" id="onboard-card-ollama">
+                  <div class="onboard-comp-header">
+                    <div class="onboard-comp-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                    </div>
+                    <div class="onboard-comp-titles">
+                      <h4 class="onboard-comp-name">Local AI Engine (Ollama)</h4>
+                      <span class="onboard-comp-sub">Offline neural language models &amp; agent reasoning</span>
+                    </div>
+                    <span id="onboard-badge-ollama" class="onboard-comp-badge checking">Checking...</span>
                   </div>
-                  <div class="onboard-quick-copy">
-                    <span class="onboard-quick-title">Local models</span>
-                    <span class="onboard-quick-desc">Run AI offline with Ollama</span>
+                  <div class="onboard-comp-body">
+                    <p id="onboard-desc-ollama" class="onboard-comp-status-text">Verifying local Ollama service...</p>
+                    <div id="onboard-progress-ollama" class="onboard-comp-progress-wrap hidden">
+                      <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
+                      <span class="onboard-comp-progress-lbl">Downloading...</span>
+                    </div>
+                  </div>
+                  <div class="onboard-comp-actions">
+                    <button type="button" id="btn-onboard-action-ollama" class="btn-onboard-comp-action">Install Ollama</button>
                   </div>
                 </div>
-                <div class="onboard-quick-item" role="listitem">
-                  <div class="onboard-quick-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7L12 16.8 5.7 21.1 8 13.6 2 9.4h7.6z"></path></svg>
+
+                <!-- Card 2: Windows UI Automation -->
+                <div class="onboard-comp-card" id="onboard-card-uia">
+                  <div class="onboard-comp-header">
+                    <div class="onboard-comp-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                    </div>
+                    <div class="onboard-comp-titles">
+                      <h4 class="onboard-comp-name">Windows UI Automation MCP</h4>
+                      <span class="onboard-comp-sub">Native Windows accessibility tree &amp; desktop control</span>
+                    </div>
+                    <span id="onboard-badge-uia" class="onboard-comp-badge checking">Checking...</span>
                   </div>
-                  <div class="onboard-quick-copy">
-                    <span class="onboard-quick-title">Cloud models</span>
-                    <span class="onboard-quick-desc">Connect Gemini in Settings later</span>
+                  <div class="onboard-comp-body">
+                    <p id="onboard-desc-uia" class="onboard-comp-status-text">Checking Windows automation server...</p>
+                    <div id="onboard-progress-uia" class="onboard-comp-progress-wrap hidden">
+                      <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
+                      <span class="onboard-comp-progress-lbl">Downloading...</span>
+                    </div>
+                  </div>
+                  <div class="onboard-comp-actions">
+                    <button type="button" id="btn-onboard-action-uia" class="btn-onboard-comp-action">Setup Automation</button>
                   </div>
                 </div>
-                <div class="onboard-quick-item" role="listitem">
-                  <div class="onboard-quick-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+
+                <!-- Card 3: Kokoro Neural Voices -->
+                <div class="onboard-comp-card" id="onboard-card-kokoro">
+                  <div class="onboard-comp-header">
+                    <div class="onboard-comp-icon">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path></svg>
+                    </div>
+                    <div class="onboard-comp-titles">
+                      <h4 class="onboard-comp-name">Kokoro Neural Voice Engine</h4>
+                      <span class="onboard-comp-sub">Offline TTS · Includes Heart (Female) &amp; Michael (Male)</span>
+                    </div>
+                    <span id="onboard-badge-kokoro" class="onboard-comp-badge checking">Checking...</span>
                   </div>
-                  <div class="onboard-quick-copy">
-                    <span class="onboard-quick-title">Private by default</span>
-                    <span class="onboard-quick-desc">Your data stays on this PC</span>
+                  <div class="onboard-comp-body">
+                    <p id="onboard-desc-kokoro" class="onboard-comp-status-text">Checking offline voice synthesizer...</p>
+                    <div id="onboard-progress-kokoro" class="onboard-comp-progress-wrap hidden">
+                      <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
+                      <span class="onboard-comp-progress-lbl">Downloading...</span>
+                    </div>
+                  </div>
+                  <div class="onboard-comp-actions">
+                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action">Download Voices</button>
                   </div>
                 </div>
               </div>
 
-              <div class="onboard-quick-preview">
-                <div class="onboard-preview-panel">
-                  <div class="ollama-status-card" id="ollama-status-card">
-                    <div class="ollama-status-icon-wrapper" id="ollama-status-icon-wrapper">
-                      <div id="ollama-status-spinner" class="onboard-spinner"></div>
-                    </div>
-                    <div class="ollama-status-info">
-                      <h4 id="ollama-status-title" class="ollama-status-h4">Checking Ollama...</h4>
-                      <p id="ollama-status-desc" class="ollama-status-p">Verifying your local AI engine before finishing setup.</p>
-                    </div>
-                  </div>
-
-                  <div id="ollama-ready-details" class="ollama-ready-details hidden">
-                    <div class="ollama-feature-list">
-                      <div class="ollama-feature-item">
-                        <span class="ollama-feature-dot"></span>
-                        <span class="ollama-feature-text"><strong>100% Offline &amp; Private:</strong> Zero data sent to cloud servers</span>
-                      </div>
-                      <div class="ollama-feature-item">
-                        <span class="ollama-feature-dot"></span>
-                        <span class="ollama-feature-text"><strong>High Performance:</strong> Local GPU/CPU neural inference</span>
-                      </div>
-                      <div class="ollama-feature-item">
-                        <span class="ollama-feature-dot"></span>
-                        <span class="ollama-feature-text"><strong>Model Support:</strong> Llama 3, DeepSeek, Qwen &amp; Custom GGUFs</span>
-                      </div>
-                    </div>
-                    <div class="ollama-status-footer-badge">
-                      <span class="ollama-badge-pill">Localhost:11434</span>
-                      <span class="ollama-badge-pill">Ultron Core Active</span>
-                    </div>
-                  </div>
-
-                  <div id="ollama-not-installed-box" class="onboard-preview-action hidden">
-                    <button id="btn-onboard-install-ollama" type="button" class="btn-onboard-secondary btn-onboard-full">
-                      Install Ollama
-                    </button>
-                    <div id="ollama-install-progress-row" class="ollama-install-progress-row hidden">
-                      <div class="onboard-spinner"></div>
-                      <span id="ollama-install-status-label">Downloading and installing Ollama...</span>
-                    </div>
-                  </div>
-
-                  <div id="ollama-not-running-box" class="onboard-preview-action hidden">
-                    <button id="btn-onboard-retry-ollama" type="button" class="btn-onboard-secondary btn-onboard-full">
-                      Retry connection
-                    </button>
-                  </div>
-                </div>
+              <!-- Overall batch action bar -->
+              <div class="onboard-req-batch-bar">
+                <button type="button" id="btn-onboard-download-all" class="btn-onboard-primary btn-onboard-batch">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  Download &amp; Setup All Requirements
+                </button>
+                <button type="button" id="btn-onboard-skip-later" class="btn-onboard-skip hidden">
+                  Skip &amp; Setup Later
+                </button>
               </div>
             </div>
           </div>
 
           <div id="onboard-step-5" class="onboard-step onboard-ready-step hidden">
             <h2 class="onboard-ready-title">Ultron is ready</h2>
-            <p class="onboard-ready-subtitle">Your profile is set and your local AI engine is online.</p>
+            <p class="onboard-ready-subtitle">Your profile is configured and your workspace is online.</p>
             <div class="onboard-ready-pills">
               <span class="onboard-ready-pill">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
@@ -2452,11 +2371,11 @@
               </span>
               <span class="onboard-ready-pill">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                Ollama connected
+                Local Engine
               </span>
               <span class="onboard-ready-pill">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                Agent online
+                Agent Online
               </span>
             </div>
             <p class="onboard-ready-redirect">Opening your agent workspace...</p>
@@ -2582,6 +2501,7 @@
   <script src="../agent/agent-research.js"></script>
   <script src="../agent/agent-mcp-tools.js"></script>
   <script src="../agent/agent-memory.js"></script>
+  <script src="../agent/agent-planner.js"></script>
   <script src="../agent/agent-executor.js"></script>
   <script src="../agent/agent-prompt.js"></script>
   <script src="../agent/multi-provider-hub.js"></script>

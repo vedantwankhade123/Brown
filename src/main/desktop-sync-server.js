@@ -377,7 +377,7 @@ async function handleRequest(req, res) {
     const token = generateToken();
     const rawTokens = loadConfig().mobilePairTokens || [];
     const clientDevName = (body.deviceName || (pendingPair && pendingPair.deviceName) || 'Ultron Mobile').trim();
-    const clientPlatform = body.platform || (pendingPair && pendingPair.platform) || (/iphone|ipad|ios|apple|mac/i.test(clientDevName) ? 'ios' : 'android');
+    const clientPlatform = body.platform || (pendingPair && pendingPair.platform) || 'android';
 
     // Revoke any previous active tokens for the same device to prevent duplicates
     const updatedTokens = rawTokens.map(t => {
@@ -640,7 +640,7 @@ function getSyncInfo() {
     id: t.id || t.token?.slice(0, 8),
     tokenPrefix: t.token?.slice(0, 8) || '',
     deviceName: t.deviceName || 'Ultron Mobile',
-    platform: t.platform || (/iphone|ipad|ios|apple|mac/i.test(t.deviceName || '') ? 'ios' : 'android'),
+    platform: t.platform || 'android',
     createdAt: t.createdAt || Date.now(),
   }));
 
@@ -662,7 +662,7 @@ function getSyncInfo() {
     id: t.id || t.token?.slice(0, 8),
     tokenPrefix: t.token?.slice(0, 8) || '',
     deviceName: t.deviceName || 'Ultron Mobile',
-    platform: t.platform || (/iphone|ipad|ios|apple|mac/i.test(t.deviceName || '') ? 'ios' : 'android'),
+    platform: t.platform || 'android',
     lastConnectedAt: t.revokedAt || t.createdAt || Date.now(),
   }));
 

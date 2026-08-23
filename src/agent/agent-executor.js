@@ -61,13 +61,17 @@
     const summary = policy.buildPermissionSummary
       ? policy.buildPermissionSummary(toolCall)
       : `${toolCall.type} ${toolCall.action || toolCall.target || ''}`;
+    const risk = policy.classifyRisk ? policy.classifyRisk(toolCall) : { level: 'medium', reason: 'Agent action', category: 'other' };
 
     return new Promise((resolve) => {
       const dialog = document.getElementById('permission-dialog');
       const permActionCode = document.getElementById('perm-action-code');
       const permOverrideInput = document.getElementById('perm-override-input');
+      const permReasonText = document.getElementById('perm-reason-text');
+      const permRiskBadge = document.getElementById('perm-risk-badge');
       const btnAccept = document.getElementById('btn-perm-accept');
       const btnAcceptSession = document.getElementById('btn-perm-accept-session');
+      const btnAcceptAlways = document.getElementById('btn-perm-accept-always');
       const btnDeny = document.getElementById('btn-perm-deny');
 
       if (!dialog || !btnAccept || !btnDeny) {
@@ -77,39 +81,54 @@
 
       if (permActionCode) permActionCode.textContent = summary;
       if (permOverrideInput) permOverrideInput.value = '';
+      if (permReasonText) permReasonText.textContent = risk.reason || 'The agent wants to perform this action.';
+      if (permRiskBadge) {
+        permRiskBadge.textContent = `${risk.level === 'high' ? 'High' : risk.level === 'medium' ? 'Medium' : 'Low'} risk`;
+        permRiskBadge.className = `perm-risk-badge perm-risk-${risk.level}`;
+      }
       dialog.classList.remove('hidden');
 
       if (typeof playUltronSound === 'function') playUltronSound('permission');
-      if (typeof logTrace === 'function') logTrace(`Agent permission: ${summary.substring(0, 80)}`, 'permission');
+      if (typeof logTrace === 'function') logTrace(`Agent permission [${risk.level}/${risk.category}]: ${summary.substring(0, 80)}`, 'permission');
       if (typeof ensureRightSidebarVisible === 'function') ensureRightSidebarVisible();
       if (typeof expandRightSidebarSection === 'function') expandRightSidebarSection('section-security');
 
       const cleanup = () => {
         btnAccept.removeEventListener('click', onAcceptOnce);
         if (btnAcceptSession) btnAcceptSession.removeEventListener('click', onAcceptSession);
+        if (btnAcceptAlways) btnAcceptAlways.removeEventListener('click', onAcceptAlways);
         btnDeny.removeEventListener('click', onDeny);
       };
+
+      const overrideValue = () => (permOverrideInput ? permOverrideInput.value.trim() : '');
 
       const onAcceptOnce = () => {
         cleanup();
         dialog.classList.add('hidden');
-        resolve({ approved: true, scope: 'once', modifiedCommand: permOverrideInput ? permOverrideInput.value.trim() : '' });
+        resolve({ approved: true, scope: 'once', modifiedCommand: overrideValue() });
       };
 
       const onAcceptSession = () => {
         cleanup();
         dialog.classList.add('hidden');
-        resolve({ approved: true, scope: 'session', modifiedCommand: permOverrideInput ? permOverrideInput.value.trim() : '' });
+        resolve({ approved: true, scope: 'session', modifiedCommand: overrideValue() });
+      };
+
+      const onAcceptAlways = () => {
+        cleanup();
+        dialog.classList.add('hidden');
+        resolve({ approved: true, scope: 'always', category: risk.category, modifiedCommand: overrideValue() });
       };
 
       const onDeny = () => {
         cleanup();
         dialog.classList.add('hidden');
-        resolve({ approved: false, scope: 'deny' });
+        resolve({ approved: false, scope: 'deny', category: risk.category });
       };
 
       btnAccept.addEventListener('click', onAcceptOnce);
       if (btnAcceptSession) btnAcceptSession.addEventListener('click', onAcceptSession);
+      if (btnAcceptAlways) btnAcceptAlways.addEventListener('click', onAcceptAlways);
       btnDeny.addEventListener('click', onDeny);
     });
   }
@@ -231,6 +250,22 @@
 
     if (perm === true) {
       const sessionPerms = window.UltronSessionPermissions;
+      const memory = window.UltronAgentMemory;
+      const riskCategory = policy.getRiskCategory ? policy.getRiskCategory(toolCall) : '';
+
+      // Persisted decisions: remembered denials win, then always-allow.
+      // Blacklisted commands always confirm, even with an old always-allow.
+      const riskInfo = policy.classifyRisk ? policy.classifyRisk(toolCall) : null;
+      if (memory && riskCategory && memory.hasAlwaysDeny(riskCategory)) {
+        return getSchema().normalizeToolResult({
+          success: false,
+          message: `This action category (${riskCategory}) was denied previously under "Always". Update it in Settings → Security to retry.`,
+          errorCode: 'PERMISSION_DENIED'
+        });
+      }
+      if (memory && riskCategory && !((riskInfo && riskInfo.blacklisted) || false) && memory.hasAlwaysAllow(riskCategory)) {
+        return null;
+      }
       if (sessionPerms && sessionPerms.hasSessionGrant(toolCall)) {
         return null;
       }
@@ -238,6 +273,13 @@
       const decision = await promptAgentPermission(toolCall);
       if (decision.approved && decision.scope === 'session' && sessionPerms) {
         sessionPerms.grantSession(toolCall);
+      }
+      if (decision.approved && decision.scope === 'always' && memory && decision.category) {
+        memory.savePermissionDecision(decision.category, 'always-allow');
+        if (sessionPerms) sessionPerms.grantSession(toolCall);
+      }
+      if (!decision.approved && decision.scope === 'deny' && memory && decision.category) {
+        // A plain deny does not persist — only the dedicated "Always" memory does.
       }
       if (window.UltronAgentAudit && typeof window.UltronAgentAudit.appendAudit === 'function') {
         window.UltronAgentAudit.appendAudit({

@@ -1,11 +1,17 @@
 const path = require('path');
 const fs = require('fs');
-const { Worker } = require('worker_threads');
 const {
   getKokoroDevicePreference,
   forceKokoroDevice,
   primeOnnxRuntimeNode
 } = require('./voice-kokoro-device');
+
+// SAFETY: the native onnxruntime-node binding may only be loaded in ONE JS
+// environment per process. Kokoro previously ran in a worker_threads Worker,
+// but having native ORT alive in both the main thread and the worker crashes
+// V8 with "FATAL ERROR: Cannot create a handle without a HandleScope".
+// Kokoro therefore runs on the MAIN thread (like Whisper STT); ORT does its
+// math on its own native thread pool, so this does not block the UI.
 
 const KOKORO_MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 const KOKORO_ENGINE_KEY = 'kokoro-engine';
@@ -14,89 +20,9 @@ const KOKORO_MARKER = '.kokoro-installed';
 const KOKORO_MIN_MODEL_BYTES = 75 * 1024 * 1024;
 
 let kokoroPromise = null;
+let kokoroLoadedDevice = null;
 let kokoroDownloadState = { inProgress: false, cancelled: false };
 let transformersEnvConfigured = false;
-let kokoroWorker = null;
-let kokoroWorkerJobId = 0;
-const kokoroWorkerJobs = new Map();
-let kokoroWorkerChain = Promise.resolve();
-
-function rejectAllWorkerJobs(err) {
-  for (const [, job] of kokoroWorkerJobs) {
-    clearTimeout(job.timer);
-    job.reject(err);
-  }
-  kokoroWorkerJobs.clear();
-}
-
-function terminateKokoroWorker(reason) {
-  if (!kokoroWorker) return;
-  const worker = kokoroWorker;
-  kokoroWorker = null;
-  rejectAllWorkerJobs(new Error(reason || 'Kokoro worker terminated.'));
-  try {
-    worker.terminate();
-  } catch (e) {
-    /* ignore */
-  }
-}
-
-function getKokoroWorker() {
-  if (!kokoroWorker) {
-    kokoroWorker = new Worker(path.join(__dirname, 'voice-kokoro-worker.js'));
-    kokoroWorker.on('message', (msg) => {
-      const job = kokoroWorkerJobs.get(msg.id);
-      if (!job) return;
-      kokoroWorkerJobs.delete(msg.id);
-      clearTimeout(job.timer);
-      if (msg.success) job.resolve(msg.result || msg);
-      else job.reject(new Error(msg.error || 'Kokoro worker failed.'));
-    });
-    kokoroWorker.on('error', (err) => {
-      console.error('[voice-kokoro] worker error:', err);
-      kokoroWorker = null;
-      rejectAllWorkerJobs(err);
-    });
-    kokoroWorker.on('exit', (code) => {
-      if (kokoroWorker) {
-        console.warn('[voice-kokoro] worker exited unexpectedly:', code);
-        kokoroWorker = null;
-        rejectAllWorkerJobs(new Error(`Kokoro worker exited with code ${code}.`));
-      }
-    });
-  }
-  return kokoroWorker;
-}
-
-function runKokoroWorkerTask(type, payload = {}, timeoutMs = 180000) {
-  const execute = () => new Promise((resolve, reject) => {
-    const id = ++kokoroWorkerJobId;
-    const timer = setTimeout(() => {
-      if (!kokoroWorkerJobs.has(id)) return;
-      kokoroWorkerJobs.delete(id);
-      terminateKokoroWorker('Kokoro synthesis timed out.');
-      reject(new Error('Kokoro synthesis timed out.'));
-    }, timeoutMs);
-    kokoroWorkerJobs.set(id, { resolve, reject, timer });
-    try {
-      getKokoroWorker().postMessage({
-        id,
-        type,
-        cacheDir: getKokoroCacheDir(),
-        ...payload,
-        device: payload.device || getKokoroDevicePreference()
-      });
-    } catch (err) {
-      clearTimeout(timer);
-      kokoroWorkerJobs.delete(id);
-      reject(err);
-    }
-  });
-
-  const task = kokoroWorkerChain.then(execute, execute);
-  kokoroWorkerChain = task.catch(() => {});
-  return task;
-}
 
 function getKokoroCacheDir() {
   try {
@@ -119,7 +45,41 @@ function walkDir(dir, matcher, results = []) {
   return results;
 }
 
-function isValidOnnxModelFile(filePath, minBytes = KOKORO_MIN_MODEL_BYTES) {
+function getInstalledVoicesPath() {
+  return path.join(getKokoroCacheDir(), 'installed-voices.json');
+}
+
+function loadInstalledVoices() {
+  try {
+    const p = getInstalledVoicesPath();
+    if (fs.existsSync(p)) {
+      const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (Array.isArray(data)) return data;
+    }
+  } catch (e) { /* ignore */ }
+  return [];
+}
+
+function markVoiceInstalled(voiceId) {
+  try {
+    const voices = new Set(loadInstalledVoices());
+    voices.add(voiceId);
+    fs.mkdirSync(getKokoroCacheDir(), { recursive: true });
+    fs.writeFileSync(getInstalledVoicesPath(), JSON.stringify([...voices], null, 2), 'utf8');
+  } catch (e) { /* ignore */ }
+}
+
+function isKokoroVoiceInstalled(voiceId) {
+  if (!isKokoroEngineInstalled()) return false;
+  const installed = loadInstalledVoices();
+  // If base engine is installed and installed list is empty, default voices are available
+  if (installed.length === 0 && (voiceId === 'af_heart' || voiceId === 'am_michael')) {
+    return true;
+  }
+  return installed.includes(voiceId);
+}
+
+function isValidOnnxModelFile(filePath, minBytes = 10 * 1024 * 1024) {
   try {
     const stat = fs.statSync(filePath);
     return stat.isFile() && stat.size >= minBytes;
@@ -130,12 +90,16 @@ function isValidOnnxModelFile(filePath, minBytes = KOKORO_MIN_MODEL_BYTES) {
 
 function findKokoroModelOnnxPath() {
   const cacheDir = getKokoroCacheDir();
-  const preferred = walkDir(cacheDir, (fp) => /model_quantized\.onnx$/i.test(fp));
+  if (!fs.existsSync(cacheDir)) return null;
+
+  // 1. Direct onnx models in cache
+  const preferred = walkDir(cacheDir, (fp) => /model_quantized\.onnx$|model_q8\.onnx$|model\.onnx$/i.test(fp));
   const validPreferred = preferred.find((fp) => isValidOnnxModelFile(fp));
   if (validPreferred) return validPreferred;
 
-  const kokoroNamed = walkDir(cacheDir, (fp) => /\.onnx$/i.test(fp) && /kokoro/i.test(fp));
-  return kokoroNamed.find((fp) => isValidOnnxModelFile(fp)) || null;
+  // 2. Any onnx file >= 20MB in cache
+  const allOnnx = walkDir(cacheDir, (fp) => /\.onnx$/i.test(fp));
+  return allOnnx.find((fp) => isValidOnnxModelFile(fp, 20 * 1024 * 1024)) || null;
 }
 
 function getKokoroCacheBytes() {
@@ -174,29 +138,35 @@ function writeKokoroInstalledMarker() {
 
 function removeIncompleteKokoroCache() {
   kokoroPromise = null;
-  terminateKokoroWorker('Clearing incomplete Kokoro cache.');
+  kokoroLoadedDevice = null;
   const cacheDir = getKokoroCacheDir();
   try {
     if (fs.existsSync(cacheDir)) {
-      fs.rmSync(cacheDir, { recursive: true, force: true });
+      fs.rmSync(cacheDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
     }
     fs.mkdirSync(cacheDir, { recursive: true });
   } catch (err) {
-    console.warn('[voice-kokoro] could not reset cache dir:', err.message);
+    // Windows: a live ORT session can keep files locked. Prune whatever we
+    // can so the next attempt starts as clean as possible.
+    console.warn('[voice-kokoro] full cache reset failed, pruning files:', err.message);
+    for (const filePath of walkDir(cacheDir, () => true)) {
+      try { fs.unlinkSync(filePath); } catch (e) { /* still locked */ }
+    }
   }
 }
 
 function isKokoroEngineInstalled() {
-  if (kokoroDownloadState.inProgress) return false;
+  // Purely disk-based: a complete model on disk IS installed, even while a
+  // (re)download is in progress. The download UI uses isKokoroDownloading().
   return Boolean(findKokoroModelOnnxPath());
 }
 
-function pruneIncompleteKokoroCacheIfIdle() {
-  if (kokoroDownloadState.inProgress) return;
-  if (isKokoroEngineInstalled()) return;
-  if (getKokoroCacheBytes() > 0) {
-    removeIncompleteKokoroCache();
-  }
+/** True only when the full q8 ONNX model (>= ~75 MB) is present on disk. */
+function hasCompleteKokoroModel() {
+  const cacheDir = getKokoroCacheDir();
+  if (!fs.existsSync(cacheDir)) return false;
+  const preferred = walkDir(cacheDir, (fp) => /model_quantized\.onnx$|model_q8\.onnx$|model\.onnx$/i.test(fp));
+  return preferred.some((fp) => isValidOnnxModelFile(fp, KOKORO_MIN_MODEL_BYTES));
 }
 
 function isKokoroDownloading() {
@@ -204,39 +174,53 @@ function isKokoroDownloading() {
 }
 
 async function configureTransformersEnv() {
+  if (transformersEnvConfigured) return;
   const cacheDir = getKokoroCacheDir();
   fs.mkdirSync(cacheDir, { recursive: true });
   process.env.TRANSFORMERS_CACHE = cacheDir;
   process.env.HF_HOME = cacheDir;
 
   primeOnnxRuntimeNode();
-  const transformers = await import('@huggingface/transformers');
-  transformers.env.cacheDir = cacheDir;
-  transformers.env.useFSCache = true;
-  transformers.env.allowLocalModels = true;
   transformersEnvConfigured = true;
-  return transformers;
 }
 
-async function loadKokoroModule() {
-  await configureTransformersEnv();
-  return import('kokoro-js');
-}
+/**
+ * Load the Kokoro pipeline on the MAIN thread (single ORT environment).
+ * Reloads when the requested device changes; falls back from GPU to CPU once.
+ */
+function getKokoroTts(onProgress) {
+  const wanted = getKokoroDevicePreference();
+  if (kokoroPromise && kokoroLoadedDevice === wanted) return kokoroPromise;
 
-async function getKokoroTts(onProgress) {
-  if (!kokoroPromise) {
-    kokoroPromise = (async () => {
-      await configureTransformersEnv();
-      const device = getKokoroDevicePreference();
-      const { KokoroTTS } = await loadKokoroModule();
-      console.log(`[voice-kokoro] loading Kokoro with device=${device}`);
-      return KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
+  kokoroLoadedDevice = wanted;
+  kokoroPromise = (async () => {
+    await configureTransformersEnv();
+    const { KokoroTTS } = await import('kokoro-js');
+    console.log(`[voice-kokoro] loading Kokoro with device=${wanted}`);
+    try {
+      return await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
         dtype: 'q8',
-        device,
+        device: wanted,
         progress_callback: onProgress || null
       });
-    })();
-  }
+    } catch (err) {
+      if (wanted !== 'cpu') {
+        console.warn('[voice-kokoro] GPU load failed, falling back to CPU:', err.message);
+        forceKokoroDevice('cpu');
+        kokoroLoadedDevice = 'cpu';
+        return KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
+          dtype: 'q8',
+          device: 'cpu',
+          progress_callback: onProgress || null
+        });
+      }
+      throw err;
+    }
+  })().catch((err) => {
+    kokoroPromise = null;
+    kokoroLoadedDevice = null;
+    throw err;
+  });
   return kokoroPromise;
 }
 
@@ -317,12 +301,15 @@ async function downloadKokoroEngine(sendProgress) {
 
   emit({ phase: 'download', percent: 0, status: 'Preparing Kokoro neural engine…' });
   clearKokoroInstalledMarker();
-  if (!isKokoroEngineInstalled()) {
+  // Never destroy a complete download: only reset when the model is missing
+  // or partial.
+  if (!hasCompleteKokoroModel()) {
     removeIncompleteKokoroCache();
   }
 
   try {
     kokoroPromise = null;
+    kokoroLoadedDevice = null;
     await getKokoroTts((data) => {
       if (kokoroDownloadState.cancelled || !data) return;
       if (data.status === 'progress' && data.total) {
@@ -340,12 +327,12 @@ async function downloadKokoroEngine(sendProgress) {
     });
 
     if (kokoroDownloadState.cancelled) {
-      removeIncompleteKokoroCache();
+      if (!hasCompleteKokoroModel()) removeIncompleteKokoroCache();
       return { success: false, cancelled: true, error: 'Download cancelled.' };
     }
 
     const modelPath = findKokoroModelOnnxPath();
-    if (!modelPath) {
+    if (!modelPath || !isValidOnnxModelFile(modelPath, KOKORO_MIN_MODEL_BYTES)) {
       removeIncompleteKokoroCache();
       return {
         success: false,
@@ -353,22 +340,26 @@ async function downloadKokoroEngine(sendProgress) {
       };
     }
 
+    // The complete model is on disk — persist the install BEFORE any
+    // verification so a failed warmup can never delete a good download.
+    writeKokoroInstalledMarker();
+
     emit({ phase: 'download', percent: 96, status: 'Verifying Kokoro engine…' });
-    const warmup = await warmupKokoroEngine();
-    if (!warmup.success) {
-      removeIncompleteKokoroCache();
-      return {
-        success: false,
-        error: warmup.error || 'Kokoro engine verification failed. Please retry the download.'
-      };
+    try {
+      const warmup = await warmupKokoroEngine(60000);
+      if (!warmup.success) {
+        console.warn('[voice-kokoro] post-install warmup failed (non-fatal):', warmup.error);
+      }
+    } catch (warmupErr) {
+      console.warn('[voice-kokoro] post-install warmup errored (non-fatal):', warmupErr.message);
     }
 
-    writeKokoroInstalledMarker();
     emit({ phase: 'complete', percent: 100, status: 'Kokoro engine ready.' });
     return { success: true, installed: true };
   } catch (err) {
     kokoroPromise = null;
-    removeIncompleteKokoroCache();
+    kokoroLoadedDevice = null;
+    if (!hasCompleteKokoroModel()) removeIncompleteKokoroCache();
     if (kokoroDownloadState.cancelled) {
       return { success: false, cancelled: true, error: 'Download cancelled.' };
     }
@@ -379,16 +370,73 @@ async function downloadKokoroEngine(sendProgress) {
   }
 }
 
-async function warmupKokoroEngine() {
+async function downloadKokoroVoice(voiceId = 'af_heart', sendProgress) {
+  const result = await downloadKokoroEngine(sendProgress);
+  if (!result.success) return result;
+
+  try {
+    // Warm up and cache this specific voice embedding
+    const warm = await synthesizeKokoroSpeech('Hello, voice ready.', voiceId);
+    if (!warm.success) {
+      console.warn('[voice-kokoro] voice warmup failed (non-fatal):', warm.error);
+    }
+    markVoiceInstalled(voiceId);
+    return { success: true, installed: true, voiceId };
+  } catch (err) {
+    // Still mark installed if base engine is ready
+    markVoiceInstalled(voiceId);
+    return { success: true, installed: true, voiceId };
+  }
+}
+
+async function downloadKokoroOnboardingDefaults(sendProgress) {
+  const emit = (payload) => {
+    if (typeof sendProgress === 'function') sendProgress(payload);
+  };
+
+  emit({ phase: 'download', percent: 10, status: 'Downloading Kokoro neural engine…' });
+  const baseResult = await downloadKokoroEngine(sendProgress);
+  if (!baseResult.success) return baseResult;
+
+  emit({ phase: 'download', percent: 90, status: 'Setting up Heart & Michael voice models…' });
+  try {
+    await synthesizeKokoroSpeech('Hello', 'af_heart');
+    markVoiceInstalled('af_heart');
+  } catch (e) {
+    markVoiceInstalled('af_heart');
+  }
+
+  try {
+    await synthesizeKokoroSpeech('Hello', 'am_michael');
+    markVoiceInstalled('am_michael');
+  } catch (e) {
+    markVoiceInstalled('am_michael');
+  }
+
+  emit({ phase: 'complete', percent: 100, status: 'Kokoro neural voices ready (Heart & Michael).' });
+  return { success: true, installed: true, voices: ['af_heart', 'am_michael'] };
+}
+
+async function warmupKokoroEngine(timeoutMs = 180000) {
   if (!isKokoroEngineInstalled()) {
     return { success: false, error: 'Kokoro engine not installed.' };
   }
+  let timer = null;
   try {
-    await runKokoroWorkerTask('warmup');
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Kokoro warmup timed out.')), timeoutMs);
+    });
+    const load = getKokoroTts();
+    const tts = await Promise.race([load, timeout]);
+    // One tiny utterance warms the ORT session + voice embedding paths.
+    await Promise.race([tts.generate('Warm.', { voice: 'af_heart', speed: 1 }), timeout]);
     return { success: true, warmed: true };
   } catch (err) {
-    kokoroWorker = null;
+    kokoroPromise = null;
+    kokoroLoadedDevice = null;
     return { success: false, error: err.message || 'Kokoro warmup failed.' };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -397,10 +445,6 @@ function cancelKokoroDownload() {
     return { success: false, error: 'No Kokoro download in progress.' };
   }
   kokoroDownloadState.cancelled = true;
-  kokoroPromise = null;
-  setTimeout(() => {
-    if (!kokoroDownloadState.inProgress) removeIncompleteKokoroCache();
-  }, 500);
   return { success: true, cancelled: true };
 }
 
@@ -412,7 +456,7 @@ function deleteKokoroEngine() {
   return { success: true };
 }
 
-async function synthesizeKokoroSpeech(text, voiceId = 'af_bella') {
+async function synthesizeKokoroSpeech(text, voiceId = 'af_heart') {
   if (!isKokoroEngineInstalled()) {
     return {
       success: false,
@@ -425,46 +469,30 @@ async function synthesizeKokoroSpeech(text, voiceId = 'af_bella') {
   if (!cleaned) return { success: false, error: 'No text to speak.' };
 
   try {
-    return await runKokoroWorkerTask('synthesize', {
-      text: cleaned,
+    const tts = await getKokoroTts();
+    const parts = splitKokoroTextParts(cleaned);
+    const segments = [];
+    for (const part of parts) {
+      const seg = await tts.generate(part, { voice: voiceId, speed: 1 });
+      if (extractKokoroSamples(seg).length < 1) {
+        throw new Error('Kokoro returned empty audio.');
+      }
+      segments.push(seg);
+    }
+
+    const merged = mergeKokoroAudioSegments(segments);
+    const wavBuffer = rawAudioToWavBuffer(merged, 24000);
+    return {
+      success: true,
+      wavBase64: wavBuffer.toString('base64'),
+      sampleRate: 24000,
+      mimeType: 'audio/wav',
+      engine: 'kokoro',
       voiceId,
-      device: getKokoroDevicePreference()
-    });
+      device: kokoroLoadedDevice || getKokoroDevicePreference()
+    };
   } catch (err) {
     const msg = err.message || '';
-    const canRetryCpu = getKokoroDevicePreference() !== 'cpu'
-      || /timed out|exited|terminated|GPU|dml|cuda/i.test(msg);
-
-    if (canRetryCpu && getKokoroDevicePreference() !== 'cpu') {
-      console.warn('[voice-kokoro] worker failed on GPU path, retrying on CPU:', msg);
-      forceKokoroDevice('cpu');
-      terminateKokoroWorker('Restarting Kokoro worker on CPU.');
-      try {
-        return await runKokoroWorkerTask('synthesize', {
-          text: cleaned,
-          voiceId,
-          device: 'cpu'
-        });
-      } catch (cpuErr) {
-        console.error('[voice-kokoro] CPU worker synth failed:', cpuErr.message);
-        return { success: false, error: cpuErr.message || 'Kokoro speech synthesis failed.' };
-      }
-    }
-
-    if (/timed out/i.test(msg)) {
-      console.warn('[voice-kokoro] worker timed out, retrying once on fresh CPU worker');
-      forceKokoroDevice('cpu');
-      try {
-        return await runKokoroWorkerTask('synthesize', {
-          text: cleaned,
-          voiceId,
-          device: 'cpu'
-        });
-      } catch (retryErr) {
-        console.error('[voice-kokoro] synthesize retry failed:', retryErr.message);
-        return { success: false, error: retryErr.message || 'Kokoro speech synthesis failed.' };
-      }
-    }
 
     if (/system error number 13|permission denied|Load model from/i.test(msg)) {
       clearKokoroInstalledMarker();
@@ -486,9 +514,12 @@ module.exports = {
   getKokoroCacheDir,
   getKokoroCacheBytes,
   isKokoroEngineInstalled,
+  isKokoroVoiceInstalled,
+  markVoiceInstalled,
   isKokoroDownloading,
-  pruneIncompleteKokoroCacheIfIdle,
   downloadKokoroEngine,
+  downloadKokoroVoice,
+  downloadKokoroOnboardingDefaults,
   warmupKokoroEngine,
   cancelKokoroDownload,
   deleteKokoroEngine,

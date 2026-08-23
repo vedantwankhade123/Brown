@@ -29,10 +29,10 @@
       keyPlaceholder: 'AIzaSy...',
       docsUrl: 'https://aistudio.google.com/app/apikey',
       models: [
-        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Blazing fast multimodal reasoning (Default)', speed: 'Ultra-Fast' },
+        { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', description: 'Latest fast multimodal reasoning (Default)', speed: 'Ultra-Fast' },
         { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Advanced coding, long-context, and vision', speed: 'High Precision' },
-        { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Next-gen low-latency multimodal streaming', speed: 'Ultra-Fast' },
-        { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', description: 'Deep reasoning across 2M token context', speed: 'Pro' }
+        { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Fast multimodal reasoning', speed: 'Ultra-Fast' },
+        { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Next-gen low-latency multimodal streaming', speed: 'Ultra-Fast' }
       ]
     },
     openai: {
@@ -44,10 +44,11 @@
       keyPlaceholder: 'sk-proj-...',
       docsUrl: 'https://platform.openai.com/api-keys',
       models: [
-        { id: 'gpt-4o', name: 'GPT-4o', description: 'Flagship multimodal omni model for complex tasks', speed: 'Fast' },
+        { id: 'gpt-5', name: 'GPT-5', description: 'Flagship reasoning + multimodal chat model', speed: 'Fast' },
+        { id: 'gpt-5-mini', name: 'GPT-5 Mini', description: 'Affordable, fast intelligent model', speed: 'Very Fast' },
+        { id: 'gpt-4o', name: 'GPT-4o', description: 'Multimodal omni model for complex tasks', speed: 'Fast' },
         { id: 'gpt-4o-mini', name: 'GPT-4o Mini', description: 'Affordable, fast intelligent model', speed: 'Very Fast' },
-        { id: 'o3-mini', name: 'o3-mini', description: 'High-speed STEM, math, and coding reasoning', speed: 'Reasoning' },
-        { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', description: 'High performance general instruction model', speed: 'Balanced' }
+        { id: 'o3-mini', name: 'o3-mini', description: 'High-speed STEM, math, and coding reasoning', speed: 'Reasoning' }
       ]
     },
     anthropic: {
@@ -165,7 +166,7 @@
   // Unified Request Dispatcher
   async function queryProvider(options = {}) {
     const {
-      model = 'gemini-2.5-flash',
+      model = 'gemini-3.6-flash',
       prompt = '',
       systemPrompt = '',
       messages = [],
@@ -549,6 +550,13 @@
              .join(' ');
   }
 
+  /** True when a model id is usable for plain text chat (excludes TTS/STT/audio/realtime/image/embedding/guard models). */
+  function isChatCapableModel(modelId) {
+    const id = String(modelId || '').toLowerCase();
+    if (!id) return false;
+    return !/(tts|whisper|audio|realtime|transcri|embedding|moderation|dall-e|image|speech|voice|guard)/.test(id);
+  }
+
   async function fetchProviderModels(providerId, apiKey, customUrl) {
     const key = (apiKey || getStoredApiKey(providerId) || '').trim();
     const endpoint = (customUrl || getCustomEndpointUrl() || 'http://localhost:1234/v1').trim();
@@ -563,7 +571,7 @@
         throw new Error(data.error?.message || `OpenAI returned HTTP ${res.status}`);
       }
       const rawList = Array.isArray(data.data) ? data.data : [];
-      const allowedPrefixes = ['gpt-4o', 'gpt-4.5', 'o1', 'o3', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'chatgpt-4o'];
+      const allowedPrefixes = ['gpt-5', 'gpt-4o', 'gpt-4.5', 'o1', 'o3', 'o4', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'chatgpt-4o'];
       const excluded = ['embedding', 'whisper', 'tts', 'dall-e', 'realtime', 'audio', 'moderation', 'transcription', 'similarity', 'search', 'instruct', 'babbage', 'davinci'];
 
       const filtered = rawList.filter(m => {
@@ -573,7 +581,7 @@
       });
 
       filtered.sort((a, b) => {
-        const order = ['gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o1', 'gpt-4.5-preview', 'gpt-4-turbo', 'gpt-4'];
+        const order = ['gpt-5', 'gpt-5-mini', 'gpt-4o', 'gpt-4o-mini', 'o4', 'o3-mini', 'o1', 'gpt-4.5-preview', 'gpt-4-turbo', 'gpt-4'];
         const idxA = order.findIndex(p => a.id.startsWith(p));
         const idxB = order.findIndex(p => b.id.startsWith(p));
         if (idxA !== -1 && idxB !== -1) return idxA - idxB;
@@ -706,7 +714,7 @@
         throw new Error(data.error?.message || `Groq returned HTTP ${res.status}`);
       }
       const rawList = Array.isArray(data.data) ? data.data : [];
-      const excluded = ['whisper', 'guard', 'distil-whisper', 'audio'];
+      const excluded = ['whisper', 'guard', 'distil-whisper', 'audio', 'tts'];
       const filtered = rawList.filter(m => {
         const id = (m.id || '').toLowerCase();
         return !excluded.some(x => id.includes(x)) && m.active !== false;
@@ -827,6 +835,7 @@
         const models = (Array.isArray(cached) && cached.length > 0) ? cached : (provider.models || []);
 
         models.forEach(m => {
+          if (!isChatCapableModel(m.id)) return; // chat dropdown only shows conversation-capable models
           results.push({
             id: m.id,
             name: m.id,
@@ -846,6 +855,7 @@
     PROVIDERS,
     getProviderCatalog,
     detectProviderForModel,
+    isChatCapableModel,
     getStoredApiKey,
     setStoredApiKey,
     getCustomEndpointUrl,

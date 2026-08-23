@@ -97,17 +97,16 @@
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  border: none;
   color: #9ca3af;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .canvas-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.08);
   color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .canvas-btn.active {

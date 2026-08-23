@@ -5,15 +5,46 @@ const fs = require('fs');
 const zlib = require('zlib');
 const { pathToFileURL } = require('url');
 
-function extractTextFromPdfBuffer(buffer) {
+async function extractTextFromPdfBuffer(buffer) {
+  if (!buffer) return '';
   try {
-    if (!Buffer.isBuffer(buffer)) {
-      buffer = Buffer.from(buffer);
+    const uint8 = Buffer.isBuffer(buffer) ? new Uint8Array(buffer) : (buffer instanceof Uint8Array ? buffer : new Uint8Array(Buffer.from(buffer)));
+    
+    // 1. Primary: Use standard Mozilla pdf.js parser via pdf-parse
+    try {
+      const pdfModule = require('pdf-parse');
+      const PDFParse = pdfModule.PDFParse || (typeof pdfModule === 'function' ? pdfModule : null);
+      if (PDFParse) {
+        if (typeof PDFParse === 'function' && !pdfModule.PDFParse) {
+          const res = await PDFParse(Buffer.from(uint8));
+          if (res && res.text && res.text.trim()) {
+            return res.text
+              .replace(/\r\n/g, '\n')
+              .replace(/[ \t]+/g, ' ')
+              .replace(/(\n{3,})/g, '\n\n')
+              .trim();
+          }
+        } else {
+          const parser = new PDFParse(uint8);
+          const res = await parser.getText();
+          if (res && res.text && res.text.trim()) {
+            return res.text
+              .replace(/\r\n/g, '\n')
+              .replace(/[ \t]+/g, ' ')
+              .replace(/(\n{3,})/g, '\n\n')
+              .trim();
+          }
+        }
+      }
+    } catch (parseErr) {
+      console.warn('[PDF] PDFParse engine fallback:', parseErr.message);
     }
-    const pdfString = buffer.toString('binary');
+
+    // 2. Secondary: Decompress Flate streams and extract BT...ET text blocks
+    const rawBuffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(uint8);
+    const pdfString = rawBuffer.toString('latin1');
     const textPieces = [];
 
-    // 1. Find all streams and decompress
     const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
     let streamMatch;
 
@@ -22,18 +53,17 @@ function extractTextFromPdfBuffer(buffer) {
       let uncompressed = streamContent;
 
       try {
-        const streamBuffer = Buffer.from(streamContent, 'binary');
+        const streamBuffer = Buffer.from(streamContent, 'latin1');
         uncompressed = zlib.inflateSync(streamBuffer).toString('latin1');
       } catch {
         try {
-          const streamBuffer = Buffer.from(streamContent, 'binary');
+          const streamBuffer = Buffer.from(streamContent, 'latin1');
           uncompressed = zlib.inflateRawSync(streamBuffer).toString('latin1');
         } catch {
           uncompressed = streamContent;
         }
       }
 
-      // Extract text objects within BT ... ET
       const btRegex = /BT[\s\S]*?ET/g;
       let btMatch;
       while ((btMatch = btRegex.exec(uncompressed)) !== null) {
@@ -59,13 +89,12 @@ function extractTextFromPdfBuffer(buffer) {
         }
       }
 
-      // Fallback in uncompressed stream
       if (textPieces.length === 0) {
         const rawParens = uncompressed.match(/\(([^()]{2,})\)/g);
         if (rawParens) {
           rawParens.forEach(p => {
             const clean = cleanPdfString(p.slice(1, -1));
-            if (clean.length > 1 && !/^\s+$/.test(clean)) {
+            if (clean.length > 1 && !/^\s+$/.test(clean) && /[aeiouyAEIOUY]/i.test(clean)) {
               textPieces.push(clean);
             }
           });
@@ -73,20 +102,24 @@ function extractTextFromPdfBuffer(buffer) {
       }
     }
 
-    if (textPieces.length === 0) {
-      const asciiRuns = pdfString.match(/[\x20-\x7E\r\n\t]{4,}/g) || [];
-      const filtered = asciiRuns.filter(s => !s.startsWith('%PDF') && !s.includes('obj') && !s.includes('endobj') && !s.includes('stream'));
-      textPieces.push(...filtered);
+    if (textPieces.length > 0) {
+      return textPieces.join(' ')
+        .replace(/\r\n/g, '\n')
+        .replace(/[ \t]+/g, ' ')
+        .replace(/(\n{3,})/g, '\n\n')
+        .trim();
     }
 
-    let fullText = textPieces.join(' ')
-      .replace(/\r\n/g, '\n')
-      .replace(/[ \t]+/g, ' ')
-      .replace(/\n\s+/g, '\n')
-      .replace(/(\n{3,})/g, '\n\n')
-      .trim();
+    // 3. Fallback: Filter only meaningful natural language words
+    const asciiWords = (pdfString.match(/[A-Za-z0-9,.:;!?'"()\-]{3,}/g) || [])
+      .filter(w => !/^(obj|endobj|stream|endstream|xref|trailer|startxref|FlateDecode|Length|Filter|Type|Catalog|Pages|Root)$/i.test(w))
+      .filter(w => /[aeiouyAEIOUY]/i.test(w));
 
-    return fullText || 'Could not extract legible text from this PDF file.';
+    if (asciiWords.length > 10) {
+      return asciiWords.join(' ').trim();
+    }
+
+    return 'Could not extract legible text from this PDF file.';
   } catch (err) {
     return `Error extracting PDF text: ${err.message}`;
   }
@@ -892,7 +925,10 @@ function registerAudioIpcHandlers() {
       const samples = payload.samples || payload.audio || [];
       if (Array.isArray(samples) && samples.length > 800) {
         const sampleRate = Number(payload.sampleRate) || 16000;
-        if (!windowsResult?.text) {
+        // Only run the Windows engine over raw samples when the WAV path was
+        // not already attempted (re-running the same engine twice just doubles
+        // latency without new information).
+        if (!windowsResult) {
           windowsResult = await transcribeAudioFloat32(samples, sampleRate, culture);
           if (windowsResult?.text) return windowsResult;
         }
@@ -924,6 +960,32 @@ function registerAudioIpcHandlers() {
     } catch (err) {
       console.error('[ipc] transcribe-audio error:', err);
       return { success: false, error: err.message || 'Transcription failed.' };
+    }
+  });
+
+  ipcMain.handle('voice-stt-live:start', async (event, payload = {}) => {
+    try {
+      const { startLiveStt } = require('./voice-stt-live');
+      const culture = String(payload.culture || '').trim() || 'en-US';
+      const sender = event.sender;
+      return await startLiveStt(culture, (text) => {
+        if (sender && !sender.isDestroyed()) {
+          sender.send('voice-stt-live:partial', { text });
+        }
+      });
+    } catch (err) {
+      console.error('[ipc] voice-stt-live:start error:', err);
+      return { success: false, code: 'unavailable', error: err.message || 'Live speech failed to start.' };
+    }
+  });
+
+  ipcMain.handle('voice-stt-live:stop', async () => {
+    try {
+      const { stopLiveStt } = require('./voice-stt-live');
+      return await stopLiveStt();
+    } catch (err) {
+      console.error('[ipc] voice-stt-live:stop error:', err);
+      return { success: true, text: '' };
     }
   });
 
@@ -1950,6 +2012,45 @@ function setupIpcHandlers() {
     return result;
   });
 
+  ipcMain.handle('select-document-file', async () => {
+    if (!mainWindow) return { canceled: true };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select a document',
+      properties: ['openFile'],
+      filters: [{ name: 'Documents', extensions: ['pdf', 'doc', 'docx', 'txt', 'md', 'rtf', 'csv'] }]
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    return { canceled: false, path: result.filePaths[0] };
+  });
+
+  // Recent documents picker: last 5 pdf/doc/txt-ish files from Documents + Desktop
+  ipcMain.handle('list-recent-documents', async () => {
+    try {
+      const exts = new Set(['.pdf', '.doc', '.docx', '.txt', '.md', '.rtf']);
+      const roots = [];
+      try { roots.push(app.getPath('documents')); } catch (_) { /* ignore */ }
+      try { roots.push(app.getPath('desktop')); } catch (_) { /* ignore */ }
+      const found = [];
+      for (const root of roots) {
+        let entries = [];
+        try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch (_) { continue; }
+        for (const entry of entries) {
+          if (!entry.isFile()) continue;
+          if (!exts.has(path.extname(entry.name).toLowerCase())) continue;
+          const fullPath = path.join(root, entry.name);
+          try {
+            const stat = fs.statSync(fullPath);
+            found.push({ name: entry.name, path: fullPath, size: stat.size, mtime: stat.mtimeMs });
+          } catch (_) { /* skip unreadable entry */ }
+        }
+      }
+      found.sort((a, b) => b.mtime - a.mtime);
+      return { success: true, files: found.slice(0, 5) };
+    } catch (err) {
+      return { success: false, error: err.message, files: [] };
+    }
+  });
+
   ipcMain.handle('select-sound-file', async () => {
     if (!mainWindow) return { canceled: true };
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -2135,7 +2236,7 @@ function getInstallationDefaultDataDir() {
       const ext = path.extname(resolvedPath).toLowerCase();
       if (ext === '.pdf') {
         const buffer = fs.readFileSync(resolvedPath);
-        const text = extractTextFromPdfBuffer(buffer);
+        const text = await extractTextFromPdfBuffer(buffer);
         return { success: true, content: text, filePath: resolvedPath };
       }
       const content = fs.readFileSync(resolvedPath, 'utf8');
@@ -2163,7 +2264,7 @@ function getInstallationDefaultDataDir() {
         return { success: false, error: 'Invalid PDF payload' };
       }
 
-      const text = extractTextFromPdfBuffer(buffer);
+      const text = await extractTextFromPdfBuffer(buffer);
       return { success: true, text };
     } catch (err) {
       return { success: false, error: err.message };
@@ -2837,6 +2938,85 @@ function getInstallationDefaultDataDir() {
     }
   });
 
+  // Reveal file or folder in Windows File Explorer
+  ipcMain.handle('show-item-in-folder', async (_event, targetPath) => {
+    try {
+      if (!targetPath) return { success: false, error: 'Path required' };
+      const resolved = path.resolve(targetPath);
+      if (fs.existsSync(resolved)) {
+        shell.showItemInFolder(resolved);
+        return { success: true, path: resolved };
+      }
+      return { success: false, error: 'File not found on disk' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Open file or folder directly with default Windows application
+  ipcMain.handle('open-file-or-path', async (_event, targetPath) => {
+    try {
+      if (!targetPath) return { success: false, error: 'Path required' };
+      const resolved = path.resolve(targetPath);
+      if (fs.existsSync(resolved)) {
+        const openErr = await shell.openPath(resolved);
+        return { success: !openErr, error: openErr || null, path: resolved };
+      }
+      return { success: false, error: 'File not found on disk' };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Check whether a file or folder exists on disk (used to enable/repair file action buttons)
+  ipcMain.handle('file-exists', async (_event, targetPath) => {
+    try {
+      if (!targetPath) return { exists: false };
+      const resolved = path.resolve(targetPath);
+      return { exists: fs.existsSync(resolved), path: resolved };
+    } catch (err) {
+      return { exists: false, error: err.message };
+    }
+  });
+
+  // Foreground window title — used by the planner's post-action verification
+  ipcMain.handle('get-active-window', async () => {
+    try {
+      const title = await getActiveWindowAppName();
+      return { success: Boolean(title), title: title || '' };
+    } catch (err) {
+      return { success: false, title: '', error: err.message };
+    }
+  });
+
+  // Check Windows UI Automation installation status
+  ipcMain.handle('check-mcp-windows-uia', async () => {
+    try {
+      const uia = require('./mcp-windows-uia');
+      const exe = uia.resolveWindowsUiaExecutable({ userDataPath: getConnectorsRoot() });
+      return { installed: Boolean(exe), exePath: exe || null };
+    } catch (err) {
+      return { installed: false, error: err.message };
+    }
+  });
+
+  // Download default Kokoro voices for onboarding (Bella & Michael)
+  ipcMain.handle('download-kokoro-onboarding-voices', async (event) => {
+    try {
+      const { downloadKokoroOnboardingDefaults } = require('./voice-kokoro');
+      return await downloadKokoroOnboardingDefaults((payload) => {
+        if (event.sender && !event.sender.isDestroyed()) {
+          event.sender.send('download-progress', {
+            modelName: 'tts-kokoro-onboarding',
+            ...payload
+          });
+        }
+      });
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('desktop-sync:get-info', async () => {
     try {
       const { getSyncInfo } = require('./desktop-sync-server');
@@ -2975,6 +3155,24 @@ function getInstallationDefaultDataDir() {
       return await rag.reindexAll((progress) => {
         event.sender.send('rag:index-progress', progress);
       });
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:auto-add', async (_event, sourcePath) => {
+    try {
+      const rag = require('./rag-engine');
+      return await rag.autoAddSource(sourcePath);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:index-file', async (_event, filePath) => {
+    try {
+      const rag = require('./rag-engine');
+      return await rag.indexFile(filePath);
     } catch (err) {
       return { success: false, error: err.message };
     }

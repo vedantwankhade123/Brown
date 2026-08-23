@@ -34,13 +34,18 @@
     if (userExpectsAppOpen(userPrompt) && !openedApp) {
       missing.push({ kind: 'app_open', hint: 'Open the requested application using OPEN_APP.' });
     }
+    const readTools = types.includes('LIST_DIR') || types.includes('READ_FILE');
+    if (typeof hasLocalFilesystemCues === 'function' && hasLocalFilesystemCues(userPrompt) && !ranExecute && !readTools) {
+      missing.push({ kind: 'file_discovery', hint: 'Execute the file lookup with EXECUTE (PowerShell Get-ChildItem) or LIST_DIR and report the actual result — never manual steps.' });
+    }
 
     if (missing.length) {
       return { complete: false, missing, suggestedRepair: missing.map(m => m.hint).join(' ') };
     }
 
     if (typeof claimsDesktopTaskCompleted === 'function' && typeof hasDesktopActionCues === 'function') {
-      if (hasDesktopActionCues(userPrompt) && claimsDesktopTaskCompleted(finalResponse) && !openedApp && !wroteFile && !ranExecute) {
+      const manualSteps = typeof answersWithManualSteps === 'function' && answersWithManualSteps(finalResponse);
+      if (hasDesktopActionCues(userPrompt) && (claimsDesktopTaskCompleted(finalResponse) || manualSteps) && !openedApp && !wroteFile && !ranExecute) {
         return {
           complete: false,
           missing: [{ kind: 'hallucinated_completion', hint: 'You claimed success but no tool ran. Execute the action now.' }],

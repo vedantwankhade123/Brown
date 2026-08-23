@@ -12,8 +12,10 @@ function getKokoroDevicePreference() {
   if (override === '0' || override === 'off') return 'cpu';
   if (override && ALLOWED_DEVICES.has(override)) return override;
 
-  // Prefer CPU in Electron workers — DirectML/CUDA often hangs or crashes
-  // onnxruntime-node inside worker_threads. Opt in with ULTRON_KOKORO_DEVICE=gpu.
+  // Default to CPU. Kokoro runs on the main thread (single native ORT
+  // environment). NEVER run native onnxruntime-node inside worker_threads:
+  // coexisting ORT environments crash V8 ("Cannot create a handle without a
+  // HandleScope").
   return 'cpu';
 }
 

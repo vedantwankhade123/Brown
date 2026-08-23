@@ -495,16 +495,28 @@ function getProgressLineIcon(type) {
   return PROGRESS_LINE_ICONS.DOT;
 }
 
-// Cursor-style transcript: muted one-line entries, no boxes or badges
+// Cursor-style transcript: muted one-line entries with timestamps and status
 function renderActivityFeedHtml(stepsList) {
   if (!stepsList || stepsList.length === 0) return '';
 
+  const nowTs = Date.now();
   const stepsHtml = stepsList.map((step, index) => {
+    if (!step.ts) step.ts = nowTs;
     const typeStr = String(step.type || '').toUpperCase();
+    const isLatest = index === stepsList.length - 1;
     const stateClass = typeStr === 'ERROR' ? ' line-error' : (typeStr === 'SUCCESS' ? ' line-success' : '');
-    const newestClass = index === stepsList.length - 1 ? ' line-new' : '';
+    const newestClass = isLatest ? ' line-new' : '';
+    const statusHtml = isLatest
+      ? '<span class="agent-line-status agent-line-spinner" aria-hidden="true"></span>'
+      : (typeStr === 'ERROR'
+          ? '<span class="agent-line-status agent-line-fail" aria-hidden="true">&#10005;</span>'
+          : '<span class="agent-line-status agent-line-done" aria-hidden="true">&#10003;</span>');
+    let timeHtml = '';
+    try {
+      timeHtml = `<span class="agent-line-time">${new Date(step.ts).toLocaleTimeString([], { hour12: false })}</span>`;
+    } catch (e) {}
     const thumbHtml = step.thumbnail
-      ? `<img class="agent-line-thumb" src="${step.thumbnail}" alt="screenshot" />`
+      ? `<img class="agent-line-thumb" src="${step.thumbnail}" alt="screenshot" title="Click to view fullscreen" />`
       : '';
     const appHtml = step.appName
       ? `<span class="agent-app-chip">${step.appIcon
@@ -519,12 +531,69 @@ function renderActivityFeedHtml(stepsList) {
         <span class="agent-line-text">${escapeHtml(step.label || step.text || '')}</span>
         ${appHtml}
         ${thumbHtml}
+        ${statusHtml}
+        ${timeHtml}
       </div>
     `;
   }).join('');
 
-  return `<div class="agent-progress-feed">${stepsHtml}</div>`;
+  const thumbsOn = isScreenActivityFeedEnabled();
+  const headerHtml = `
+    <div class="agent-timeline-header">
+      <span class="agent-timeline-title">Live action timeline — ${stepsList.length} step${stepsList.length === 1 ? '' : 's'}</span>
+      <button type="button" class="agent-timeline-thumb-toggle${thumbsOn ? ' on' : ''}" title="Toggle screen thumbnails after UI actions">${thumbsOn ? 'Screen activity: on' : 'Screen activity: off'}</button>
+    </div>`;
+
+  return `<div class="agent-progress-feed">${headerHtml}${stepsHtml}</div>`;
 }
+
+// Per-chat preference: show screen thumbnails after UI-mutating actions.
+function isScreenActivityFeedEnabled() {
+  try {
+    return window.localStorage.getItem('ultron-show-screen-activity') !== 'false';
+  } catch (e) {
+    return true;
+  }
+}
+
+function openAgentShotLightbox(src) {
+  if (!src) return;
+  const existing = document.querySelector('.agent-shot-lightbox');
+  if (existing) existing.remove();
+  const box = document.createElement('div');
+  box.className = 'agent-shot-lightbox';
+  box.title = 'Click to close';
+  const img = document.createElement('img');
+  img.src = src;
+  img.alt = 'Screen activity';
+  box.appendChild(img);
+  box.addEventListener('click', () => box.remove());
+  document.body.appendChild(box);
+}
+
+// Delegated interactions for timeline rows (thumbnail lightbox + activity toggle)
+document.addEventListener('click', (e) => {
+  const target = e.target;
+  if (!target || !target.closest) return;
+  const thumb = target.closest('.agent-line-thumb');
+  if (thumb) {
+    e.preventDefault();
+    e.stopPropagation();
+    openAgentShotLightbox(thumb.src);
+    return;
+  }
+  const toggle = target.closest('.agent-timeline-thumb-toggle');
+  if (toggle) {
+    e.preventDefault();
+    e.stopPropagation();
+    const next = !isScreenActivityFeedEnabled();
+    try {
+      window.localStorage.setItem('ultron-show-screen-activity', next ? 'true' : 'false');
+    } catch (err) {}
+    toggle.classList.toggle('on', next);
+    toggle.textContent = next ? 'Screen activity: on' : 'Screen activity: off';
+  }
+});
 
 // Shimmering gray status line for the action currently running (like Cursor's
 // "Planning next moves" indicator)
@@ -766,7 +835,7 @@ async function readScreenTextForAgent(options = {}) {
 
 function pushAgentProgressStep(activitySteps, category, context = {}) {
   const label = getAgentProgressMessage(category, context);
-  activitySteps.push({ type: category, label, isProgress: true });
+  activitySteps.push({ type: category, label, isProgress: true, ts: Date.now() });
   return label;
 }
 
@@ -793,6 +862,53 @@ const INTERACTIVE_APP_ACTIONS = new Set(['OPEN_APP', 'FOCUS_APP', 'OPEN_URL', 'O
 // Screenshots only help when the active model can actually see them
 function canUseScreenAnalysis() {
   return isScreenCaptureEnabled() && modelSupportsVision(activeModel);
+}
+
+// Vision-grounded clicking (see → decide → act): resolve a human-readable
+// element description to screen coordinates.
+// Returns { success, x, y, method:'vision' } | { success, method:'uia' } | { success:false, error }.
+async function clickByDescription(targetDesc) {
+  const desc = String(targetDesc || '').trim();
+  if (!desc) return { success: false, error: 'No click target description provided.' };
+
+  // 1) Vision grounding: capture screen and ask the model for the element's pixel position
+  if (canUseScreenAnalysis()) {
+    try {
+      const shot = await captureScreenForAgent({ label: 'click-grounding' });
+      if (shot && shot.data) {
+        const groundingSystem = 'You are a precise UI element locator. Reply with ONLY a JSON object {"x": <int>, "y": <int>} marking the center of the described element in pixels. If the element is not visible, reply {"x": -1, "y": -1}.';
+        const groundingRes = await queryOfflineLLM(
+          `Locate this UI element on the screenshot: "${desc}". Return JSON only.`,
+          [], 'conversation', groundingSystem,
+          [{ mimeType: shot.mimeType || 'image/png', data: shot.data }]
+        );
+        const groundingText = String(groundingRes && (groundingRes.response || groundingRes.text || groundingRes) || '');
+        const coordMatch = groundingText.match(/\{[^{}]*"x"\s*:\s*(-?\d+)[^{}]*"y"\s*:\s*(-?\d+)[^{}]*\}/);
+        if (coordMatch) {
+          const gx = parseInt(coordMatch[1], 10);
+          const gy = parseInt(coordMatch[2], 10);
+          if (gx >= 0 && gy >= 0) return { success: true, x: gx, y: gy, method: 'vision' };
+        }
+      }
+    } catch (err) {
+      logTrace(`Vision grounding failed for "${desc}": ${err.message}`, 'error');
+    }
+  }
+
+  // 2) UIA fallback: named-element click via the windows-uia MCP connector
+  if (window.ultronAPI && typeof window.ultronAPI.mcpCallTool === 'function') {
+    for (const toolName of ['click_element', 'clickElement', 'click']) {
+      try {
+        const uiaRes = await window.ultronAPI.mcpCallTool({ serverId: 'windows-uia', toolName, args: { name: desc } });
+        if (uiaRes && uiaRes.success !== false && !uiaRes.isError && !/error|not found|unknown tool/i.test(String(uiaRes.error || ''))) {
+          return { success: true, method: 'uia' };
+        }
+      } catch (_) { /* try next candidate tool name */ }
+    }
+  }
+
+  // 3) Nothing could ground the target — caller should ask the user for a hint
+  return { success: false, error: `Could not locate "${desc}" on screen.` };
 }
 
 function shouldContinueAgentLoopAfterTool(toolCall, userPrompt = '', executedAppActions = []) {
@@ -1038,6 +1154,8 @@ function isAgentWidgetMarkup(text) {
     text.includes('agent-final-response') ||
     text.includes('agent-error-recovery-card') ||
     text.includes('agent-undo-card') ||
+    text.includes('agent-source-card') ||
+    text.includes('agent-intake-card') ||
     text.includes('error-fix-row')
   );
 }
@@ -1466,11 +1584,633 @@ function formatCodeBlocks(containerElement) {
   });
 }
 
+function extractCreatedFilesFromText(text) {
+  if (!text) return [];
+  const found = [];
+  const normalized = String(text);
+
+  // 1. Quoted filenames: "rajesh_saloon_landing_page.html", 'script.py', `index.html`
+  const quotedRe = /["'`«]([a-zA-Z0-9_\-.\/\\\s]+\.(?:html?|js|ts|py|json|css|txt|md|docx?|xlsx?|pdf|png|jpe?g|csv|bat|ps1|sh|c|cpp|rs|go|java))["'`»]/gi;
+  let match;
+  while ((match = quotedRe.exec(normalized)) !== null) {
+    const raw = match[1].trim();
+    const basename = raw.split(/[/\\]/).pop();
+    if (basename && !found.some(f => f.filename === basename)) {
+      found.push({ filename: basename, fullPath: raw, raw });
+    }
+  }
+
+  // 2. Windows absolute paths: C:\...\file.ext or D:\...\file.ext
+  const absPathRe = /\b([a-zA-Z]:\\[^\s"'<>|]+?\.(?:html?|js|ts|py|json|css|txt|md|docx?|xlsx?|pdf|png|jpe?g|csv|bat|ps1|sh|c|cpp|rs|go|java))\b/gi;
+  while ((match = absPathRe.exec(normalized)) !== null) {
+    const fullPath = match[1].trim();
+    const basename = fullPath.split('\\').pop();
+    if (fullPath && !found.some(f => f.fullPath === fullPath || f.filename === basename)) {
+      found.push({ filename: basename, fullPath, raw: fullPath });
+    }
+  }
+
+  // 3. "saved as <filename>" or "created <filename>"
+  const savedAsRe = /\b(?:saved\s+(?:as|to|in)|created\s+(?:file|folder)?|written\s+to)\s+["'`]?([a-zA-Z0-9_\-.\/\\\s]+\.[a-zA-Z0-9]+)["'`]?/gi;
+  while ((match = savedAsRe.exec(normalized)) !== null) {
+    const raw = match[1].trim();
+    const basename = raw.split(/[/\\]/).pop();
+    if (basename && !found.some(f => f.filename === basename)) {
+      found.push({ filename: basename, fullPath: raw, raw });
+    }
+  }
+
+  return found;
+}
+
+// ---------------------------------------------------------------
+// IDE-style project materialization
+// Detects code blocks in an AI reply, offers to write them to disk as a
+// real project folder (with explicit user consent about the location),
+// and makes Open / Show in Folder buttons operate on real files.
+// ---------------------------------------------------------------
+const PROJECT_LANG_DEFAULT_NAMES = {
+  html: 'index.html', htm: 'index.html', css: 'styles.css', js: 'script.js',
+  py: 'main.py', json: 'data.json', ts: 'main.ts', jsx: 'App.jsx', tsx: 'App.tsx', md: 'README.md'
+};
+const PROJECT_FILE_NAME_RE = '([A-Za-z0-9_\\-.]+\\.(?:html?|css|js|jsx|ts|tsx|py|json|txt|md|svg|vue))';
+
+function sanitizeProjectFileName(name) {
+  const base = String(name || '').trim().split(/[/\\]/).pop() || '';
+  return base.replace(/[<>:"|?*\x00-\x1f]/g, '').trim();
+}
+
+function extractProjectFilesFromResponse(text) {
+  if (!text || typeof text !== 'string') return [];
+  const files = [];
+  const blockRe = /```([a-zA-Z0-9+#-]*)[ \t]*([^\n`]*)\n([\s\S]*?)```/g;
+  let m;
+  while ((m = blockRe.exec(text)) !== null) {
+    const lang = (m[1] || '').toLowerCase();
+    const infoRest = (m[2] || '').trim();
+    const content = m[3] || '';
+    if (!content.trim()) continue;
+
+    let filename = '';
+    const infoFile = infoRest.match(new RegExp(PROJECT_FILE_NAME_RE, 'i'));
+    if (infoFile) filename = infoFile[1];
+
+    if (!filename) {
+      const firstLine = (content.split('\n')[0] || '').trim();
+      const commentFile = firstLine.match(/^(?:\/\/|#|<!--|\/\*|\*|;+)\s*([^\s*\/#<;]+?\.[a-zA-Z0-9]{1,5})\s*(?:\*\/|-->)?$/);
+      if (commentFile) filename = commentFile[1];
+    }
+
+    if (!filename) {
+      const prevLine = ((text.slice(0, m.index).split('\n').map(s => s.trim()).filter(Boolean).pop()) || '')
+        .replace(/[*`_>]/g, ' ');
+      // Only trust the previous prose line when it names exactly one file, or
+      // when a mentioned file's extension matches this block's language. This
+      // stops lines like "I created index.html and styles.css" from mis-naming
+      // the next block (e.g. HTML content saved as styles.css).
+      const lineMatches = prevLine.match(new RegExp(PROJECT_FILE_NAME_RE, 'gi')) || [];
+      if (lineMatches.length === 1) {
+        filename = lineMatches[0];
+      } else if (lang && lineMatches.length > 1) {
+        const extMatch = lineMatches.find(nm => {
+          const ext = (nm.split('.').pop() || '').toLowerCase();
+          return ext === lang || (lang === 'html' && ext === 'htm') || (lang === 'javascript' && ext === 'js');
+        });
+        if (extMatch) filename = extMatch;
+      }
+    }
+
+    if (!filename && PROJECT_LANG_DEFAULT_NAMES[lang]) {
+      filename = PROJECT_LANG_DEFAULT_NAMES[lang];
+    }
+
+    filename = sanitizeProjectFileName(filename);
+    if (!filename) continue;
+    if (/^(package\.json|tsconfig\.json|node_modules)/i.test(filename)) continue;
+    // Heal name/content contradictions immediately so two different kinds of
+    // content (HTML vs CSS) never collapse into one same-named entry.
+    filename = healFileName(filename, content, files);
+
+    const existing = files.find(f => f.filename.toLowerCase() === filename.toLowerCase());
+    if (existing) existing.content = content;
+    else files.push({ filename, lang, content });
+  }
+  return normalizeProjectFiles(files);
+}
+
+// Detects what a code block actually contains, regardless of the guessed file
+// name. Used to heal mis-labelled project files (HTML stored as x.css, …).
+function detectContentKind(content) {
+  const t = String(content || '');
+  const head = t.slice(0, 600);
+  if (/<!doctype\s+html/i.test(head) || /<html[\s>]/i.test(head) || /<head[\s>]/i.test(head) || /<body[\s>]/i.test(head)) return 'html';
+  const stripped = t.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  if (/<\/?[a-z][\s>]/i.test(stripped.slice(0, 2000))) return 'html';
+  if (/[{}]/.test(stripped) && /[^{}<>;=]+\{[^{}]*:[^{}]*\}/.test(stripped)) return 'css';
+  return 'other';
+}
+
+// Renames a guessed file name when it contradicts the block's actual content
+// (HTML stored as x.css and vice versa).
+function healFileName(filename, content, others) {
+  const extOf = (name) => ((String(name).match(/\.([a-zA-Z0-9]+)$/) || [])[1] || '').toLowerCase();
+  const kind = detectContentKind(content);
+  const ext = extOf(filename);
+  if (kind === 'html' && ext !== 'html' && ext !== 'htm') {
+    const hasOtherHtml = (others || []).some(o => (extOf(o.filename) === 'html' || extOf(o.filename) === 'htm') && detectContentKind(o.content) === 'html');
+    return hasOtherHtml ? `${(filename.replace(/\.[^.]+$/, '') || 'page')}.html` : 'index.html';
+  }
+  if (kind === 'css' && (ext === 'html' || ext === 'htm')) {
+    return `${(filename.replace(/\.[^.]+$/, '') || 'styles')}.css`;
+  }
+  return filename;
+}
+
+// Heals extracted project files: fixes name/content mismatches, honours the
+// asset names the HTML itself references (href="style.css") so default-named
+// blocks (styles.css) merge into the real file, and collapses duplicates.
+function normalizeProjectFiles(files) {
+  if (!Array.isArray(files) || files.length === 0) return files || [];
+  const extOf = (name) => ((String(name).match(/\.([a-zA-Z0-9]+)$/) || [])[1] || '').toLowerCase();
+
+  // Pass 1 — heal name/content mismatches (HTML content stored as x.css, …).
+  files.forEach(f => {
+    f.filename = healFileName(f.filename, f.content, files.filter(o => o !== f));
+  });
+
+  // Pass 2 — honour names the HTML references so the preview links resolve.
+  const htmlFile = files.find(f => extOf(f.filename) === 'html' || extOf(f.filename) === 'htm' || detectContentKind(f.content) === 'html');
+  if (htmlFile) {
+    const refRe = /(?:href|src)\s*=\s*["']([^"'<>]+\.(?:css|js))["']/gi;
+    let rm;
+    while ((rm = refRe.exec(htmlFile.content)) !== null) {
+      if (/^https?:/i.test(rm[1])) continue;
+      const refName = sanitizeProjectFileName(rm[1].split(/[\\/]/).pop());
+      if (!refName) continue;
+      if (files.some(f => f.filename.toLowerCase() === refName.toLowerCase())) continue;
+      const donor = files.find(f => f !== htmlFile && extOf(f.filename) === extOf(refName) && detectContentKind(f.content) !== 'html');
+      if (donor) donor.filename = refName;
+    }
+  }
+
+  // Pass 3 — collapse duplicates created by the renames above.
+  const merged = [];
+  files.forEach(f => {
+    const dup = merged.find(o => o.filename.toLowerCase() === f.filename.toLowerCase());
+    if (!dup) { merged.push(f); return; }
+    const ext = extOf(f.filename);
+    const kindMatches = (k) => (ext === 'css' ? k === 'css' : (ext === 'html' || ext === 'htm') ? k === 'html' : k === 'other');
+    const dupKind = detectContentKind(dup.content);
+    const fKind = detectContentKind(f.content);
+    if (kindMatches(fKind) && !kindMatches(dupKind)) dup.content = f.content;
+    else if (!kindMatches(dupKind) && f.content.length > dup.content.length) dup.content = f.content;
+  });
+  return merged;
+}
+
+function getDefaultProjectsRoot() {
+  const dirs = (_cachedSystemEnv && _cachedSystemEnv.keyDirectories) || {};
+  const userHome = (_cachedSystemEnv && _cachedSystemEnv.homeDir) || '';
+  if (dirs.documents) return `${dirs.documents}\\Ultron Projects`;
+  if (userHome) return `${userHome}\\Documents\\Ultron Projects`;
+  return 'C:\\Ultron Projects';
+}
+
+function deriveProjectFolderName() {
+  const fallback = 'ultron-project';
+  try {
+    const session = currentSessionId && conversationsStore[currentSessionId];
+    let base = '';
+    if (session) base = session.title || session.name || '';
+    if (!base && session && Array.isArray(session.messages)) {
+      for (let i = session.messages.length - 1; i >= 0; i--) {
+        const msg = session.messages[i];
+        if (msg && msg.sender && msg.sender !== 'Ultron') { base = msg.text || ''; break; }
+      }
+    }
+    if (!base) return fallback;
+    const slug = String(base).toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .split('-').filter(Boolean).slice(0, 4).join('-');
+    return slug || fallback;
+  } catch (err) {
+    return fallback;
+  }
+}
+
+async function writeProjectFilesToDisk(files, rootDir) {
+  const written = [];
+  const failed = [];
+  for (const file of files) {
+    const target = `${rootDir}\\${file.filename}`;
+    try {
+      const res = await window.ultronAPI.writeFile(target, file.content);
+      if (res && res.success) {
+        const finalPath = res.filePath || target;
+        written.push({ ...file, path: finalPath });
+        if (window.UltronAgentMemory && window.UltronAgentMemory.registerArtifact) {
+          window.UltronAgentMemory.registerArtifact('file', finalPath, { source: 'PROJECT_CREATE', name: file.filename });
+        }
+      } else {
+        failed.push({ ...file, path: target, error: (res && res.error) || 'Write failed' });
+      }
+    } catch (err) {
+      failed.push({ ...file, path: target, error: err.message });
+    }
+  }
+  return { written, failed };
+}
+
+// Writes a chat-only code block to the default project folder so a button
+// pointing at a never-created file can heal itself. Returns the new path.
+async function materializeMissingFile(filename, fullText) {
+  if (!filename || !fullText || !window.ultronAPI || !window.ultronAPI.writeFile) return null;
+  const codeFile = extractProjectFilesFromResponse(fullText)
+    .find(f => f.filename.toLowerCase() === String(filename).toLowerCase());
+  if (!codeFile) return null;
+  const root = `${getDefaultProjectsRoot()}\\${deriveProjectFolderName()}`;
+  const { written } = await writeProjectFilesToDisk([codeFile], root);
+  return written.length ? written[0].path : null;
+}
+
+// Live disk → workspace sync: mirror an agent WRITE_FILE into the open split
+// workspace tabs (Cursor/Qoder-style) without stealing focus when it is closed.
+function pushWrittenFileToWorkspace(filePath, content) {
+  try {
+    if (!filePath || !window.UltronCanvas || typeof window.UltronCanvas.upsertFile !== 'function') return;
+    const name = String(filePath).split(/[\\/]/).pop();
+    if (!/\.(html?|css|js|jsx|ts|tsx|py|json|md|svg)$/i.test(name)) return;
+    queueRagFileIndex(filePath); // Auto-learn: remember files the agent writes
+    let body = typeof content === 'string' ? content : '';
+    if (!body && window.ultronAPI && window.ultronAPI.readFile) {
+      window.ultronAPI.readFile(filePath).then(r => {
+        if (r && r.success) window.UltronCanvas.upsertFile(name, r.data || '');
+      }).catch(() => {});
+      return;
+    }
+    window.UltronCanvas.upsertFile(name, body);
+  } catch (e) {}
+}
+
+// "open the project in the editor/workspace" → load the current project folder
+// (Documents\Ultron Projects\<name>) into the split workspace.
+async function loadProjectIntoWorkspace() {
+  if (!window.UltronCanvas || typeof window.UltronCanvas.loadProjectFromDisk !== 'function') return false;
+  const root = `${getDefaultProjectsRoot()}\\${deriveProjectFolderName()}`;
+  const count = await window.UltronCanvas.loadProjectFromDisk(root).catch(() => 0);
+  if (count > 0) {
+    logTrace(`Loaded ${count} project file(s) from ${root} into the workspace.`, 'system');
+    // Auto-learn: index the opened project folder in the background (implicit consent).
+    if (isRagAutoEnabled() && window.ultronAPI && window.ultronAPI.ragAutoAdd) {
+      window.ultronAPI.ragAutoAdd(root).catch(() => {});
+    }
+  }
+  return count > 0;
+}
+
+function buildOpenFileButton(filename, fullPath, fullText = '') {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-open-created-file';
+  btn.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+      <polyline points="14 2 14 8 20 8"></polyline>
+      <line x1="16" y1="13" x2="8" y2="13"></line>
+      <line x1="16" y1="17" x2="8" y2="17"></line>
+    </svg>
+    <span>Open ${escapeHtml(filename)}</span>
+  `;
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!window.ultronAPI || !window.ultronAPI.openFileOrPath) return;
+    const res = await window.ultronAPI.openFileOrPath(fullPath).catch(() => null);
+    if (res && res.success) return;
+    // File only existed inside the chat message — create it for real, then open it.
+    const materialized = await materializeMissingFile(filename, fullText);
+    if (materialized) await window.ultronAPI.openFileOrPath(materialized);
+  });
+  return btn;
+}
+
+function buildShowFolderButton(fullPath, fullText = '', filename = '') {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-show-in-folder';
+  btn.title = 'Show destination folder in Windows File Explorer';
+  btn.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+    </svg>
+    <span>Show in Folder</span>
+  `;
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!window.ultronAPI || !window.ultronAPI.showItemInFolder) return;
+    const res = await window.ultronAPI.showItemInFolder(fullPath).catch(() => null);
+    if (res && res.success) return;
+    const materialized = await materializeMissingFile(filename, fullText);
+    if (materialized) await window.ultronAPI.showItemInFolder(materialized);
+  });
+  return btn;
+}
+
+function buildOpenInBrowserButton(fullPath) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'btn-open-created-file';
+  btn.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="2" y1="12" x2="22" y2="12"></line>
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+    </svg>
+    <span>Open in browser</span>
+  `;
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (window.ultronAPI && window.ultronAPI.openFileOrPath) {
+      await window.ultronAPI.openFileOrPath(fullPath);
+    }
+  });
+  return btn;
+}
+
+function renderProjectCreationCard(contentElement, projectFiles, opts = {}) {
+  if (!contentElement || contentElement.querySelector('.project-creation-card')) return;
+  const defaultRoot = `${getDefaultProjectsRoot()}\\${deriveProjectFolderName()}`;
+  const updateOnly = Boolean(opts.updateOnly);
+
+  const card = document.createElement('div');
+  card.className = 'project-creation-card';
+
+  const title = document.createElement('div');
+  title.className = 'project-creation-title';
+  title.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+      <line x1="12" y1="10" x2="12" y2="16"></line>
+      <line x1="9" y1="13" x2="15" y2="13"></line>
+    </svg>
+    <span>${updateOnly ? 'Update this project on your computer?' : 'Create this project on your computer?'}</span>
+  `;
+  card.appendChild(title);
+
+  const filesRow = document.createElement('div');
+  filesRow.className = 'project-creation-files';
+  projectFiles.forEach(f => {
+    const chip = document.createElement('span');
+    chip.className = 'project-file-chip';
+    chip.textContent = f.filename;
+    filesRow.appendChild(chip);
+  });
+  card.appendChild(filesRow);
+
+  const pathLine = document.createElement('div');
+  pathLine.className = 'project-creation-path';
+  pathLine.textContent = `Files will be written to: ${defaultRoot}`;
+  card.appendChild(pathLine);
+
+  const status = document.createElement('div');
+  status.className = 'project-creation-status';
+  card.appendChild(status);
+
+  const actions = document.createElement('div');
+  actions.className = 'project-creation-actions';
+
+  let busy = false;
+
+  async function createIn(rootDir) {
+    if (busy) return;
+    busy = true;
+    btnCreate.disabled = true;
+    btnChoose.disabled = true;
+    btnSkip.disabled = true;
+    btnWorkspace.disabled = true;
+    status.textContent = `${updateOnly ? 'Updating' : 'Writing'} ${projectFiles.length} file${projectFiles.length > 1 ? 's' : ''} in ${rootDir} ...`;
+    const { written, failed } = await writeProjectFilesToDisk(projectFiles, rootDir);
+
+    card.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'project-creation-title';
+    if (written.length) {
+      head.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+          <path d="M22 11.08V11a10 10 0 1 1-5.93-9.14"></path>
+          <polyline points="22 4 12 14.01 9 11.01"></polyline>
+        </svg>
+        <span>${updateOnly ? 'Project updated' : 'Project created'}${failed.length ? ` (${failed.length} file${failed.length > 1 ? 's' : ''} failed)` : ''}</span>
+      `;
+      card.appendChild(head);
+      const where = document.createElement('div');
+      where.className = 'project-creation-path';
+      where.textContent = rootDir;
+      card.appendChild(where);
+      if (failed.length) {
+        const errLine = document.createElement('div');
+        errLine.className = 'project-creation-status';
+        errLine.textContent = failed.map(f => `${f.filename}: ${f.error}`).join(' | ');
+        card.appendChild(errLine);
+      }
+      const row = document.createElement('div');
+      row.className = 'created-file-actions-row';
+      row.style.borderTop = 'none';
+      row.style.paddingTop = '0';
+      row.style.marginTop = '2px';
+      written.forEach(wf => {
+        row.appendChild(buildOpenFileButton(wf.filename, wf.path));
+        row.appendChild(buildShowFolderButton(wf.path));
+      });
+      const htmlFile = written.find(wf => /\.html?$/i.test(wf.filename));
+      if (htmlFile) row.appendChild(buildOpenInBrowserButton(htmlFile.path));
+      card.appendChild(row);
+      // Mirror the written files into the split workspace in place, keeping
+      // tabs the user already had open (edit-in-place, not a fresh workspace).
+      if (window.UltronCanvas && typeof window.UltronCanvas.mergeFilesIntoWorkspace === 'function') {
+        const wsFiles = written.map(wf => {
+          const src = projectFiles.find(pf => pf.filename === wf.filename);
+          return { name: wf.filename, content: src ? src.content : '' };
+        });
+        window.UltronCanvas.mergeFilesIntoWorkspace(wsFiles, { defaultMode: 'preview' });
+      } else if (window.UltronCanvas && typeof window.UltronCanvas.openWorkspace === 'function') {
+        const wsFiles = written.map(wf => {
+          const src = projectFiles.find(pf => pf.filename === wf.filename);
+          return { name: wf.filename, content: src ? src.content : '' };
+        });
+        window.UltronCanvas.openWorkspace(wsFiles, { defaultMode: 'preview' });
+      }
+    } else {
+      head.innerHTML = `<span>Could not create the project</span>`;
+      card.appendChild(head);
+      const errLine = document.createElement('div');
+      errLine.className = 'project-creation-status';
+      errLine.textContent = (failed[0] && failed[0].error) || 'Unknown write error';
+      card.appendChild(errLine);
+    }
+  }
+
+  const btnCreate = document.createElement('button');
+  btnCreate.type = 'button';
+  btnCreate.className = 'btn-open-created-file';
+  btnCreate.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+      <polyline points="17 21 17 13 7 13 7 21"></polyline>
+      <polyline points="7 3 7 8 15 8"></polyline>
+    </svg>
+    <span>Create on my PC</span>
+  `;
+  btnCreate.addEventListener('click', (e) => { e.stopPropagation(); createIn(defaultRoot); });
+  actions.appendChild(btnCreate);
+
+  const btnWorkspace = document.createElement('button');
+  btnWorkspace.type = 'button';
+  btnWorkspace.className = 'btn-open-created-file';
+  btnWorkspace.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+      <polyline points="16 18 22 12 16 6"></polyline>
+      <polyline points="8 6 2 12 8 18"></polyline>
+    </svg>
+    <span>Edit in Workspace</span>
+  `;
+  btnWorkspace.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (window.UltronCanvas && typeof window.UltronCanvas.mergeFilesIntoWorkspace === 'function') {
+      window.UltronCanvas.mergeFilesIntoWorkspace(projectFiles.map(f => ({ name: f.filename, content: f.content })), { defaultMode: 'preview' });
+    } else if (window.UltronCanvas && typeof window.UltronCanvas.openWorkspace === 'function') {
+      window.UltronCanvas.openWorkspace(projectFiles.map(f => ({ name: f.filename, content: f.content })), { defaultMode: 'preview' });
+    }
+  });
+  actions.appendChild(btnWorkspace);
+
+  const btnChoose = document.createElement('button');
+  btnChoose.type = 'button';
+  btnChoose.className = 'btn-show-in-folder';
+  btnChoose.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+    </svg>
+    <span>Choose folder...</span>
+  `;
+  btnChoose.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!window.ultronAPI || !window.ultronAPI.selectDirectory) return;
+    const sel = await window.ultronAPI.selectDirectory().catch(() => null);
+    if (sel && !sel.canceled && sel.filePaths && sel.filePaths[0]) {
+      createIn(sel.filePaths[0]);
+    }
+  });
+  actions.appendChild(btnChoose);
+
+  const btnSkip = document.createElement('button');
+  btnSkip.type = 'button';
+  btnSkip.className = 'btn-show-in-folder';
+  btnSkip.innerHTML = `<span>Not now</span>`;
+  btnSkip.addEventListener('click', (e) => { e.stopPropagation(); card.remove(); });
+  actions.appendChild(btnSkip);
+
+  card.appendChild(actions);
+  contentElement.appendChild(card);
+}
+
+async function renderCreatedFileActionButtons(contentElement, fullText) {
+  if (!contentElement || !fullText) return;
+  if (contentElement.querySelector('.created-file-actions-row')) return;
+  if (contentElement.querySelector('.project-creation-card')) return;
+
+  // IDE-style: when the reply contains code blocks for project files, write
+  // them to disk — creating missing files AND updating existing ones, so
+  // "edit the css" rewrites style.css in place instead of adding a new file.
+  const projectFiles = extractProjectFilesFromResponse(fullText);
+  if (projectFiles.length && window.ultronAPI && window.ultronAPI.fileExists) {
+    const defaultRoot = `${getDefaultProjectsRoot()}\\${deriveProjectFolderName()}`;
+
+    // Existing project files on disk, used to remap near-duplicate names
+    // (styles.css -> style.css) so edits land on the real file.
+    let diskNames = [];
+    try {
+      const listing = await window.ultronAPI.listDir(defaultRoot).catch(() => null);
+      if (listing && listing.success && Array.isArray(listing.items)) {
+        diskNames = listing.items.filter(it => it && it.isFile).map(it => it.name);
+      }
+    } catch (err) { diskNames = []; }
+
+    const stemOf = (n) => String(n).replace(/\.[^.]+$/, '').toLowerCase();
+    const trimS = (s) => (s.endsWith('s') ? s.slice(0, -1) : s);
+    projectFiles.forEach(f => {
+      if (diskNames.some(n => n.toLowerCase() === f.filename.toLowerCase())) return;
+      const ext = (f.filename.match(/\.([a-z0-9]+)$/i) || [])[1] || '';
+      if (!ext) return;
+      const twin = diskNames.find(n => {
+        const nExt = (n.match(/\.([a-z0-9]+)$/i) || [])[1] || '';
+        if (nExt.toLowerCase() !== ext.toLowerCase()) return false;
+        return trimS(stemOf(n)) === trimS(stemOf(f.filename));
+      });
+      if (twin) f.filename = twin;
+    });
+
+    const resolved = [];
+    for (const f of projectFiles) {
+      const guess = `${defaultRoot}\\${f.filename}`;
+      let exists = false;
+      try {
+        exists = Boolean((await window.ultronAPI.fileExists(guess)).exists);
+      } catch (err) {
+        exists = false;
+      }
+      let changed = true;
+      if (exists && window.ultronAPI.readFile) {
+        try {
+          const r = await window.ultronAPI.readFile(guess);
+          if (r && r.success) changed = String(r.data || '') !== String(f.content || '');
+        } catch (err) { changed = true; }
+      }
+      resolved.push({ ...f, path: guess, exists, changed });
+    }
+    const missing = resolved.filter(f => !f.exists);
+    const updated = resolved.filter(f => f.exists && f.changed);
+    if (missing.length || updated.length) {
+      renderProjectCreationCard(contentElement, missing.concat(updated), { updateOnly: missing.length === 0 && updated.length > 0 });
+      return;
+    }
+    const row = document.createElement('div');
+    row.className = 'created-file-actions-row';
+    resolved.slice(0, 3).forEach(f => {
+      row.appendChild(buildOpenFileButton(f.filename, f.path));
+      row.appendChild(buildShowFolderButton(f.path));
+    });
+    const htmlFile = resolved.find(f => /\.html?$/i.test(f.filename));
+    if (htmlFile) row.appendChild(buildOpenInBrowserButton(htmlFile.path));
+    contentElement.appendChild(row);
+    return;
+  }
+
+  const createdFiles = extractCreatedFilesFromText(fullText);
+  if (!createdFiles || !createdFiles.length) return;
+
+  // Filter out system/framework files
+  const relevantFiles = createdFiles.filter(f => !/^(index\.js|package\.json|node_modules|tsconfig\.json|react\.js|vue\.js)$/i.test(f.filename));
+  if (!relevantFiles.length) return;
+
+  const row = document.createElement('div');
+  row.className = 'created-file-actions-row';
+
+  relevantFiles.slice(0, 3).forEach(fileInfo => {
+    const targetPath = fileInfo.fullPath || fileInfo.filename;
+    row.appendChild(buildOpenFileButton(fileInfo.filename, targetPath, fullText));
+    row.appendChild(buildShowFolderButton(targetPath, fullText, fileInfo.filename));
+  });
+
+  contentElement.appendChild(row);
+}
+
 function finalizeAiMessageBubble(contentElement, fullText, { autoSpeak = true } = {}) {
   if (!contentElement || !fullText || isThinkingMarkup(fullText)) return;
   const messageWrapper = contentElement.closest('.message-wrapper') || contentElement.parentNode;
   const actionsDiv = messageWrapper ? messageWrapper.querySelector('.message-actions') : null;
   if (actionsDiv) wireMessageActionButtons(actionsDiv, fullText);
+  renderCreatedFileActionButtons(contentElement, fullText);
   if (autoSpeak) finishStreamingAutoSpeak(fullText);
   // In text mode, pre-synthesize TTS in background so Speak button is instant
   if (!isVoiceChatModeEnabled()) {
@@ -1540,6 +2280,8 @@ function renderChatMessage(sender, text, isAi = false, options = {}) {
   const content = document.createElement('div');
   content.className = 'message-content';
 
+  renderMessageContent(content, text);
+
   if (!isAi && options.attachments && Array.isArray(options.attachments) && options.attachments.length > 0) {
     const attachContainer = document.createElement('div');
     attachContainer.className = 'user-message-attachments';
@@ -1564,16 +2306,15 @@ function renderChatMessage(sender, text, isAi = false, options = {}) {
         const sizeStr = att.size ? `${(att.size / 1024).toFixed(1)} KB` : '';
         filePill.innerHTML = `
           <span class="${badgeClass}">${ext}</span>
-          <span class="file-name" title="${att.name}">${att.name}</span>
+          <span class="file-name" title="${escapeHtml(att.name)}">${escapeHtml(att.name)}</span>
           ${sizeStr ? `<span class="file-size">${sizeStr}</span>` : ''}
         `;
         attachContainer.appendChild(filePill);
       }
     });
-    content.appendChild(attachContainer);
+    content.insertBefore(attachContainer, content.firstChild);
+    trackSidebarUploads(options.attachments, options.timestamp);
   }
-
-  renderMessageContent(content, text);
 
   if (isAi) {
     const avatar = document.createElement('div');
@@ -1626,7 +2367,7 @@ function renderChatMessage(sender, text, isAi = false, options = {}) {
         formatCodeBlocks(content);
         wrapMarkdownTables(content);
         if (window.UltronCanvas && typeof window.UltronCanvas.enhanceMessageCodeBlocks === 'function') {
-          window.UltronCanvas.enhanceMessageCodeBlocks(content);
+          window.UltronCanvas.enhanceMessageCodeBlocks(content, text);
         }
       }, 0);
     }
@@ -1689,7 +2430,7 @@ function renderChatMessage(sender, text, isAi = false, options = {}) {
   if (isAi) {
     markAiContentVoicePending(content);
     if (window.UltronCanvas && typeof window.UltronCanvas.enhanceMessageCodeBlocks === 'function') {
-      window.UltronCanvas.enhanceMessageCodeBlocks(content);
+      window.UltronCanvas.enhanceMessageCodeBlocks(content, text);
     }
   }
   return content;
@@ -2344,6 +3085,392 @@ function renderUndoActionCard() {
   return `<div class="agent-undo-card"><button type="button" class="error-fix-btn" data-fix-action="undo-last">Undo last file change</button></div>`;
 }
 
+// ---------------------------------------------------------------
+// File source cards + document intake picker (Phase 6)
+// ---------------------------------------------------------------
+function renderFileSourceCard(filePath, kind, snippet) {
+  const safePath = String(filePath || '');
+  const name = safePath.split(/[\\/]/).pop() || safePath;
+  const iconMap = { resume: '📄', cv: '📄', pdf: '📕', image: '🖼️', document: '📄', folder: '📁', file: '📄' };
+  const icon = iconMap[kind] || '📄';
+  const lines = String(snippet || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).slice(0, 3).join('\n');
+  const snippetHtml = lines ? `<pre class="source-card-snippet">${escapeHtml(lines)}</pre>` : '';
+  const revealBtn = `<button type="button" class="session-item-btn source-card-btn" data-action="reveal" data-path="${escapeHtml(safePath)}">Show in Folder</button>`;
+  return `<div class="agent-source-card">
+    <div class="source-card-head">
+      <span class="source-card-icon">${icon}</span>
+      <div class="source-card-meta">
+        <div class="source-card-name">${escapeHtml(name)}</div>
+        <div class="source-card-path">${escapeHtml(safePath)}</div>
+      </div>
+    </div>
+    ${snippetHtml}
+    <div class="source-card-actions">
+      <button type="button" class="session-item-btn source-card-btn" data-action="open" data-path="${escapeHtml(safePath)}">Open</button>
+      ${revealBtn}
+    </div>
+  </div>`;
+}
+
+// Detect "analyze my resume"-style requests with no concrete file reference
+function promptNeedsDocumentIntake(text) {
+  const raw = String(text || '');
+  const p = raw.toLowerCase();
+  if (!p) return false;
+  if (/[a-z]:\\[^\s]+/i.test(raw)) return false; // explicit path already given
+  const wantsAnalysis = /\b(analy[sz]e|review|read|summarize|summari[sz]e|check|look\s+at|go\s+through|proofread|evaluate|improve)\b/.test(p);
+  const mentionsDoc = /\b(resume|cv|cover\s+letter|document|docx|pdf|file|paper|contract|report)\b/.test(p);
+  return wantsAnalysis && mentionsDoc;
+}
+
+function renderDocumentIntakeCard(originalPrompt) {
+  return `<div class="agent-intake-card" data-intake-prompt="${escapeHtml(originalPrompt || '')}">
+    <div class="intake-title">Which file should I use?</div>
+    <div class="intake-sub">No file is attached and I couldn't find one to reference. Pick one:</div>
+    <div class="intake-actions">
+      <button type="button" class="intake-btn" data-intake="attach">📎 Attach a file</button>
+      <button type="button" class="intake-btn" data-intake="recent">🗂️ Pick from recent Documents</button>
+      <button type="button" class="intake-btn" data-intake="path">⌨️ Type a path</button>
+    </div>
+    <div class="intake-recent-list hidden"></div>
+    <div class="intake-path-row hidden">
+      <input type="text" class="intake-path-input" placeholder="C:\\Users\\you\\Documents\\resume.pdf">
+      <button type="button" class="intake-btn intake-path-ok">Use this file</button>
+    </div>
+  </div>`;
+}
+
+let _pendingIntakePrompt = '';
+
+async function attachDocumentByPath(filePath, resumePrompt) {
+  const api = window.ultronAPI || {};
+  const readRes = api.readFile ? await api.readFile(filePath).catch(() => null) : null;
+  const name = String(filePath).split(/[\\/]/).pop() || filePath;
+  attachedFiles.push({
+    file: null,
+    name,
+    size: readRes && readRes.content ? String(readRes.content).length : 0,
+    type: 'text/plain',
+    isImage: false,
+    textContent: readRes && readRes.success ? String(readRes.content).slice(0, 12000) : '',
+    dataUrl: ''
+  });
+  if (typeof renderAttachmentPreviews === 'function') renderAttachmentPreviews();
+  if (window.UltronAgentMemory && window.UltronAgentMemory.registerArtifact) {
+    const kind = /\b(resume|cv)\b/i.test(name) ? 'resume' : (/\.pdf$/i.test(name) ? 'pdf' : 'document');
+    window.UltronAgentMemory.registerArtifact(kind, filePath, { source: 'INTAKE_PICKER' });
+  }
+  if (resumePrompt) submitPrompt(resumePrompt);
+}
+
+// Delegated handlers for the document intake picker cards
+(function initDocumentIntakeHandlers() {
+  document.addEventListener('click', async (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-intake]') : null;
+    if (!btn) return;
+    const card = btn.closest('.agent-intake-card');
+    if (!card) return;
+    const resumePrompt = card.dataset.intakePrompt || '';
+    const mode = btn.dataset.intake;
+    if (mode === 'attach') {
+      _pendingIntakePrompt = resumePrompt;
+      const fileInput = document.getElementById('hidden-file-input');
+      if (fileInput) fileInput.click();
+    } else if (mode === 'recent') {
+      const listEl = card.querySelector('.intake-recent-list');
+      if (!listEl) return;
+      listEl.classList.remove('hidden');
+      listEl.innerHTML = '<div class="intake-recent-loading">Scanning Documents + Desktop…</div>';
+      const res = window.ultronAPI && window.ultronAPI.listRecentDocuments ? await window.ultronAPI.listRecentDocuments().catch(() => null) : null;
+      const files = (res && res.files) || [];
+      if (!files.length) {
+        listEl.innerHTML = '<div class="intake-recent-loading">No recent documents found — use “Attach a file” or type a path.</div>';
+        return;
+      }
+      listEl.innerHTML = files.map(f => `<button type="button" class="intake-recent-item" data-intake-file="${escapeHtml(f.path)}">📄 ${escapeHtml(f.name)}<span class="intake-recent-path">${escapeHtml(f.path)}</span></button>`).join('');
+    } else if (mode === 'path') {
+      const row = card.querySelector('.intake-path-row');
+      if (row) {
+        row.classList.remove('hidden');
+        const inp = row.querySelector('.intake-path-input');
+        if (inp) inp.focus();
+      }
+    }
+  });
+
+  document.addEventListener('click', async (e) => {
+    const target = e.target;
+    if (!target || !target.closest) return;
+    const recentItem = target.closest('[data-intake-file]');
+    if (recentItem) {
+      const card = recentItem.closest('.agent-intake-card');
+      attachDocumentByPath(recentItem.dataset.intakeFile, card ? card.dataset.intakePrompt || '' : '');
+      return;
+    }
+    const pathOk = target.closest('.intake-path-ok');
+    if (pathOk) {
+      const card = pathOk.closest('.agent-intake-card');
+      const inp = card ? card.querySelector('.intake-path-input') : null;
+      const typed = inp ? inp.value.trim() : '';
+      if (!typed) return;
+      const exists = window.ultronAPI && window.ultronAPI.fileExists ? await window.ultronAPI.fileExists(typed).catch(() => false) : true;
+      if (!exists) {
+        if (inp) inp.placeholder = 'File not found — enter a valid path';
+        return;
+      }
+      attachDocumentByPath(typed, card ? card.dataset.intakePrompt || '' : '');
+    }
+  });
+})();
+
+// ---------------------------------------------------------------
+// Right sidebar: System | Session tabs + live session panel
+// (artifacts created/written/opened, sources read/cited, task plan)
+// ---------------------------------------------------------------
+let _sidebarTasks = [];
+let _sidebarUploads = [];
+
+function switchSidebarTab(tab) {
+  const systemPane = document.querySelector('.analytics-sidebar-body');
+  const sessionPane = document.getElementById('sidebar-session-pane');
+  const tabSystem = document.getElementById('btn-sidebar-tab-system');
+  const tabSession = document.getElementById('btn-sidebar-tab-session');
+  const showSession = tab === 'session';
+  if (systemPane) systemPane.classList.toggle('hidden', showSession);
+  if (sessionPane) sessionPane.classList.toggle('hidden', !showSession);
+  if (tabSystem) {
+    tabSystem.classList.toggle('active', !showSession);
+    tabSystem.setAttribute('aria-selected', String(!showSession));
+  }
+  if (tabSession) {
+    tabSession.classList.toggle('active', showSession);
+    tabSession.setAttribute('aria-selected', String(showSession));
+  }
+  if (showSession) renderSessionPanel();
+}
+
+function trackSidebarUploads(attachments, timestamp) {
+  if (!Array.isArray(attachments) || !attachments.length) return;
+  attachments.forEach(att => {
+    _sidebarUploads.push({
+      name: att.name || (att.isImage ? 'Image' : 'File'),
+      isImage: Boolean(att.isImage),
+      at: Number(timestamp) || Date.now()
+    });
+  });
+  if (_sidebarUploads.length > 60) _sidebarUploads = _sidebarUploads.slice(-60);
+  if (typeof renderSessionPanel === 'function') renderSessionPanel();
+}
+
+function formatSideWhen(ts) {
+  const d = new Date(ts || Date.now());
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay ? `Today ${time}` : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+}
+
+function sideExtIcon(filename) {
+  const ext = (String(filename || '').includes('.') ? String(filename).split('.').pop() : '').toLowerCase();
+  const label = (ext || 'file').toUpperCase().slice(0, 4);
+  return `<span class="side-ext side-ext-${escapeHtml(ext || 'bin')}">${escapeHtml(label)}</span>`;
+}
+
+const SIDE_UPLOAD_ICON = '<span class="side-ext side-ext-img"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></span>';
+const SIDE_FILE_ICON = '<span class="side-ext side-ext-bin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></span>';
+const SIDE_WEB_ICON = '<span class="side-ext side-ext-web"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></span>';
+
+function sideRowHtml({ icon, name, sub, path = '', overflow = false }) {
+  const openAttr = path ? ` data-side-open="${escapeHtml(path)}"` : '';
+  return `
+    <div class="side-row${overflow ? ' side-row-overflow' : ''}"${openAttr} title="${escapeHtml(path || name || '')}">
+      ${icon}
+      <span class="side-row-name">${escapeHtml(name || path || '')}</span>
+      ${sub ? `<span class="side-row-sub">${escapeHtml(sub)}</span>` : ''}
+    </div>`;
+}
+
+function sideSectionHtml(title, items, buildRow, { collapsed = false } = {}) {
+  if (!items || !items.length) return '';
+  const rows = items.map((item, i) => buildRow(item, i >= 5)).join('');
+  const seeAll = items.length > 5
+    ? `<button type="button" class="side-see-all" data-side-count="${items.length}">See all (${items.length})</button>`
+    : '';
+  return `
+    <div class="side-section${collapsed ? ' collapsed' : ''}">
+      <div class="side-section-head">
+        <span class="side-section-title">${escapeHtml(title)}</span>
+        <span class="side-count-badge">${items.length}</span>
+        <svg class="side-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+      </div>
+      <div class="side-section-body">${rows}${seeAll}</div>
+    </div>`;
+}
+
+function renderSessionPanel() {
+  const content = document.getElementById('session-panel-content');
+  const empty = document.getElementById('session-panel-empty');
+  if (!content) return;
+
+  const memory = window.UltronAgentMemory;
+  const artifacts = memory && typeof memory.getSessionArtifacts === 'function'
+    ? memory.getSessionArtifacts(currentSessionId)
+    : [];
+  const tasks = _sidebarTasks;
+
+  const readSet = new Set(['READ_FILE', 'LIST_DIR']);
+  const filesChanged = artifacts.filter(a => a.kind === 'file' && !readSet.has(a.source));
+  const otherArtifacts = artifacts.filter(a => !(a.kind === 'file' && !readSet.has(a.source)));
+  const uploads = _sidebarUploads.slice().reverse();
+
+  const hasAny = filesChanged.length || otherArtifacts.length || uploads.length || tasks.length;
+  if (empty) empty.classList.toggle('hidden', Boolean(hasAny));
+  if (!hasAny) { content.innerHTML = ''; return; }
+
+  const parentOf = (p) => {
+    const parts = String(p || '').replace(/[\\/]+$/, '').split(/[\\/]/);
+    return parts.length > 1 ? parts[parts.length - 2] : '';
+  };
+  const baseName = (a) => a.name || String(a.path || '').split(/[\\/]/).pop();
+
+  const sections = [];
+
+  sections.push(sideSectionHtml('Files Changed', filesChanged, (a, overflow) => sideRowHtml({
+    icon: sideExtIcon(a.name || a.path),
+    name: baseName(a),
+    sub: parentOf(a.path),
+    path: a.path,
+    overflow
+  })));
+
+  sections.push(sideSectionHtml('Artifacts', otherArtifacts, (a, overflow) => sideRowHtml({
+    icon: a.kind === 'web' ? SIDE_WEB_ICON : sideExtIcon(a.name || a.path),
+    name: baseName(a),
+    sub: readSet.has(a.source) ? 'read' : (a.kind === 'web' ? 'web' : ''),
+    path: a.path,
+    overflow
+  })));
+
+  sections.push(sideSectionHtml('Uploads', uploads, (u, overflow) => sideRowHtml({
+    icon: u.isImage ? SIDE_UPLOAD_ICON : SIDE_FILE_ICON,
+    name: u.name,
+    sub: formatSideWhen(u.at),
+    overflow
+  })));
+
+  sections.push(sideSectionHtml('Tasks', tasks, (task, overflow) => {
+    const stateClass = task.status === 'failed' ? ' session-task-fail' : (task.completed ? ' session-task-done' : '');
+    const mark = task.status === 'failed' ? '&#10005;' : (task.completed ? '&#10003;' : '&#9675;');
+    return `<div class="session-task side-task${stateClass}${overflow ? ' side-row-overflow' : ''}"><span class="session-task-mark">${mark}</span><span>${escapeHtml(task.text || task.title || '')}</span></div>`;
+  }));
+
+  content.innerHTML = sections.filter(Boolean).join('');
+}
+
+// Delegated handlers: sidebar tabs + session item actions
+document.addEventListener('click', async (e) => {
+  const target = e.target;
+  if (!target || !target.closest) return;
+  const itemBtn = target.closest('.session-item-btn');
+  if (itemBtn) {
+    const action = itemBtn.dataset.action;
+    const pathVal = itemBtn.dataset.path;
+    if (!pathVal || !window.ultronAPI) return;
+    if (action === 'open' && window.ultronAPI.openFileOrPath) {
+      await window.ultronAPI.openFileOrPath(pathVal).catch(() => null);
+    } else if (action === 'reveal' && window.ultronAPI.showItemInFolder) {
+      await window.ultronAPI.showItemInFolder(pathVal).catch(() => null);
+    }
+    return;
+  }
+});
+
+(function initSidebarTabsOnce() {
+  const tabSystem = document.getElementById('btn-sidebar-tab-system');
+  const tabSession = document.getElementById('btn-sidebar-tab-session');
+  if (tabSystem) tabSystem.addEventListener('click', () => switchSidebarTab('system'));
+  if (tabSession) tabSession.addEventListener('click', () => switchSidebarTab('session'));
+  window.addEventListener('ultron:artifacts-updated', () => {
+    renderSessionPanel();
+    queueRagArtifactIndexing();
+  });
+})();
+
+// Right sidebar section list interactions: collapse, see-all, open file row.
+document.addEventListener('click', async (e) => {
+  const target = e.target;
+  if (!target || !target.closest) return;
+  const head = target.closest('.side-section-head');
+  if (head) {
+    const section = head.closest('.side-section');
+    if (section) section.classList.toggle('collapsed');
+    return;
+  }
+  const seeAll = target.closest('.side-see-all');
+  if (seeAll) {
+    const section = seeAll.closest('.side-section');
+    if (section) {
+      const expanded = section.classList.toggle('expanded');
+      seeAll.textContent = expanded ? 'Show less' : `See all (${seeAll.dataset.sideCount || ''})`;
+    }
+    return;
+  }
+  const row = target.closest('.side-row[data-side-open]');
+  if (row && row.dataset.sideOpen && window.ultronAPI && window.ultronAPI.openFileOrPath) {
+    await window.ultronAPI.openFileOrPath(row.dataset.sideOpen).catch(() => null);
+  }
+});
+
+// ---- Auto-learn Knowledge Base (implicit-consent RAG) ----
+// Auto-learn is ON by default and needs zero setup: Ultron indexes only what
+// the user already brought into the app (opened projects, files the agent
+// writes/reads) and recalls relevant excerpts automatically during chat.
+function isRagAutoEnabled() {
+  try { return localStorage.getItem('ultron-rag-auto') !== '0'; } catch (e) { return true; }
+}
+
+const _ragFileIndexTimers = new Map();
+function queueRagFileIndex(filePath) {
+  if (!filePath || !isRagAutoEnabled()) return;
+  if (!window.ultronAPI || !window.ultronAPI.ragIndexFile) return;
+  if (_ragFileIndexTimers.has(filePath)) clearTimeout(_ragFileIndexTimers.get(filePath));
+  _ragFileIndexTimers.set(filePath, setTimeout(() => {
+    _ragFileIndexTimers.delete(filePath);
+    window.ultronAPI.ragIndexFile(filePath).catch(() => {});
+  }, 2500));
+}
+
+// Index files the agent touched this session (artifacts), debounced per file.
+function queueRagArtifactIndexing() {
+  if (!isRagAutoEnabled()) return;
+  try {
+    const memory = window.UltronAgentMemory;
+    const artifacts = memory && typeof memory.getSessionArtifacts === 'function'
+      ? memory.getSessionArtifacts(currentSessionId)
+      : [];
+    (artifacts || []).slice(-10).forEach((a) => {
+      if (a && a.kind === 'file' && a.path) queueRagFileIndex(a.path);
+    });
+  } catch (e) {}
+}
+
+// Pull the most relevant indexed excerpts for the current user message and
+// inject them as private local context. Bounded + timeout-guarded so chat
+// never stalls; returns '' when nothing is relevant.
+async function getRagKnowledgeSnippet(query) {
+  if (!isRagAutoEnabled()) return '';
+  if (!window.ultronAPI || !window.ultronAPI.ragSearch) return '';
+  if (!query || query.trim().length < 12) return '';
+  try {
+    const res = await Promise.race([
+      window.ultronAPI.ragSearch({ query, topK: 3, minScore: 0.1 }),
+      new Promise((resolve) => setTimeout(() => resolve(null), 900))
+    ]);
+    if (!res || !res.success || !Array.isArray(res.results) || res.results.length === 0) return '';
+    const lines = res.results.map((r, i) => `[${i + 1}] ${r.fileName}: ${String(r.snippet || r.text || '').slice(0, 400)}`);
+    return `\n\nPERSONAL KNOWLEDGE BASE (private excerpts from files indexed on this PC — use when relevant and mention the source file naturally):\n${lines.join('\n')}`;
+  } catch (e) { return ''; }
+}
+
 function getLearnedMemorySnippet() {
   let snippet = '';
   if (window.UltronAgentMemory && typeof window.UltronAgentMemory.getTaskMemorySnippet === 'function') {
@@ -2358,6 +3485,12 @@ function getLearnedMemorySnippet() {
     const appStats = window.UltronAgentMemory.getAppStatsSnippet(5);
     if (appStats) {
       snippet += `\n\nAPP RELIABILITY (prefer apps that launch successfully on this PC):\n${appStats}`;
+    }
+  }
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.getArtifactsSnippet === 'function') {
+    const artifacts = window.UltronAgentMemory.getArtifactsSnippet(currentSessionId, 8);
+    if (artifacts) {
+      snippet += `\n\nSESSION ARTIFACTS (files/pages already created, opened or read in this chat — reference these exact paths, never recreate them):\n${artifacts}`;
     }
   }
   return snippet;
@@ -2439,6 +3572,8 @@ function initTraceEmptyState() {
 
 // Checklist rendering manager
 function renderChecklist(tasks) {
+  _sidebarTasks = Array.isArray(tasks) ? tasks : [];
+  if (typeof renderSessionPanel === 'function') renderSessionPanel();
   if (!taskChecklistContainer) return;
   taskChecklistContainer.innerHTML = '';
 
@@ -2783,9 +3918,9 @@ function shouldSkipConversationHistory(prompt) {
 
 function extractContentTopic(prompt) {
   const p = String(prompt || '');
-  const quoted = p.match(/(?:topic|about|on)\s+["']([^"']+)["']/i);
+  const quoted = p.match(/\b(?:topic|about|on)\b\s+["']([^"']+)["']/i);
   if (quoted) return quoted[1].trim().toLowerCase();
-  const plain = p.match(/(?:topic|about|on)\s+([a-z0-9][a-z0-9\s-]{1,40})/i);
+  const plain = p.match(/\b(?:topic|about|on)\b\s+([a-z0-9][a-z0-9\s-]{1,40})/i);
   return plain ? plain[1].trim().toLowerCase() : '';
 }
 
@@ -2814,11 +3949,14 @@ function isIrrelevantModelResponse(text, userPrompt) {
     if (wantsPoem && wantsEssay === false && /\bessay\b/i.test(lower) && !/\bpoem\b/i.test(lower)) return true;
     if (wantsEssay && /\bpoem:/i.test(lower) && !/\bessay\b/i.test(lower)) return true;
 
-    const topic = extractContentTopic(userPrompt);
-    if (topic) {
-      const topicWord = topic.split(/\s+/).find(w => w.length > 3) || topic.split(/\s+/)[0];
-      if (topicWord && topicWord.length > 2 && !lower.includes(topicWord)) {
-        return true;
+    // Only apply strict single-word topic check for explicit essay/article prompts
+    if (wantsEssay || /\b(article|story|poem)\b/i.test(promptLower)) {
+      const topic = extractContentTopic(userPrompt);
+      if (topic) {
+        const topicWord = topic.split(/\s+/).find(w => w.length > 3) || topic.split(/\s+/)[0];
+        if (topicWord && topicWord.length > 2 && !lower.includes(topicWord)) {
+          return true;
+        }
       }
     }
   }
@@ -2845,10 +3983,37 @@ For current events, live prices, today's news, or who holds an office right now,
 function buildContentGenerationSystemPrompt(userPrompt) {
   const topic = extractContentTopic(userPrompt);
   const topicLine = topic ? `The topic is: ${topic}.` : '';
-  return `You are Ultron, a skilled writing assistant. Write exactly what the user requested — only the content itself.
+  const isDocumentAnalysis = /\b(attached document|resume|cv|document|pdf|paper|report)\b/i.test(userPrompt) && /\b(analyze|analyse|summary|summarize|review|extract|skills|feedback|critique|evaluate|questions?|about|read|tell me)\b/i.test(userPrompt);
+
+  if (isDocumentAnalysis) {
+    return `You are Ultron, an expert document analyst, technical reviewer, and professional career advisor.
+Analyze the user's provided document thoroughly, accurately, and objectively.
+Rules:
+- Read and reference the provided document contents carefully.
+- Provide a clear, well-structured, and insightful breakdown (Executive Summary, Key Highlights/Strengths, Core Competencies/Skills, Detailed Analysis, Actionable Suggestions).
+- Be specific and quote or cite exact details from the document.
+- Format your response with clear markdown headings, bullet points, and tables where appropriate.
+- Always provide a direct, comprehensive, and helpful answer.`;
+  }
+
+  const isWebOrCode = /\b(landing\s*page|website|webpage|page|html|css|javascript|code|script|component|app|frontend|ui|portfolio|dashboard|template)\b/i.test(userPrompt);
+
+  if (isWebOrCode) {
+    return `You are Ultron, an expert web developer, UI designer, and software engineer.
+Provide complete, production-ready, beautiful, and fully functional code and content matching the user's exact request.
 ${topicLine}
 Rules:
-- Output ONLY the essay, poem, story, or other writing they asked for.
+- Write clean, modern, accessible, and responsive code (HTML5, CSS, and modern JavaScript).
+- Include realistic, attractive design, typography, colors, and layout sections (Hero, Features/Services, Call-to-Action, Testimonials/Gallery, Contact/Booking, Footer).
+- Format all code with proper markdown syntax highlighting blocks.
+- Provide the full, complete code without omitting sections or using lazy placeholders.
+- Speak directly and provide the solution immediately.`;
+  }
+
+  return `You are Ultron, a skilled writing assistant. Write exactly what the user requested — complete, high-quality, and well-structured content.
+${topicLine}
+Rules:
+- Output the complete essay, article, story, guide, or writing requested.
 - Do NOT mention system prompts, context, guidelines, or meta instructions.
 - Do NOT ask the user for feedback or examples.
 - Stay on topic and match the requested format.`;
@@ -2983,7 +4148,7 @@ function sanitizeResponseText(text, userPrompt = '', options = {}) {
   cleaned = cleaned.replace(/^(?:however,? )?i can provide (?:some )?general guidelines for[\s\S]*?(?=\n\n[A-Za-z]|$)/gi, '').trim();
   cleaned = cleaned.replace(/(?:\n|^)_Model note:[\s\S]*?_\s*$/gi, '').trim();
   cleaned = cleaned.replace(/(?:\n|^)Model note:[\s\S]*$/gi, '').trim();
-  cleaned = cleaned.replace(/^in conclusion, here['']s an example of how to avoid[\s\S]*?(?=\n\nPoem:|\n\n[A-Z]|$)/gi, '').trim();
+  cleaned = cleaned.replace(/^in conclusion, here['’]s an example of how to avoid[\s\S]*?(?=\n\nPoem:|\n\n[A-Z]|$)/gi, '').trim();
   cleaned = cleaned.replace(/^thanks for the feedback\.[\s\S]*?(?=\n\n|$)/gi, '').trim();
 
   // 5. Replace template tags
@@ -3093,6 +4258,43 @@ function fallbackSearchQueryFromPrompt(prompt) {
   return cleaned || query;
 }
 
+/** Detects text that reads like an assistant ANSWER rather than a search
+ *  query — conversational preambles ("Sure, I can help…", "Here are…"),
+ *  assistant-voice delivery phrases, or full numbered/markdown answer bodies.
+ *  Weak models sometimes paste their drafted answer into the SEARCH tool's
+ *  query field; searching for an answer yields 0 results. */
+function looksLikeAnswerText(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  // Conversational assistant preambles ("Sure, I can…", "Yes, here is…").
+  if (/^(sure|yes|yeah|yep|certainly|absolutely|okay|ok|great|of course|no problem)\b[\s,!]+(i|we|it|that|here|let|you|thanks|thank|as|this|there)\b/i.test(t)) return true;
+  if (/^(here('s| is| are)|below is|below are|the following|following are|here you go)\b/i.test(t)) return true;
+  if (/^(i|we)('ll| will| can| would|'d)?\s+(help|provide|give|list|explain|summarize|show|walk|glad|happy)\b/i.test(t)) return true;
+  if (/^(as an ai|thank you for|you('?re| are) welcome)\b/i.test(t)) return true;
+  // Assistant-voice delivery phrases anywhere in the text.
+  if (/\b(hope this helps|feel free to (ask|let)|let me know if|i can help you|here are some|here's (the|a|some)|as you can see)\b/i.test(t)) return true;
+  // Full answer bodies: numbered/bulleted lists or several sentences.
+  if (/\n\s*(\d+[.)]|[•*-])\s+\S/.test(t) && t.length > 120) return true;
+  const sentences = t.split(/[.!?\n]+/).filter(s => s.trim().length > 3);
+  if (sentences.length >= 3 && t.length > 140) return true;
+  return false;
+}
+
+/** Production-grade guard for SEARCH tool targets: an answer-shaped target is
+ *  never used as the web query — derive the query from the user's original
+ *  question instead. */
+function resolveSearchQuerySource(target, userPrompt) {
+  const raw = String(target || '').trim();
+  if (!raw) return { query: userPrompt, rewritten: false };
+  if (looksLikeAnswerText(raw)) {
+    if (typeof logTrace === 'function') {
+      logTrace(`SEARCH target looked like an answer ("${raw.substring(0, 60)}…") — deriving the query from the user's question instead.`, 'system');
+    }
+    return { query: userPrompt, rewritten: true };
+  }
+  return { query: raw, rewritten: false };
+}
+
 async function buildWebSearchQuery(userPrompt) {
   let fallback = fallbackSearchQueryFromPrompt(userPrompt);
   const sysEnv = await getSystemContext();
@@ -3121,7 +4323,7 @@ async function buildWebSearchQuery(userPrompt) {
 
   const isMetaGarbage = (str) => /\b(based on|user prompt|we can generate|search query|keywords:|live information|snippet available|ai prompt|docsbot|prompt generation)\b/i.test(str);
 
-  if (fallback && fallback.split(' ').length <= 12 && !isMetaGarbage(fallback)) {
+  if (fallback && fallback.split(' ').length <= 12 && !isMetaGarbage(fallback) && !looksLikeAnswerText(fallback)) {
     return finalizeQuery(fallback);
   }
 
@@ -3130,6 +4332,7 @@ async function buildWebSearchQuery(userPrompt) {
     : '';
   const queryPlannerSystemPrompt = `You are a Search Engine Query Keyword Generator.
 Convert the user prompt into 2 to 5 search keywords.
+If the input reads like an assistant answer (starts with "Sure", "Here are", numbered steps, etc.) instead of a question, ignore the assistant voice and output only keywords for the underlying topic.
 ${locationHint ? `User location context: ${locationHint} — include it ONLY if the query is local (weather, restaurants, news, stores, events).` : ''}
 ${shoppingHint}
 Output ONLY keywords. No sentences.`;
@@ -3154,6 +4357,124 @@ Output ONLY keywords. No sentences.`;
   }
 
   return finalizeQuery(fallback);
+}
+
+// ---------------------------------------------------------------
+// Multi-query fan-out, ranking and citations (Phase 7)
+// ---------------------------------------------------------------
+async function buildFanOutQueries(userPrompt, primaryQuery) {
+  const queries = [String(primaryQuery || '').trim()].filter(Boolean);
+  const p = String(userPrompt || '');
+  const pl = p.toLowerCase();
+  const multiPart = /\b(and|also|as well as|plus|then)\b/i.test(pl) && p.split(/\s+/).length >= 8;
+  const comparison = /\b(vs|versus|compare|difference between)\b/i.test(pl);
+  const doubleWh = (pl.match(/\b(what|who|when|where|why|how)\b/gi) || []).length >= 2;
+  if (!multiPart && !comparison && !doubleWh) return queries.slice(0, 1);
+  try {
+    const split = await queryOfflineLLM(
+      `Split this question into at most 3 focused sub-search queries, one per line, no numbering:\n"${p}"`,
+      [], 'search', 'You split broad questions into focused search queries. Output only the queries, one per line, max 3 lines, no commentary.'
+    );
+    const lines = String(split || '').split(/\n+/)
+      .map(s => s.replace(/^[\s\-*\d.)]+/, '').replace(/^["']|["']$/g, '').trim())
+      .filter(s => s && s.length >= 4 && s.length <= 120)
+      .slice(0, 3);
+    for (const line of lines) {
+      if (!queries.some(q => q.toLowerCase() === line.toLowerCase())) queries.push(line);
+    }
+  } catch (err) {
+    logTrace(`Fan-out query split failed: ${err.message}`, 'system');
+  }
+  return [...new Set(queries)].slice(0, 3);
+}
+
+// Keyword-overlap + recency ranking across merged fan-out results
+function rankSearchResults(results, userPrompt) {
+  const stop = new Set(['the', 'and', 'for', 'with', 'what', 'when', 'where', 'who', 'why', 'how', 'please', 'about', 'that', 'this', 'from', 'your']);
+  const promptTokens = String(userPrompt || '').toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length >= 3 && !stop.has(t));
+  const currentYear = new Date().getFullYear();
+  return (Array.isArray(results) ? results : []).map(item => {
+    const title = String(item.title || '').toLowerCase();
+    const hay = `${title} ${item.snippet || ''}`;
+    let score = 0;
+    for (const token of promptTokens) {
+      if (hay.includes(token)) score += title.includes(token) ? 3 : 1;
+    }
+    if (hay.includes(String(currentYear))) score += 4;
+    else if (hay.includes(String(currentYear - 1))) score += 2;
+    if (/\b(today|yesterday|this week|latest|just|hours ago|minutes ago)\b/.test(hay)) score += 3;
+    if (String(item.snippet || '').length < 40) score -= 2;
+    return { ...item, rankScore: score };
+  }).sort((a, b) => b.rankScore - a.rankScore);
+}
+
+async function runFanOutWebSearch(userPrompt, primaryQuery, activitySteps, onStatus) {
+  const queries = await buildFanOutQueries(userPrompt, primaryQuery);
+  const merged = [];
+  const seenUrls = new Set();
+  for (let i = 0; i < queries.length; i++) {
+    const q = queries[i];
+    if (typeof onStatus === 'function') {
+      onStatus(queries.length > 1 ? `Searching (${i + 1}/${queries.length}): "${String(q).slice(0, 40)}"` : q);
+    }
+    if (Array.isArray(activitySteps)) {
+      activitySteps.push({ type: 'SEARCH', label: `Web search: ${String(q).slice(0, 48)}`, ts: Date.now() });
+    }
+    try {
+      const raw = await window.ultronAPI.searchWeb(q);
+      const payload = normalizeSearchPayload(raw, q);
+      for (const item of payload.results || []) {
+        const key = String(item.url || '').replace(/[?#].*$/, '').replace(/\/$/, '').toLowerCase();
+        if (!key || seenUrls.has(key)) continue;
+        seenUrls.add(key);
+        merged.push({ ...item, matchedQuery: q });
+      }
+    } catch (err) {
+      logTrace(`Fan-out search failed for "${q}": ${err.message}`, 'system');
+    }
+  }
+
+  const ranked = rankSearchResults(merged, userPrompt);
+  const searchResult = {
+    success: ranked.length > 0,
+    query: primaryQuery,
+    queries,
+    results: ranked,
+    products: [],
+    answerContext: '',
+    needsClarification: ranked.length === 0,
+    clarification: ranked.length === 0 ? `I could not find reliable web results for "${primaryQuery}".` : ''
+  };
+
+  // Full-page extraction of the top 3 results via the loopback scraper
+  if (window.UltronMcpTools && typeof window.UltronMcpTools.fetchPageMarkdown === 'function') {
+    for (const item of ranked.slice(0, 3)) {
+      try {
+        const domain = getSourceDomain(item);
+        if (typeof onStatus === 'function') onStatus(`Fetching ${domain}...`);
+        if (Array.isArray(activitySteps)) {
+          activitySteps.push({ type: 'WEB_FETCH', label: `Fetching ${domain}`, ts: Date.now() });
+        }
+        const md = await Promise.race([
+          Promise.resolve(window.UltronMcpTools.fetchPageMarkdown(item.url)),
+          new Promise(res => setTimeout(() => res(''), 12000))
+        ]);
+        if (md) item.pageContent = String(md).slice(0, 4000);
+      } catch (_) { /* single-page extraction is best-effort */ }
+    }
+  }
+
+  // Register top sources for the Session sidebar panel
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.registerArtifact === 'function') {
+    ranked.slice(0, 5).forEach(item => {
+      window.UltronAgentMemory.registerArtifact('web', item.url, { source: 'SEARCH', title: item.title || '' });
+    });
+  }
+
+  return searchResult;
 }
 
 function normalizeSearchPayload(payload, query) {
@@ -3580,6 +4901,7 @@ Answer using ONLY the live web information provided.${hopNote}${locationNote}${w
 CRITICAL:
 - Give RESULTS not essays. ${buildMarkdownFormattingRules()}
 - Include specific numbers (prices, temps, dates, names) when present in the data.
+- Cite sources inline: append [1], [2], etc. matching the numbered live-data sources after each key fact.
 - Speak in first person ("I found…"). No meta narration.
 - No raw URLs — sources are shown separately below.`;
 
@@ -3630,11 +4952,12 @@ function renderStackedSourcesHtml(results) {
         ${faviconUrl
           ? `<img src="${escapeHtml(faviconUrl.replace('sz=32', 'sz=64'))}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><span class="source-stack-fallback" style="display:none;">🌐</span>`
           : `<span class="source-stack-fallback">🌐</span>`}
+        <span class="source-cite-num">${index + 1}</span>
       </a>
     `;
   }).join('');
 
-  const renderSourceCard = (item) => {
+  const renderSourceCard = (item, index) => {
     const domain = getSourceDomain(item);
     const faviconUrl = getSourceFaviconUrl(domain);
     return `
@@ -3643,6 +4966,7 @@ function renderStackedSourcesHtml(results) {
           ${faviconUrl
             ? `<img class="source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" /><span class="source-favicon-fallback" style="display:none;">🌐</span>`
             : `<span class="source-favicon-fallback">🌐</span>`}
+          <span class="source-cite-num source-cite-num-inline">${index + 1}</span>
           <span class="source-domain">${escapeHtml(domain)}</span>
         </div>
         <div class="source-result-title">${escapeHtml(item.title || item.source || 'Web result')}</div>
@@ -3741,15 +5065,38 @@ function renderSearchExperience(answer, searchPayload) {
 function isContentGenerationRequest(prompt) {
   const p = String(prompt || '');
   if (isCodeOnlyGenerationRequest(p)) return true;
-  if (/\b(write|draft|compose|create|generate|give\s+me|make)\s+(me\s+)?(an?\s+)?(essay|article|story|poem|letter|email|report|summary|speech|blog|paragraph|explanation|review|analysis|outline|notes?|caption|headline)\b/i.test(p)) {
+
+  // 1. Common creation / generation phrases with optional descriptors
+  // Matches: "create me a landing page", "create a me a landing page", "write a python script", "build a modern website", "generate a react component", etc.
+  if (/\b(write|draft|compose|create|generate|give|make|build|design|code|develop)\s+(?:a\s+)?(?:me\s+)?(?:an?\s+)?(?:the\s+)?(?:\w+\s+){0,3}(essay|article|story|poem|letter|email|report|summary|speech|blog|post|paragraph|explanation|review|analysis|outline|notes?|caption|headline|bio|resume|cv|itinerary|recipe|table|guide|tutorial|documentation|pitch|proposal|ideas?|questions?|quiz|dialogue|lyrics|script|code|snippet|function|program|class|algorithm|landing\s*page|website|webpage|web\s*site|web\s*page|portfolio|homepage|home\s*page|ui|frontend|component|dashboard|mockup|wireframe|layout|template|navbar|footer|header|card|modal|form|login\s*page|signup\s*page|game|calculator|app|application)\b/i.test(p)) {
     return true;
   }
-  if (/\b(write|draft|compose)\s+me\b/i.test(p)) {
+
+  // 2. Direct web & code creation patterns ("landing page for...", "website for...", "calculator in python", "game in javascript")
+  if (/\b(landing\s*page|website|webpage|web\s*site|web\s*page|portfolio|homepage)\s+(?:for|of|named|about|with)\b/i.test(p)) {
     return true;
   }
-  if (/\b(write|draft|compose|generate)\s+(an?\s+)?(code|script|function|program|snippet|poem|essay)\b/i.test(p)) {
+
+  // 3. Phrasing like "write/create/build ... in html/css/js/python/react..."
+  if (/\b(write|create|build|make|generate|design|code)\s+(.+?)\s+in\s+(html|css|javascript|js|python|typescript|ts|react|vue|node|c\+\+|cpp|c#|java|php|ruby|go|rust|swift|kotlin|sql)\b/i.test(p)) {
     return true;
   }
+
+  // 4. "How to write / create / code / build..."
+  if (/\bhow\s+to\s+(write|create|build|code|make|develop|implement)\b/i.test(p)) {
+    return true;
+  }
+
+  // 5. "write me", "draft me", "compose me", "create me", "build me", "make me"
+  if (/\b(write|draft|compose|create|build|make|generate|design)\s+(?:a\s+)?me\b/i.test(p)) {
+    return true;
+  }
+
+  // 6. Generic code/writing generation triggers
+  if (/\b(write|draft|compose|generate)\s+(an?\s+)?(code|script|function|program|snippet|poem|essay|website|page)\b/i.test(p)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -3837,12 +5184,40 @@ function sanitizeCodeGenerationResponse(text, userPrompt = '') {
   return `\`\`\`${lang}\n${code}\n\`\`\``;
 }
 
+/** Local filesystem CRUD/exploration cues (find the largest file, list my
+ *  downloads, search a drive…). These requests must be EXECUTED with tools
+ *  (LIST_DIR / READ_FILE / EXECUTE) — never answered with manual
+ *  "open File Explorer" instructions. */
+function hasLocalFilesystemCues(prompt) {
+  const p = String(prompt || '').toLowerCase().replace(/\s+/g, ' ');
+  // How-to / command-knowledge questions stay conversational.
+  if (/\b(how (do|does|can|to)|explain|teach me|which command|what command|what is the command|steps to|tutorial)\b/.test(p)) return false;
+  // Web / software / shopping topics are not local filesystem tasks.
+  if (/\b(website|web|internet|online|software|app store|play store|cloud|buy|price|subscription|download from)\b/.test(p)) return false;
+  // Must reference files / folders / drives at all.
+  if (!/\b(files?|folders?|director(y|ies)|drives?|disks?|documents|downloads|desktop|pictures|videos|music)\b/.test(p)) return false;
+  // Must contain a verb aimed at the filesystem.
+  if (!/\b(find|locate|look for|search|show|list|read|open|scan|check|get|tell me|which|what)\b/.test(p)) return false;
+  const imperative = /\b(find|locate|look for|show|list|scan|get|tell me)\b/.test(p);
+  const superlative = /\b(largest|biggest|smallest|oldest|newest|heaviest|most recent|recent|last modified|recently (modified|created|added|downloaded)|takes? up (the )?most|most space)\b/.test(p);
+  const scope = /\bmy\s+(?:[a-z0-9._-]+\s+)?(pc|computer|machine|system|laptop|desktop|drive|drives|disk|hard ?disk|local disk|documents|downloads|pictures|videos|music|folder|directory|files?)\b/.test(p)
+    || /\b(on|in|inside|from|of|across|through)\s+(?:my|the|this)\s+(?:[a-z0-9._-]+\s+)?(pc|computer|machine|system|laptop|desktop|drive|drives|disk|hard ?disk|local disk|documents|downloads|pictures|videos|music|folder|directory)\b/.test(p)
+    || /\b[c-g]\s+drive\b/.test(p)
+    || /[a-z]:[\\/]/.test(p);
+  // "find the largest file" is inherently local; otherwise require local scope.
+  if (imperative && superlative) return true;
+  return scope;
+}
+
 /** Desktop/file/UI cues that mean the user wants tools, not a chat answer. */
 function hasDesktopActionCues(prompt) {
   const p = String(prompt || '');
-  return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|notepad|chrome|edge|browser|desktop|download|document|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(p)
-    || /\.(txt|docx?|pdf|md|js|py|ts|html)\b/i.test(p)
-    || /[A-Za-z]:\\/.test(p);
+  // Strip out attached document blocks so document contents/names don't falsely trigger desktop automation
+  const cleanPrompt = p.replace(/📄\s*\*\*Attached Document\s*\[[^\]]+\]\*\*:\s*```[\s\S]*?```/gi, '').trim();
+  return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|notepad|chrome|edge|browser|desktop|download|document|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(cleanPrompt)
+    || /\.(txt|docx?|pdf|md|js|py|ts|html)\b/i.test(cleanPrompt)
+    || /[A-Za-z]:\\/.test(cleanPrompt)
+    || hasLocalFilesystemCues(cleanPrompt);
 }
 
 /** Only UI/desktop tasks benefit from automatic screen capture. */
@@ -3887,6 +5262,8 @@ function isStaleOrUncertainResponse(text) {
 
 function shouldFallbackToWebSearch(prompt, response) {
   if (!isWebSearchEnabled()) return false;
+  // Never hijack an attached-document analysis (resume/PDF review) into a web search.
+  if (/attached document \[/i.test(String(prompt || ''))) return false;
   return isFactualOrCurrentEventsQuery(prompt) || isStaleOrUncertainResponse(response);
 }
 
@@ -3926,6 +5303,12 @@ function classifyIntent(prompt) {
     return 'conversation';
   }
 
+  // 0c. Local filesystem CRUD/exploration (find the largest file, list a drive,
+  // read a local file) — execute with tools, never answer with manual steps.
+  if (hasLocalFilesystemCues(prompt)) {
+    return 'action';
+  }
+
   // 1. Explicit Web Search Intent — require clear search signals (not bare nouns like "watch" or "movie")
   if (hasExplicitSearchIntent(prompt)) {
     return 'search';
@@ -3934,6 +5317,11 @@ function classifyIntent(prompt) {
   // 1b. Legacy keyword search only when paired with search verbs
   if (/\b(search|google|look up|find out)\b/i.test(p) && /\b(iphone|offers|movies|movie|film|trailer|latest|news|weather|trending|price|deals|ramayana)\b/i.test(p)) {
     return 'search';
+  }
+
+  // 1c. Resume/CV analysis requests stay conversational even when typed with typos
+  if (/\b(resume|cv|cover letter)\b/i.test(p) && p.length < 80) {
+    return 'conversation';
   }
 
   // 2. Explicit Host Local Time / Date / Calendar / Clock queries ONLY
@@ -3954,8 +5342,13 @@ function classifyIntent(prompt) {
     return 'conversation';
   }
 
-  // 5. Pure content generation (essays, poems, explanations) → chat, not tools
+  // 5. Pure content generation (essays, poems, websites, landing pages, code, explanations) → chat, not tools
   if (isContentGenerationRequest(prompt) && !hasDesktopActionCues(prompt)) {
+    return 'conversation';
+  }
+
+  // 5b. Document analysis requests (attached files or document QA queries) → conversation/chat
+  if ((p.includes('attached document') || /\b(analyze|analyse|summarize|summary of|review|explain|read|extract|what is in|tell me about)\b/i.test(p)) && /\b(resume|cv|pdf|document|paper|file|report|attachment)\b/i.test(p) && !hasDesktopActionCues(prompt)) {
     return 'conversation';
   }
 
@@ -3983,7 +5376,7 @@ function classifyIntent(prompt) {
     }
   }
 
-  // 7. Computer action (file/folder/command/code) — desktop cues or simulate/execute verbs
+  // 7. Computer action (file/folder/command/code) — desktop cues or explicit OS operations
   if (/\b(go to|navigate to|head to|take me to|browse to|open folder)\b/i.test(p) && /\b(download|document|desktop|folder|explorer|files)\b/i.test(p)) {
     return 'action';
   }
@@ -3995,7 +5388,7 @@ function classifyIntent(prompt) {
     return 'action';
   }
 
-  if (/\b(create|make|write|delete|remove|open|read|list|show files|move|copy|rename|run|execute|install|download|mkdir|folder|directory|file|script|code|program|app)\b/i.test(p)) {
+  if (/\b(delete|remove|rm|mkdir|folder|directory|install|uninstall|open\s+[a-z0-9]|launch|focus|switch\s+to|run\s+[a-z0-9_.-]+\.(?:exe|bat|ps1|py|sh)|read\s+file|show\s+files|list\s+(?:files|dir|directory|folders))\b/i.test(p)) {
     if (isContentGenerationRequest(prompt) && !hasDesktopActionCues(prompt)) {
       return 'conversation';
     }
@@ -4088,27 +5481,35 @@ async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMess
     return await makeCall(officialModel);
   } catch (err) {
     const msg = err.message || '';
-    const shouldRetry = /no longer available|404|not found|not supported|quota|rate.limit|429|resource_exhausted|limit:\s*0/i.test(msg);
+    const shouldRetry = /no longer available|404|not found|not supported|deprecated|retired|quota|rate.limit|429|resource_exhausted|limit:\s*0/i.test(msg);
     if (shouldRetry) {
-      const fallbacks = sortGeminiModels(
-        ONLINE_GEMINI_MODELS.filter(m => m.name !== officialModel && isGeminiChatModel(m.name))
-      );
-      for (const fallback of fallbacks) {
+      // The API error often names a replacement model (e.g. "use models/gemini-3.6-flash") — try it first.
+      const suggested = (msg.match(/use\s+(?:models\/)?(gemini-[a-z0-9.\-]+)/i) || [])[1];
+      const fallbackNames = [];
+      if (suggested && suggested !== officialModel) fallbackNames.push(suggested);
+      sortGeminiModels(ONLINE_GEMINI_MODELS.filter(m => isGeminiChatModel(m.name))).forEach(m => {
+        if (!fallbackNames.includes(m.name)) fallbackNames.push(m.name);
+      });
+      GEMINI_FALLBACK_MODELS.forEach(m => {
+        if (!fallbackNames.includes(m.name)) fallbackNames.push(m.name);
+      });
+      for (const fallbackName of fallbackNames) {
+        if (fallbackName === officialModel) continue;
         try {
-          logTrace(`Gemini model "${officialModel}" failed (${msg.slice(0, 80)}…). Retrying with ${fallback.name}…`, 'system');
-          activeModel = fallback.name;
+          logTrace(`Gemini model "${officialModel}" failed (${msg.slice(0, 80)}…). Retrying with ${fallbackName}…`, 'system');
+          activeModel = fallbackName;
           updateModelSelectorLabel();
           syncModelAttachmentCapabilities();
-          return await makeCall(fallback.name);
+          return await makeCall(fallbackName);
         } catch (retryErr) {
-          if (!/quota|rate.limit|429|resource_exhausted|limit:\s*0/i.test(retryErr.message || '')) {
+          if (!/quota|rate.limit|429|resource_exhausted|limit:\s*0|no longer available|404|not found|deprecated|retired/i.test(retryErr.message || '')) {
             throw retryErr;
           }
         }
       }
     }
     if (/quota|rate.limit|429|resource_exhausted|limit:\s*0/i.test(msg)) {
-      throw new Error(`Google Gemini API (${officialModel}): Free-tier quota exceeded for this model. Switch to **gemini-2.0-flash** in the model dropdown — image/preview models often have zero free quota on new keys.`);
+      throw new Error(`Google Gemini API (${officialModel}): Free-tier quota exceeded for this model. Switch to a newer flash model (e.g. gemini-3.6-flash) in the model dropdown — image/preview models often have zero free quota on new keys.`);
     }
     throw new Error(`Google Gemini API (${officialModel}): ${msg}`);
   }
@@ -4171,7 +5572,7 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
     // Build drives description
     const drivesDesc = (sysEnv.drives || []).map(d => `${d.letter} (${d.description || 'Disk'}, ${d.totalGB || '?'}GB total, ${d.freeGB || '?'}GB free)`).join(', ') || 'C:';
 
-    const memorySnippet = getLearnedMemorySnippet();
+    const memorySnippet = getLearnedMemorySnippet() + (await getRagKnowledgeSnippet(prompt));
 
     const agentPromptContext = buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet, Array.isArray(imagePayloads) && imagePayloads.length > 0);
     const agentSystemPrompt = intent === 'action' ? resolveAgentSystemPrompt(agentPromptContext) : null;
@@ -4574,16 +5975,18 @@ function isGeminiChatModel(name) {
 
 function geminiModelSortScore(name) {
   const n = String(name || '').toLowerCase();
-  if (n === 'gemini-2.0-flash') return 0;
-  if (n === 'gemini-2.0-flash-lite') return 1;
-  if (n.includes('gemini-2.0-flash')) return 2;
-  if (n === 'gemini-1.5-flash' || n === 'gemini-1.5-flash-latest') return 3;
-  if (n.includes('1.5-flash')) return 4;
-  if (n.includes('2.0-flash')) return 5;
-  if (n.includes('gemini-2.5') && !n.includes('preview') && !n.includes('image')) return 6;
-  if (n.includes('pro') && !n.includes('preview')) return 7;
-  if (n.includes('preview') || n.includes('image')) return 99;
-  return 10;
+  const ver = n.match(/gemini-(\d+)(?:\.(\d+))?/);
+  const major = ver ? parseInt(ver[1], 10) : 0;
+  const minor = ver && ver[2] ? parseInt(ver[2], 10) : 0;
+  // Newer versions first; within a version prefer flash (free-tier friendly), then pro.
+  let score = -(major * 1000 + minor * 100);
+  if (n.includes('flash-lite')) score += 20;
+  else if (n.includes('flash')) score += 0;
+  else if (n.includes('pro')) score += 40;
+  else score += 30;
+  if (n.includes('preview')) score += 500;
+  if (/-image\b|-image-|-image$/.test(n)) score += 900;
+  return score;
 }
 
 function sortGeminiModels(models) {
@@ -4600,17 +6003,18 @@ function pickDefaultGeminiModel(models = ONLINE_GEMINI_MODELS) {
 }
 
 const GEMINI_FALLBACK_MODELS = [
-  { name: 'gemini-2.0-flash', tag: '2.0 FLASH', desc: 'Fast multimodal model — recommended for free tier' },
-  { name: 'gemini-2.0-flash-lite', tag: '2.0 FLASH LITE', desc: 'Lightweight fast model' },
-  { name: 'gemini-1.5-flash-latest', tag: '1.5 FLASH', desc: 'Stable flash model' },
-  { name: 'gemini-1.5-pro-latest', tag: '1.5 PRO', desc: 'High quality model' }
+  { name: 'gemini-3.6-flash', tag: '3.6 FLASH', desc: 'Latest fast multimodal model — recommended for new keys' },
+  { name: 'gemini-3-pro', tag: '3 PRO', desc: 'Frontier reasoning, coding and vision' },
+  { name: 'gemini-2.5-flash', tag: '2.5 FLASH', desc: 'Fast multimodal reasoning' },
+  { name: 'gemini-2.5-pro', tag: '2.5 PRO', desc: 'Advanced coding, long-context, and vision' },
+  { name: 'gemini-2.0-flash', tag: '2.0 FLASH', desc: 'Low-latency multimodal streaming' }
 ];
 
 function isGeminiListModelsBlocked(message) {
   return /listmodels|modelservice\.listmodels|method.*blocked|not available in your country|has not been used in project|permission denied/i.test(String(message || ''));
 }
 
-async function pingGeminiApiKey(apiKey, modelName = 'gemini-2.0-flash') {
+async function pingGeminiApiKey(apiKey, modelName = 'gemini-3.6-flash') {
   const key = encodeURIComponent(String(apiKey || '').trim());
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${key}`,
@@ -4671,11 +6075,12 @@ async function discoverGeminiModels(apiKey) {
   }
 
   const candidates = [
+    'gemini-3.6-flash',
+    'gemini-3-pro',
+    'gemini-2.5-flash',
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
-    'gemini-1.5-flash-latest',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro-latest'
+    'gemini-1.5-flash-latest'
   ];
   let authError = null;
   for (const model of candidates) {
@@ -4709,15 +6114,20 @@ function updateGeminiConnectionBadge() {
     : geminiConnectionError;
 }
 
+/** Voice-engine / TTS labels that must never be used as the text-chat model. */
+function isVoiceOnlyModelLabel(name) {
+  return /native audio|audio dialog|live translate|flash live|live api|\btts\b|whisper|realtime|speech/i.test(String(name || '').toLowerCase());
+}
+
 function ensureValidActiveGeminiModel() {
-  if (!activeModel || !String(activeModel).startsWith('gemini')) return;
-  if (isGeminiChatModel(activeModel)) return;
+  if (!activeModel || !String(activeModel).toLowerCase().startsWith('gemini')) return;
+  if (isGeminiChatModel(activeModel) && !isVoiceOnlyModelLabel(activeModel)) return;
   const safe = pickDefaultGeminiModel();
   if (safe) {
     activeModel = safe;
     updateModelSelectorLabel();
     syncModelAttachmentCapabilities();
-    logTrace(`Switched to ${safe} — image/preview Gemini models are not for free-tier chat.`, 'system');
+    logTrace(`Switched to ${safe} — voice/audio and image Gemini models are not for text chat.`, 'system');
   }
 }
 
@@ -5462,7 +6872,7 @@ async function triggerAiTitleGeneration(userPrompt) {
 
 // Check for meaningless or gibberish prompts to avoid model hallucinations
 function isMeaninglessPrompt(text) {
-  const trimmed = text.trim();
+  const trimmed = String(text || '').trim();
   if (!trimmed) return true;
   
   // 1. Check for repetitive single-character strings (e.g. "bbbbbbbbbbbbbbbbbb")
@@ -5479,12 +6889,11 @@ function isMeaninglessPrompt(text) {
     if (allSame) return true;
   }
   
-  // 2. Check for continuous consonant gibberish longer than 8 characters (e.g. "sdfghjkshdflkjsdhf")
-  const words = trimmed.split(/\s+/);
-  for (const word of words) {
-    if (word.length > 8 && !/[aeiouyAEIOUY0-9]/i.test(word)) {
-      return true;
-    }
+  // 2. Check if the prompt consists exclusively of consonant keyboard mashing (e.g. "sdfghjkshdflkjsdhf")
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length > 0 && words.length <= 3) {
+    const isAllGibberish = words.every(word => word.length > 6 && !/[aeiouyAEIOUY0-9]/i.test(word));
+    if (isAllGibberish) return true;
   }
   
   return false;
@@ -5527,6 +6936,24 @@ async function submitPrompt(overridePrompt) {
     renderAttachmentPreviews();
   }
 
+  // Context injection: resolve referenced session artifacts ("the file", "it")
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.resolveArtifactReference === 'function'
+    && !/[a-z]:\\[^\s]+/i.test(prompt)) {
+    try {
+      const refArtifact = window.UltronAgentMemory.resolveArtifactReference(prompt, currentSessionId);
+      if (refArtifact && refArtifact.kind !== 'web') {
+        let refDetail = `[Referenced file: ${refArtifact.name} — ${refArtifact.path}]`;
+        let refSnippet = refArtifact.snippet || '';
+        if (!refSnippet && window.ultronAPI && window.ultronAPI.readFile) {
+          const refRead = await window.ultronAPI.readFile(refArtifact.path).catch(() => null);
+          if (refRead && refRead.success) refSnippet = String(refRead.content || '').slice(0, 400);
+        }
+        if (refSnippet) refDetail += `\nFirst lines:\n${String(refSnippet).slice(0, 400)}`;
+        llmEnrichedPrompt = `${llmEnrichedPrompt}\n\n${refDetail}`;
+      }
+    } catch (_) { /* artifact resolution is best-effort */ }
+  }
+
   if (!prompt && userAttachedVisuals.length === 0) return;
 
   const displayPrompt = prompt;
@@ -5556,6 +6983,25 @@ async function submitPrompt(overridePrompt) {
   appendChatMessage('User', displayPrompt, false, { attachments: userAttachedVisuals });
   logTrace(`Processing user request: "${(displayPrompt || prompt).substring(0, 40)}..."`, 'local');
   stopTtsSpeech();
+
+  // Document intake: analysis request without an attachment or referenced file
+  if (userAttachedVisuals.length === 0 && promptNeedsDocumentIntake(displayPrompt)) {
+    let intakeSkip = false;
+    try {
+      const refArtifact = window.UltronAgentMemory && window.UltronAgentMemory.resolveArtifactReference
+        ? window.UltronAgentMemory.resolveArtifactReference(displayPrompt, currentSessionId) : null;
+      if (refArtifact && refArtifact.kind !== 'web') intakeSkip = true;
+    } catch (_) { /* ignore */ }
+    if (!intakeSkip) {
+      const intakeCard = renderDocumentIntakeCard(displayPrompt);
+      const intakeBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
+      renderMessageContent(intakeBubble, intakeCard);
+      finalizeAiMessageBubble(intakeBubble, intakeCard, { autoSpeak: false });
+      appendChatMessage('Ultron', intakeCard, true, { skipRender: true });
+      setSendingState(false);
+      return;
+    }
+  }
   
   try {
     if (window.UltronAgentMemory && typeof window.UltronAgentMemory.parseWorkflowFromPrompt === 'function') {
@@ -5571,17 +7017,23 @@ async function submitPrompt(overridePrompt) {
       }
     }
 
-    // Check for meaningless/gibberish prompts early
-    if (isMeaninglessPrompt(prompt)) {
+    // Check for meaningless/gibberish prompts early (only when no file attachments are provided)
+    if (!userAttachedVisuals.length && isMeaninglessPrompt(displayPrompt)) {
       const aiBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
       await new Promise(resolve => setTimeout(resolve, 500));
       const response = "I received a prompt that appears to consist of repetitive characters or gibberish. Could you please clarify your request or ask a meaningful question? I'm here to help!";
       renderMessageContent(aiBubble, response);
       appendChatMessage('Ultron', response, true, { skipRender: true });
     } else {
-      // 3. Classify user intent
-      const compound = splitSearchAndActionPrompt(prompt);
-      const intent = compound ? 'search' : classifyIntent(prompt);
+      // 3. Classify user intent — route on the user's typed text only, never on
+      // attached-document content (otherwise resume keywords trigger web search).
+      const routingPrompt = (displayPrompt || '').trim() || 'Please analyze the attached file(s).';
+      // "open the project in the editor/workspace" → reopen the saved project folder in the split workspace.
+      if (/\bopen\s+(?:(?:the|my)\s+)?(?:project\s+(?:in\s+)?(?:the\s+)?|(?:the|my)\s+)?(workspace|editor|canvas)\b/i.test(routingPrompt)) {
+        loadProjectIntoWorkspace();
+      }
+      const compound = splitSearchAndActionPrompt(routingPrompt);
+      const intent = compound ? 'search' : classifyIntent(routingPrompt);
       logTrace(`Intent classified as: "${intent}"${compound ? ' (compound: search + action)' : ''} for prompt: "${prompt.substring(0, 40)}..."`, 'system');
       if (!['action', 'search'].includes(intent)) {
         activeSubgoals = [];
@@ -5672,11 +7124,11 @@ async function submitPrompt(overridePrompt) {
         const actionBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
         await runAgenticLoop(compound.actionPart, actionBubble, 'action', currentImagePayloads);
 
-      } else if (intent === 'conversation' && isProductOrShoppingQuery(prompt)) {
-        await runSearchIntentFlow(prompt, aiBubble, currentImagePayloads, [], [], Date.now(), false);
+      } else if (intent === 'conversation' && isProductOrShoppingQuery(routingPrompt)) {
+        await runSearchIntentFlow(routingPrompt, aiBubble, currentImagePayloads, [], [], Date.now(), false);
 
       } else if (intent === 'conversation') {
-        const isFollowUp = isFollowUpAboutPriorTurn(prompt);
+        const isFollowUp = isFollowUpAboutPriorTurn(routingPrompt);
         const followUpSystem = isFollowUp ? buildFollowUpConversationSystemPrompt() : null;
         // Pure conversational response — stream local model tokens straight into the bubble
         let streamedTokens = false;
@@ -5717,9 +7169,9 @@ async function submitPrompt(overridePrompt) {
           }
         }
         response = String(response || '').replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, 'Ultron');
-        if (response && (shouldFallbackToWebSearch(prompt, response) || (isGenericAssistantGreeting(response) && isProductOrShoppingQuery(prompt)))) {
+        if (response && (shouldFallbackToWebSearch(routingPrompt, response) || (isGenericAssistantGreeting(response) && isProductOrShoppingQuery(routingPrompt)))) {
           logTrace('Factual or time-sensitive question — searching the web for a current answer.', 'system');
-          await runSearchIntentFlow(prompt, aiBubble, currentImagePayloads, [], [], Date.now(), false);
+          await runSearchIntentFlow(routingPrompt, aiBubble, currentImagePayloads, [], [], Date.now(), false);
         } else if (/Gemini API Key Required/i.test(response)) {
           const card = `<div class="agent-final-response">${renderErrorRecoveryCard('GEMINI_KEY_MISSING', `Google Gemini API key required for ${activeModel}. Add your key in Settings → Models.`)}</div>`;
           renderMessageContent(aiBubble, card);
@@ -5975,8 +7427,8 @@ function humanizeToolCallLabel(toolCall) {
       }
       case 'TYPE_TEXT': return `Type "${trim(toolCall.text, 30)}"`;
       case 'HOTKEY': return `Press ${trim(toolCall.keys)}`;
-      case 'CLICK': return `Click at (${toolCall.x}, ${toolCall.y})`;
-      case 'DOUBLE_CLICK': return `Double-click at (${toolCall.x}, ${toolCall.y})`;
+      case 'CLICK': return toolCall.targetDesc ? `Click "${trim(toolCall.targetDesc, 30)}"` : `Click at (${toolCall.x}, ${toolCall.y})`;
+      case 'DOUBLE_CLICK': return toolCall.targetDesc ? `Double-click "${trim(toolCall.targetDesc, 30)}"` : `Double-click at (${toolCall.x}, ${toolCall.y})`;
       case 'SCROLL': return 'Scroll the page';
       case 'WAIT': return 'Wait for the app';
       case 'LIST_APPS': return 'List installed apps';
@@ -6078,10 +7530,17 @@ function claimsDesktopTaskCompleted(text) {
   return /\b(has been created|have been created|was created|is now ready|successfully created|i('ve| have) created|folder.*created|file.*created|created for you|created within|now ready to be used)\b/i.test(t);
 }
 
+/** Detects "here is how you do it yourself" answers — an autonomous agent
+ *  must execute the task, not hand the user a manual. */
+function answersWithManualSteps(text) {
+  const t = String(text || '');
+  return /\b(open file explorer|file explorer by pressing|windows key\s*\+\s*e|follow these steps|here are the steps|here's the steps|step by step|click on the view tab|sort the files by size|navigate to your)\b/i.test(t);
+}
+
 function modelAnsweredWithoutExecuting(userPrompt, finalText, executedActions = [], intent = 'action') {
   if (intent !== 'action' || executedActions.length > 0) return false;
   if (!hasDesktopActionCues(userPrompt)) return false;
-  return claimsDesktopTaskCompleted(finalText);
+  return claimsDesktopTaskCompleted(finalText) || answersWithManualSteps(finalText);
 }
 
 function extractFileNameFromPrompt(userPrompt, stopWords = new Set()) {
@@ -6215,6 +7674,7 @@ function parseJsonToolCall(text) {
           ms: args.ms,
           x: args.x,
           y: args.y,
+          targetDesc: args.target || args.element || args.description || '',
           delta: args.delta || args.amount,
           target: appName || args.url || args.path || args.text || args.keys || ''
         };
@@ -6471,8 +7931,8 @@ function detectFallbackToolCall(userPrompt) {
     return { type: 'READ_FILE', target: filePath };
   }
 
-  // 3. Python code creation & execution (e.g. "write a python code that prints fibonacci series and run it")
-  if ((p.includes('python') || p.includes('script') || p.includes('code') || p.includes('fibonacci')) && (p.includes('write') || p.includes('create') || p.includes('make') || p.includes('run') || p.includes('execute'))) {
+  // 3. Python Fibonacci code creation & execution (e.g. "write a python code that prints fibonacci series and run it")
+  if (/\bfibonacci\b/i.test(p) && (p.includes('python') || p.includes('script') || p.includes('code')) && (p.includes('write') || p.includes('create') || p.includes('make') || p.includes('run') || p.includes('execute'))) {
     let scriptPath = 'fibonacci.py';
     const scriptBase = resolveLocation(null);
     if (scriptBase) scriptPath = `${scriptBase}\\fibonacci.py`;
@@ -6533,6 +7993,7 @@ When an action is needed, output exactly one JSON object and nothing else:
 {"tool":"TYPE_TEXT","args":{"text":"text to type into the currently focused app"}}
 {"tool":"HOTKEY","args":{"keys":"ctrl+s"}}
 {"tool":"CLICK","args":{"x":640,"y":480}}
+{"tool":"CLICK","args":{"target":"the Send button"}}
 {"tool":"DOUBLE_CLICK","args":{"x":640,"y":480}}
 {"tool":"SCROLL","args":{"delta":-120}}
 {"tool":"WAIT","args":{"ms":1000}}
@@ -6546,6 +8007,7 @@ When an action is needed, output exactly one JSON object and nothing else:
 TOOL RULES:
 - Prefer answering directly when no desktop action is required.
 - Never narrate planned tool calls or show JSON/tool plans to the user as the answer.
+- CLICK accepts exact {"x","y"} coordinates OR {"target":"element description"} — Ultron locates described elements on screen automatically (preferred when you have not observed exact coordinates).
 - Only use CAPTURE_SCREEN when you must see the UI to complete a desktop task.
 - For multi-step app work, do one step at a time unless a simple app open + type sequence is obvious.
 - After the task is complete, respond normally without JSON.
@@ -6553,6 +8015,9 @@ ${observation ? `\nLatest observation:\n${observation}\n\nContinue from that obs
 }
 
 async function runSearchIntentFlow(userPrompt, aiBubble, loopImagePayloads, activitySteps, agentSubgoals, loopStartedAt, showTaskPlan) {
+  // Never let attached-document bodies become a web-search query.
+  const stripped = String(userPrompt || '').replace(/📄\s*\*\*Attached Document[\s\S]*?```/gi, '').trim();
+  if (stripped) userPrompt = stripped;
   const userName = getUserFullName();
   const researchEnabled = window.UltronAgentResearch
     && window.UltronAgentResearch.getResearchConfig().enabled;
@@ -6585,8 +8050,11 @@ async function runSearchIntentFlow(userPrompt, aiBubble, loopImagePayloads, acti
       searchQuery = await buildWebSearchQuery(userPrompt);
       renderSearchLiveStatus(aiBubble, agentSubgoals, searchQuery);
 
-      const rawSearchResult = await window.ultronAPI.searchWeb(searchQuery);
-      searchResult = normalizeSearchPayload(rawSearchResult, searchQuery);
+      // Multi-query fan-out: broad questions split into focused queries,
+      // results deduped by URL, ranked, top-3 fully extracted, cited.
+      searchResult = await runFanOutWebSearch(userPrompt, searchQuery, activitySteps, (statusText) => {
+        renderSearchLiveStatus(aiBubble, agentSubgoals, statusText);
+      });
     }
 
     agentSubgoals.push({
@@ -6719,23 +8187,40 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
   let finalResponse = '';
   const executedAppActions = [];
   let completionNudges = 0;
+  let plannerRetries = 0;
+  let playbookLearned = false;
   let showTaskPlan = false;
 
   const userName = getUserFullName();
   const sysEnv = await getSystemContext();
   const realtime = buildRealtimeContext(sysEnv);
-  const memorySnippet = getLearnedMemorySnippet();
+  const memorySnippet = getLearnedMemorySnippet() + (await getRagKnowledgeSnippet(userPrompt));
   const canCaptureScreen = isScreenCaptureEnabled() && needsScreenCaptureForTask(userPrompt);
 
   let agentSubgoals = [];
   let activitySteps = [];
 
+  // Planner-first: multi-step prompts get a visible step graph before the
+  // model's first action. Simple requests skip planning entirely.
+  let agentStepPlan = null;
+  if (window.UltronAgentPlanner && intent === 'action' && window.UltronAgentPlanner.needsPlanning(userPrompt)) {
+    agentStepPlan = window.UltronAgentPlanner.buildStepPlan(userPrompt);
+    if (agentStepPlan.length > 1) {
+      agentSubgoals = window.UltronAgentPlanner.planToSubgoals(agentStepPlan);
+      showTaskPlan = true;
+      logTrace(`Planner produced ${agentStepPlan.length} steps for multi-step request`, 'system');
+    } else {
+      agentStepPlan = null;
+    }
+  }
+
   // Cursor-style first frame: think first. Do not invent or expose a task plan
   // until the model has selected its first action.
   activeSubgoals = [];
-  renderChecklist([]);
+  renderChecklist(showTaskPlan ? agentSubgoals : []);
   // Sidebar no longer auto-opens when agent starts — user controls visibility
   renderAgentLiveContent(aiBubble, {
+    widgetsHtml: showTaskPlan ? renderTaskWidgetHtml(agentSubgoals) : '',
     shimmerText: 'Thinking'
   });
 
@@ -7024,10 +8509,13 @@ ${missingInstruction}`;
         activitySteps.push({ type: 'THINKING', label: `Loop warning: ${guardVerdict.reason}` });
       }
       if (guardVerdict.blocked) {
+        const guardRecovery = (window.UltronAgentPlanner && typeof window.UltronAgentPlanner.getRecoveryStrategy === 'function')
+          ? window.UltronAgentPlanner.getRecoveryStrategy(toolCall, { errorCode: 'LOOP_BLOCKED' }).note
+          : '';
         accumulatedContext.push({ role: 'assistant', content: rawResponse });
         accumulatedContext.push({
           role: 'user',
-          content: `[Loop Guard]: ${guardVerdict.reason} Try a different tool or approach, or give the Final Answer if the task is complete.`
+          content: `[Loop Guard]: ${guardVerdict.reason}${guardRecovery ? ` Re-plan: ${guardRecovery}` : ''} Try a different tool or approach, or give the Final Answer if the task is complete.`
         });
         if (window.UltronLoopGuard.compressContext) {
           accumulatedContext = window.UltronLoopGuard.compressContext(
@@ -7190,7 +8678,8 @@ Write the final answer now.`;
       isDone = true;
       }
     } else if (toolCall.type === 'SEARCH') {
-      const searchTarget = await buildWebSearchQuery(toolCall.target || userPrompt);
+      const searchSource = resolveSearchQuerySource(toolCall.target, userPrompt);
+      const searchTarget = await buildWebSearchQuery(searchSource.query);
       activitySteps[actionProgressIndex].label = getAgentProgressMessage('SEARCH', { query: searchTarget });
       renderSearchLiveStatus(aiBubble, agentSubgoals, searchTarget, showTaskPlan);
 
@@ -7208,7 +8697,37 @@ Write the final answer now.`;
       isDone = true;
     } else if (executor && ['APP_ACTION', 'CAPTURE_SCREEN', 'EXECUTE', 'WRITE_FILE', 'READ_FILE', 'LIST_DIR'].includes(toolCall.type)) {
       if (toolCall.type === 'CAPTURE_SCREEN') await ensureVisionModelForScreen();
-      execResult = await executor.executeAgentToolCall(toolCall, {
+
+      // Vision-grounded clicking: resolve description-based click targets to
+      // coordinates (see → decide → act) before execution.
+      let preResolvedResult = null;
+      if (toolCall.type === 'APP_ACTION'
+        && ['CLICK', 'DOUBLE_CLICK'].includes(String(toolCall.action || '').toUpperCase())
+        && (!Number.isFinite(Number(toolCall.x)) || !Number.isFinite(Number(toolCall.y)))) {
+        const clickDesc = String(toolCall.targetDesc || toolCall.element || toolCall.target || '').trim();
+        if (clickDesc && !/^\s*\d+\s*[x,]\s*\d+\s*$/i.test(clickDesc)) {
+          activitySteps.push({ type: 'VERIFY', label: `Locating "${clickDesc}" on screen`, ts: Date.now() });
+          renderAgentLiveContent(aiBubble, {
+            widgetsHtml: `${showTaskPlan ? renderTaskWidgetHtml(agentSubgoals, deriveTaskPlanTitle(userPrompt)) : ''}${renderActivityFeedHtml(activitySteps)}`,
+            shimmerText: `Locating "${clickDesc}"`
+          });
+          const grounded = await clickByDescription(clickDesc);
+          if (grounded && grounded.success && grounded.method === 'vision') {
+            toolCall.x = grounded.x;
+            toolCall.y = grounded.y;
+            activitySteps.push({ type: 'SUCCESS', label: `Located "${clickDesc}" at (${grounded.x}, ${grounded.y})`, ts: Date.now() });
+          } else if (grounded && grounded.success && grounded.method === 'uia') {
+            // The UIA connector clicked the named element directly
+            activitySteps.push({ type: 'SUCCESS', label: `Clicked "${clickDesc}" via UI Automation`, ts: Date.now() });
+            preResolvedResult = { success: true, message: `Clicked "${clickDesc}" via UI Automation`, evidence: `UIA element "${clickDesc}" clicked` };
+          } else {
+            activitySteps.push({ type: 'ERROR', label: `Could not locate "${clickDesc}" on screen`, ts: Date.now() });
+            preResolvedResult = { success: false, message: `Could not locate "${clickDesc}" on screen. Capture the screen to re-observe, try a keyboard shortcut (Tab + Enter), or ask the user where the element is.`, errorCode: 'CLICK_TARGET_NOT_FOUND' };
+          }
+        }
+      }
+
+      execResult = preResolvedResult || await executor.executeAgentToolCall(toolCall, {
         withTimeout,
         canCaptureScreen,
         captureScreenForAgent,
@@ -7217,14 +8736,57 @@ Write the final answer now.`;
       toolResult = schema ? schema.toolResultToObservation(execResult) : execResult.message;
 
       if (execResult.success) {
+        if (window.UltronAgentPlanner && agentStepPlan) {
+          const planActionKey = toolCall.type === 'APP_ACTION' ? String(toolCall.action || '').toUpperCase() : String(toolCall.type || '').toUpperCase();
+          window.UltronAgentPlanner.markPlanStep(agentStepPlan, planActionKey, true);
+        }
         if (toolCall.type === 'APP_ACTION') {
           executedAppActions.push(String(toolCall.action || '').toUpperCase());
           if (window.UltronAgentMemory && typeof window.UltronAgentMemory.recordAppOutcome === 'function') {
             const appName = execResult.resolvedApp || toolCall.appName || toolCall.target;
             window.UltronAgentMemory.recordAppOutcome(appName, true);
           }
+          const appActionName = String(toolCall.action || '').toUpperCase();
+          if (window.UltronAgentMemory && typeof window.UltronAgentMemory.registerArtifact === 'function') {
+            if (appActionName === 'OPEN_URL' && (toolCall.url || toolCall.target)) {
+              window.UltronAgentMemory.registerArtifact('web', toolCall.url || toolCall.target, { source: 'OPEN_URL', title: _activeAgentApp.name || '' });
+            } else if (appActionName === 'OPEN_FILE' && (toolCall.path || toolCall.target)) {
+              window.UltronAgentMemory.registerArtifact('file', toolCall.path || toolCall.target, { source: 'OPEN_FILE' });
+            }
+          }
+          // Foreground verification after OPEN_APP/FOCUS_APP: never claim
+          // success without evidence; auto-refocus once on mismatch.
+          if (window.UltronAgentPlanner && ['OPEN_APP', 'FOCUS_APP'].includes(appActionName)) {
+            const playbookApp = execResult.resolvedApp || toolCall.appName || toolCall.target;
+            const playbookSnippet = window.UltronAgentPlanner.getPlaybookSnippet(playbookApp);
+            if (playbookSnippet) toolResult += `\n${playbookSnippet}`;
+            else if (appActionName === 'OPEN_APP' && playbookApp) {
+              // First contact with this app: seed an empty playbook so it can
+              // learn UI steps this session and reuse them in future sessions.
+              window.UltronAgentPlanner.savePlaybook(playbookApp, [], 'seed');
+            }
+          }
+          if (['OPEN_APP', 'FOCUS_APP'].includes(appActionName) && window.UltronAgentPlanner && !execResult._plannerVerified) {
+            const verify = await window.UltronAgentPlanner.verifyActionResult(toolCall, execResult);
+            if (!verify.verified && verify.retryHint) {
+              activitySteps.push({ type: 'VERIFY', label: `Verifying focus: ${verify.evidence}` });
+              const refocusCall = { type: 'APP_ACTION', action: 'FOCUS_APP', appName: toolCall.appName || toolCall.target };
+              const refocusRes = await executor.executeAgentToolCall(refocusCall, { withTimeout, canCaptureScreen, captureScreenForAgent, activeAppName: _activeAgentApp.name });
+              if (!refocusRes || !refocusRes.success) {
+                toolResult += `\n[Verification warning: ${verify.evidence}]`;
+              } else {
+                activitySteps.push({ type: 'SUCCESS', label: `Refocused ${toolCall.appName || toolCall.target}` });
+              }
+            } else if (verify.verified && verify.evidence) {
+              toolResult += `\n[Verified: ${verify.evidence}]`;
+            }
+          }
         } else if (toolCall.type === 'WRITE_FILE') {
           executedAppActions.push('WRITE_FILE');
+          if (window.UltronAgentMemory && typeof window.UltronAgentMemory.registerArtifact === 'function') {
+            window.UltronAgentMemory.registerArtifact('file', execResult.evidence || toolCall.targetPath, { source: 'WRITE_FILE' });
+          }
+          pushWrittenFileToWorkspace(toolCall.targetPath, toolCall.content);
         }
         if (toolCall.type === 'CAPTURE_SCREEN' && execResult.raw && execResult.raw.shot) {
           const shot = execResult.raw.shot;
@@ -7235,9 +8797,32 @@ Write the final answer now.`;
             label: `Captured ${shot.sourceName || 'screen'} (${shot.width}x${shot.height})`,
             thumbnail: shot.thumbnailDataUrl
           });
+          // Playbook learning: first screenshot of a freshly opened app with
+          // an empty playbook → ask the vision model for basic usage steps.
+          if (window.UltronAgentPlanner && _activeAgentApp.name && !playbookLearned) {
+            const seededPb = window.UltronAgentPlanner.getPlaybook(_activeAgentApp.name);
+            if (seededPb && (!seededPb.steps || !seededPb.steps.length)) {
+              playbookLearned = true;
+              try {
+                const hint = await queryOfflineLLM(
+                  `Look at this screenshot of ${_activeAgentApp.name}. List 3-5 very short basic usage steps for this app (one per line, imperative, no extra commentary).`,
+                  [], 'conversation', 'You are a concise desktop automation assistant.', loopImagePayloads
+                );
+                const hintSteps = String(hint || '').split(/\n+/)
+                  .map(s => s.replace(/^[\s\-*\d.)]+/, '').trim())
+                  .filter(s => s && s.length > 3 && s.length < 90)
+                  .slice(0, 6);
+                if (hintSteps.length) {
+                  window.UltronAgentPlanner.savePlaybook(_activeAgentApp.name, hintSteps, 'vision');
+                  logTrace(`Learned playbook for ${_activeAgentApp.name}: ${hintSteps.length} steps`, 'system');
+                }
+              } catch (e) {}
+            }
+          }
           isDone = false;
         } else if (toolCall.type === 'WRITE_FILE') {
           finalResponse = `File created successfully on computer at **${execResult.evidence || toolCall.targetPath}**.${renderUndoActionCard()}`;
+          pushWrittenFileToWorkspace(toolCall.targetPath, toolCall.content);
           if (toolCall.followUpCommand) {
             const execRes = await withTimeout(window.ultronAPI.executeAction({ command: toolCall.followUpCommand }));
             if (execRes.success) {
@@ -7247,15 +8832,30 @@ Write the final answer now.`;
           }
           isDone = !shouldContinueAgentLoopAfterTool(toolCall, userPrompt);
         } else if (toolCall.type === 'READ_FILE') {
-          finalResponse = `**File Content (${toolCall.target}):**\n\`\`\`text\n${execResult.evidence}\n\`\`\``;
+          if (window.UltronAgentMemory && typeof window.UltronAgentMemory.registerArtifact === 'function') {
+            const readPath = toolCall.target || toolCall.targetPath || toolCall.path || '';
+            const readKind = /\b(resume|cv)\b/i.test(readPath) ? 'resume' : (/\.pdf$/i.test(readPath) ? 'pdf' : (/\.(jpe?g|png|webp|gif|bmp)$/i.test(readPath) ? 'image' : 'document'));
+            window.UltronAgentMemory.registerArtifact(readKind, readPath, { source: 'READ_FILE', snippet: String(execResult.evidence || '').slice(0, 160) });
+          }
+          finalResponse = `${renderFileSourceCard(toolCall.target || toolCall.targetPath || toolCall.path || '', /\b(resume|cv)\b/i.test(String(toolCall.target || '')) ? 'resume' : (/\.pdf$/i.test(String(toolCall.target || '')) ? 'pdf' : 'document'), String(execResult.evidence || '').slice(0, 600))}
+<div class="source-card-body-title">File Content</div>
+<pre class="source-card-content">${escapeHtml(String(execResult.evidence || '').slice(0, 6000))}</pre>`;
           isDone = !shouldContinueAgentLoopAfterTool(toolCall, userPrompt);
         } else if (toolCall.type === 'LIST_DIR') {
-          finalResponse = `**Directory Contents (${toolCall.target}):**\n\`\`\`text\n${execResult.evidence}\n\`\`\``;
+          if (window.UltronAgentMemory && typeof window.UltronAgentMemory.registerArtifact === 'function') {
+            window.UltronAgentMemory.registerArtifact('folder', toolCall.target || toolCall.targetPath || toolCall.path || '', { source: 'LIST_DIR' });
+          }
+          finalResponse = `${renderFileSourceCard(toolCall.target || toolCall.targetPath || toolCall.path || '', 'folder', String(execResult.evidence || '').slice(0, 600))}
+<div class="source-card-body-title">Directory Contents</div>
+<pre class="source-card-content">${escapeHtml(String(execResult.evidence || '').slice(0, 6000))}</pre>`;
           isDone = !shouldContinueAgentLoopAfterTool(toolCall, userPrompt);
         } else if (toolCall.type === 'EXECUTE') {
           executedAppActions.push('EXECUTE');
           if (toolCall.target.startsWith('mkdir')) {
             const path = toolCall.target.replace(/^mkdir\s+/i, '').replace(/^"|"$/g, '');
+            if (window.UltronAgentMemory && typeof window.UltronAgentMemory.registerArtifact === 'function') {
+              window.UltronAgentMemory.registerArtifact('folder', path, { source: 'EXECUTE_MKDIR' });
+            }
             finalResponse = `Folder created at **${path}**.`;
           } else {
             finalResponse = execResult.message || 'Command completed.';
@@ -7307,6 +8907,10 @@ Write the final answer now.`;
             if (execResult.success) {
               if (fallback.type === 'WRITE_FILE') {
                 executedAppActions.push('WRITE_FILE');
+                if (window.UltronAgentMemory && typeof window.UltronAgentMemory.registerArtifact === 'function') {
+                  window.UltronAgentMemory.registerArtifact('file', execResult.evidence || fallback.targetPath, { source: 'WRITE_FILE_FALLBACK' });
+                }
+                pushWrittenFileToWorkspace(fallback.targetPath, fallback.content);
                 finalResponse = `File created successfully at **${execResult.evidence || fallback.targetPath}**.${renderUndoActionCard()}`;
               } else {
                 finalResponse = execResult.message || 'Action completed.';
@@ -7319,12 +8923,59 @@ Write the final answer now.`;
               isDone = true;
             }
           } else {
+            const appRecovery = (window.UltronAgentPlanner && typeof window.UltronAgentPlanner.getRecoveryStrategy === 'function')
+              ? window.UltronAgentPlanner.getRecoveryStrategy(toolCall, execResult)
+              : null;
+            if (appRecovery && appRecovery.toolCall && plannerRetries < 2) {
+              plannerRetries++;
+              // Mid-task insert: recovery revealed a missing app (e.g. needs a
+              // browser → open Edge). Add that step to the live plan.
+              if (window.UltronAgentPlanner && agentStepPlan
+                && appRecovery.toolCall.type === 'APP_ACTION'
+                && ['OPEN_APP', 'FOCUS_APP'].includes(String(appRecovery.toolCall.action || '').toUpperCase())) {
+                window.UltronAgentPlanner.insertPlanStep(agentStepPlan, {
+                  title: `Open ${appRecovery.toolCall.appName || 'alternative app'}`,
+                  tool_hint: String(appRecovery.toolCall.action || 'OPEN_APP').toUpperCase()
+                });
+                agentSubgoals = window.UltronAgentPlanner.planToSubgoals(agentStepPlan);
+                activeSubgoals = agentSubgoals.map(s => ({ text: s.text, completed: s.completed, status: s.status }));
+                renderChecklist(activeSubgoals);
+              }
+              activitySteps.push({ type: 'THINKING', label: `Re-planning: ${appRecovery.note || 'trying an alternative'}` });
+              const altResult = await executor.executeAgentToolCall(appRecovery.toolCall, {
+                withTimeout,
+                canCaptureScreen,
+                captureScreenForAgent,
+                activeAppName: _activeAgentApp.name
+              });
+              if (altResult && altResult.success) {
+                executedAppActions.push(appRecovery.toolCall.type === 'APP_ACTION' ? String(appRecovery.toolCall.action || '').toUpperCase() : appRecovery.toolCall.type);
+                finalResponse = altResult.message || 'Recovered with an alternative action.';
+                isDone = !(shouldContinueAgentLoopAfterTool(appRecovery.toolCall, userPrompt, executedAppActions) || hasUnfinishedExplicitTask(userPrompt, executedAppActions));
+              } else {
+                finalResponse = renderErrorRecoveryCard(execResult.errorCode, execResult.message, execResult);
+                isDone = true;
+              }
+            } else {
+              finalResponse = renderErrorRecoveryCard(execResult.errorCode, execResult.message, execResult);
+              isDone = true;
+            }
+          }
+        } else {
+          const recovery = (window.UltronAgentPlanner && typeof window.UltronAgentPlanner.getRecoveryStrategy === 'function')
+            ? window.UltronAgentPlanner.getRecoveryStrategy(toolCall, execResult)
+            : null;
+          if (recovery && plannerRetries < 2 && steps < maxSteps) {
+            // Feed the failure + strategy back to the model instead of aborting
+            plannerRetries++;
+            activitySteps.push({ type: 'THINKING', label: `Re-planning: ${recovery.note || 'adjusting strategy'}` });
+            toolResult = `${execResult.message || 'Action failed.'}\n[Re-plan suggestion: ${recovery.note}]`;
+            finalResponse = '';
+            isDone = false;
+          } else {
             finalResponse = renderErrorRecoveryCard(execResult.errorCode, execResult.message, execResult);
             isDone = true;
           }
-        } else {
-          finalResponse = renderErrorRecoveryCard(execResult.errorCode, execResult.message, execResult);
-          isDone = true;
         }
       }
     } else {
@@ -7345,6 +8996,25 @@ Write the final answer now.`;
       activitySteps[actionProgressIndex].appName = resolvedName;
       activitySteps[actionProgressIndex].appIcon = resolvedIcon;
       if (resolvedName) _activeAgentApp = { name: resolvedName, icon: resolvedIcon };
+    }
+
+    // Live-visible execution: after a UI-mutating action that ends the task,
+    // attach a screen thumbnail as visual evidence (respects neverCaptureApps).
+    if (isDone && execResult && execResult.success
+      && toolCall.type === 'APP_ACTION'
+      && ['CLICK', 'DOUBLE_CLICK', 'TYPE_TEXT', 'OPEN_APP', 'FOCUS_APP'].includes(String(toolCall.action || '').toUpperCase())
+      && canUseScreenAnalysis() && isScreenActivityFeedEnabled()) {
+      try {
+        const evidenceShot = await captureScreenForAgent({ label: `evidence-${String(toolCall.action || 'action').toLowerCase()}` });
+        if (evidenceShot && evidenceShot.thumbnailDataUrl) {
+          activitySteps.push({
+            type: 'SCREEN',
+            label: 'Screen after action',
+            thumbnail: evidenceShot.thumbnailDataUrl,
+            ts: Date.now()
+          });
+        }
+      } catch (e) {}
     }
 
     if (!isDone && shouldContinueAgentLoopAfterTool(toolCall, userPrompt, executedAppActions) && toolCall.type !== 'CAPTURE_SCREEN') {
@@ -7425,6 +9095,10 @@ Write the final answer now.`;
           finalResponse = repairResult.message || finalResponse;
           if (fallback.type === 'WRITE_FILE' || fallback.type === 'EXECUTE') {
             executedAppActions.push(fallback.type);
+            if (fallback.type === 'WRITE_FILE' && window.UltronAgentMemory && typeof window.UltronAgentMemory.registerArtifact === 'function') {
+              window.UltronAgentMemory.registerArtifact('file', repairResult.evidence || fallback.targetPath, { source: 'WRITE_FILE_REPAIR' });
+              pushWrittenFileToWorkspace(fallback.targetPath, fallback.content);
+            }
           }
         }
       } else if (!finalResponse.includes('incomplete')) {
@@ -8142,7 +9816,7 @@ function syncAppCardAuthorization(card, isSelected) {
   card.classList.toggle('is-restricted', !isSelected);
   const toggle = card.querySelector('.app-auth-toggle');
   if (toggle) {
-    toggle.textContent = isSelected ? 'Authorized' : 'Authorize';
+    toggle.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
     toggle.classList.toggle('is-restricted', !isSelected);
   }
   const checkbox = card.querySelector('.app-item-checkbox');
@@ -8177,7 +9851,6 @@ function bindAppAuthorizationControls(card, app, authMapRef) {
 
 function buildAppListRow(app, isSelected, authMapRef) {
   const safeId = `chk-app-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}`;
-  const publisher = formatAppPublisher(app);
   const row = document.createElement('div');
   row.className = `app-list-row${isSelected ? ' is-authorized' : ' is-restricted'}`;
   row.dataset.appName = app.name;
@@ -8188,9 +9861,8 @@ function buildAppListRow(app, isSelected, authMapRef) {
       <div class="app-list-title-row">
         <span class="app-list-name">${escapeHtml(app.name)}</span>
       </div>
-      ${publisher ? `<div class="app-list-meta">${escapeHtml(publisher)}</div>` : ''}
     </div>
-    <button type="button" class="app-auth-toggle app-list-auth-toggle ${isSelected ? '' : 'is-restricted'}">${isSelected ? 'Authorized' : 'Authorize'}</button>
+    <button type="button" class="app-auth-toggle app-list-auth-toggle ${isSelected ? '' : 'is-restricted'}" aria-label="Toggle authorization for ${escapeHtml(app.name)}" aria-pressed="${isSelected ? 'true' : 'false'}"><span class="app-auth-switch-knob"></span></button>
   `;
   bindAppAuthorizationControls(row, app, authMapRef);
   return row;
@@ -8198,19 +9870,14 @@ function buildAppListRow(app, isSelected, authMapRef) {
 
 function buildAppGridCard(app, isSelected, authMapRef) {
   const safeId = `chk-app-grid-${app.name.replace(/[^a-zA-Z0-9-]/g, '-')}`;
-  const gridMeta = formatAppGridMeta(app);
   const card = document.createElement('div');
   card.className = `app-grid-card${isSelected ? ' is-authorized' : ' is-restricted'}`;
   card.dataset.appName = app.name;
   card.innerHTML = `
     <input type="checkbox" class="app-item-checkbox" id="${safeId}" data-app-name="${escapeHtml(app.name)}" ${isSelected ? 'checked' : ''}>
-    <button type="button" class="app-card-menu" title="Toggle authorization" aria-label="Toggle authorization for ${escapeHtml(app.name)}">
-      <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><circle cx="5" cy="12" r="1.75"></circle><circle cx="12" cy="12" r="1.75"></circle><circle cx="19" cy="12" r="1.75"></circle></svg>
-    </button>
     <div class="app-grid-icon-wrap">${getAppIconMarkup(app)}</div>
     <div class="app-grid-name">${escapeHtml(app.name)}</div>
-    ${gridMeta ? `<div class="app-grid-meta">${escapeHtml(gridMeta)}</div>` : '<div class="app-grid-meta app-grid-meta-empty"></div>'}
-    <button type="button" class="app-auth-toggle ${isSelected ? '' : 'is-restricted'}">${isSelected ? 'Authorized' : 'Authorize'}</button>
+    <button type="button" class="app-auth-toggle ${isSelected ? '' : 'is-restricted'}" aria-label="Toggle authorization for ${escapeHtml(app.name)}" aria-pressed="${isSelected ? 'true' : 'false'}"><span class="app-auth-switch-knob"></span></button>
   `;
   bindAppAuthorizationControls(card, app, authMapRef);
   return card;
@@ -8387,6 +10054,18 @@ settingsTabs.forEach(tab => {
     }
   });
 });
+
+// Settings sidebar search — live-filters the navigation list as you type
+const settingsSearchInput = document.getElementById('settings-search-input');
+if (settingsSearchInput) {
+  settingsSearchInput.addEventListener('input', () => {
+    const q = settingsSearchInput.value.trim().toLowerCase();
+    settingsTabs.forEach(tab => {
+      const label = (tab.textContent || '').toLowerCase();
+      tab.classList.toggle('hidden-by-search', Boolean(q) && !label.includes(q));
+    });
+  });
+}
 
 let hasCheckedOllamaOnBoot = false;
 
@@ -9473,7 +11152,7 @@ chatInput.addEventListener('keydown', (e) => {
 const adjustInputHeight = () => {
   chatInput.style.height = '';
   const scrollHeight = chatInput.scrollHeight;
-  const newHeight = Math.max(Math.min(scrollHeight, 138), 33);
+  const newHeight = Math.max(Math.min(scrollHeight, 160), 33);
   chatInput.style.height = `${newHeight}px`;
   logTrace(`Input height recalculated: scrollHeight=${scrollHeight}px, applied=${newHeight}px`, 'system');
 };
@@ -9715,7 +11394,7 @@ async function checkAndRunFirstTimeOnboarding() {
     1: 'Your profile',
     2: 'Date of birth',
     3: 'Email',
-    4: 'Quick start',
+    4: 'Requirements & Components',
   };
 
   function setFinishVisible(visible) {
@@ -10095,8 +11774,10 @@ async function checkAndRunFirstTimeOnboarding() {
       if (step4) step4.classList.remove('hidden');
       if (btnBack) btnBack.classList.remove('hidden');
       if (btnNext) btnNext.classList.add('hidden');
-      setFinishVisible(false);
-      runOboardingOllamaCheck();
+      // Voice models are a mandatory setup component — no skipping.
+      if (btnSkipLater) btnSkipLater.classList.add('hidden');
+      setFinishVisible(Boolean(compStatus.kokoro));
+      runOboardingRequirementsCheck();
     } else if (currentStep === 5) {
       if (step5) step5.classList.remove('hidden');
       if (stepHeading) stepHeading.classList.add('hidden');
@@ -10185,112 +11866,207 @@ async function checkAndRunFirstTimeOnboarding() {
     };
   }
 
-  // Ollama check — Finish only appears when the engine is connected
-  async function runOboardingOllamaCheck() {
-    ollamaReady = false;
-    setFinishVisible(false);
-    setOllamaActionBoxes();
+  // Multi-Component Requirements Check & Setup (Step 4)
+  let compStatus = {
+    ollama: false,
+    uia: false,
+    kokoro: false
+  };
 
-    const titleEl = document.getElementById('ollama-status-title');
-    const descEl = document.getElementById('ollama-status-desc');
-    const iconWrapper = document.getElementById('ollama-status-icon-wrapper');
-    const readyDetailsEl = document.getElementById('ollama-ready-details');
-
-    if (readyDetailsEl) readyDetailsEl.classList.add('hidden');
-    if (titleEl) titleEl.textContent = 'Checking Ollama...';
-    if (descEl) descEl.textContent = 'Verifying your local AI engine before you can finish setup.';
-    if (iconWrapper) {
-      iconWrapper.innerHTML = `<div class="onboard-spinner"></div>`;
-    }
+  async function checkOllamaComp() {
+    const badge = document.getElementById('onboard-badge-ollama');
+    const desc = document.getElementById('onboard-desc-ollama');
+    const btn = document.getElementById('btn-onboard-action-ollama');
+    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = 'Checking…'; }
+    if (desc) desc.textContent = 'Verifying Ollama local neural service…';
 
     const conn = await checkOllamaConnection();
     if (conn.connected) {
-      ollamaReady = true;
-      if (titleEl) titleEl.textContent = 'Ollama is ready';
-      if (descEl) descEl.textContent = 'Your local AI engine is connected and ready to use.';
-      if (iconWrapper) {
-        iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" width="22" height="22"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-      }
-      if (readyDetailsEl) readyDetailsEl.classList.remove('hidden');
-      setOllamaActionBoxes();
-      setFinishVisible(true);
-      return;
+      compStatus.ollama = true;
+      if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Ready'; }
+      if (desc) desc.textContent = 'Ollama is online and connected (Localhost:11434).';
+      if (btn) { btn.textContent = 'Connected'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+      return true;
     }
 
-    if (!window.ultronAPI || !window.ultronAPI.checkOllamaInstalled) {
-      if (titleEl) titleEl.textContent = 'Ollama status unknown';
-      if (descEl) descEl.textContent = 'Unable to verify Ollama on this system.';
-      if (iconWrapper) {
-        iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" width="22" height="22"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
-      }
-      setOllamaActionBoxes({ notRunning: true });
-      return;
-    }
-
-    const installCheck = await window.ultronAPI.checkOllamaInstalled();
-    if (!installCheck.installed) {
-      if (titleEl) titleEl.textContent = 'Ollama not installed';
-      if (descEl) descEl.textContent = 'Install Ollama to run local models, then finish setup.';
-      if (iconWrapper) {
-        iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" width="22" height="22"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
-      }
-      setOllamaActionBoxes({ notInstalled: true });
-      return;
-    }
-
-    if (titleEl) titleEl.textContent = 'Starting Ollama...';
-    if (descEl) descEl.textContent = 'Ollama is installed. Attempting to start the service...';
-    if (iconWrapper) {
-      iconWrapper.innerHTML = `<div class="onboard-spinner"></div>`;
-    }
-
-    await window.ultronAPI.startOllamaService(installCheck.path).catch(() => {});
-
-    for (let i = 0; i < 8; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
-      const retryConn = await checkOllamaConnection();
-      if (retryConn.connected) {
-        ollamaReady = true;
-        if (titleEl) titleEl.textContent = 'Ollama is ready';
-        if (descEl) descEl.textContent = `Connected successfully (${installCheck.source || 'local'}).`;
-        if (iconWrapper) {
-          iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" width="22" height="22"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+    if (window.ultronAPI?.checkOllamaInstalled) {
+      const installCheck = await window.ultronAPI.checkOllamaInstalled();
+      if (installCheck.installed) {
+        if (desc) desc.textContent = 'Ollama installed. Starting background service…';
+        await window.ultronAPI.startOllamaService(installCheck.path).catch(() => {});
+        for (let i = 0; i < 5; i++) {
+          await new Promise(r => setTimeout(r, 800));
+          const retry = await checkOllamaConnection();
+          if (retry.connected) {
+            compStatus.ollama = true;
+            if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Ready'; }
+            if (desc) desc.textContent = 'Ollama is online and connected.';
+            if (btn) { btn.textContent = 'Connected'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+            return true;
+          }
         }
-        if (readyDetailsEl) readyDetailsEl.classList.remove('hidden');
-        setOllamaActionBoxes();
-        setFinishVisible(true);
-        return;
       }
     }
 
-    if (titleEl) titleEl.textContent = 'Ollama not running';
-    if (descEl) descEl.textContent = 'Ollama is installed but not responding. Retry or launch Ollama manually.';
-    if (iconWrapper) {
-      iconWrapper.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5" width="22" height="22"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
-    }
-    setOllamaActionBoxes({ notRunning: true });
+    compStatus.ollama = false;
+    if (badge) { badge.className = 'onboard-comp-badge missing'; badge.textContent = 'Not Running'; }
+    if (desc) desc.textContent = 'Ollama is not running. Install or launch Ollama to run local models.';
+    if (btn) { btn.textContent = 'Install / Start'; btn.className = 'btn-onboard-comp-action'; btn.disabled = false; }
+    return false;
   }
 
-  if (btnInstallOllama) {
-    btnInstallOllama.onclick = async () => {
-      await startOllamaInstallFlow(btnInstallOllama);
-      await runOboardingOllamaCheck();
+  async function checkUiaComp() {
+    const badge = document.getElementById('onboard-badge-uia');
+    const desc = document.getElementById('onboard-desc-uia');
+    const btn = document.getElementById('btn-onboard-action-uia');
+    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = 'Checking…'; }
+    if (desc) desc.textContent = 'Verifying Windows UI automation server…';
+
+    try {
+      const res = await window.ultronAPI?.checkMcpWindowsUia?.();
+      if (res?.installed) {
+        compStatus.uia = true;
+        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Installed'; }
+        if (desc) desc.textContent = 'Windows UI Automation server is ready for desktop control.';
+        if (btn) { btn.textContent = 'Installed'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+        return true;
+      }
+    } catch (e) {}
+
+    compStatus.uia = false;
+    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = 'Available'; }
+    if (desc) desc.textContent = 'Enables deep Windows UI automation and native app control.';
+    if (btn) { btn.textContent = 'Setup Automation'; btn.className = 'btn-onboard-comp-action'; btn.disabled = false; }
+    return false;
+  }
+
+  async function checkKokoroComp() {
+    const badge = document.getElementById('onboard-badge-kokoro');
+    const desc = document.getElementById('onboard-desc-kokoro');
+    const btn = document.getElementById('btn-onboard-action-kokoro');
+    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = 'Checking…'; }
+    if (desc) desc.textContent = 'Verifying Kokoro neural voice synthesizer…';
+
+    try {
+      const res = await window.ultronAPI?.getTtsCatalog?.();
+      const models = res?.models || [];
+      const heartInstalled = models.some(m => m.key === 'kokoro-heart' && m.installed);
+      const michaelInstalled = models.some(m => m.key === 'kokoro-michael' && m.installed);
+
+      if (heartInstalled && michaelInstalled) {
+        compStatus.kokoro = true;
+        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Installed'; }
+        if (desc) desc.textContent = 'Heart & Michael neural voice models are ready.';
+        if (btn) { btn.textContent = 'Ready'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+        return true;
+      }
+    } catch (e) {}
+
+    compStatus.kokoro = false;
+    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = 'Required'; }
+    if (desc) desc.textContent = 'Offline TTS · Downloads Heart (Female) & Michael (Male) voices. Required to finish setup.';
+    if (btn) { btn.textContent = 'Download Voices'; btn.className = 'btn-onboard-comp-action'; btn.disabled = false; }
+    return false;
+  }
+
+  async function runOboardingRequirementsCheck() {
+    await Promise.all([
+      checkOllamaComp(),
+      checkUiaComp(),
+      checkKokoroComp()
+    ]);
+    // Voice models are mandatory: auto-start their download on first check and
+    // keep Finish locked until both Heart & Michael are on disk.
+    if (!compStatus.kokoro) {
+      await startKokoroOnboardDownload();
+    }
+    setFinishVisible(Boolean(compStatus.kokoro));
+  }
+
+  // Action listeners for individual cards
+  const btnActionOllama = document.getElementById('btn-onboard-action-ollama');
+  if (btnActionOllama) {
+    btnActionOllama.onclick = async () => {
+      btnActionOllama.disabled = true;
+      await startOllamaInstallFlow(btnActionOllama);
+      await checkOllamaComp();
     };
   }
 
-  if (btnRetryOllama) {
-    btnRetryOllama.onclick = async () => {
-      btnRetryOllama.disabled = true;
-      await runOboardingOllamaCheck();
-      btnRetryOllama.disabled = false;
+  const btnActionUia = document.getElementById('btn-onboard-action-uia');
+  if (btnActionUia) {
+    btnActionUia.onclick = async () => {
+      btnActionUia.disabled = true;
+      btnActionUia.textContent = 'Setting up…';
+      const badge = document.getElementById('onboard-badge-uia');
+      if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = 'Setting up…'; }
+      await window.ultronAPI?.installMcpWindowsUia?.();
+      await checkUiaComp();
+    };
+  }
+
+  const btnActionKokoro = document.getElementById('btn-onboard-action-kokoro');
+  async function startKokoroOnboardDownload() {
+    const btn = document.getElementById('btn-onboard-action-kokoro');
+    const badge = document.getElementById('onboard-badge-kokoro');
+    if (btn) { btn.disabled = true; btn.textContent = 'Downloading…'; }
+    if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = 'Downloading…'; }
+    await window.ultronAPI?.downloadKokoroOnboardingVoices?.();
+    await checkKokoroComp();
+    setFinishVisible(Boolean(compStatus.kokoro));
+  }
+  if (btnActionKokoro) {
+    btnActionKokoro.onclick = () => startKokoroOnboardDownload();
+  }
+
+  // Batch action: Download all missing requirements
+  const btnDownloadAll = document.getElementById('btn-onboard-download-all');
+  if (btnDownloadAll) {
+    btnDownloadAll.onclick = async () => {
+      btnDownloadAll.disabled = true;
+      btnDownloadAll.innerHTML = `<div class="onboard-spinner"></div> Setting up all components…`;
+
+      // 1. UIA
+      if (!compStatus.uia && window.ultronAPI?.installMcpWindowsUia) {
+        await window.ultronAPI.installMcpWindowsUia().catch(() => {});
+        await checkUiaComp();
+      }
+
+      // 2. Kokoro
+      if (!compStatus.kokoro && window.ultronAPI?.downloadKokoroOnboardingVoices) {
+        await window.ultronAPI.downloadKokoroOnboardingVoices().catch(() => {});
+        await checkKokoroComp();
+      }
+
+      // 3. Ollama
+      if (!compStatus.ollama) {
+        await checkOllamaComp();
+      }
+
+      setFinishVisible(Boolean(compStatus.kokoro));
+      btnDownloadAll.disabled = false;
+      btnDownloadAll.innerHTML = `✓ Requirements Setup Complete`;
+      btnDownloadAll.classList.add('installed');
+    };
+  }
+
+  // Skip / Setup Later button
+  const btnSkipLater = document.getElementById('btn-onboard-skip-later');
+  if (btnSkipLater) {
+    btnSkipLater.onclick = async () => {
+      currentStep = 5;
+      updateStepUI();
+      if (readyRedirectTimer) clearTimeout(readyRedirectTimer);
+      readyRedirectTimer = setTimeout(async () => {
+        readyRedirectTimer = null;
+        await finishOnboarding();
+      }, 2000);
     };
   }
 
   // Finish setup — show ready screen, then redirect to main agent UI
   if (btnFinish) {
     btnFinish.onclick = async () => {
-      if (!ollamaReady) return;
-
       currentStep = 5;
       updateStepUI();
 
@@ -10298,7 +12074,7 @@ async function checkAndRunFirstTimeOnboarding() {
       readyRedirectTimer = setTimeout(async () => {
         readyRedirectTimer = null;
         await finishOnboarding();
-      }, 3200);
+      }, 2400);
     };
   }
 
@@ -10586,6 +12362,12 @@ if (hiddenFileInput) {
   hiddenFileInput.addEventListener('change', async (e) => {
     if (e.target.files && e.target.files.length > 0) {
       await processAndAttachFiles(e.target.files);
+      // Document intake flow: a picker card asked for a file — resume the request
+      if (_pendingIntakePrompt) {
+        const resume = _pendingIntakePrompt;
+        _pendingIntakePrompt = '';
+        submitPrompt(resume);
+      }
     }
     hiddenFileInput.value = '';
   });
@@ -10707,6 +12489,10 @@ let voiceTimerInterval = null;
 let voiceStartTime = 0;
 let _prevHeights = [];
 let voiceStopInProgress = false;
+let liveWindowsSttActive = false;
+let liveWindowsSttUnsubscribe = null;
+let liveWindowsSttFailed = false;
+let liveSttPrivacyWarned = false;
 
 // ==========================================
 // VOICE CHAT MODE — text/voice toggle + orb
@@ -10733,7 +12519,7 @@ let vadAutoTriggered = false;
 let voiceModeGestureUnlocked = false;
 let voiceModeGestureListener = null;
 
-const VAD_BASE_SPEECH_THRESHOLD = 0.018;
+const VAD_BASE_SPEECH_THRESHOLD = 0.022;
 let vadNoiseMultiplier = 3.0;
 const VAD_CALIBRATION_MS = 350;
 let vadSilenceMs = 700;
@@ -10835,12 +12621,103 @@ async function selectChatModel(modelName) {
   closeVoiceModeModelsPanel();
 }
 
+let activeVoiceEngineMode = 'local'; // 'local' | 'gemini-live'
+
+const GEMINI_LIVE_VOICE_MODELS = [
+  {
+    name: 'Gemini 2.5 Flash Native Audio Dialog',
+    description: 'Live API · Native Audio-to-Audio bidirectional dialog',
+    badge: 'Live API'
+  },
+  {
+    name: 'Gemini 3 Flash Live',
+    description: 'Live API · Low-latency live speech, audio & vision',
+    badge: 'Live API'
+  },
+  {
+    name: 'Gemini 3.5 Live Translate',
+    description: 'Live API · Real-time multilingual spoken translation',
+    badge: 'Live API'
+  }
+];
+
+function initVoiceModeEngineToggle() {
+  const btnLocal = document.getElementById('btn-voice-engine-local');
+  const btnGemini = document.getElementById('btn-voice-engine-gemini');
+
+  if (btnLocal) {
+    btnLocal.addEventListener('click', (e) => {
+      e.stopPropagation();
+      activeVoiceEngineMode = 'local';
+      btnLocal.classList.add('active');
+      btnGemini?.classList.remove('active');
+      
+      // If currently on a Gemini model, switch back to local default
+      if (activeModel && activeModel.toLowerCase().includes('gemini')) {
+        const localModel = installedOllamaModels[0]?.name || 'llama3.2';
+        selectChatModel(localModel);
+      }
+      updateVoiceModeModelsToggleLabel();
+    });
+  }
+
+  if (btnGemini) {
+    btnGemini.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const apiKey = await window.ultronAPI?.loadGeminiKey?.().catch(() => '');
+      if (!apiKey || !apiKey.trim()) {
+        logTrace('Gemini API key is required for Gemini Live models.', 'system');
+        alert('Please add your Google Gemini API Key in Settings → Connectors to use Gemini Live models.');
+        return;
+      }
+
+      activeVoiceEngineMode = 'gemini-live';
+      btnGemini.classList.add('active');
+      btnLocal?.classList.remove('active');
+      
+      // Select first Gemini live model
+      selectChatModel('Gemini 2.5 Flash Native Audio Dialog');
+      updateVoiceModeModelsToggleLabel();
+    });
+  }
+}
+
+initVoiceModeEngineToggle();
+
 function updateVoiceModeModelsPanel() {
   updateVoiceModeModelsToggleLabel();
   if (!voiceModeModelsList) return;
+  voiceModeModelsList.innerHTML = '';
+
+  if (activeVoiceEngineMode === 'gemini-live') {
+    const titleEl = document.createElement('div');
+    titleEl.className = 'model-dropdown-section-title';
+    titleEl.textContent = 'Gemini Live Engines';
+    voiceModeModelsList.appendChild(titleEl);
+
+    GEMINI_LIVE_VOICE_MODELS.forEach(m => {
+      const item = document.createElement('div');
+      item.className = `model-dropdown-item${activeModel === m.name ? ' active' : ''}`;
+      item.innerHTML = `
+        <div class="model-dropdown-item-header">
+          <span class="model-name-text">${m.name}</span>
+          <span class="model-badge-pill">${m.badge}</span>
+        </div>
+        <div class="model-dropdown-desc">${m.description}</div>
+      `;
+      item.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        selectChatModel(m.name);
+        closeVoiceModeModelsPanel();
+      });
+      voiceModeModelsList.appendChild(item);
+    });
+    return;
+  }
+
   if (typeof renderModelDropdownList === 'function') renderModelDropdownList();
   if (!modelDropdownList) return;
-  voiceModeModelsList.innerHTML = '';
   Array.from(modelDropdownList.children).forEach((child) => {
     const clone = child.cloneNode(true);
     if (clone.classList.contains('model-dropdown-item') && !clone.classList.contains('disabled')) {
@@ -11466,8 +13343,8 @@ async function syncActiveTtsModelForVoiceMode() {
   const key = window.localStorage.getItem('ultron-tts-neural-model');
   if (key && window.ultronAPI?.setActiveTtsModel) {
     try {
-      await window.ultronAPI.setActiveTtsModel(key);
-      cachedActiveTtsModelKey = key;
+      const res = await window.ultronAPI.setActiveTtsModel(key);
+      if (res?.success) cachedActiveTtsModelKey = key;
     } catch (e) { /* ignore */ }
   }
 }
@@ -11526,6 +13403,17 @@ function applyVoiceChatModeUi({ fromUserGesture = false } = {}) {
     voiceModeRecording = false;
     voiceModePaused = false;
     voiceModeMicMuted = false;
+    // Leaving voice mode: voice-only engines (Native Audio Dialog, Live, TTS) are not text-chat models.
+    if (activeModel && isVoiceOnlyModelLabel(activeModel)) {
+      const safe = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name || '';
+      if (safe) {
+        activeModel = safe;
+        updateModelSelectorLabel();
+        syncModelAttachmentCapabilities();
+        logTrace(`Returned to text chat model "${safe}" after leaving voice mode.`, 'system');
+      }
+      renderModelDropdownList();
+    }
   }
 }
 
@@ -11976,7 +13864,24 @@ function normalizeManualPcmForWindowsStt(samples) {
   const trimmed = trimPcmSilence(samples, 0.0025);
   const rms = getPcmRms(trimmed);
   if (rms <= 0.00001) return trimmed;
-  const gain = Math.min(12, Math.max(0.5, 0.12 / rms));
+  const gain = Math.min(3, Math.max(0.5, 0.12 / rms));
+  const out = new Float32Array(trimmed.length);
+  for (let i = 0; i < trimmed.length; i++) {
+    out[i] = Math.max(-1, Math.min(1, trimmed[i] * gain));
+  }
+  return out;
+}
+
+// Gentle trim + level boost without a noise gate. Modern speech engines
+// (WinRT / Gemini) handle noise suppression themselves; hard gating and
+// heavy gain only add artifacts that hurt accuracy.
+function normalizePcmGentle(samples) {
+  if (!samples || !samples.length) return samples;
+  const trimmed = trimPcmSilence(samples);
+  const rms = getPcmRms(trimmed);
+  if (rms <= 0.00001) return trimmed;
+  const gain = Math.min(3, Math.max(0.5, 0.12 / rms));
+  if (Math.abs(gain - 1) < 0.05) return trimmed;
   const out = new Float32Array(trimmed.length);
   for (let i = 0; i < trimmed.length; i++) {
     out[i] = Math.max(-1, Math.min(1, trimmed[i] * gain));
@@ -12126,7 +14031,7 @@ function hasEnoughTranscriptWords(text, minWords = 3) {
   return String(text || '').trim().split(/\s+/).filter(Boolean).length >= minWords;
 }
 
-async function transcribeAudioWithTimeout(payload, timeoutMs = 18000) {
+async function transcribeAudioWithTimeout(payload, timeoutMs = 25000) {
   if (!window.ultronAPI?.transcribeAudio) {
     return { success: false, error: 'Speech engine unavailable.' };
   }
@@ -12149,7 +14054,7 @@ function applyVoiceTextToChatInput(text) {
   chatInput.value = nextValue;
   chatInput.dispatchEvent(new Event('input', { bubbles: true }));
   chatInput.style.height = 'auto';
-  chatInput.style.height = `${Math.min(chatInput.scrollHeight, 140)}px`;
+  chatInput.style.height = `${Math.min(chatInput.scrollHeight, 160)}px`;
   chatInput.focus();
 }
 
@@ -12252,7 +14157,8 @@ async function transcribeAudioWithGemini(audioBlob) {
             { text: 'Transcribe the following spoken voice audio recording into plain text verbatim. Return ONLY the spoken words with zero quotes, headers, or commentary.' },
             { inlineData: { mimeType: audioBlob.type || 'audio/webm', data: base64Audio } }
           ]
-        }]
+        }],
+        generationConfig: { temperature: 0 }
       })
     });
 
@@ -12280,23 +14186,22 @@ async function prepareSttSamples({ audioBlob = null, pcmSamples = null, pcmSampl
   const blobOk = blobSamples && blobSamples.length > 800;
   const pcmOk = pcmResampled && pcmResampled.length > 800;
 
+  // Prefer the raw recorded track: the browser already applies echo
+  // cancellation, noise suppression and auto gain at capture time, and
+  // modern speech engines transcribe it far more accurately than the
+  // filtered PCM chain. PCM is only a fallback when the blob is missing.
   let samples = null;
-  if (pcmOk && blobOk) {
-    const pcmRms = getPcmRms(pcmResampled);
-    const blobRms = getPcmRms(blobSamples);
-    const useRecordedTrack = pcmRms < blobRms * 0.45;
-    samples = useRecordedTrack ? blobSamples : pcmResampled;
-    logTrace(`STT audio source: ${useRecordedTrack ? 'recorded mic track' : 'filtered mic PCM'} (pcm=${pcmRms.toFixed(4)}, raw=${blobRms.toFixed(4)})`, 'system');
+  if (blobOk) {
+    samples = blobSamples;
   } else if (pcmOk) {
     samples = pcmResampled;
-  } else if (blobOk) {
-    samples = blobSamples;
+    logTrace('STT audio source: filtered mic PCM (recorded track unavailable).', 'system');
   }
 
   if (!samples || samples.length <= 800) return null;
-  const normalized = strictVoiceGate
-    ? normalizePcmForStt(samples)
-    : normalizeManualPcmForWindowsStt(samples);
+  // Modern engines (WinRT / Gemini) do their own noise handling; hard noise
+  // gates and heavy gain only add artifacts that hurt accuracy.
+  const normalized = normalizePcmGentle(samples);
   if (!normalized || normalized.length < 16000 * 0.45) return null;
   return strictVoiceGate && !hasEnoughSpeechForStt(normalized) ? null : normalized;
 }
@@ -12312,7 +14217,7 @@ async function transcribeWithWindowsStt(samples, culture = getVoiceSttCulture())
         culture,
         samples: samples instanceof Float32Array ? Array.from(samples) : samples
       };
-  const result = await transcribeAudioWithTimeout(payload, 10000);
+  const result = await transcribeAudioWithTimeout(payload, 25000);
   return result || { success: false, error: 'Windows Speech did not return a result.' };
 }
 
@@ -12334,6 +14239,32 @@ function getVoiceTranscriptFallback(hint = '') {
 async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcmSampleRate = 48000, liveTranscriptHint = '' } = {}) {
   const inVoiceMode = isVoiceChatModeEnabled();
   lastVoiceTranscriptionError = '';
+
+  // Cloud-grade transcription first when a Gemini key is configured - it is
+  // dramatically more accurate than any on-device engine for both chat and
+  // voice mode. Falls through to the native Windows engine when offline.
+  const geminiKeyForStt = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
+  if (geminiKeyForStt && audioBlob && audioBlob.size > 0) {
+    try {
+      const cloudText = await transcribeAudioWithGemini(audioBlob);
+      if (cloudText) {
+        logTrace('Cloud speech transcription complete.', 'system');
+        return cloudText.trim();
+      }
+    } catch (cloudErr) {
+      console.warn('Cloud transcription notice:', cloudErr.message);
+    }
+  }
+
+  // Live Windows Speech transcript (accumulated in real time while the user
+  // spoke). Prefer it over re-decoding the recorded buffer; fall through to
+  // the recorded-audio engines only when the live engine produced nothing.
+  const liveWindowsText = String(finalVoiceTranscript || '').trim();
+  if (liveWindowsText) {
+    logTrace('Speech transcription complete (live Windows engine).', 'system');
+    return liveWindowsText;
+  }
+
   const samples = await prepareSttSamples({ audioBlob, pcmSamples, pcmSampleRate, strictVoiceGate: false });
   if (samples && samples.length > 800 && window.ultronAPI?.transcribeAudio) {
     setVoiceTranscribingUi(true);
@@ -12413,6 +14344,23 @@ function setVoiceTranscribingUi(isTranscribing) {
   }
 }
 
+function handleLiveWindowsSttPartial(text) {
+  const piece = String(text || '').trim();
+  if (!piece || !isRecordingVoice) return;
+  finalVoiceTranscript = `${finalVoiceTranscript} ${piece}`.trim();
+  accumulatedTranscript = finalVoiceTranscript;
+  updateVoiceLiveTranscript(accumulatedTranscript);
+  if (isVoiceChatModeEnabled()) {
+    setVoiceModeStatus('Listening…');
+  }
+  if (chatInput && !isVoiceChatModeEnabled()) {
+    const prefix = initialInputValue ? initialInputValue.trim() + ' ' : '';
+    chatInput.value = prefix + accumulatedTranscript;
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 160) + 'px';
+  }
+}
+
 async function startVoiceRecording(options = {}) {
   const voiceMode = options.voiceMode === true || (options.voiceMode !== false && isVoiceChatModeEnabled());
   if (isRecordingVoice) return;
@@ -12467,7 +14415,7 @@ async function startVoiceRecording(options = {}) {
     highPass.Q.value = 0.7;
     const lowPass = audioContext.createBiquadFilter();
     lowPass.type = 'lowpass';
-    lowPass.frequency.value = 4200;
+    lowPass.frequency.value = 7600;
     lowPass.Q.value = 0.7;
     source.connect(highPass);
     highPass.connect(lowPass);
@@ -12576,7 +14524,7 @@ async function startVoiceRecording(options = {}) {
           const prefix = initialInputValue ? initialInputValue.trim() + ' ' : '';
           chatInput.value = prefix + accumulatedTranscript;
           chatInput.style.height = 'auto';
-          chatInput.style.height = Math.min(chatInput.scrollHeight, 140) + 'px';
+          chatInput.style.height = Math.min(chatInput.scrollHeight, 160) + 'px';
         }
       };
 
@@ -12594,6 +14542,38 @@ async function startVoiceRecording(options = {}) {
       };
 
       speechRecognition.start();
+    }
+
+    // Modern Windows Speech engine (live). Streams recognition from the mic
+    // while the user speaks - dramatically more accurate than decoding the
+    // recorded buffer afterwards. Runs alongside the recorder so we always
+    // keep the raw audio for cloud/Whisper fallbacks.
+    if (!SpeechRec && window.ultronAPI?.startLiveSpeech) {
+      try {
+        const liveResult = await window.ultronAPI.startLiveSpeech(getVoiceSttCulture());
+        if (liveResult?.success) {
+          liveWindowsSttActive = true;
+          liveWindowsSttFailed = false;
+          if (liveWindowsSttUnsubscribe) { try { liveWindowsSttUnsubscribe(); } catch (e) {} }
+          liveWindowsSttUnsubscribe = window.ultronAPI.onLiveSpeechPartial
+            ? window.ultronAPI.onLiveSpeechPartial(handleLiveWindowsSttPartial)
+            : null;
+        } else {
+          liveWindowsSttActive = false;
+          liveWindowsSttFailed = true;
+          if (liveResult?.code === 'privacy') {
+            logTrace(liveResult.error || 'Turn on Online speech recognition in Windows Settings \u2192 Privacy & security \u2192 Speech for the most accurate mic input.', 'system');
+            if (!liveSttPrivacyWarned) {
+              liveSttPrivacyWarned = true;
+              alert('For accurate voice input, turn on "Online speech recognition":\nWindows Settings \u2192 Privacy & security \u2192 Speech.\n\nUntil then, Ultron falls back to a less accurate offline engine.');
+            }
+          }
+        }
+      } catch (liveErr) {
+        liveWindowsSttActive = false;
+        liveWindowsSttFailed = true;
+        console.warn('Live Windows speech notice:', liveErr?.message || liveErr);
+      }
     }
   } catch (err) {
     console.error('Microphone access error:', err);
@@ -12665,6 +14645,22 @@ async function stopVoiceRecording(saveTranscript = true, options = {}) {
   if (speechRecognition) {
     speechRecognition.onend = null;
     await flushSpeechRecognition(250);
+  }
+
+  if (liveWindowsSttActive && window.ultronAPI?.stopLiveSpeech) {
+    liveWindowsSttActive = false;
+    try {
+      const liveStop = await window.ultronAPI.stopLiveSpeech();
+      const liveText = String(liveStop?.text || '').trim();
+      if (liveText) finalVoiceTranscript = liveText;
+    } catch (liveStopErr) {
+      console.warn('Live Windows speech stop notice:', liveStopErr?.message || liveStopErr);
+    }
+  }
+  liveWindowsSttActive = false;
+  if (liveWindowsSttUnsubscribe) {
+    try { liveWindowsSttUnsubscribe(); } catch (e) { /* ignore */ }
+    liveWindowsSttUnsubscribe = null;
   }
 
   let finalAudioBlob = null;
@@ -12755,7 +14751,7 @@ async function stopVoiceRecording(saveTranscript = true, options = {}) {
     if (chatInput) {
       chatInput.value = initialInputValue;
       chatInput.style.height = 'auto';
-      chatInput.style.height = `${Math.min(chatInput.scrollHeight, 140)}px`;
+      chatInput.style.height = `${Math.min(chatInput.scrollHeight, 160)}px`;
     }
   }
 
@@ -13951,7 +15947,8 @@ async function resolveActiveTtsModelKey(forceRefresh = false) {
   try {
     const catalogRes = await window.ultronAPI.getTtsCatalog();
     const models = catalogRes?.models || [];
-    const activeKey = window.localStorage.getItem('ultron-tts-neural-model')
+    const storedKey = window.localStorage.getItem('ultron-tts-neural-model');
+    const activeKey = (storedKey && models.some(m => m.key === storedKey) ? storedKey : null)
       || models.find(m => m.isActive)?.key
       || models.find(m => m.installed || m.cloud)?.key;
     const active = models.find(m => m.key === activeKey);
@@ -14596,9 +16593,9 @@ function bindTtsModelDownloadProgressListener(modelKey) {
 
     showTtsModelProgress(data);
 
-    if (isKokoro && ttsModelsListEl) {
+    if (ttsModelsListEl) {
       ttsModelsListEl.querySelectorAll('.btn-tts-download').forEach(btn => {
-        if (btn.dataset.key === modelKey || catalogEntry()?.engine === 'kokoro') {
+        if (btn.dataset.key === modelKey) {
           setSettingsActionButton(btn, 'Downloading…', 'downloading', 'btn-tts-download is-downloading');
           btn.disabled = true;
         }
@@ -14655,7 +16652,7 @@ function buildTtsActionButton(label, iconKey, className, attrs = '') {
 function buildTtsModelCard(model) {
   const dl = getTtsDownloadButtonState(model);
   const sizeLabel = model.cloud
-    ? 'Cloud · Gemini Live API'
+    ? (model.sizeEstimate === 'Live API' ? 'Cloud · Gemini Live API' : 'Cloud · Gemini TTS')
     : (model.installed
       ? `${model.cacheSize || model.sizeEstimate} · offline`
       : (model.downloading
@@ -14677,7 +16674,10 @@ function buildTtsModelCard(model) {
     ? buildTtsActionButton(dl.label, dl.icon, `btn-tts-cloud-status ${dl.className}`, 'disabled')
     : buildTtsActionButton(dl.label, dl.icon, `btn-tts-download ${dl.className}`, `data-key="${model.key}" ${dl.disabled ? 'disabled' : ''}`)}
         ${buildTtsActionButton('Preview', 'preview', 'btn-tts-preview', `data-key="${model.key}" ${model.installed ? '' : 'disabled'}`)}
-        ${buildTtsActionButton(model.isActive ? 'Active' : 'Use', model.isActive ? 'active' : 'use', `btn-tts-use ${model.isActive ? 'is-active-voice' : ''}`, `data-key="${model.key}" ${model.installed ? '' : 'disabled'}`)}
+        <label class="switch-container tts-use-toggle" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;" title="${model.isActive ? 'Active voice' : (model.installed ? 'Set as active voice' : 'Download to enable')}">
+          <input type="checkbox" class="tts-use-toggle-input" data-key="${model.key}" ${model.isActive ? 'checked' : ''} ${model.installed ? '' : 'disabled'} style="opacity: 0; width: 0; height: 0;">
+          <span class="switch-slider"></span>
+        </label>
       </div>
     </div>
   `;
@@ -14695,18 +16695,26 @@ function bindTtsModelCardActions(container) {
     });
   });
 
-  container.querySelectorAll('.btn-tts-use').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.preventDefault();
+  container.querySelectorAll('.tts-use-toggle-input').forEach(input => {
+    input.addEventListener('change', async () => {
+      const key = input.dataset.key;
       if (!window.ultronAPI?.setActiveTtsModel) return;
-      const result = await window.ultronAPI.setActiveTtsModel(btn.dataset.key);
-      if (result?.success) {
-        window.localStorage.setItem('ultron-tts-neural-model', btn.dataset.key);
-        cachedActiveTtsModelKey = btn.dataset.key;
-        warmupActiveTtsEngine();
-        await refreshTtsModelsUI();
-        logTrace(`Active voice: ${btn.dataset.key}`, 'system');
+      if (input.checked) {
+        const result = await window.ultronAPI.setActiveTtsModel(key);
+        if (result?.success) {
+          window.localStorage.setItem('ultron-tts-neural-model', key);
+          cachedActiveTtsModelKey = key;
+          warmupActiveTtsEngine();
+          await refreshTtsModelsUI();
+          logTrace(`Active voice: ${key}`, 'system');
+          return;
+        }
+      } else {
+        // One voice must always stay active — flipping the active toggle off
+        // simply restores it; turn ON another voice to switch.
+        logTrace('One voice must stay active — turn on another voice to switch.', 'system');
       }
+      await refreshTtsModelsUI();
     });
   });
 
@@ -14797,7 +16805,12 @@ async function refreshTtsModelsUI() {
     const result = await window.ultronAPI.getTtsCatalog();
     const models = result?.models || [];
     const storedActive = window.localStorage.getItem('ultron-tts-neural-model');
-    if (storedActive && models.some(m => m.key === storedActive && m.installed)) {
+    if (storedActive && !models.some(m => m.key === storedActive)) {
+      // Stored key no longer offered (e.g. a Voice-Mode-only live engine) —
+      // heal localStorage to whatever the main process reports as active.
+      const mainActive = models.find(m => m.isActive)?.key;
+      if (mainActive) window.localStorage.setItem('ultron-tts-neural-model', mainActive);
+    } else if (storedActive && models.some(m => m.key === storedActive && m.installed)) {
       await window.ultronAPI.setActiveTtsModel?.(storedActive);
     }
     const refreshed = await window.ultronAPI.getTtsCatalog();
@@ -14925,7 +16938,8 @@ function initTtsSettingsUI() {
       btnPreviewTts.disabled = true;
       setSettingsActionButton(btnPreviewTts, 'Speaking…', 'preview');
 
-      const activeKey = window.localStorage.getItem('ultron-tts-neural-model')
+      const storedSpeakKey = window.localStorage.getItem('ultron-tts-neural-model');
+      const activeKey = (storedSpeakKey && ttsCatalogCache.some(m => m.key === storedSpeakKey) ? storedSpeakKey : null)
         || ttsCatalogCache.find(m => m.isActive)?.key
         || ttsCatalogCache.find(m => m.installed)?.key;
 
@@ -16247,6 +18261,29 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
   async function initRagUI() {
     if (!window.ultronAPI || !window.ultronAPI.ragGetStats) return;
 
+    // Auto-learn toggle (default ON so zero-setup users get it for free)
+    const autoToggle = document.getElementById('rag-auto-toggle');
+    if (autoToggle) {
+      autoToggle.checked = isRagAutoEnabled();
+      autoToggle.addEventListener('change', () => {
+        try { localStorage.setItem('ultron-rag-auto', autoToggle.checked ? '1' : '0'); } catch (e) {}
+      });
+    }
+
+    // Throttled background refresh (every 6h) keeps auto-sources fresh with no user action.
+    try {
+      const lastRefresh = parseInt(localStorage.getItem('ultron-rag-last-refresh') || '0', 10);
+      if (isRagAutoEnabled() && Date.now() - lastRefresh > 6 * 3600 * 1000) {
+        setTimeout(async () => {
+          try {
+            const stats = await window.ultronAPI.ragGetStats();
+            if (stats && (stats.totalSources || 0) > 0) await window.ultronAPI.ragReindex();
+            localStorage.setItem('ultron-rag-last-refresh', String(Date.now()));
+          } catch (e) {}
+        }, 8000);
+      }
+    } catch (e) {}
+
     async function loadRagStats() {
       try {
         const stats = await window.ultronAPI.ragGetStats();
@@ -16263,7 +18300,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
           if (!stats.sources || stats.sources.length === 0) {
             listEl.innerHTML = `
               <div style="padding: 16px; text-align: center; color: #6b7280; font-size: 13px; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px dashed var(--border-color);">
-                No folders or documents added yet. Click "Add Folder" to index local notes or code repositories.
+                Nothing indexed yet. With Auto-learn on, projects you open and files Ultron works on appear here automatically — or click "Add Folder" to add any folder.
               </div>
             `;
           } else {
@@ -16275,7 +18312,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
                 <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
                   <span style="font-size: 16px;">📁</span>
                   <div style="overflow: hidden;">
-                    <div style="font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${src.name || src.path}</div>
+                    <div style="font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${src.name || src.path}${src.auto ? ' <span style="font-size: 9px; font-weight: 700; color: #60a5fa; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 999px; padding: 1px 6px; vertical-align: middle;">Auto</span>' : ''}</div>
                     <div style="font-size: 11px; color: #a1a1aa; margin-top: 2px;">${src.fileCount || 0} files • ${src.chunkCount || 0} vector chunks</div>
                   </div>
                 </div>
@@ -16493,9 +18530,8 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
             devicesContainer.innerHTML = '';
             activeDevices.forEach(d => {
               const devName = d.deviceName || 'Ultron Mobile Companion';
-              const isApple = (d.platform === 'ios' || d.platform === 'apple' || /iphone|ipad|ios|apple|mac/i.test(devName));
-              const brandName = isApple ? 'Apple iOS' : 'Android';
-              const logoSrc = isApple ? '../../Assets/Brand-Assets/white-apple.png' : '../../Assets/Brand-Assets/android-logo.png';
+              const brandName = 'Android';
+              const logoSrc = '../../Assets/Brand-Assets/android-logo.png';
 
               const row = document.createElement('div');
               row.className = 'paired-mobile-device-card';
@@ -16508,7 +18544,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
                   <div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                       <span style="font-weight: 600; color: #ffffff; font-size: 13.5px;">${escapeHtml(devName)}</span>
-                      <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: ${isApple ? 'rgba(255, 255, 255, 0.1)' : 'rgba(34, 197, 94, 0.15)'}; color: ${isApple ? '#ffffff' : '#22c55e'}; border: 1px solid ${isApple ? 'rgba(255, 255, 255, 0.2)' : 'rgba(34, 197, 94, 0.3)'};">${brandName}</span>
+                      <span style="font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3);">${brandName}</span>
                     </div>
                     <div style="font-size: 11px; color: #a1a1aa; margin-top: 3px;">Paired: ${new Date(d.createdAt || Date.now()).toLocaleDateString()}</div>
                   </div>
@@ -16543,9 +18579,8 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
             devicesContainer.appendChild(prevHeader);
 
             info.previousDevices.forEach(pd => {
-              const isApple = (pd.platform === 'ios' || pd.platform === 'apple' || /iphone|ipad|ios|apple|mac/i.test(pd.deviceName));
-              const brandName = isApple ? 'Apple iOS' : 'Android';
-              const logoSrc = isApple ? '../../Assets/Brand-Assets/white-apple.png' : '../../Assets/Brand-Assets/android-logo.png';
+              const brandName = 'Android';
+              const logoSrc = '../../Assets/Brand-Assets/android-logo.png';
               const prevRow = document.createElement('div');
               prevRow.className = 'paired-mobile-device-card previous-device';
               prevRow.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: rgba(255, 255, 255, 0.015); border: 1px dashed rgba(255, 255, 255, 0.1); border-radius: 10px; font-size: 12.5px; margin-bottom: 6px; opacity: 0.8;';
