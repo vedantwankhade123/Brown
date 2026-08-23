@@ -4,6 +4,7 @@ dist/
 .system_generated/
 .gemini/
 .agents/
+.qoder/
 .git/
 CVS/
 .DS_Store

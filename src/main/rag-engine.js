@@ -7,14 +7,25 @@ const path = require('path');
 const crypto = require('crypto');
 const { app } = require('electron');
 
+// NOTE: secret-bearing files (.env, keys) are deliberately NOT indexable —
+// indexed snippets can be injected into LLM prompts, so they must never be stored.
 const SUPPORTED_EXTENSIONS = new Set([
   '.txt', '.md', '.markdown', '.json', '.csv', '.js', '.ts', '.jsx', '.tsx',
   '.py', '.html', '.css', '.xml', '.yaml', '.yml', '.sql', '.sh', '.bat',
-  '.ps1', '.ini', '.cfg', '.env', '.log', '.pdf'
+  '.ps1', '.ini', '.cfg', '.log', '.pdf'
 ]);
 
 const CHUNK_SIZE = 800;
 const CHUNK_OVERLAP = 150;
+
+// Safety rails for automatic indexing: bound the work and skip noise/dependency dirs.
+const EXCLUDED_DIRS = new Set([
+  'node_modules', 'dist', 'build', '.git', '__pycache__', '.venv', 'venv',
+  '.cache', '.next', 'coverage', 'out', 'target', '.expo', '.vs', '.idea'
+]);
+const MAX_FILES_PER_SOURCE = 1500;
+const MAX_FILE_BYTES = 1500000; // 1.5 MB per file
+const MAX_AUTO_FILE_SOURCES = 250;
 
 let os;
 try { os = require('os'); } catch {}
@@ -181,10 +192,27 @@ function chunkText(text, filePath) {
   return chunks;
 }
 
-// Extract plain text from PDF (basic fallback text extractor)
-function extractTextFromPdfBuffer(buffer) {
+// Extract plain text from PDF using pdf-parse with fallbacks
+async function extractTextFromPdfBuffer(buffer) {
+  if (!buffer) return '';
   try {
-    const str = buffer.toString('binary');
+    const uint8 = Buffer.isBuffer(buffer) ? new Uint8Array(buffer) : new Uint8Array(Buffer.from(buffer));
+    try {
+      const pdfModule = require('pdf-parse');
+      const PDFParse = pdfModule.PDFParse || (typeof pdfModule === 'function' ? pdfModule : null);
+      if (PDFParse) {
+        if (typeof PDFParse === 'function' && !pdfModule.PDFParse) {
+          const res = await PDFParse(Buffer.from(uint8));
+          if (res && res.text && res.text.trim()) return res.text.trim();
+        } else {
+          const parser = new PDFParse(uint8);
+          const res = await parser.getText();
+          if (res && res.text && res.text.trim()) return res.text.trim();
+        }
+      }
+    } catch {}
+
+    const str = Buffer.from(uint8).toString('latin1');
     const texts = [];
     const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
     let match;
@@ -195,17 +223,19 @@ function extractTextFromPdfBuffer(buffer) {
       }
     }
     if (texts.length > 0) return texts.join('\n');
-  } catch {}
-  return buffer.toString('utf8').replace(/[^\x20-\x7E\n\r\t]/g, ' ');
+    return str.replace(/[^\x20-\x7E\n\r\t]/g, ' ').trim();
+  } catch {
+    return '';
+  }
 }
 
 // Read and parse file content
-function readFileContent(targetPath) {
+async function readFileContent(targetPath) {
   try {
     const ext = path.extname(targetPath).toLowerCase();
     if (ext === '.pdf') {
       const buffer = fs.readFileSync(targetPath);
-      return extractTextFromPdfBuffer(buffer);
+      return await extractTextFromPdfBuffer(buffer);
     }
     return fs.readFileSync(targetPath, 'utf8');
   } catch (err) {
@@ -230,19 +260,22 @@ function collectFiles(sourcePath) {
 
   if (stat.isDirectory()) {
     const walk = (dir, depth = 0) => {
-      if (depth > 6) return;
+      if (depth > 6 || results.length >= MAX_FILES_PER_SOURCE) return;
       try {
         const items = fs.readdirSync(dir, { withFileTypes: true });
         for (const item of items) {
-          if (item.name.startsWith('.') || item.name === 'node_modules' || item.name === 'dist' || item.name === 'build') continue;
+          if (item.name.startsWith('.') || EXCLUDED_DIRS.has(item.name)) continue;
           const full = path.join(dir, item.name);
           if (item.isDirectory()) {
             walk(full, depth + 1);
           } else if (item.isFile()) {
             const ext = path.extname(item.name).toLowerCase();
-            if (SUPPORTED_EXTENSIONS.has(ext)) {
-              results.push(full);
-            }
+            if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
+            try {
+              if (fs.statSync(full).size > MAX_FILE_BYTES) continue;
+            } catch { continue; }
+            results.push(full);
+            if (results.length >= MAX_FILES_PER_SOURCE) break;
           }
         }
       } catch {}
@@ -250,6 +283,10 @@ function collectFiles(sourcePath) {
     walk(sourcePath);
   }
   return results;
+}
+
+function chunksBelongToSource(chunkPath, sourcePath) {
+  return chunkPath === sourcePath || chunkPath.startsWith(sourcePath.endsWith(path.sep) ? sourcePath : sourcePath + path.sep);
 }
 
 // Add folders or files to the Knowledge Base
@@ -284,9 +321,106 @@ async function addSources(targetPaths = []) {
 async function removeSource(sourcePath) {
   const indexData = loadIndex();
   indexData.sources = indexData.sources.filter(s => s.path !== sourcePath);
-  indexData.chunks = indexData.chunks.filter(c => !c.filePath.startsWith(sourcePath));
+  indexData.chunks = indexData.chunks.filter(c => !chunksBelongToSource(c.filePath, sourcePath));
   saveIndex(indexData);
   return { success: true, totalSources: indexData.sources.length };
+}
+
+// Reindex a single source incrementally (used by auto-learn)
+async function reindexSource(sourcePath) {
+  const indexData = loadIndex();
+  const source = indexData.sources.find(s => s.path === sourcePath);
+  if (!source) return { success: false, error: 'Source not registered' };
+
+  indexData.chunks = (indexData.chunks || []).filter(c => !chunksBelongToSource(c.filePath, sourcePath));
+  const files = collectFiles(source.path);
+  source.fileCount = files.length;
+  let sourceChunkCount = 0;
+  for (const filePath of files) {
+    const content = await readFileContent(filePath);
+    if (content) {
+      const fileChunks = chunkText(content, filePath);
+      indexData.chunks.push(...fileChunks);
+      sourceChunkCount += fileChunks.length;
+    }
+  }
+  source.chunkCount = sourceChunkCount;
+  source.lastIndexed = new Date().toISOString();
+  saveIndex(indexData);
+  return { success: true, totalFiles: files.length, totalChunks: sourceChunkCount };
+}
+
+// Auto-learn: register a folder/file the user brought into Ultron (implicit
+// consent) and index just that source — never scans anything else.
+async function autoAddSource(targetPath) {
+  if (!targetPath || !fs.existsSync(targetPath)) return { success: false, error: 'Path not found' };
+  const indexData = loadIndex();
+  const isDir = fs.statSync(targetPath).isDirectory();
+  if (!indexData.sources.find(s => s.path === targetPath)) {
+    indexData.sources.push({
+      path: targetPath,
+      isDirectory: isDir,
+      name: path.basename(targetPath),
+      auto: true,
+      addedAt: new Date().toISOString(),
+      fileCount: 0,
+      chunkCount: 0
+    });
+    saveIndex(indexData);
+  }
+  return await reindexSource(targetPath);
+}
+
+// Auto-learn: index one file the agent wrote or read. Skips work when the
+// file has not changed since its last indexing (mtime check).
+async function indexFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return { success: false };
+  let stat;
+  try { stat = fs.statSync(filePath); } catch { return { success: false }; }
+  if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return { success: false };
+  const ext = path.extname(filePath).toLowerCase();
+  if (!SUPPORTED_EXTENSIONS.has(ext)) return { success: false };
+
+  const indexData = loadIndex();
+  const hasChunks = (indexData.chunks || []).some(c => c.filePath === filePath);
+  const existing = indexData.sources.find(s => s.path === filePath);
+  if (existing && existing.indexedMtime === stat.mtimeMs && hasChunks) {
+    return { success: true, skipped: true };
+  }
+
+  if (!existing) {
+    // Prune oldest auto single-file sources so the list stays bounded.
+    const autoFiles = indexData.sources.filter(s => s.auto && !s.isDirectory);
+    if (autoFiles.length >= MAX_AUTO_FILE_SOURCES) {
+      const drop = autoFiles.slice(0, autoFiles.length - MAX_AUTO_FILE_SOURCES + 1);
+      for (const d of drop) {
+        indexData.sources = indexData.sources.filter(s => s.path !== d.path);
+        indexData.chunks = (indexData.chunks || []).filter(c => c.filePath !== d.path);
+      }
+    }
+    indexData.sources.push({
+      path: filePath,
+      isDirectory: false,
+      name: path.basename(filePath),
+      auto: true,
+      addedAt: new Date().toISOString(),
+      fileCount: 1,
+      chunkCount: 0
+    });
+  }
+
+  indexData.chunks = (indexData.chunks || []).filter(c => c.filePath !== filePath);
+  const content = await readFileContent(filePath);
+  const chunks = content ? chunkText(content, filePath) : [];
+  indexData.chunks.push(...chunks);
+  const source = indexData.sources.find(s => s.path === filePath);
+  if (source) {
+    source.chunkCount = chunks.length;
+    source.indexedMtime = stat.mtimeMs;
+    source.lastIndexed = new Date().toISOString();
+  }
+  saveIndex(indexData);
+  return { success: true, chunks: chunks.length };
 }
 
 // Reindex all registered sources
@@ -302,7 +436,7 @@ async function reindexAll(progressCallback = null) {
     let sourceChunkCount = 0;
 
     for (const filePath of files) {
-      const content = readFileContent(filePath);
+      const content = await readFileContent(filePath);
       if (content) {
         const fileChunks = chunkText(content, filePath);
         allChunks.push(...fileChunks);
@@ -392,6 +526,9 @@ module.exports = {
   addSources,
   removeSource,
   reindexAll,
+  reindexSource,
+  autoAddSource,
+  indexFile,
   searchKnowledge,
   clearIndex,
   getStats

@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   checkOllamaInstalled: () => ipcRenderer.invoke('check-ollama-installed'),
   startOllamaService: (exePath) => ipcRenderer.invoke('start-ollama-service', exePath),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  selectDocumentFile: () => ipcRenderer.invoke('select-document-file'),
+  listRecentDocuments: () => ipcRenderer.invoke('list-recent-documents'),
   selectSoundFile: () => ipcRenderer.invoke('select-sound-file'),
   updateDataDir: (customPath) => ipcRenderer.invoke('update-data-dir', customPath),
   getDefaultDataDir: () => ipcRenderer.invoke('get-default-data-dir'),
@@ -64,6 +66,12 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   ollamaSignin: () => ipcRenderer.invoke('ollama-signin'),
   ollamaSignout: () => ipcRenderer.invoke('ollama-signout'),
   installMcpWindowsUia: () => ipcRenderer.invoke('install-mcp-windows-uia'),
+  checkMcpWindowsUia: () => ipcRenderer.invoke('check-mcp-windows-uia'),
+  downloadKokoroOnboardingVoices: () => ipcRenderer.invoke('download-kokoro-onboarding-voices'),
+  showItemInFolder: (filePath) => ipcRenderer.invoke('show-item-in-folder', filePath),
+  openFileOrPath: (filePath) => ipcRenderer.invoke('open-file-or-path', filePath),
+  fileExists: (filePath) => ipcRenderer.invoke('file-exists', filePath),
+  getActiveWindow: () => ipcRenderer.invoke('get-active-window'),
   saveUserProfile: (profile) => ipcRenderer.invoke('save-user-profile', profile),
   loadUserProfile: () => ipcRenderer.invoke('load-user-profile'),
   saveSetupStatus: (completed) => ipcRenderer.invoke('save-setup-status', completed),
@@ -104,6 +112,15 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   downloadVoiceModel: () => ipcRenderer.invoke('download-voice-model'),
   cancelVoiceModelDownload: () => ipcRenderer.invoke('cancel-voice-model-download'),
   deleteVoiceModel: () => ipcRenderer.invoke('delete-voice-model'),
+
+  // Live Windows Speech engine (streams recognition from the mic)
+  startLiveSpeech: (culture) => ipcRenderer.invoke('voice-stt-live:start', { culture }),
+  stopLiveSpeech: () => ipcRenderer.invoke('voice-stt-live:stop'),
+  onLiveSpeechPartial: (callback) => {
+    const subscription = (event, data) => callback(data?.text || '');
+    ipcRenderer.on('voice-stt-live:partial', subscription);
+    return () => ipcRenderer.removeListener('voice-stt-live:partial', subscription);
+  },
 
   synthesizeSpeech: (text, modelKey) => ipcRenderer.invoke('synthesize-speech', { text, modelKey }),
   getTtsCatalog: () => ipcRenderer.invoke('get-tts-catalog'),
@@ -190,6 +207,8 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   loadProviderKeys: () => ipcRenderer.invoke('load-provider-keys'),
   // Local Vector RAG
   ragAddSources: (paths) => ipcRenderer.invoke('rag:add-sources', paths),
+  ragAutoAdd: (sourcePath) => ipcRenderer.invoke('rag:auto-add', sourcePath),
+  ragIndexFile: (filePath) => ipcRenderer.invoke('rag:index-file', filePath),
   ragRemoveSource: (sourcePath) => ipcRenderer.invoke('rag:remove-source', sourcePath),
   ragReindex: () => ipcRenderer.invoke('rag:reindex'),
   ragSearch: (payload) => ipcRenderer.invoke('rag:search', payload),

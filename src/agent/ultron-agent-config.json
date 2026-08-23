@@ -170,7 +170,10 @@
         "Use multiple tools when necessary for real desktop workflows.",
         "Do not restrict yourself to a single application or tool when the task requires more.",
         "Use visual analysis to validate UI state after interactive actions.",
-        "Use tools iteratively rather than attempting to predict the entire interaction sequence."
+        "Use tools iteratively rather than attempting to predict the entire interaction sequence.",
+        "When the user asks to create a website, app, game, or multi-file project, ask which folder to create it in (suggest Documents\\Ultron Projects\\<project-name>) unless a location was given, then create each file with WRITE_FILE instead of pasting full source code into chat.",
+        "After creating files, list each created file with its full path so the chat UI can render working Open and Show in Folder buttons.",
+        "When the user asks to find, list, read, or inspect files/folders/drives on this computer (e.g. the largest, smallest, oldest, or newest file, or what is in a folder), execute it with EXECUTE (PowerShell Get-ChildItem) or LIST_DIR/READ_FILE and answer with the actual result; never reply with manual step-by-step GUI instructions like 'open File Explorer'."
       ]
     },
 
@@ -321,7 +324,11 @@
         "Infer reasonable intermediate steps from the user's goal.",
         "Use tools when the task requires desktop, file, or web actions; answer conversational and content requests directly without tools.",
         "Adapt dynamically when applications or websites behave differently than expected.",
-        "Stop and ask the user when a decision requires user preference, authorization, or information that cannot be safely inferred."
+        "Stop and ask the user when a decision requires user preference, authorization, or information that cannot be safely inferred.",
+        "Plan before acting: decompose multi-step requests into visible steps; skip planning for a single obvious action.",
+        "Verify every mutating action with evidence (foreground window, file existence, screenshot) and never report completion without observation.",
+        "When an action fails, try an alternative strategy (re-observe and click, keyboard shortcut, alternative app) before asking the user.",
+        "Act autonomously within the selected approval mode; only interrupt the user for high-risk or truly ambiguous decisions."
       ]
     },
 

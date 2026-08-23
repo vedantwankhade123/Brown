@@ -84,27 +84,43 @@ async function synthesizeGeminiCloudSpeech(text, options = {}) {
   const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
   if (!cleaned) return { success: false, error: 'No text to speak.' };
 
-  const model = options.geminiModel || GEMINI_TTS_MODEL;
+  let model = options.geminiModel || GEMINI_TTS_MODEL;
+  // Map friendly model keys to API model endpoints
+  if (model === 'gemini-2.5-flash-native-audio' || model === 'gemini-3.5-live-translate') {
+    model = 'gemini-2.5-flash-preview-tts';
+  } else if (model === 'gemini-3-flash-live') {
+    model = 'gemini-2.0-flash-exp';
+  }
+
   const voiceName = options.voiceName || 'Kore';
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const isTranslate = options.geminiModel === 'gemini-3.5-live-translate' || /translate/i.test(options.geminiModel || '');
+  const requestBody = {
+    contents: [{
+      parts: [{ text: cleaned.slice(0, 500) }]
+    }],
+    generationConfig: {
+      responseModalities: ['AUDIO'],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName }
+        }
+      }
+    }
+  };
+
+  if (isTranslate) {
+    requestBody.systemInstruction = {
+      parts: [{ text: 'You are Gemini Live Translate. Translate and speak the provided content fluently and naturally.' }]
+    };
+  }
 
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{ text: cleaned.slice(0, 500) }]
-        }],
-        generationConfig: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName }
-            }
-          }
-        }
-      })
+      body: JSON.stringify(requestBody)
     });
 
     const json = await res.json().catch(() => ({}));

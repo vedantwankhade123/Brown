@@ -234,7 +234,12 @@ app.on('window-all-closed', () => {
       new Promise((resolve) => setTimeout(resolve, 3000))
     ]).finally(() => {
       try { stopDesktopSyncServer(); } catch {}
+      try { require('./voice-stt-live').cleanupLiveStt(); } catch {}
       app.quit();
     });
   }
+});
+
+app.on('will-quit', () => {
+  try { require('./voice-stt-live').cleanupLiveStt(); } catch {}
 });

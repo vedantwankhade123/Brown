@@ -15,36 +15,6 @@ const TTS_MODEL_CATALOG = [
     previewText: "Hello, I'm Ultron. This is the Heart voice."
   },
   {
-    key: 'kokoro-bella',
-    engine: 'kokoro',
-    kokoroVoice: 'af_bella',
-    sharedEngineKey: 'kokoro-engine',
-    label: 'Bella',
-    description: 'US female · warm conversational tone',
-    sizeEstimate: '~92 MB',
-    previewText: "Hello, I'm Ultron. This is the Bella voice."
-  },
-  {
-    key: 'kokoro-nicole',
-    engine: 'kokoro',
-    kokoroVoice: 'af_nicole',
-    sharedEngineKey: 'kokoro-engine',
-    label: 'Nicole',
-    description: 'US female · soft, clear natural speech',
-    sizeEstimate: '~92 MB',
-    previewText: "Hello, I'm Ultron. This is the Nicole voice."
-  },
-  {
-    key: 'kokoro-fenrir',
-    engine: 'kokoro',
-    kokoroVoice: 'am_fenrir',
-    sharedEngineKey: 'kokoro-engine',
-    label: 'Fenrir',
-    description: 'US male · confident natural tone',
-    sizeEstimate: '~92 MB',
-    previewText: "Hello, I'm Ultron. This is the Fenrir voice."
-  },
-  {
     key: 'kokoro-michael',
     engine: 'kokoro',
     kokoroVoice: 'am_michael',
@@ -53,6 +23,44 @@ const TTS_MODEL_CATALOG = [
     description: 'US male · steady, natural conversational voice',
     sizeEstimate: '~92 MB',
     previewText: "Hello, I'm Ultron. This is the Michael voice."
+  },
+  {
+    key: 'gemini-2.5-flash-native-audio',
+    engine: 'gemini-cloud',
+    geminiModel: 'gemini-2.5-flash-preview-tts',
+    voiceName: 'Kore',
+    label: 'Gemini 2.5 Flash Native Audio Dialog',
+    description: 'Live API · Real-time bidirectional audio & dialog',
+    sizeEstimate: 'Live API',
+    cloud: true,
+    // Audio-to-audio live dialog engine — belongs to Voice Mode's engine
+    // toggle, not to the text-to-speech voice picker.
+    liveOnly: true,
+    previewText: "Hello, I'm Ultron powered by Gemini 2.5 Flash Native Audio Dialog."
+  },
+  {
+    key: 'gemini-3-flash-live',
+    engine: 'gemini-cloud',
+    geminiModel: 'gemini-2.0-flash-exp',
+    voiceName: 'Puck',
+    label: 'Gemini 3 Flash Live',
+    description: 'Live API · High-speed live speech, audio & vision',
+    sizeEstimate: 'Live API',
+    cloud: true,
+    liveOnly: true,
+    previewText: "Hello, I'm Ultron with Gemini 3 Flash Live intelligence."
+  },
+  {
+    key: 'gemini-3.5-live-translate',
+    engine: 'gemini-cloud',
+    geminiModel: 'gemini-2.5-flash-preview-tts',
+    voiceName: 'Charon',
+    label: 'Gemini 3.5 Live Translate',
+    description: 'Live API · Real-time multilingual voice translation',
+    sizeEstimate: 'Live API',
+    cloud: true,
+    liveOnly: true,
+    previewText: "Hello, I'm Ultron. I can translate live spoken audio across languages."
   },
   {
     key: 'gemini-live-kore',
@@ -89,7 +97,7 @@ const TTS_MODEL_CATALOG = [
   }
 ];
 
-const DEFAULT_TTS_MODEL_KEY = 'kokoro-bella';
+const DEFAULT_TTS_MODEL_KEY = 'kokoro-heart';
 
 const synthesizerPromises = new Map();
 const downloadState = new Map();
@@ -125,8 +133,10 @@ function loadActiveModelKey() {
     const configPath = getActiveModelConfigPath();
     if (fs.existsSync(configPath)) {
       const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      if (parsed?.modelKey && getCatalogEntry(parsed.modelKey)) {
-        activeModelKey = parsed.modelKey;
+      const entry = parsed?.modelKey ? getCatalogEntry(parsed.modelKey) : null;
+      // Live dialog engines are Voice Mode engines, never the TTS voice.
+      if (entry && !entry.liveOnly) {
+        activeModelKey = entry.key;
       }
     }
   } catch (e) { /* ignore */ }
@@ -136,6 +146,9 @@ function loadActiveModelKey() {
 function saveActiveModelKey(modelKey) {
   const entry = getCatalogEntry(modelKey);
   if (!entry) return { success: false, error: 'Unknown TTS model.' };
+  if (entry.liveOnly) {
+    return { success: false, error: 'Live dialog engines are used by Voice Mode, not as text-to-speech voices.' };
+  }
   activeModelKey = entry.key;
   fs.mkdirSync(getTtsCacheRoot(), { recursive: true });
   fs.writeFileSync(getActiveModelConfigPath(), JSON.stringify({ modelKey: activeModelKey }, null, 2));
@@ -207,8 +220,8 @@ function isModelInstalled(modelKey) {
     return isGeminiCloudAvailable();
   }
   if (entry.engine === 'kokoro') {
-    const { isKokoroEngineInstalled } = require('./voice-kokoro');
-    return isKokoroEngineInstalled();
+    const { isKokoroVoiceInstalled } = require('./voice-kokoro');
+    return isKokoroVoiceInstalled(entry.kokoroVoice || 'af_heart');
   }
   const cacheDir = getModelCacheDir(getInstallKey(entry));
   const onnxFiles = walkDir(cacheDir, filePath => /\.onnx$/i.test(filePath));
@@ -411,14 +424,10 @@ async function synthesizeSpeech(text, modelKey = activeModelKey, options = {}) {
 }
 
 function getTtsCatalog() {
-  const { isKokoroDownloading, pruneIncompleteKokoroCacheIfIdle } = require('./voice-kokoro');
-  pruneIncompleteKokoroCacheIfIdle();
-  return TTS_MODEL_CATALOG.map(entry => {
+  return TTS_MODEL_CATALOG.filter(entry => !entry.liveOnly).map(entry => {
     const cacheBytes = entry.cloud ? 0 : getModelCacheBytes(entry.key);
     const state = getDownloadState(entry.key);
-    const downloading = entry.cloud
-      ? false
-      : (entry.engine === 'kokoro' ? isKokoroDownloading() : state.inProgress);
+    const downloading = Boolean(state.inProgress);
     return {
       key: entry.key,
       engine: entry.engine || 'transformers',
@@ -468,16 +477,17 @@ async function downloadTtsModel(modelKey = DEFAULT_TTS_MODEL_KEY, sendProgress) 
   }
 
   if (entry.engine === 'kokoro') {
-    const { downloadKokoroEngine, isKokoroDownloading } = require('./voice-kokoro');
-    if (isKokoroDownloading()) {
-      return { success: false, error: 'Kokoro engine download already in progress.' };
+    const { downloadKokoroVoice } = require('./voice-kokoro');
+    const state = getDownloadState(modelKey);
+    if (state.inProgress) {
+      return { success: false, error: 'This voice model is already downloading.' };
     }
     downloadState.set(modelKey, { inProgress: true, cancelled: false });
-    const result = await downloadKokoroEngine((payload) => {
+    const result = await downloadKokoroVoice(entry.kokoroVoice || 'af_heart', (payload) => {
       if (typeof sendProgress === 'function') {
         sendProgress({
           modelKey: entry.key,
-          modelName: 'tts-kokoro-engine',
+          modelName: `tts-${entry.key}`,
           ...payload
         });
       }

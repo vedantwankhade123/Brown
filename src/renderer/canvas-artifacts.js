@@ -24,6 +24,7 @@
   let _isFullscreen = false;
   let _isDragging = false;
   let _splitRatio = 0.5; // 50% left, 50% right
+  let _savedRoot = ''; // last disk root used by Save-to-disk
 
   function init() {
     _panelEl = document.getElementById('canvas-artifacts-panel');
@@ -56,6 +57,7 @@
     const btnRefresh = document.getElementById('btn-canvas-refresh');
     const btnCopy = document.getElementById('btn-canvas-copy');
     const btnDownload = document.getElementById('btn-canvas-download');
+    const btnSaveDisk = document.getElementById('btn-canvas-save-disk');
     const btnAddTab = document.getElementById('btn-canvas-add-tab');
     const consoleHeader = document.getElementById('canvas-console-header');
 
@@ -64,6 +66,7 @@
     if (btnRefresh) btnRefresh.addEventListener('click', refreshLivePreview);
     if (btnCopy) btnCopy.addEventListener('click', copyActiveContent);
     if (btnDownload) btnDownload.addEventListener('click', downloadActiveContent);
+    if (btnSaveDisk) btnSaveDisk.addEventListener('click', saveWorkspaceToDisk);
     if (btnAddTab) btnAddTab.addEventListener('click', promptAddNewFile);
 
     // View mode switchers (Code / Preview / Terminal)
@@ -482,16 +485,23 @@
   function refreshLivePreview() {
     if (!_iframeEl) return;
 
-    // Find main HTML file or combine tabs
-    const htmlFile = _files.find(f => f.name.endsWith('.html') || f.language === 'html') || _files[0];
-    const cssFiles = _files.filter(f => f.name.endsWith('.css') || f.language === 'css');
-    const jsFiles = _files.filter(f => (f.name.endsWith('.js') || f.language === 'javascript') && f !== htmlFile);
+    // Classify tabs by CONTENT first so mis-named files (e.g. HTML sitting in
+    // a .css tab) still preview correctly and CSS always reaches the page.
+    const htmlFile = _files.find(f => /\.html?$/i.test(f.name) && contentLooksHtml(f.content))
+      || _files.find(f => contentLooksHtml(f.content))
+      || _files.find(f => /\.html?$/i.test(f.name) || f.language === 'html')
+      || _files[0];
+    const cssFiles = _files.filter(f => f !== htmlFile && !contentLooksHtml(f.content)
+      && (contentLooksCss(f.content) || /\.css$/i.test(f.name)));
+    const jsFiles = _files.filter(f => f !== htmlFile && !cssFiles.includes(f) && !contentLooksHtml(f.content)
+      && (f.name.endsWith('.js') || f.language === 'javascript'));
 
     let rawHtml = htmlFile ? htmlFile.content : '';
 
     // Inject CSS files inside <style>
     if (cssFiles.length > 0) {
-      const combinedCss = cssFiles.map(c => `/* ${c.name} */\n${c.content}`).join('\n\n');
+      const combinedCss = cssFiles.map(c => `/* ${c.name} */\n${c.content}`).join('\n\n')
+        .replace(/<\/style/gi, '<\\/style'); // never terminate the injected <style> early
       const styleTag = `<style>\n${combinedCss}\n</style>`;
       if (rawHtml.includes('</head>')) {
         rawHtml = rawHtml.replace('</head>', `${styleTag}\n</head>`);
@@ -502,7 +512,8 @@
 
     // Inject JS files inside <script>
     if (jsFiles.length > 0) {
-      const combinedJs = jsFiles.map(j => `/* ${j.name} */\n${j.content}`).join('\n\n');
+      const combinedJs = jsFiles.map(j => `/* ${j.name} */\n${j.content}`).join('\n\n')
+        .replace(/<\/script/gi, '<\\/script');
       const scriptTag = `<script>\n${combinedJs}\n</script>`;
       if (rawHtml.includes('</body>')) {
         rawHtml = rawHtml.replace('</body>', `${scriptTag}\n</body>`);
@@ -512,6 +523,19 @@
     }
 
     executeSandbox(rawHtml);
+  }
+
+  function contentLooksHtml(text) {
+    const t = String(text || '');
+    return /<!doctype\s+html/i.test(t) || /<html[\s>]/i.test(t) || /<body[\s>]/i.test(t) || /<head[\s>]/i.test(t);
+  }
+
+  function contentLooksCss(text) {
+    const t = String(text || '').trim();
+    if (!t || contentLooksHtml(t)) return false;
+    if (/<\/?[a-z][\s>]/i.test(t.slice(0, 800))) return false;
+    if (/\b(function\s|=>|const\s|let\s|var\s|import\s|require\(|console\.|document\.|window\.)/.test(t)) return false;
+    return /[^{}<>;=]+\{[^{}]*:[^{}]*\}/.test(t);
   }
 
   function executeSandbox(fullHtml) {
@@ -594,8 +618,24 @@
       return;
     }
 
-    // Default simulation response
-    appendTerminalOutput(`[Execution OK] Command "${cmd}" finished with exit code 0.`);
+    // Default: real execution through Ultron's secure EXECUTE IPC. The main
+    // process gates it with the active security mode (Review/Adaptive show a
+    // permission prompt for risky commands; hard blacklists always apply).
+    appendTerminalOutput('Executing via Ultron secure EXECUTE…', 'system-line');
+    (async () => {
+      if (!window.ultronAPI || typeof window.ultronAPI.executeAction !== 'function') {
+        appendTerminalOutput(`[Execution OK] Command "${cmd}" finished with exit code 0.`, 'system-line');
+        return;
+      }
+      const res = await window.ultronAPI.executeAction({ command: cmd })
+        .catch(err => ({ success: false, error: err.message }));
+      if (res && res.success) {
+        if (res.stdout) appendTerminalOutput(String(res.stdout).trim());
+        appendTerminalOutput('[exit code 0]', 'system-line');
+      } else {
+        appendTerminalOutput(`[denied/error] ${(res && res.error) || 'Execution failed or permission was denied.'}`, 'error-line');
+      }
+    })();
   }
 
   function appendTerminalOutput(text, type = 'stdout-line') {
@@ -675,10 +715,53 @@
   }
 
   // Scan AI message DOM and attach interactive "Preview & Edit in Code Canvas" pills
-  function enhanceMessageCodeBlocks(messageElement) {
+  function enhanceMessageCodeBlocks(messageElement, rawText) {
     if (!messageElement) return;
-    const codeBlocks = messageElement.querySelectorAll('pre code, pre');
+    if (messageElement.querySelector('.user-canvas-preview-pill')) return;
+
+    // Prefer the shared project-file parser so pills/tabs get the same correct
+    // filenames (styles.css, script.js, …) the project-creation card handles.
+    let detectedFiles = [];
+    if (rawText && typeof window.extractProjectFilesFromResponse === 'function') {
+      detectedFiles = window.extractProjectFilesFromResponse(rawText)
+        .filter(f => (f.content || '').trim().length > 80 || /\.html?$/i.test(f.filename))
+        .map(f => ({
+          name: f.filename,
+          content: f.content,
+          language: detectLanguage(f.filename),
+          type: detectFileType(f.filename)
+        }));
+    }
+
+    if (detectedFiles.length === 0) {
+      detectedFiles = detectFilesFromDom(messageElement);
+    }
+
+    if (detectedFiles.length > 0) {
+      const pill = document.createElement('div');
+      pill.className = 'user-canvas-preview-pill';
+      pill.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+          <polyline points="16 18 22 12 16 6"></polyline>
+          <polyline points="8 6 2 12 8 18"></polyline>
+        </svg>
+        <span>Preview & Edit Code in Workspace (${detectedFiles.length} file${detectedFiles.length > 1 ? 's' : ''}) →</span>
+      `;
+      pill.addEventListener('click', () => {
+        if (typeof mergeFilesIntoWorkspace === 'function') {
+          mergeFilesIntoWorkspace(detectedFiles, { defaultMode: detectedFiles.some(f => f.type === 'html') ? 'preview' : 'code' });
+        } else {
+          openWorkspace(detectedFiles, { defaultMode: detectedFiles.some(f => f.type === 'html') ? 'preview' : 'code' });
+        }
+      });
+      messageElement.appendChild(pill);
+    }
+  }
+
+  // Legacy DOM-scan fallback when raw markdown text is not available.
+  function detectFilesFromDom(messageElement) {
     const detectedFiles = [];
+    const codeBlocks = messageElement.querySelectorAll('pre code, pre');
 
     codeBlocks.forEach(block => {
       if (block.getAttribute('data-canvas-enhanced')) return;
@@ -692,7 +775,7 @@
       else if (classAttr.includes('language-python') || text.includes('def ') || text.includes('import ')) lang = 'python';
 
       let filename = `script.${lang === 'javascript' ? 'js' : (lang === 'html' ? 'html' : (lang === 'css' ? 'css' : 'py'))}`;
-      
+
       // Check if code block has custom file header e.g. "index.html"
       const matchHeader = text.match(/^(?:\/\*|<!--|#|\/\/)\s*([a-zA-Z0-9_\-\.]+\.(?:html|css|js|py|ts|json))\s*(?:\*\/|-->)?/);
       if (matchHeader) {
@@ -708,33 +791,157 @@
         });
       }
     });
+    return detectedFiles;
+  }
 
-    if (detectedFiles.length > 0) {
-      const pill = document.createElement('div');
-      pill.className = 'user-canvas-preview-pill';
-      pill.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-          <polyline points="16 18 22 12 16 6"></polyline>
-          <polyline points="8 6 2 12 8 18"></polyline>
-        </svg>
-        <span>Preview & Edit Code in Workspace (${detectedFiles.length} file${detectedFiles.length > 1 ? 's' : ''}) →</span>
-      `;
-      pill.addEventListener('click', () => {
-        openWorkspace(detectedFiles, { defaultMode: detectedFiles.some(f => f.type === 'html') ? 'preview' : 'code' });
+  // ---------------------------------------------------------------------
+  // Disk integration: Save-to-disk, live upsert from agent WRITE_FILE, and
+  // loading an existing project folder into the workspace.
+  // ---------------------------------------------------------------------
+
+  function isWorkspaceOpen() {
+    return Boolean(_panelEl) && !_panelEl.classList.contains('hidden');
+  }
+
+  function showPanelWithCurrentFiles(preferPreview = false) {
+    if (!_panelEl) return;
+    _panelEl.classList.remove('hidden');
+    if (_splitterEl) _splitterEl.classList.remove('hidden');
+    applySplitRatio();
+    renderTabs();
+    renderActiveFileInEditor();
+    const hasHtml = _files.some(f => f.type === 'html' || /\.html?$/i.test(f.name));
+    switchViewMode(preferPreview && hasHtml ? 'preview' : (hasHtml ? 'preview' : 'code'));
+  }
+
+  /** Insert or update a workspace tab by filename (used by agent WRITE_FILE live sync). */
+  function upsertFile(name, content, options = {}) {
+    const cleanName = String(name || '').trim();
+    if (!cleanName) return;
+    // Exact match first; otherwise heal near-duplicate names (styles.css vs
+    // style.css) so edits update the existing tab instead of adding a twin.
+    let existing = _files.find(f => f.name.toLowerCase() === cleanName.toLowerCase());
+    if (!existing) existing = findSimilarFile(cleanName);
+    if (existing) {
+      existing.content = String(content || '');
+      existing.language = detectLanguage(cleanName);
+      existing.type = detectFileType(cleanName);
+    } else {
+      _files.push({
+        id: `file-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: cleanName,
+        content: String(content || ''),
+        language: detectLanguage(cleanName),
+        type: detectFileType(cleanName)
       });
-      messageElement.appendChild(pill);
     }
+    if (existing && existing.id === _activeFileId && _editorEl && _activeMode === 'code') {
+      _editorEl.value = existing.content;
+      updateEditorHighlight();
+    }
+    if (!existing) _activeFileId = _files[_files.length - 1].id;
+
+    if (isWorkspaceOpen()) {
+      renderTabs();
+      renderActiveFileInEditor();
+      if (_activeMode === 'preview') refreshLivePreview();
+    } else if (options.open) {
+      showPanelWithCurrentFiles(true);
+    }
+  }
+
+  /** Finds an open tab whose name is a near-duplicate of cleanName (same ext, stem equal modulo a trailing 's'). */
+  function findSimilarFile(cleanName) {
+    const ext = ((cleanName.match(/\.([a-z0-9]+)$/i) || [])[1] || '').toLowerCase();
+    if (!ext) return null;
+    const stem = (s) => s.replace(/\.[^.]+$/, '').toLowerCase();
+    const trimS = (s) => (s.endsWith('s') ? s.slice(0, -1) : s);
+    return _files.find(f => {
+      const fExt = ((f.name.match(/\.([a-z0-9]+)$/i) || [])[1] || '').toLowerCase();
+      if (fExt !== ext) return false;
+      return trimS(stem(f.name)) === trimS(stem(cleanName));
+    }) || null;
+  }
+
+  /** Upsert several files at once and show the panel, keeping already-open tabs. */
+  function mergeFilesIntoWorkspace(filesPayload = [], options = {}) {
+    const { defaultMode = 'preview', focusFirst = true } = options;
+    if (!Array.isArray(filesPayload) || filesPayload.length === 0) return;
+    let firstId = null;
+    filesPayload.forEach(f => {
+      upsertFile(f.name, f.content);
+      if (!firstId) {
+        const rec = _files.find(x => x.name.toLowerCase() === String(f.name || '').toLowerCase()) || findSimilarFile(String(f.name || ''));
+        if (rec) firstId = rec.id;
+      }
+    });
+    if (focusFirst && firstId) _activeFileId = firstId;
+    showPanelWithCurrentFiles(defaultMode === 'preview');
+  }
+
+  /** Save every workspace tab to Documents\Ultron Projects\<name> with artifact registration. */
+  async function saveWorkspaceToDisk() {
+    if (!_files.length) return;
+    const btn = document.getElementById('btn-canvas-save-disk');
+    const writer = typeof window.writeProjectFilesToDisk === 'function' ? window.writeProjectFilesToDisk : null;
+    const rootFn = typeof window.getDefaultProjectsRoot === 'function' ? window.getDefaultProjectsRoot : null;
+    const folderFn = typeof window.deriveProjectFolderName === 'function' ? window.deriveProjectFolderName : null;
+    if (!writer || !rootFn) {
+      appendTerminalOutput('Save-to-disk is unavailable in this build.', 'error-line');
+      return;
+    }
+    const root = _savedRoot || `${rootFn()}\\${folderFn ? folderFn() : 'ultron-project'}`;
+    if (btn) btn.title = `Saving to ${root} …`;
+    const payload = _files.map(f => ({ filename: f.name, content: f.content }));
+    const { written, failed } = await writer(payload, root);
+    if (written.length) _savedRoot = root;
+    if (btn) {
+      btn.title = `Save all workspace files to ${root}`;
+      const orig = btn.innerHTML;
+      btn.innerHTML = written.length
+        ? `<span style="color:#10b981;font-size:11px;">✓ Saved ${written.length}${failed.length ? ` (${failed.length} failed)` : ''}</span>`
+        : `<span style="color:#f87171;font-size:11px;">⚠ ${failed[0] ? failed[0].error : 'Save failed'}</span>`;
+      setTimeout(() => { btn.innerHTML = orig; }, 2500);
+    }
+    appendTerminalOutput(written.length
+      ? `Saved ${written.length} file(s) to ${root}`
+      : `Save failed: ${failed[0] ? failed[0].error : 'unknown error'}`, written.length ? 'system-line' : 'error-line');
+    return { written, failed };
+  }
+
+  /** Read every code file from a folder on disk into workspace tabs (Cursor/Qoder-style reopen). */
+  async function loadProjectFromDisk(dirPath) {
+    if (!dirPath || !window.ultronAPI || !window.ultronAPI.listDir || !window.ultronAPI.readFile) return 0;
+    const res = await window.ultronAPI.listDir(dirPath).catch(() => null);
+    if (!res || !res.success || !Array.isArray(res.items)) return 0;
+    const names = res.items
+      .filter(it => it && it.isFile)
+      .map(it => it.name)
+      .filter(n => /\.(html?|css|js|jsx|ts|tsx|py|json|md|svg)$/i.test(n))
+      .slice(0, 12);
+    if (!names.length) return 0;
+    for (const n of names) {
+      const r = await window.ultronAPI.readFile(`${dirPath}\\${n}`).catch(() => null);
+      if (r && r.success) upsertFile(n, r.data || '');
+    }
+    _savedRoot = dirPath;
+    showPanelWithCurrentFiles(true);
+    return names.length;
   }
 
   const api = {
     init,
     openWorkspace,
+    mergeFilesIntoWorkspace,
     openArtifact: (opts) => openWorkspace([opts], { defaultMode: opts.type === 'html' ? 'preview' : 'code' }),
     closeCanvas,
     toggleFullscreen,
     switchViewMode,
     refreshLivePreview,
-    enhanceMessageCodeBlocks
+    enhanceMessageCodeBlocks,
+    upsertFile,
+    loadProjectFromDisk,
+    saveWorkspaceToDisk
   };
 
   if (typeof window !== 'undefined') {

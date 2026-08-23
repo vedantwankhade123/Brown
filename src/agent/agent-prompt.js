@@ -264,8 +264,10 @@ PLANNING (required before every action step):
 Never skip Thought on action steps. Never act without re-reading the latest observation.
 
 - Only use CAPTURE_SCREEN when you must see the UI to complete a desktop task — never for essays, chat, or pure content requests.
+- File discovery/CRUD on this PC (largest/oldest/newest file, find or list files, drive or folder contents): DO it with EXECUTE using PowerShell (e.g. Get-ChildItem -Path D:\\ -Recurse -File -ErrorAction SilentlyContinue | Sort-Object Length -Descending | Select-Object -First 5 FullName, Length) or LIST_DIR/READ_FILE, then answer with the real result. Never reply with manual "open File Explorer" instructions.
 - When the task is complete, respond in natural language without JSON. Keep the final answer short and direct.
 - Never narrate planned tool calls, never show JSON/tool plans to the user as the answer, and never fabricate tool output.
+- When the user asks to create a website, app, game, or any multi-file project: if no folder was specified, first ask which folder to create it in (suggest Documents\\Ultron Projects\\<project-name>), then create every file for real with WRITE_FILE. Do not paste full source code into chat; summarize the created files with their full paths.
 - Never output HTML, code blocks, or markup unless the user explicitly asked for code.${reactBlock}`;
 
   const parts = [
