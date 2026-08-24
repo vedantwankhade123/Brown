@@ -495,15 +495,34 @@
   // Local Ollama Adapter
   async function callOllama({ model, prompt, systemPrompt, messages, temperature, visionImages, signal, onChunk }) {
     const endpoint = 'http://127.0.0.1:11434/api/generate';
+    
+    // GPU ACCELERATION: Enable GPU layers for all models
     const payload = {
       model,
       prompt,
       system: systemPrompt || undefined,
       stream: false,
       options: {
-        temperature: typeof temperature === 'number' ? temperature : 0.7
+        temperature: typeof temperature === 'number' ? temperature : 0.7,
+        // GPU prioritization options
+        num_gpu: 999,  // Use all available GPU layers
+        num_thread: undefined,  // Let Ollama auto-detect optimal CPU threads
+        use_mmap: true,  // Memory-mapped file access for faster loading
+        use_mlock: false,  // Don't lock model in RAM (let OS manage)
+        // Performance tuning
+        num_ctx: 4096,  // Context window
+        num_batch: 512,  // Batch size for processing
+        num_predict: -1,  // No limit on prediction tokens
+        // GPU-specific optimizations
+        low_vram: false,  // Don't enable low VRAM mode by default
+        f16_kv: true,  // Use FP16 for key/value cache (faster on GPU)
+        logits_all: false,  // Don't return logits for all tokens
+        vocab_only: false,
+        rope_frequency_base: 10000,
+        rope_frequency_scale: 1.0
       }
     };
+    
     if (Array.isArray(visionImages) && visionImages.length > 0) {
       payload.images = visionImages.filter(p => p && p.data).map(p => p.data);
     }

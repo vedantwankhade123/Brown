@@ -676,12 +676,32 @@ function hasDedicatedGpuAvailable(sysEnv = {}) {
   return gpus.some(gpu => gpu && gpu.dedicated);
 }
 
+function getAppPerformanceMode() {
+  try {
+    const mode = localStorage.getItem('ultron-performance-mode') || 'auto';
+    return ['auto', 'gpu', 'cpu'].includes(mode) ? mode : 'auto';
+  } catch (e) {
+    return 'auto';
+  }
+}
+
 function getOllamaGpuOptions(sysEnv = {}, modelName = activeModel) {
+  const mode = getAppPerformanceMode();
+
+  // Manual CPU-only mode: force 0 GPU layers across all models
+  if (mode === 'cpu') {
+    return { num_gpu: 0 };
+  }
+
+  // Manual GPU Priority mode: force maximum layer offloading
+  if (mode === 'gpu') {
+    return { num_gpu: 999 };
+  }
+
+  // AUTO Mode: Dynamic hardware detection & optimal layer allocation
   const isVisionModel = modelSupportsVision(modelName);
 
-  // Text models: do not override GPU settings — match official Ollama app / CLI,
-  // which lets Ollama auto-balance VRAM vs system RAM. Forcing num_gpu: 999 was
-  // causing false "out of memory" failures on otherwise healthy hardware.
+  // Text models in Auto mode: let Ollama auto-balance VRAM vs system RAM
   if (!isVisionModel) return {};
 
   if (!hasDedicatedGpuAvailable(sysEnv)) return {};
@@ -689,7 +709,7 @@ function getOllamaGpuOptions(sysEnv = {}, modelName = activeModel) {
   const dedicatedGpu = sysEnv.dedicatedGpu || sysEnv.hardware?.dedicatedGpu || {};
   const vramGB = Number(dedicatedGpu.vramGB || 0);
 
-  // Vision models on small VRAM cards still need an explicit partial offload cap.
+  // Vision models on small VRAM cards need explicit partial offload cap
   if (vramGB > 0 && vramGB <= 4.5) return { num_gpu: 16 };
   if (vramGB > 0 && vramGB <= 6.5) return { num_gpu: 24 };
 
@@ -933,9 +953,18 @@ function resolveFolderTargetFromPrompt(userPrompt, sysEnv = _cachedSystemEnv) {
   const p = String(userPrompt || '').toLowerCase();
   const dirs = (sysEnv && sysEnv.keyDirectories) || {};
   const userHome = (sysEnv && sysEnv.homeDir) || 'C:\\Users\\vedan';
-  if (/download|downlaod|downlod/i.test(p)) return dirs.downloads || `${userHome}\\Downloads`;
-  if (/\b(documents?|documets?)\b/i.test(p)) return dirs.documents || `${userHome}\\Documents`;
-  if (/\bdesktop\b/i.test(p)) return dirs.desktop || `${userHome}\\Desktop`;
+  // Match downloads folder ONLY when user explicitly refers to the folder/directory
+  if (/\b(?:in|into|to|from|inside|open|show|explore|browse)\s+(?:the\s+|my\s+)?downloads?(?:\s+folder|\s+dir|\s+directory)?\b/i.test(p)
+      || /\bdownloads?\s+(?:folder|dir|directory)\b/i.test(p)
+      || /\b(go to|open|show)\s+(?:the\s+)?downloads\b/i.test(p)) {
+    return dirs.downloads || `${userHome}\\Downloads`;
+  }
+  if (/\b(documents?|documets?)\s*(?:folder|dir|directory)?\b/i.test(p) && (/\b(in|into|to|from|inside|open|show|save)\b/i.test(p) || /\bfolder\b/i.test(p))) {
+    return dirs.documents || `${userHome}\\Documents`;
+  }
+  if (/\bdesktop\b/i.test(p)) {
+    return dirs.desktop || `${userHome}\\Desktop`;
+  }
   return '';
 }
 
@@ -949,7 +978,10 @@ function getExplicitTaskRequirements(userPrompt) {
       || (opensApp && /\b(download|document|desktop|folder|directory)\b/i.test(p)));
   const needsFileWrite = promptWantsFileCreation(prompt);
   const needsFolderCreate = promptWantsFolderCreation(prompt);
+  const needsOpenUrl = /\b(youtube|google|github|gmail|reddit|twitter|chatgpt|wikipedia|https?:\/\/|[a-z0-9-]+\.(?:com|org|net|io))\b/i.test(prompt)
+    && /\b(open|launch|go to|visit|navigate|in chrome|in edge|in browser|and open)\b/i.test(prompt);
   return {
+    needsOpenUrl,
     needsTextEntry: opensApp && /\b(type|write|enter|paste|fill|send|message|text)\b/i.test(prompt),
     needsSave: /\b(save|save as)\b/i.test(prompt),
     needsNavigation,
@@ -959,9 +991,14 @@ function getExplicitTaskRequirements(userPrompt) {
   };
 }
 
-function hasUnfinishedExplicitTask(userPrompt, executedActions = []) {
+function hasUnfinishedExplicitTask(userPrompt, executedActions = [], stepPlan = null) {
+  if (stepPlan && Array.isArray(stepPlan)) {
+    const hasPending = stepPlan.some(s => s.status !== 'completed' && s.status !== 'failed');
+    if (hasPending) return true;
+  }
   const requirements = getExplicitTaskRequirements(userPrompt);
   const actions = new Set(executedActions.map(action => String(action || '').toUpperCase()));
+  if (requirements.needsOpenUrl && !actions.has('OPEN_URL') && !Array.from(actions).some(a => a.includes('OPEN_URL') || a.includes('HTTP'))) return true;
   if (requirements.needsTextEntry && !actions.has('TYPE_TEXT')) return true;
   if (requirements.needsSave && !actions.has('HOTKEY')) return true;
   if (requirements.needsNavigation && !actions.has('OPEN_FILE') && !actions.has('EXECUTE') && !actions.has('NAVIGATE')) {
@@ -2620,7 +2657,7 @@ async function checkOllamaStartup() {
   if (conn.connected) {
     logTrace('Ollama connection verified on boot.', 'system');
     hideOllamaBanner();
-    await runOnboardingProfiler();
+    await runOnboardingProfiler().catch(() => {});
     renderModelDropdownList();
     return;
   }
@@ -2628,26 +2665,29 @@ async function checkOllamaStartup() {
   logTrace('Ollama not reachable. Checking if installed on machine...', 'system');
   const installCheck = await window.ultronAPI.checkOllamaInstalled();
   if (installCheck.installed) {
-    logTrace(`Ollama detected on machine (Source: ${installCheck.source}). Attempting to start service...`, 'system');
-    showOllamaBanner('warning', 'Ollama is installed but not running. Attempting to start the service...', false);
-    
-    const startResult = await window.ultronAPI.startOllamaService(installCheck.path);
-    if (startResult.success) {
-      for (let i = 0; i < 8; i++) {
-        await new Promise(r => setTimeout(r, 1000));
-        const retryConn = await checkOllamaConnection();
-        if (retryConn.connected) {
-          logTrace('Ollama background service connected successfully.', 'system');
-          showOllamaBanner('success', 'Ollama service started and connected successfully!', true);
-          await runOnboardingProfiler();
-          renderModelDropdownList();
-          return;
+    logTrace(`Ollama detected on machine (Source: ${installCheck.source}). Attempting background start...`, 'system');
+    showOllamaBanner('warning', 'Ollama is installed but not running. Connecting to background service...', false);
+
+    try {
+      const startResult = await window.ultronAPI.startOllamaService(installCheck.path);
+      if (startResult.success) {
+        for (let i = 0; i < 6; i++) {
+          await new Promise(r => setTimeout(r, 1000));
+          const retryConn = await checkOllamaConnection();
+          if (retryConn.connected) {
+            logTrace('Ollama background service connected successfully.', 'system');
+            showOllamaBanner('success', 'Ollama service started and connected successfully!', true);
+            await runOnboardingProfiler().catch(() => {});
+            renderModelDropdownList();
+            return;
+          }
         }
       }
+      logTrace('Ollama service ready status checked.', 'system');
+      showOllamaBanner('warning', 'Ollama is installed but not running. Please click Connect or launch the Ollama app manually.', true);
+    } catch {
+      showOllamaBanner('warning', 'Ollama is installed but not running. Please click Connect or launch the Ollama app manually.', true);
     }
-    
-    logTrace('Ollama service failed to start or respond in time.', 'system');
-    showOllamaBanner('warning', 'Ollama is installed but not running. Please click Connect or launch the Ollama app manually.', true);
   } else {
     logTrace('Ollama is not installed on this system.', 'system');
     showOllamaBanner('warning', 'Ollama is not installed. To run offline AI models, please download or install it.', false, true);
@@ -5214,7 +5254,7 @@ function hasDesktopActionCues(prompt) {
   const p = String(prompt || '');
   // Strip out attached document blocks so document contents/names don't falsely trigger desktop automation
   const cleanPrompt = p.replace(/📄\s*\*\*Attached Document\s*\[[^\]]+\]\*\*:\s*```[\s\S]*?```/gi, '').trim();
-  return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|notepad|chrome|edge|browser|desktop|download|document|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(cleanPrompt)
+  return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|visit|play|song|video|music|track|youtube|spotify|claude|chatgpt|openai|gemini|github|reddit|twitter|notepad|chrome|edge|browser|desktop|download|document|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|double\s*click|right\s*click|scroll|mouse|cursor|login|logout|sign\s*in|sign\s*out|search\s+.+?\s+on|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(cleanPrompt)
     || /\.(txt|docx?|pdf|md|js|py|ts|html)\b/i.test(cleanPrompt)
     || /[A-Za-z]:\\/.test(cleanPrompt)
     || hasLocalFilesystemCues(cleanPrompt);
@@ -5306,6 +5346,11 @@ function classifyIntent(prompt) {
   // 0c. Local filesystem CRUD/exploration (find the largest file, list a drive,
   // read a local file) — execute with tools, never answer with manual steps.
   if (hasLocalFilesystemCues(prompt)) {
+    return 'action';
+  }
+
+  // 0d. Explicit web media/site navigation actions (e.g. "play a song on youtube", "go to claude's website")
+  if (/\b(play\s+.+?\s+on\s+(youtube|spotify)|go to\s+.+?(website|site|page|\.com|\.ai|youtube|spotify|claude|chatgpt)|open\s+(youtube|spotify|claude|chatgpt)|search\s+.+?\s+on\s+(youtube|spotify|google|bing|github))\b/i.test(p)) {
     return 'action';
   }
 
@@ -5673,15 +5718,19 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       // Gemma 2 models in Ollama do not support 'system' role in chat messages array
       const chatMessages = isGemma ? [] : [{ role: 'system', content: systemPrompt }];
       
-      recentMsgs.forEach(m => {
-        const textContent = extractPlainTextFromMessage(m.text);
-        if (textContent) {
-          chatMessages.push({
-            role: m.isAi ? 'assistant' : 'user',
-            content: textContent
-          });
-        }
-      });
+      // For general conversational intents, include recent history. For action execution loops,
+      // prevent past conversational hallucinations from poisoning the current task's tool calls.
+      if (intent !== 'action') {
+        recentMsgs.forEach(m => {
+          const textContent = extractPlainTextFromMessage(m.text);
+          if (textContent) {
+            chatMessages.push({
+              role: m.isAi ? 'assistant' : 'user',
+              content: textContent
+            });
+          }
+        });
+      }
       
       // Append extra observation messages from agent loop
       if (Array.isArray(extraMessages) && extraMessages.length > 0) {
@@ -6727,8 +6776,29 @@ document.addEventListener('click', (e) => {
 // Human-in-the-loop validation overlay hooks
 window.ultronAPI.onPermissionRequest((request) => {
   currentPermissionId = request.id;
-  permActionCode.textContent = request.command;
-  permOverrideInput.value = '';
+  if (permActionCode) permActionCode.textContent = request.command || '';
+  if (permOverrideInput) permOverrideInput.value = '';
+
+  const permRiskBadge = document.getElementById('perm-risk-badge');
+  const permReasonText = document.getElementById('perm-reason-text');
+
+  // Risk classification for UI
+  const cmd = String(request.command || '').toLowerCase();
+  let riskLevel = 'medium';
+  let reason = 'Runs a command on your PC with full local privileges';
+  if (cmd.includes('rm ') || cmd.includes('del ') || cmd.includes('format') || cmd.includes('reg') || cmd.includes('shutdown') || cmd.includes('diskpart')) {
+    riskLevel = 'high';
+    reason = 'Destructive filesystem or system alteration command detected';
+  } else if (cmd.startsWith('dir') || cmd.startsWith('ls') || cmd.startsWith('type') || cmd.startsWith('cat') || cmd.startsWith('echo') || cmd.startsWith('pwd') || cmd.startsWith('cd')) {
+    riskLevel = 'low';
+    reason = 'Read-only inspection or navigation action';
+  }
+
+  if (permReasonText) permReasonText.textContent = reason;
+  if (permRiskBadge) {
+    permRiskBadge.textContent = `${riskLevel.charAt(0).toUpperCase() + riskLevel.slice(1)} risk`;
+    permRiskBadge.className = `perm-risk-badge perm-risk-${riskLevel}`;
+  }
 
   // Show permission panel
   permissionDialog.classList.remove('hidden');
@@ -6738,13 +6808,34 @@ window.ultronAPI.onPermissionRequest((request) => {
   logTrace(`Permission required: "${String(request.command || '').substring(0, 60)}"`, 'permission');
 });
 
-// Accept and run action
+// Copy button for permission command preview
+const btnCopyPermAction = document.getElementById('btn-copy-perm-action');
+if (btnCopyPermAction && permActionCode) {
+  btnCopyPermAction.addEventListener('click', async () => {
+    try {
+      const code = permActionCode.textContent || '';
+      await navigator.clipboard.writeText(code);
+      const span = btnCopyPermAction.querySelector('span');
+      if (span) span.textContent = 'Copied!';
+      btnCopyPermAction.classList.add('copied');
+      setTimeout(() => {
+        if (span) span.textContent = 'Copy';
+        btnCopyPermAction.classList.remove('copied');
+      }, 1500);
+    } catch (e) {
+      console.error('Failed to copy permission action', e);
+    }
+  });
+}
+
+// Accept and run action once
 btnPermAccept.addEventListener('click', () => {
   if (currentPermissionId) {
     const override = permOverrideInput.value.trim();
     window.ultronAPI.sendPermissionResponse({
       id: currentPermissionId,
       approved: true,
+      scope: 'once',
       modifiedCommand: override || null
     });
     
@@ -6754,17 +6845,69 @@ btnPermAccept.addEventListener('click', () => {
   }
 });
 
+// Accept for session
+const btnPermAcceptSession = document.getElementById('btn-perm-accept-session');
+if (btnPermAcceptSession) {
+  btnPermAcceptSession.addEventListener('click', () => {
+    if (currentPermissionId) {
+      const override = permOverrideInput.value.trim();
+      window.ultronAPI.sendPermissionResponse({
+        id: currentPermissionId,
+        approved: true,
+        scope: 'session',
+        modifiedCommand: override || null
+      });
+      permissionDialog.classList.add('hidden');
+      logTrace(`Human verification (session) accepted for ID: ${currentPermissionId}`, 'system');
+      currentPermissionId = null;
+    }
+  });
+}
+
+// Always allow category
+const btnPermAcceptAlways = document.getElementById('btn-perm-accept-always');
+if (btnPermAcceptAlways) {
+  btnPermAcceptAlways.addEventListener('click', () => {
+    if (currentPermissionId) {
+      const override = permOverrideInput.value.trim();
+      window.ultronAPI.sendPermissionResponse({
+        id: currentPermissionId,
+        approved: true,
+        scope: 'always',
+        modifiedCommand: override || null
+      });
+      permissionDialog.classList.add('hidden');
+      logTrace(`Human verification (always) accepted for ID: ${currentPermissionId}`, 'system');
+      currentPermissionId = null;
+    }
+  });
+}
+
 // Deny execution action
 btnPermDeny.addEventListener('click', () => {
   if (currentPermissionId) {
     window.ultronAPI.sendPermissionResponse({
       id: currentPermissionId,
-      approved: false
+      approved: false,
+      scope: 'deny'
     });
     
     permissionDialog.classList.add('hidden');
     logTrace(`Human verification rejected for ID: ${currentPermissionId}`, 'system');
     currentPermissionId = null;
+  }
+});
+
+// Permission dialog keyboard shortcuts: Esc to deny, Enter to allow
+window.addEventListener('keydown', (e) => {
+  if (permissionDialog && !permissionDialog.classList.contains('hidden')) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      btnPermDeny?.click();
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey || document.activeElement !== permOverrideInput)) {
+      e.preventDefault();
+      btnPermAccept?.click();
+    }
   }
 });
 
@@ -7393,6 +7536,36 @@ function parseAgentToolCall(text, userPrompt = '') {
     if (searchMatch) {
       return { type: 'SEARCH', target: searchMatch[1].replace(/["']/g, '').trim() };
     }
+
+    // DOWNLOAD_FILE: query / url
+    const downloadMatch = text.match(/DOWNLOAD_FILE:\s*([^\n]+)/i);
+    if (downloadMatch) {
+      return { type: 'DOWNLOAD_FILE', query: downloadMatch[1].trim(), target: downloadMatch[1].trim() };
+    }
+
+    // DELETE_FILE: path
+    const deleteMatch = text.match(/DELETE_FILE:\s*([^\n]+)/i);
+    if (deleteMatch) {
+      return { type: 'DELETE_FILE', targetPath: deleteMatch[1].trim(), target: deleteMatch[1].trim() };
+    }
+
+    // CLICK: x, y
+    const clickMatch = text.match(/CLICK:\s*(\d+)\s*,\s*(\d+)/i);
+    if (clickMatch) {
+      return { type: 'APP_ACTION', action: 'CLICK', x: parseInt(clickMatch[1], 10), y: parseInt(clickMatch[2], 10) };
+    }
+
+    // RIGHT_CLICK: x, y
+    const rightClickMatch = text.match(/RIGHT_CLICK:\s*(\d+)\s*,\s*(\d+)/i);
+    if (rightClickMatch) {
+      return { type: 'APP_ACTION', action: 'RIGHT_CLICK', x: parseInt(rightClickMatch[1], 10), y: parseInt(rightClickMatch[2], 10) };
+    }
+
+    // SCROLL: delta
+    const scrollMatch = text.match(/SCROLL:\s*([-\d]+)/i);
+    if (scrollMatch) {
+      return { type: 'APP_ACTION', action: 'SCROLL', delta: parseInt(scrollMatch[1], 10) || 300 };
+    }
   }
 
   // Fallback Intent Steerer for small offline models (e.g. tinyllama)
@@ -7428,7 +7601,10 @@ function humanizeToolCallLabel(toolCall) {
       case 'TYPE_TEXT': return `Type "${trim(toolCall.text, 30)}"`;
       case 'HOTKEY': return `Press ${trim(toolCall.keys)}`;
       case 'CLICK': return toolCall.targetDesc ? `Click "${trim(toolCall.targetDesc, 30)}"` : `Click at (${toolCall.x}, ${toolCall.y})`;
+      case 'RIGHT_CLICK': return toolCall.targetDesc ? `Right-click "${trim(toolCall.targetDesc, 30)}"` : `Right-click at (${toolCall.x}, ${toolCall.y})`;
       case 'DOUBLE_CLICK': return toolCall.targetDesc ? `Double-click "${trim(toolCall.targetDesc, 30)}"` : `Double-click at (${toolCall.x}, ${toolCall.y})`;
+      case 'MOUSE_MOVE':
+      case 'MOVE_MOUSE': return `Move mouse to (${toolCall.x}, ${toolCall.y})`;
       case 'SCROLL': return 'Scroll the page';
       case 'WAIT': return 'Wait for the app';
       case 'LIST_APPS': return 'List installed apps';
@@ -7449,6 +7625,9 @@ function humanizeToolCallLabel(toolCall) {
     }
     case 'WRITE_FILE': return `Write ${trim(toolCall.targetPath || toolCall.target, 36)}`;
     case 'READ_FILE': return `Read ${trim(toolCall.target, 36)}`;
+    case 'DELETE_FILE': return `Delete ${trim(toolCall.targetPath || toolCall.target, 36)}`;
+    case 'DOWNLOAD_FILE':
+    case 'FETCH_IMAGE': return `Download ${trim(toolCall.query || toolCall.target, 36)}`;
     case 'LIST_DIR': return `List folder ${trim(toolCall.target, 32)}`;
     case 'SEARCH': return `Search the web: ${trim(toolCall.target, 30)}`;
     case 'WEB_FETCH': return `Fetch page: ${trim(toolCall.target || toolCall.url, 40)}`;
@@ -7463,7 +7642,9 @@ function getAppActivityVerb(toolCall) {
     TYPE_TEXT: 'Typing in',
     HOTKEY: 'Sending shortcut to',
     CLICK: 'Clicking in',
+    RIGHT_CLICK: 'Right-clicking in',
     DOUBLE_CLICK: 'Double-clicking in',
+    MOUSE_MOVE: 'Moving in',
     SCROLL: 'Scrolling in',
     WAIT: 'Waiting for'
   };
@@ -7711,9 +7892,10 @@ function parseJsonToolCall(text) {
   return null;
 }
 
-function detectFallbackToolCall(userPrompt) {
+function detectFallbackToolCall(userPrompt, executedActions = []) {
   if (!userPrompt || typeof userPrompt !== 'string') return null;
   const p = userPrompt.toLowerCase().trim();
+  const executedUpper = (executedActions || []).map(a => String(a || '').toUpperCase());
 
   // Use cached system environment for dynamic paths
   const dirs = (_cachedSystemEnv && _cachedSystemEnv.keyDirectories) || {};
@@ -7722,6 +7904,118 @@ function detectFallbackToolCall(userPrompt) {
   const documentsDir = dirs.documents || `${userHome}\\Documents`;
   const downloadsDir = dirs.downloads || `${userHome}\\Downloads`;
   const stopWords = new Set(['for', 'me', 'a', 'the', 'my', 'new', 'some', 'please', 'on', 'in', 'at', 'to', 'it', 'us']);
+
+  const domainMap = {
+    claude: 'https://claude.ai',
+    chatgpt: 'https://chatgpt.com',
+    openai: 'https://chatgpt.com',
+    gemini: 'https://gemini.google.com',
+    youtube: 'https://www.youtube.com',
+    google: 'https://www.google.com',
+    github: 'https://github.com',
+    gmail: 'https://mail.google.com',
+    calendar: 'https://calendar.google.com',
+    reddit: 'https://www.reddit.com',
+    twitter: 'https://x.com',
+    x: 'https://x.com',
+    spotify: 'https://open.spotify.com',
+    netflix: 'https://www.netflix.com',
+    amazon: 'https://www.amazon.com',
+    wikipedia: 'https://www.wikipedia.org'
+  };
+
+  // Play song / video / music on YouTube
+  const playYoutubeMatch = userPrompt.match(/\b(?:play|search(?:\s+for)?|listen\s+to)\s+(?:a\s+|the\s+)?(?:song|video|music|track)?\s*(?:named|called)?\s*["']?(.+?)["']?\s+on\s+youtube\b/i)
+    || userPrompt.match(/\b(?:on\s+youtube)\s+(?:play|search(?:\s+for)?)\s+["']?(.+?)["']?$/i);
+  if (playYoutubeMatch && !executedUpper.includes('OPEN_URL')) {
+    const rawSong = playYoutubeMatch[1].replace(/\b(play|song|named|called|video|music|on|youtube)\b/gi, '').trim();
+    const songQuery = rawSong || playYoutubeMatch[1].trim();
+    const ytUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(songQuery)}`;
+    return {
+      type: 'APP_ACTION',
+      action: 'OPEN_URL',
+      url: ytUrl,
+      target: `YouTube: "${songQuery}"`
+    };
+  }
+
+  // Play / search music on Spotify
+  const playSpotifyMatch = userPrompt.match(/\b(?:play|search(?:\s+for)?|listen\s+to)\s+(?:a\s+|the\s+)?(?:song|music|track)?\s*(?:named|called)?\s*["']?(.+?)["']?\s+on\s+spotify\b/i);
+  if (playSpotifyMatch && !executedUpper.includes('OPEN_URL')) {
+    const songQuery = playSpotifyMatch[1].trim();
+    const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(songQuery)}`;
+    return {
+      type: 'APP_ACTION',
+      action: 'OPEN_URL',
+      url: spotifyUrl,
+      target: `Spotify: "${songQuery}"`
+    };
+  }
+
+  // Search on Google
+  const googleSearchMatch = userPrompt.match(/\b(?:search(?:\s+for)?|google)\s+["']?(.+?)["']?\s+on\s+google\b/i);
+  if (googleSearchMatch && !executedUpper.includes('OPEN_URL')) {
+    const q = googleSearchMatch[1].trim();
+    const gUrl = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+    return {
+      type: 'APP_ACTION',
+      action: 'OPEN_URL',
+      url: gUrl,
+      target: `Google Search: "${q}"`
+    };
+  }
+
+  // Direct website navigation (e.g. "go to claude's website and logout...")
+  const siteNavMatch = userPrompt.match(/\b(?:go\s+to|navigate\s+to|visit|head\s+to|browse\s+to|open)\s+(?:the\s+)?([a-zA-Z0-9_\-\.]+?)(?:'s|\s+)?\s*(?:website|site|page|app)?(?:\s+and\s+|\s+then\s+|$)/i);
+  if (siteNavMatch && !executedUpper.includes('OPEN_URL') && !p.includes('folder') && !p.includes('directory')) {
+    const siteKey = siteNavMatch[1].toLowerCase().replace(/['s]/g, '').trim();
+    if (siteKey && domainMap[siteKey]) {
+      return {
+        type: 'APP_ACTION',
+        action: 'OPEN_URL',
+        url: domainMap[siteKey],
+        target: `${siteKey} website`
+      };
+    } else if (siteKey && siteKey.includes('.')) {
+      const url = siteKey.startsWith('http') ? siteKey : `https://${siteKey}`;
+      return { type: 'APP_ACTION', action: 'OPEN_URL', url, target: url };
+    }
+  }
+
+  // Download asset, logo, image, or document from web
+  const downloadMatch = userPrompt.match(/\b(download|get|fetch|save)\s+(?:a\s+|the\s+)?([a-zA-Z0-9_\-\s.]+?)(?:\s+logo|\s+image|\s+icon|\s+for\s+me|\s+from\s+web|\s+to\s+my\s+pc|$)/i);
+  if (downloadMatch && !executedUpper.includes('DOWNLOAD_FILE') && !p.includes('folder') && !p.includes('directory')) {
+    const rawTarget = downloadMatch[2].trim();
+    if (rawTarget && !stopWords.has(rawTarget.toLowerCase()) && !/^(file|document|app|folder|page)$/i.test(rawTarget)) {
+      const isLogo = /\b(logo|icon|image|avatar|brand)\b/i.test(userPrompt);
+      const ext = isLogo ? 'svg' : 'png';
+      const cleanName = `${rawTarget.replace(/\s+/g, '_').toLowerCase()}${isLogo && !rawTarget.includes('logo') ? '_logo' : ''}.${ext}`;
+      const targetPath = `${downloadsDir}\\${cleanName}`;
+      return {
+        type: 'DOWNLOAD_FILE',
+        query: `${rawTarget}${isLogo && !rawTarget.includes('logo') ? ' logo' : ''}`,
+        filename: cleanName,
+        targetPath,
+        target: targetPath
+      };
+    }
+  }
+
+  // Delete / Remove file or directory
+  const deleteMatch = userPrompt.match(/\b(delete|remove|erase|unlink)\s+(?:the\s+|file\s+|folder\s+)?(["'][^"']+["']|[a-zA-Z0-9_\-\\.:/]+)/i);
+  if (deleteMatch && !executedUpper.includes('DELETE_FILE')) {
+    const targetFile = deleteMatch[2].replace(/["']/g, '').trim();
+    if (targetFile && !stopWords.has(targetFile.toLowerCase())) {
+      return { type: 'DELETE_FILE', target: targetFile, targetPath: targetFile };
+    }
+  }
+
+  // Direct mouse scroll request
+  if (/\b(scroll down|scroll up|scroll)\b/i.test(userPrompt) && !executedUpper.includes('SCROLL')) {
+    const isUp = /\b(scroll up|upward|up)\b/i.test(userPrompt);
+    const amount = isUp ? -300 : 300;
+    return { type: 'APP_ACTION', action: 'SCROLL', delta: amount, target: `${amount}px` };
+  }
 
   const folderTarget = resolveFolderTargetFromPrompt(userPrompt);
   const wantsNavigation = Boolean(folderTarget)
@@ -7740,12 +8034,12 @@ function detectFallbackToolCall(userPrompt) {
   }
 
   // Create file — before folder logic ("in downloads folder" is a location, not mkdir)
-  if (promptWantsFileCreation(userPrompt)) {
+  if (promptWantsFileCreation(userPrompt) && !executedUpper.includes('WRITE_FILE')) {
     return buildWriteFileFromPrompt(userPrompt, { desktop: desktopDir, documents: documentsDir, downloads: downloadsDir, homeDir: userHome });
   }
 
   // Create folder — fast, direct mkdir (no LLM needed)
-  if (promptWantsFolderCreation(userPrompt)) {
+  if (promptWantsFolderCreation(userPrompt) && !executedUpper.includes('EXECUTE')) {
     return buildMkdirFromPrompt(userPrompt, { desktop: desktopDir, documents: documentsDir, downloads: downloadsDir, homeDir: userHome });
   }
 
@@ -7793,6 +8087,39 @@ function detectFallbackToolCall(userPrompt) {
     /\b\d+\s+(quotes?|ideas?|sentences?|paragraphs?|examples?|names?|captions?|headlines?)\b/i.test(userPrompt)
     || /\b(write|draft|compose|create)\s+(an?\s+)?(essay|article|story|poem|letter|email|report|summary|speech|blog|code|script)\b/i.test(userPrompt);
 
+  // Extract explicit URL or known domain
+  let matchedUrl = '';
+  const rawUrlMatch = userPrompt.match(/https?:\/\/[^\s]+/i);
+  if (rawUrlMatch) {
+    matchedUrl = rawUrlMatch[0];
+  } else {
+    for (const [key, domainUrl] of Object.entries(domainMap)) {
+      if (new RegExp(`\\b${key}\\b`, 'i').test(p)) {
+        matchedUrl = domainUrl;
+        break;
+      }
+    }
+  }
+
+  const hasExecutedOpenApp = executedUpper.some(a => a.includes('OPEN_APP') || a.includes('CHROME') || a.includes('EDGE') || a.includes('NOTEPAD'));
+  const hasExecutedOpenUrl = executedUpper.some(a => a.includes('OPEN_URL') || a.includes('HTTP'));
+
+  // If app is already opened and prompt requested opening a URL / website:
+  if (hasExecutedOpenApp && matchedUrl && !hasExecutedOpenUrl) {
+    return { type: 'APP_ACTION', action: 'OPEN_URL', url: matchedUrl, target: matchedUrl };
+  }
+
+  // If app is already opened and prompt requested typing text:
+  if (hasExecutedOpenApp && typedText && !executedUpper.includes('TYPE_TEXT')) {
+    const appName = findPromptAppName() || _activeAgentApp.name || '';
+    return { type: 'APP_ACTION', action: 'TYPE_TEXT', text: typedText, appName, target: appName || 'text input' };
+  }
+
+  // If app is already opened and prompt requested saving:
+  if (hasExecutedOpenApp && /\b(save|save it|save changes)\b/i.test(userPrompt) && !executedUpper.includes('HOTKEY')) {
+    return { type: 'APP_ACTION', action: 'HOTKEY', keys: ['ctrl', 's'], target: 'Ctrl+S' };
+  }
+
   // File Explorer + optional folder navigation
   if (/\b(file explorer|windows explorer|my files|this pc)\b/i.test(userPrompt)) {
     if (folderTarget && (wantsNavigation || /\b(download|document|desktop|folder|directory)\b/i.test(p))) {
@@ -7806,7 +8133,9 @@ function detectFallbackToolCall(userPrompt) {
         ]
       };
     }
-    return { type: 'APP_ACTION', action: 'OPEN_APP', appName: 'File Explorer', target: 'File Explorer' };
+    if (!hasExecutedOpenApp) {
+      return { type: 'APP_ACTION', action: 'OPEN_APP', appName: 'File Explorer', target: 'File Explorer' };
+    }
   }
 
   if (/\b(open|show|go to)\s+(settings|windows settings)\b/i.test(userPrompt)) {
@@ -7825,7 +8154,7 @@ function detectFallbackToolCall(userPrompt) {
   const writeInAppMatch = userPrompt.match(
     /\b(write|type)\s+(.+?)\s+in\s+(notepad(?:\+\+)?|word|chrome|google chrome|edge|microsoft edge|vscode|vs code|visual studio code|file explorer|powershell|command prompt|cmd)\b/i
   );
-  if (writeInAppMatch && !requiresGeneratedText) {
+  if (writeInAppMatch && !requiresGeneratedText && !hasExecutedOpenApp) {
     const text = writeInAppMatch[2].trim();
     const appRaw = writeInAppMatch[3].trim().toLowerCase();
     const alias = appAliases.find(([key]) => appRaw === key || appRaw.includes(key));
@@ -7845,7 +8174,7 @@ function detectFallbackToolCall(userPrompt) {
 
   // Read file with explicit path
   const pathMatch = userPrompt.match(/([A-Za-z]:\\[^\s"']+|(?:desktop|documents|downloads)[/\\][^\s"']+)/i);
-  if (pathMatch && /\b(read|open|show|parse|view|content of)\b/i.test(userPrompt)) {
+  if (pathMatch && /\b(read|open|show|parse|view|content of)\b/i.test(userPrompt) && !executedUpper.includes('READ_FILE')) {
     const filePath = pathMatch[1].replace(/\//g, '\\');
     let resolved = filePath;
     if (!/^[A-Za-z]:\\/.test(resolved)) {
@@ -7858,20 +8187,33 @@ function detectFallbackToolCall(userPrompt) {
     return { type: 'READ_FILE', target: resolved, targetPath: resolved };
   }
 
-  if (/\b(list|show)\s+(files|folders|contents)\b/i.test(userPrompt)) {
+  if (/\b(list|show)\s+(files|folders|contents)\b/i.test(userPrompt) && !executedUpper.includes('LIST_DIR')) {
     const listDir = p.includes('document') ? documentsDir : p.includes('download') ? downloadsDir : desktopDir;
     return { type: 'LIST_DIR', target: listDir };
   }
 
-  // 1. Desktop app launch/control
+  // Desktop app launch / Sequence control
   if (/\b(open|launch|start|focus|switch to)\b/i.test(userPrompt)) {
-    const urlMatch = userPrompt.match(/https?:\/\/[^\s]+/i);
-    if (urlMatch) {
-      return { type: 'APP_ACTION', action: 'OPEN_URL', url: urlMatch[0], target: urlMatch[0] };
+    const appName = findPromptAppName();
+
+    // Chained: open browser AND open website
+    if (appName && matchedUrl && !hasExecutedOpenApp && !hasExecutedOpenUrl) {
+      return {
+        type: 'APP_SEQUENCE',
+        target: `${appName} → ${matchedUrl}`,
+        actions: [
+          { action: 'OPEN_APP', appName, target: appName },
+          { action: 'WAIT', ms: 800, target: '800ms' },
+          { action: 'OPEN_URL', url: matchedUrl, target: matchedUrl }
+        ]
+      };
     }
 
-    const appName = findPromptAppName();
-    if (appName) {
+    if (matchedUrl && !hasExecutedOpenUrl && (!appName || hasExecutedOpenApp)) {
+      return { type: 'APP_ACTION', action: 'OPEN_URL', url: matchedUrl, target: matchedUrl };
+    }
+
+    if (appName && !hasExecutedOpenApp) {
       if (typedText && !requiresGeneratedText) {
         return {
           type: 'APP_SEQUENCE',
@@ -7887,7 +8229,7 @@ function detectFallbackToolCall(userPrompt) {
     }
   }
 
-  if (/\b(type|paste|enter)\b/i.test(userPrompt) && typedText) {
+  if (/\b(type|paste|enter)\b/i.test(userPrompt) && typedText && !executedUpper.includes('TYPE_TEXT')) {
     const appName = findPromptAppName() || _activeAgentApp.name || '';
     return { type: 'APP_ACTION', action: 'TYPE_TEXT', text: typedText, appName, target: appName || 'text input' };
   }
@@ -8209,6 +8551,28 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
       agentSubgoals = window.UltronAgentPlanner.planToSubgoals(agentStepPlan);
       showTaskPlan = true;
       logTrace(`Planner produced ${agentStepPlan.length} steps for multi-step request`, 'system');
+
+      // Generate structured implementation_plan.md artifact in workspace
+      const planMd = `# Implementation Plan\n\n## Goal Description\nExecute autonomous multi-step workflow for:\n> ${userPrompt}\n\n## Proposed Steps\n${agentStepPlan.map((s, i) => `${i + 1}. **${s.title}** (\`${s.tool_hint}\`)\n   - Target: \`${s.tool_hint}\`\n   - Status: Pending`).join('\n')}\n\n## Verification & Safety\n- Verify UI element positions before clicking.\n- Automatically check focus and window status.\n- Protect system directories and prompt for permission on destructive actions.\n\n---\n*Ultron is executing these planned steps autonomously.*`;
+
+      if (window.UltronCanvasArtifacts && typeof window.UltronCanvasArtifacts.mergeFilesIntoWorkspace === 'function') {
+        window.UltronCanvasArtifacts.mergeFilesIntoWorkspace([{
+          name: 'implementation_plan.md',
+          content: planMd,
+          language: 'markdown',
+          type: 'markdown'
+        }], { defaultMode: 'markdown' });
+      }
+
+      // Auto-index into RAG in background
+      if (window.ultronAPI && window.ultronAPI.ragIndexText) {
+        window.ultronAPI.ragIndexText({
+          id: `plan-${Date.now()}`,
+          title: `Implementation Plan: ${userPrompt.slice(0, 40)}`,
+          content: planMd,
+          metadata: { type: 'plan', prompt: userPrompt }
+        }).catch(() => {});
+      }
     } else {
       agentStepPlan = null;
     }
@@ -8390,13 +8754,21 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
     const reactFinalAnswer = extractReactFinalAnswer(rawResponse);
     if (reactFinalAnswer) {
       const expectsDesktopWork = hasDesktopActionCues(userPrompt) || intent === 'action';
-      const unfinishedWork = hasUnfinishedExplicitTask(userPrompt, executedAppActions);
+      const unfinishedWork = hasUnfinishedExplicitTask(userPrompt, executedAppActions, agentStepPlan);
       const shouldForceTool = expectsDesktopWork
         && (executedAppActions.length === 0 || unfinishedWork)
         && (isInstructionalFinalAnswer(reactFinalAnswer) || unfinishedWork || /\b(open|launch|start|read|write|list|go to|navigate|download|downlaod|create|folder|mkdir|file)\b/i.test(userPrompt));
 
       if (shouldForceTool && completionNudges < 3) {
-        toolCall = detectFallbackToolCall(userPrompt);
+        if (agentStepPlan && window.UltronAgentPlanner?.getNextPendingPlanStep) {
+          const nextPending = window.UltronAgentPlanner.getNextPendingPlanStep(agentStepPlan);
+          if (nextPending) {
+            toolCall = window.UltronAgentPlanner.resolveToolCallForPlanStep(nextPending, userPrompt, executedAppActions, _cachedSystemEnv);
+          }
+        }
+        if (!toolCall) {
+          toolCall = detectFallbackToolCall(userPrompt, executedAppActions);
+        }
         if (toolCall) {
           completionNudges++;
           activitySteps.push({
@@ -8411,7 +8783,15 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
         }
       } else if (unfinishedWork && completionNudges < 3) {
         completionNudges++;
-        toolCall = detectFallbackToolCall(userPrompt);
+        if (agentStepPlan && window.UltronAgentPlanner?.getNextPendingPlanStep) {
+          const nextPending = window.UltronAgentPlanner.getNextPendingPlanStep(agentStepPlan);
+          if (nextPending) {
+            toolCall = window.UltronAgentPlanner.resolveToolCallForPlanStep(nextPending, userPrompt, executedAppActions, _cachedSystemEnv);
+          }
+        }
+        if (!toolCall) {
+          toolCall = detectFallbackToolCall(userPrompt, executedAppActions);
+        }
         if (!toolCall) {
           accumulatedContext.push({ role: 'assistant', content: rawResponse });
           accumulatedContext.push({ role: 'user', content: buildMissingActionInstruction(userPrompt, executedAppActions) });
@@ -8420,7 +8800,7 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
           continue;
         }
       } else if (expectsDesktopWork && executedAppActions.length === 0 && completionNudges < 3) {
-        toolCall = detectFallbackToolCall(userPrompt);
+        toolCall = detectFallbackToolCall(userPrompt, executedAppActions);
         if (toolCall) {
           completionNudges++;
           activitySteps.push({ type: 'EXECUTE', label: humanizeToolCallLabel(toolCall) });
@@ -8447,20 +8827,27 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
     }
     toolCall = sanitizeParsedToolCall(toolCall, userPrompt);
 
+    if (!toolCall && agentStepPlan && window.UltronAgentPlanner?.getNextPendingPlanStep) {
+      const nextPending = window.UltronAgentPlanner.getNextPendingPlanStep(agentStepPlan);
+      if (nextPending) {
+        toolCall = window.UltronAgentPlanner.resolveToolCallForPlanStep(nextPending, userPrompt, executedAppActions, _cachedSystemEnv);
+      }
+    }
+
     if (!toolCall && (!rawResponse || !rawResponse.trim())) {
-      toolCall = detectFallbackToolCall(userPrompt);
+      toolCall = detectFallbackToolCall(userPrompt, executedAppActions);
     }
 
     if (!toolCall) {
       const expectsDesktopWork = hasDesktopActionCues(userPrompt) || intent === 'action';
       if (expectsDesktopWork && executedAppActions.length === 0 && completionNudges < 2) {
         completionNudges++;
-        toolCall = detectFallbackToolCall(userPrompt);
+        toolCall = detectFallbackToolCall(userPrompt, executedAppActions);
       }
     }
 
     if (!toolCall) {
-      if (hasUnfinishedExplicitTask(userPrompt, executedAppActions) && completionNudges < 2) {
+      if (hasUnfinishedExplicitTask(userPrompt, executedAppActions, agentStepPlan) && completionNudges < 2) {
         completionNudges++;
         const missingInstruction = buildMissingActionInstruction(userPrompt, executedAppActions);
         accumulatedContext.push({ role: 'assistant', content: rawResponse || '(no tool call)' });
@@ -8473,14 +8860,16 @@ ${missingInstruction}`;
       }
       // No tool calls and no explicit work remains
       if (hasDesktopActionCues(userPrompt) && executedAppActions.length === 0 && completionNudges < 3) {
-        const fallback = detectFallbackToolCall(userPrompt);
+        const fallback = detectFallbackToolCall(userPrompt, executedAppActions);
         if (fallback) {
-          completionNudges++;
           toolCall = fallback;
+          completionNudges++;
           activitySteps.push({ type: 'EXECUTE', label: humanizeToolCallLabel(fallback) });
         }
       }
-      if (!toolCall) {
+    }
+
+    if (!toolCall) {
       isDone = true;
       finalResponse = sanitizeResponseText(rawResponse || '', userPrompt);
       if (modelAnsweredWithoutExecuting(userPrompt, finalResponse, executedAppActions, intent)) {
@@ -8493,7 +8882,6 @@ ${missingInstruction}`;
         }
       }
       break;
-      }
     }
     }
     } // end if (!toolCall) — parse / fallback block
@@ -8695,14 +9083,14 @@ Write the final answer now.`;
         finalResponse = searchPayload.clarification || `I searched for "${searchTarget}", but the results were too thin to answer confidently. Can you add a brand, budget, location, or what kind of result you want?`;
       }
       isDone = true;
-    } else if (executor && ['APP_ACTION', 'CAPTURE_SCREEN', 'EXECUTE', 'WRITE_FILE', 'READ_FILE', 'LIST_DIR'].includes(toolCall.type)) {
+    } else if (executor && ['APP_ACTION', 'CAPTURE_SCREEN', 'EXECUTE', 'WRITE_FILE', 'READ_FILE', 'LIST_DIR', 'SEARCH', 'WEB_FETCH', 'DELETE_FILE', 'DOWNLOAD_FILE', 'FETCH_IMAGE', 'SYSTEM_CONTROL', 'CLIPBOARD_ACTION', 'RAG_SEARCH'].includes(toolCall.type)) {
       if (toolCall.type === 'CAPTURE_SCREEN') await ensureVisionModelForScreen();
 
       // Vision-grounded clicking: resolve description-based click targets to
       // coordinates (see → decide → act) before execution.
       let preResolvedResult = null;
       if (toolCall.type === 'APP_ACTION'
-        && ['CLICK', 'DOUBLE_CLICK'].includes(String(toolCall.action || '').toUpperCase())
+        && ['CLICK', 'DOUBLE_CLICK', 'RIGHT_CLICK'].includes(String(toolCall.action || '').toUpperCase())
         && (!Number.isFinite(Number(toolCall.x)) || !Number.isFinite(Number(toolCall.y)))) {
         const clickDesc = String(toolCall.targetDesc || toolCall.element || toolCall.target || '').trim();
         if (clickDesc && !/^\s*\d+\s*[x,]\s*\d+\s*$/i.test(clickDesc)) {
@@ -8787,6 +9175,17 @@ Write the final answer now.`;
             window.UltronAgentMemory.registerArtifact('file', execResult.evidence || toolCall.targetPath, { source: 'WRITE_FILE' });
           }
           pushWrittenFileToWorkspace(toolCall.targetPath, toolCall.content);
+        } else if (toolCall.type === 'DOWNLOAD_FILE' || toolCall.type === 'FETCH_IMAGE') {
+          executedAppActions.push('DOWNLOAD_FILE');
+          if (window.UltronAgentMemory && typeof window.UltronAgentMemory.registerArtifact === 'function') {
+            window.UltronAgentMemory.registerArtifact('file', execResult.evidence || toolCall.targetPath, { source: 'DOWNLOAD_FILE' });
+          }
+        } else if (toolCall.type === 'DELETE_FILE') {
+          executedAppActions.push('DELETE_FILE');
+        } else if (toolCall.type === 'READ_FILE') {
+          executedAppActions.push('READ_FILE');
+        } else if (toolCall.type === 'LIST_DIR') {
+          executedAppActions.push('LIST_DIR');
         }
         if (toolCall.type === 'CAPTURE_SCREEN' && execResult.raw && execResult.raw.shot) {
           const shot = execResult.raw.shot;
@@ -9146,6 +9545,18 @@ Write the final answer now.`;
 
   const taskSummary = `[${intent.toUpperCase()}] "${userPrompt.substring(0, 40)}" → ${finalResponse.substring(0, 60).replace(/\n/g, ' ')}...`;
   persistTaskMemory(taskSummary);
+  if (window.ultronAPI && typeof window.ultronAPI.ragIndexText === 'function') {
+    setTimeout(async () => {
+      try {
+        await window.ultronAPI.ragIndexText({
+          id: `task-outcome-${Date.now()}`,
+          title: `Learned Task: ${userPrompt.slice(0, 35)}`,
+          content: `Task: ${userPrompt}\nOutcome Summary: ${taskSummary}\nFinal Output: ${finalResponse.slice(0, 400)}`,
+          metadata: { type: 'learning', userPrompt }
+        });
+      } catch (_) {}
+    }, 150);
+  }
   if (window.UltronDialogueState && typeof window.UltronDialogueState.updateFromTurn === 'function') {
     window.UltronDialogueState.updateFromTurn(userPrompt, finalResponse.slice(0, 120));
   }
@@ -9496,6 +9907,31 @@ function renderModelTypeFilterBar(container) {
   });
 }
 
+function selectAndActivateModel(modelName) {
+  if (!modelName) return;
+  activeModel = modelName;
+  _lastOllamaModel = modelName;
+  localStorage.setItem('ultron-selected-model', modelName);
+
+  // Update dropdown options
+  const selObj = document.getElementById('select-model-name');
+  if (selObj) {
+    let opt = Array.from(selObj.options).find(o => o.value.toLowerCase() === modelName.toLowerCase());
+    if (!opt) {
+      opt = document.createElement('option');
+      opt.value = modelName;
+      opt.textContent = modelName;
+      selObj.appendChild(opt);
+    }
+    selObj.value = opt.value;
+  }
+
+  updateModelSelectorLabel();
+  syncModelAttachmentCapabilities();
+  renderSettingsModels();
+  logTrace(`Active model set to "${modelName}".`, 'system');
+}
+
 function initModelCatalogFilters() {
   renderModelTypeFilterBar(document.getElementById('installed-model-filters'));
   renderModelTypeFilterBar(document.getElementById('catalog-model-filters'));
@@ -9652,11 +10088,7 @@ function renderSettingsModels() {
       btnSelect.addEventListener('click', (e) => {
         e.stopPropagation();
         const selectedName = e.currentTarget.getAttribute('data-model');
-        activeModel = selectedName;
-        const selObj = document.getElementById('select-model-name');
-        if (selObj) selObj.value = selectedName;
-        logTrace(`Switched active local model to "${selectedName}".`, 'system');
-        renderSettingsModels();
+        selectAndActivateModel(selectedName);
       });
     }
 
@@ -10923,11 +11355,24 @@ function renderOllamaCatalog(filterQuery = '') {
       pullBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         if (isCloudModel) {
-          activeModel = model.name;
-          const selObj = document.getElementById('select-model-name');
-          if (selObj) selObj.value = model.name;
-          logTrace(`Switched active model to cloud model "${model.name}". Runs remotely via Cloud API.`, 'system');
-          renderSettingsModels();
+          const ok = await ensureOllamaCloudAuthForPull(model.name);
+          if (!ok) return;
+
+          // If not installed in Ollama list yet, pull the cloud model stub
+          if (!installedNames.has(model.name.toLowerCase())) {
+            pullBtn.disabled = true;
+            pullBtn.textContent = 'Connecting…';
+            try {
+              const res = await window.ultronAPI.downloadModel(model.name);
+              if (res && res.success) {
+                await runOnboardingProfiler();
+              }
+            } catch (_) {}
+            pullBtn.disabled = false;
+            pullBtn.textContent = 'Use Model';
+          }
+
+          selectAndActivateModel(model.name);
           renderOllamaCatalog(filterQuery);
           return;
         }
@@ -13630,6 +14075,12 @@ function initRuntimePreferencesUI() {
     updateVoiceInputSettingsLabels();
   });
   document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.addEventListener('click', refreshVoiceInputDevices);
+
+  window.addEventListener('ultron-performance-mode-changed', (e) => {
+    const mode = e.detail?.mode || 'auto';
+    const label = mode === 'gpu' ? 'GPU Priority (Hardware Accelerated)' : (mode === 'cpu' ? 'CPU Only (Eco / Low-Power)' : 'Auto Adaptive');
+    logTrace(`Switched performance mode to: ${label}`, 'system');
+  });
 }
 
 initRuntimePreferencesUI();
@@ -15207,55 +15658,77 @@ function settleBootStep(promise, timeoutMs = 10000) {
   ]);
 }
 
-const BOOT_TOTAL_DURATION_MS = 2000;
-const SPLASH_LOGO_DURATION_MS = Math.round(BOOT_TOTAL_DURATION_MS * 0.20); // 400ms (20%)
-const SKELETON_DURATION_MS = Math.round(BOOT_TOTAL_DURATION_MS * 0.80);    // 1600ms (80%)
+const BOOT_MIN_TOTAL_MS = 2800;
+const SPLASH_SHARE = 0.5;
+const SPLASH_FADE_MS = 350;
+const BOOT_FAILSAFE_MS = 20000;
 
-function runSplashIntroSequence(splashDurationMs = SPLASH_LOGO_DURATION_MS) {
+function waitMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function dismissSplashScreen() {
   const splashScreen = document.getElementById('app-splash-screen');
-  if (!splashScreen) {
+  if (!splashScreen || splashScreen.dataset.dismissed === '1') {
     return Promise.resolve();
   }
+  splashScreen.dataset.dismissed = '1';
+  splashScreen.classList.add('fade-out');
+  return waitMs(SPLASH_FADE_MS).then(() => {
+    splashScreen.style.display = 'none';
+    splashScreen.style.pointerEvents = 'none';
+  });
+}
+
+function runSplashIntroSequence(splashDurationMs) {
+  const splashScreen = document.getElementById('app-splash-screen');
+  if (!splashScreen) return Promise.resolve();
 
   return new Promise((resolve) => {
     let resolved = false;
-    const dismiss = () => {
+    const finish = async () => {
       if (resolved) return;
       resolved = true;
-      splashScreen.classList.add('fade-out');
-      setTimeout(() => {
-        splashScreen.style.display = 'none';
-        splashScreen.style.pointerEvents = 'none';
-        resolve();
-      }, 250);
+      await dismissSplashScreen();
+      resolve();
     };
 
-    // Auto dismiss after 20% duration
-    const timer = setTimeout(dismiss, splashDurationMs);
+    const timer = setTimeout(finish, splashDurationMs);
 
-    // Instant skip on click or keypress
+    // Skip only on direct click of splash screen
     splashScreen.addEventListener('click', () => {
       clearTimeout(timer);
-      dismiss();
-    }, { once: true });
-    window.addEventListener('keydown', () => {
-      clearTimeout(timer);
-      dismiss();
+      finish();
     }, { once: true });
   });
 }
 
-// Failsafe timer: Skeleton loader will NEVER stay stuck longer than 3.8s under any error
+function ensureSkeletonVisible() {
+  const skeletonOverlay = document.getElementById('app-skeleton-overlay');
+  if (!skeletonOverlay) return;
+  skeletonOverlay.classList.remove('hidden');
+  skeletonOverlay.style.display = 'flex';
+  skeletonOverlay.style.visibility = 'visible';
+  skeletonOverlay.style.opacity = '1';
+  skeletonOverlay.style.pointerEvents = 'all';
+}
+
+// Failsafe: never leave overlays stuck if boot hangs
 setTimeout(() => {
+  dismissSplashScreen();
   hideSkeletonLoader();
-}, 3800);
+}, BOOT_FAILSAFE_MS);
 
 async function bootSystem() {
-  // 1. Start Splash sequence (20% duration)
-  const splashPromise = runSplashIntroSequence(SPLASH_LOGO_DURATION_MS);
+  const bootStartedAt = Date.now();
+  const splashDurationMs = Math.round(BOOT_MIN_TOTAL_MS * SPLASH_SHARE);
+
+  // 1. Logo + Ultron text for first 50% of the min boot window
+  const splashPromise = runSplashIntroSequence(splashDurationMs);
+  ensureSkeletonVisible();
 
   try {
-    // 2. Instant Synchronous UI pre-renders
+    // 2. Instant Synchronous UI pre-renders (hidden under splash / skeleton)
     updateWelcomeGreeting();
     setSendingState(false);
     initTraceEmptyState();
@@ -15264,12 +15737,12 @@ async function bootSystem() {
     initAutomationSettingsUI();
     startLiveMetricsPolling();
 
-    // 3. High-Speed Parallel Preloading of System Content, Models, Profiling & Configs
+    // 3. Parallel preload — Ollama, models, location, storage, config, etc.
     const coreTasks = [
       settleBootStep(syncStoragePathOnBoot().then(() => loadStoragePathsUI())),
       settleBootStep(reloadConversationsFromDisk()),
-      settleBootStep(loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: false })),
-      settleBootStep(checkOllamaStartup().then(() => runOnboardingProfiler())),
+      settleBootStep(loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: false }), 12000),
+      settleBootStep(checkOllamaStartup(), 15000),
       settleBootStep(initMultiProviderUI()),
       settleBootStep(syncSecurityMode()),
       settleBootStep((async () => {
@@ -15291,32 +15764,33 @@ async function bootSystem() {
       window.ultronAPI.setAuthorizedApps(bootAllowlist).catch(() => {});
     }
 
-    // Wait for the splash screen (20% duration) to finish fading out, exposing the skeleton overlay
-    await splashPromise;
+    const resourcesPromise = Promise.allSettled(coreTasks);
 
-    // 4. Skeleton Loader Phase (remaining 80% duration):
-    // Display skeleton loader while waiting for background resources and duration to complete
-    const skeletonMinWaitPromise = new Promise(resolve => setTimeout(resolve, SKELETON_DURATION_MS));
+    // Wait for splash (50%) to finish, then expose skeleton overlay
+    await splashPromise;
+    ensureSkeletonVisible();
+
+    // 4. Skeleton phase: remain until resources finish AND the other 50% of min duration has elapsed
+    const elapsed = Date.now() - bootStartedAt;
+    const skeletonMinMs = Math.max(0, BOOT_MIN_TOTAL_MS - elapsed);
 
     await Promise.all([
-      Promise.race([
-        Promise.allSettled(coreTasks),
-        new Promise(r => setTimeout(r, 2500))
-      ]),
-      skeletonMinWaitPromise
+      resourcesPromise,
+      waitMs(skeletonMinMs)
     ]);
 
     await checkAndRunFirstTimeOnboarding().catch(() => {});
     initVoiceChatModeAfterBoot();
 
-    // 5. Render dropdown list and model label with hydrated data
+    // 5. Hydrate model UI with loaded data
     renderModelDropdownList();
     updateModelSelectorLabel();
 
-    // 6. Resources loaded and skeleton duration complete -> Smoothly reveal app interface
+    // 6. All resources ready → reveal the real interface
     hideSkeletonLoader();
   } catch (err) {
     console.error('Boot sequence error:', err);
+    await dismissSplashScreen();
     hideSkeletonLoader();
   }
 }
@@ -17071,6 +17545,12 @@ if (btnBackFromSettings) {
   });
 }
 
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && settingsPanelOpen) {
+    closeSettingsPanel();
+  }
+});
+
 // Bind storage location browser selection dialog
 const btnBrowseStorage = document.getElementById('btn-browse-storage');
 if (btnBrowseStorage && settingDataDir) {
@@ -18689,6 +19169,66 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
   initMultiProviderUI();
   initRagUI();
   initDesktopSyncUI();
+})();
+
+// ==========================================================================
+// RELEASE NOTES & FEEDBACK CONTROLLER (BETA v1.0.0)
+// ==========================================================================
+(function initReleaseNotesAndFeedback() {
+  const RELEASE_NOTES_KEY = 'ultron-release-notes-beta1-seen';
+
+  function showReleaseNotesModal() {
+    const modal = document.getElementById('release-notes-modal');
+    if (modal) {
+      modal.classList.remove('hidden');
+    }
+  }
+
+  function hideReleaseNotesModal() {
+    const modal = document.getElementById('release-notes-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+    }
+  }
+
+  const btnClose = document.getElementById('btn-release-notes-close');
+  const btnDismiss = document.getElementById('btn-release-notes-dismiss');
+  const btnOpen = document.getElementById('btn-open-release-notes');
+  const modal = document.getElementById('release-notes-modal');
+
+  const markSeenAndClose = () => {
+    try {
+      localStorage.setItem(RELEASE_NOTES_KEY, 'true');
+    } catch (e) {}
+    hideReleaseNotesModal();
+  };
+
+  if (btnClose) btnClose.addEventListener('click', markSeenAndClose);
+  if (btnDismiss) btnDismiss.addEventListener('click', markSeenAndClose);
+  if (btnOpen) {
+    btnOpen.addEventListener('click', (e) => {
+      e.preventDefault();
+      showReleaseNotesModal();
+    });
+  }
+
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        markSeenAndClose();
+      }
+    });
+  }
+
+  // First-launch check: If this is the user's first launch after install/setup, show the release notes popup once
+  setTimeout(() => {
+    try {
+      const seen = localStorage.getItem(RELEASE_NOTES_KEY);
+      if (!seen) {
+        showReleaseNotesModal();
+      }
+    } catch (e) {}
+  }, 1200);
 })();
 
 

@@ -197,17 +197,68 @@ async function extractTextFromPdfBuffer(buffer) {
   if (!buffer) return '';
   try {
     const uint8 = Buffer.isBuffer(buffer) ? new Uint8Array(buffer) : new Uint8Array(Buffer.from(buffer));
+    if (typeof globalThis.DOMMatrix === 'undefined') {
+      globalThis.DOMMatrix = class DOMMatrix {
+        constructor(init) {
+          this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
+          if (Array.isArray(init) && init.length >= 6) {
+            [this.a, this.b, this.c, this.d, this.e, this.f] = init;
+          }
+        }
+      };
+    }
+    if (typeof globalThis.ImageData === 'undefined') {
+      globalThis.ImageData = class ImageData {
+        constructor(width, height) {
+          this.width = width || 0;
+          this.height = height || 0;
+          this.data = new Uint8ClampedArray((this.width * this.height * 4) || 0);
+        }
+      };
+    }
+    if (typeof globalThis.Path2D === 'undefined') {
+      globalThis.Path2D = class Path2D {
+        constructor() {}
+        addPath() {}
+        closePath() {}
+        moveTo() {}
+        lineTo() {}
+        bezierCurveTo() {}
+        quadraticCurveTo() {}
+        arc() {}
+        arcTo() {}
+        ellipse() {}
+        rect() {}
+      };
+    }
     try {
       const pdfModule = require('pdf-parse');
       const PDFParse = pdfModule.PDFParse || (typeof pdfModule === 'function' ? pdfModule : null);
       if (PDFParse) {
-        if (typeof PDFParse === 'function' && !pdfModule.PDFParse) {
-          const res = await PDFParse(Buffer.from(uint8));
-          if (res && res.text && res.text.trim()) return res.text.trim();
-        } else {
-          const parser = new PDFParse(uint8);
-          const res = await parser.getText();
-          if (res && res.text && res.text.trim()) return res.text.trim();
+        const origWarn = console.warn;
+        const origError = console.error;
+        try {
+          console.warn = (...args) => {
+            const msg = String(args[0] || '');
+            if (msg.includes('standardFontDataUrl') || msg.includes('polyfill') || msg.includes('require')) return;
+            origWarn.apply(console, args);
+          };
+          console.error = (...args) => {
+            const msg = String(args[0] || '');
+            if (msg.includes('standardFontDataUrl') || msg.includes('polyfill')) return;
+            origError.apply(console, args);
+          };
+          if (typeof PDFParse === 'function' && !pdfModule.PDFParse) {
+            const res = await PDFParse(Buffer.from(uint8));
+            if (res && res.text && res.text.trim()) return res.text.trim();
+          } else {
+            const parser = new PDFParse(uint8);
+            const res = await parser.getText();
+            if (res && res.text && res.text.trim()) return res.text.trim();
+          }
+        } finally {
+          console.warn = origWarn;
+          console.error = origError;
         }
       }
     } catch {}
@@ -499,6 +550,71 @@ async function searchKnowledge(query, options = {}) {
   return { success: true, results: scored.slice(0, topK) };
 }
 
+// Index in-memory text content directly (e.g. implementation plans, session learnings, task playbooks)
+async function indexTextContent(id, title, content, metadata = {}) {
+  if (!content || typeof content !== 'string' || !content.trim()) return { success: false, error: 'Empty content' };
+  const indexData = loadIndex();
+  const sourceId = id || `memory-${Date.now()}`;
+  const fileName = title || `${sourceId}.md`;
+
+  // Remove existing chunks for this sourceId if updating
+  indexData.chunks = (indexData.chunks || []).filter(c => c.sourceId !== sourceId && c.filePath !== sourceId);
+
+  const clean = content.replace(/\r\n/g, '\n').trim();
+  const textChunks = [];
+  if (clean.length <= CHUNK_SIZE) {
+    const tokens = tokenize(clean);
+    textChunks.push({
+      id: crypto.createHash('md5').update(`${sourceId}:0`).digest('hex'),
+      sourceId,
+      filePath: sourceId,
+      fileName,
+      chunkIndex: 0,
+      text: clean,
+      charCount: clean.length,
+      tokenCount: tokens.length,
+      vector: createTermVector(tokens),
+      metadata
+    });
+  } else {
+    let start = 0;
+    let index = 0;
+    while (start < clean.length) {
+      const end = Math.min(start + CHUNK_SIZE, clean.length);
+      const slice = clean.slice(start, end);
+      const tokens = tokenize(slice);
+      textChunks.push({
+        id: crypto.createHash('md5').update(`${sourceId}:${index}`).digest('hex'),
+        sourceId,
+        filePath: sourceId,
+        fileName,
+        chunkIndex: index,
+        text: slice,
+        charCount: slice.length,
+        tokenCount: tokens.length,
+        vector: createTermVector(tokens),
+        metadata
+      });
+      start += (CHUNK_SIZE - CHUNK_OVERLAP);
+      index++;
+    }
+  }
+
+  indexData.chunks.push(...textChunks);
+  
+  // Track as source
+  let source = (indexData.sources || []).find(s => s.path === sourceId);
+  if (!source) {
+    source = { id: sourceId, type: 'memory', path: sourceId, name: fileName, addedAt: new Date().toISOString() };
+    indexData.sources.push(source);
+  }
+  source.chunkCount = textChunks.length;
+  source.lastIndexed = new Date().toISOString();
+
+  saveIndex(indexData);
+  return { success: true, chunksAdded: textChunks.length };
+}
+
 // Clear all indexed knowledge
 function clearIndex() {
   const empty = {
@@ -529,6 +645,7 @@ module.exports = {
   reindexSource,
   autoAddSource,
   indexFile,
+  indexTextContent,
   searchKnowledge,
   clearIndex,
   getStats

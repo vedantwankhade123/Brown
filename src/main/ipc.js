@@ -10,34 +10,86 @@ async function extractTextFromPdfBuffer(buffer) {
   try {
     const uint8 = Buffer.isBuffer(buffer) ? new Uint8Array(buffer) : (buffer instanceof Uint8Array ? buffer : new Uint8Array(Buffer.from(buffer)));
     
+    if (typeof globalThis.DOMMatrix === 'undefined') {
+      globalThis.DOMMatrix = class DOMMatrix {
+        constructor(init) {
+          this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
+          if (Array.isArray(init) && init.length >= 6) {
+            [this.a, this.b, this.c, this.d, this.e, this.f] = init;
+          }
+        }
+      };
+    }
+    if (typeof globalThis.ImageData === 'undefined') {
+      globalThis.ImageData = class ImageData {
+        constructor(width, height) {
+          this.width = width || 0;
+          this.height = height || 0;
+          this.data = new Uint8ClampedArray((this.width * this.height * 4) || 0);
+        }
+      };
+    }
+    if (typeof globalThis.Path2D === 'undefined') {
+      globalThis.Path2D = class Path2D {
+        constructor() {}
+        addPath() {}
+        closePath() {}
+        moveTo() {}
+        lineTo() {}
+        bezierCurveTo() {}
+        quadraticCurveTo() {}
+        arc() {}
+        arcTo() {}
+        ellipse() {}
+        rect() {}
+      };
+    }
+
     // 1. Primary: Use standard Mozilla pdf.js parser via pdf-parse
     try {
       const pdfModule = require('pdf-parse');
       const PDFParse = pdfModule.PDFParse || (typeof pdfModule === 'function' ? pdfModule : null);
       if (PDFParse) {
-        if (typeof PDFParse === 'function' && !pdfModule.PDFParse) {
-          const res = await PDFParse(Buffer.from(uint8));
-          if (res && res.text && res.text.trim()) {
-            return res.text
-              .replace(/\r\n/g, '\n')
-              .replace(/[ \t]+/g, ' ')
-              .replace(/(\n{3,})/g, '\n\n')
-              .trim();
+        const origWarn = console.warn;
+        const origError = console.error;
+        try {
+          console.warn = (...args) => {
+            const msg = String(args[0] || '');
+            if (msg.includes('standardFontDataUrl') || msg.includes('polyfill') || msg.includes('require')) return;
+            origWarn.apply(console, args);
+          };
+          console.error = (...args) => {
+            const msg = String(args[0] || '');
+            if (msg.includes('standardFontDataUrl') || msg.includes('polyfill')) return;
+            origError.apply(console, args);
+          };
+          if (typeof PDFParse === 'function' && !pdfModule.PDFParse) {
+            const res = await PDFParse(Buffer.from(uint8));
+            if (res && res.text && res.text.trim()) {
+              return res.text
+                .replace(/\r\n/g, '\n')
+                .replace(/[ \t]+/g, ' ')
+                .replace(/(\n{3,})/g, '\n\n')
+                .trim();
+            }
+          } else {
+            const parser = new PDFParse(uint8);
+            const res = await parser.getText();
+            if (res && res.text && res.text.trim()) {
+              return res.text
+                .replace(/\r\n/g, '\n')
+                .replace(/[ \t]+/g, ' ')
+                .replace(/(\n{3,})/g, '\n\n')
+                .trim();
+            }
           }
-        } else {
-          const parser = new PDFParse(uint8);
-          const res = await parser.getText();
-          if (res && res.text && res.text.trim()) {
-            return res.text
-              .replace(/\r\n/g, '\n')
-              .replace(/[ \t]+/g, ' ')
-              .replace(/(\n{3,})/g, '\n\n')
-              .trim();
-          }
+        } finally {
+          console.warn = origWarn;
+          console.error = origError;
         }
       }
     } catch (parseErr) {
-      console.warn('[PDF] PDFParse engine fallback:', parseErr.message);
+      // Fall through to stream decompression
     }
 
     // 2. Secondary: Decompress Flate streams and extract BT...ET text blocks
@@ -619,9 +671,13 @@ async function runMouseScript(bodyLines) {
     '  [DllImport("user32.dll")] public static extern void mouse_event(int dwFlags, int dx, int dy, int cButtons, int dwExtraInfo);',
     '  public const int LEFTDOWN = 0x02;',
     '  public const int LEFTUP = 0x04;',
+    '  public const int RIGHTDOWN = 0x08;',
+    '  public const int RIGHTUP = 0x10;',
     '  public const int WHEEL = 0x0800;',
+    '  public static void Move(int x, int y) { SetCursorPos(x, y); }',
     '  public static void Click(int x, int y) { SetCursorPos(x, y); mouse_event(LEFTDOWN, 0, 0, 0, 0); mouse_event(LEFTUP, 0, 0, 0, 0); }',
-    '  public static void DoubleClick(int x, int y) { SetCursorPos(x, y); mouse_event(LEFTDOWN, 0, 0, 0, 0); mouse_event(LEFTUP, 0, 0, 0, 0); mouse_event(LEFTDOWN, 0, 0, 0, 0); mouse_event(LEFTUP, 0, 0, 0, 0); }',
+    '  public static void RightClick(int x, int y) { SetCursorPos(x, y); mouse_event(RIGHTDOWN, 0, 0, 0, 0); mouse_event(RIGHTUP, 0, 0, 0, 0); }',
+    '  public static void DoubleClick(int x, int y) { SetCursorPos(x, y); mouse_event(LEFTDOWN, 0, 0, 0, 0); mouse_event(LEFTUP, 0, 0, 0, 0); System.Threading.Thread.Sleep(80); mouse_event(LEFTDOWN, 0, 0, 0, 0); mouse_event(LEFTUP, 0, 0, 0, 0); }',
     '  public static void Scroll(int delta) { mouse_event(WHEEL, 0, 0, delta, 0); }',
     '}',
     '"@',
@@ -751,11 +807,18 @@ async function captureDesktopImage(options = {}) {
   }
 
   const size = source.thumbnail.getSize();
-  const pngBuffer = source.thumbnail.toPNG();
+  let imgBuffer = null;
+  let mimeType = 'image/jpeg';
+  try {
+    imgBuffer = source.thumbnail.toJPEG(75);
+  } catch (_) {
+    imgBuffer = source.thumbnail.toPNG();
+    mimeType = 'image/png';
+  }
   return {
     success: true,
-    mimeType: 'image/png',
-    data: pngBuffer.toString('base64'),
+    mimeType,
+    data: imgBuffer.toString('base64'),
     width: size.width,
     height: size.height,
     sourceName: source.name || 'Primary Display',
@@ -825,11 +888,18 @@ async function captureWindowImage(windowTitle = '') {
   }
 
   const size = source.thumbnail.getSize();
-  const pngBuffer = source.thumbnail.toPNG();
+  let imgBuffer = null;
+  let mimeType = 'image/jpeg';
+  try {
+    imgBuffer = source.thumbnail.toJPEG(75);
+  } catch (_) {
+    imgBuffer = source.thumbnail.toPNG();
+    mimeType = 'image/png';
+  }
   return {
     success: true,
-    mimeType: 'image/png',
-    data: pngBuffer.toString('base64'),
+    mimeType,
+    data: imgBuffer.toString('base64'),
     width: size.width,
     height: size.height,
     sourceName: source.name || 'Window',
@@ -1451,8 +1521,17 @@ function setupIpcHandlers() {
       }
 
       if (action === 'OPEN_URL') {
-        const url = String(payload.url || payload.target || '').trim();
-        if (!/^https?:\/\//i.test(url)) return { success: false, error: 'Invalid URL. Only http/https URLs are supported.' };
+        let url = String(payload.url || payload.target || '').trim();
+        if (!url) return { success: false, error: 'No URL provided.' };
+        if (!/^https?:\/\//i.test(url)) {
+          if (/^(youtube|google|github|reddit|twitter|x|facebook|instagram|linkedin|chatgpt|wikipedia)$/i.test(url)) {
+            url = `https://www.${url.toLowerCase()}.com`;
+          } else if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}/.test(url)) {
+            url = `https://${url}`;
+          } else {
+            url = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+          }
+        }
         await shell.openExternal(url);
         return { success: true, message: `Opened ${url}` };
       }
@@ -1520,6 +1599,16 @@ function setupIpcHandlers() {
         return { success: true, message: `Clicked at (${x}, ${y})` };
       }
 
+      if (action === 'RIGHT_CLICK') {
+        const x = Math.round(Number(payload.x));
+        const y = Math.round(Number(payload.y));
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return { success: false, error: 'RIGHT_CLICK requires numeric x and y coordinates.' };
+        }
+        await runMouseScript([`[WinMouse]::RightClick(${x}, ${y})`]);
+        return { success: true, message: `Right-clicked at (${x}, ${y})` };
+      }
+
       if (action === 'DOUBLE_CLICK') {
         const x = Math.round(Number(payload.x));
         const y = Math.round(Number(payload.y));
@@ -1530,6 +1619,16 @@ function setupIpcHandlers() {
         return { success: true, message: `Double-clicked at (${x}, ${y})` };
       }
 
+      if (action === 'MOUSE_MOVE' || action === 'MOVE_MOUSE') {
+        const x = Math.round(Number(payload.x));
+        const y = Math.round(Number(payload.y));
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return { success: false, error: 'MOUSE_MOVE requires numeric x and y coordinates.' };
+        }
+        await runMouseScript([`[WinMouse]::Move(${x}, ${y})`]);
+        return { success: true, message: `Moved cursor to (${x}, ${y})` };
+      }
+
       if (action === 'SCROLL') {
         const delta = Math.round(Number(payload.delta || payload.amount || 120));
         const clamped = Math.max(-1200, Math.min(1200, delta));
@@ -1538,6 +1637,103 @@ function setupIpcHandlers() {
       }
 
       return { success: false, error: `Unsupported app action: ${action || 'none'}` };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Download direct file or online asset (e.g. logos, images, documents)
+  ipcMain.handle('download-file', async (event, payload = {}) => {
+    try {
+      let downloadUrl = typeof payload === 'string' ? payload : (payload.url || payload.target);
+      const query = payload.query || payload.searchQuery || '';
+
+      if (!downloadUrl && query) {
+        const q = String(query).toLowerCase();
+        if (q.includes('chatgpt') || q.includes('openai')) {
+          downloadUrl = 'https://upload.wikimedia.org/wikipedia/commons/0/04/ChatGPT_logo.svg';
+        } else if (q.includes('python')) {
+          downloadUrl = 'https://upload.wikimedia.org/wikipedia/commons/c/c3/Python-logo-notext.svg';
+        } else if (q.includes('google') || q.includes('chrome')) {
+          downloadUrl = 'https://upload.wikimedia.org/wikipedia/commons/e/e1/Google_Chrome_icon_%28February_2022%29.svg';
+        } else if (q.includes('github')) {
+          downloadUrl = 'https://upload.wikimedia.org/wikipedia/commons/9/91/Octicons-mark-github.svg';
+        } else {
+          // Perform image web search
+          const searchRes = await performWebSearch(`${query} direct download filetype:png`);
+          if (searchRes && searchRes.results && searchRes.results.length > 0) {
+            const candidate = searchRes.results.find(r => /\.(png|svg|jpg|jpeg|webp)/i.test(r.url) || /wikimedia|github|raw\.github|logo|icon/i.test(r.url));
+            downloadUrl = candidate ? candidate.url : searchRes.results[0].url;
+          }
+        }
+      }
+
+      if (!downloadUrl) {
+        return { success: false, error: `Could not find a downloadable file URL for "${query || 'requested asset'}".` };
+      }
+
+      const downloadsDir = path.join(process.env.USERPROFILE || 'C:\\Users\\vedan', 'Downloads');
+      let destPath = payload.targetPath || payload.path;
+      if (!destPath) {
+        let name = payload.filename || '';
+        if (!name) {
+          try {
+            name = path.basename(new URL(downloadUrl).pathname);
+          } catch (_) {
+            name = 'downloaded_asset.png';
+          }
+        }
+        if (!name || name === '/' || name.length < 3) {
+          const ext = downloadUrl.endsWith('.svg') ? 'svg' : (downloadUrl.endsWith('.jpg') ? 'jpg' : 'png');
+          name = `${(query || 'downloaded_file').replace(/[^a-zA-Z0-9_-]+/g, '_')}.${ext}`;
+        }
+        destPath = path.join(downloadsDir, name);
+      }
+
+      const destDir = path.dirname(destPath);
+      if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+
+      const res = await fetch(downloadUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      });
+
+      if (!res.ok) {
+        return { success: false, error: `Download failed with HTTP status ${res.status}` };
+      }
+
+      const buffer = Buffer.from(await res.arrayBuffer());
+      fs.writeFileSync(destPath, buffer);
+
+      return {
+        success: true,
+        message: `Successfully downloaded to ${destPath} (${buffer.length} bytes)`,
+        filePath: destPath,
+        bytes: buffer.length,
+        url: downloadUrl
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Delete file or directory safely
+  ipcMain.handle('delete-file', async (event, targetPath) => {
+    try {
+      if (!targetPath) return { success: false, error: 'No file path provided.' };
+      const resolved = path.resolve(targetPath);
+      if (isPathBlacklisted(resolved)) {
+        return { success: false, error: `Access Denied: Path "${resolved}" is protected by security policy.` };
+      }
+      if (!fs.existsSync(resolved)) {
+        return { success: false, error: `File not found: ${resolved}` };
+      }
+      const stat = fs.statSync(resolved);
+      if (stat.isDirectory()) {
+        fs.rmSync(resolved, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(resolved);
+      }
+      return { success: true, message: `Deleted ${resolved}`, path: resolved };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -1757,9 +1953,14 @@ function setupIpcHandlers() {
 
   ipcMain.handle('ollama-auth-status', async () => {
     const config = loadUltronConfigFile();
+    const userHome = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\vedan';
+    const keyFile = path.join(userHome, '.ollama', 'id_ed25519');
+    const hasKey = fs.existsSync(keyFile);
+    const signedIn = Boolean(config.ollamaCloudSignedIn || hasKey);
+
     return {
-      signedIn: Boolean(config.ollamaCloudSignedIn),
-      signedInAt: config.ollamaCloudSignedInAt || null,
+      signedIn,
+      signedInAt: config.ollamaCloudSignedInAt || (hasKey ? 'configured' : null),
       email: config.ollamaCloudEmail || null
     };
   });
@@ -1768,13 +1969,18 @@ function setupIpcHandlers() {
     try {
       const { spawn } = require('child_process');
       const ollamaExe = resolveOllamaCliPath();
-      if (!fs.existsSync(ollamaExe) && ollamaExe === 'ollama') {
-        return { success: false, error: 'Ollama is not installed. Install Ollama first, then sign in for cloud models.' };
-      }
 
       return await new Promise((resolve) => {
         let output = '';
         let openedUrl = false;
+
+        const fallbackTimer = setTimeout(() => {
+          if (!openedUrl) {
+            openedUrl = true;
+            shell.openExternal('https://ollama.com/signin').catch(() => {});
+          }
+        }, 1500);
+
         const child = spawn(ollamaExe, ['signin'], {
           windowsHide: false,
           env: { ...process.env }
@@ -1785,6 +1991,7 @@ function setupIpcHandlers() {
           const url = extractOllamaSigninUrl(output);
           if (url && !openedUrl) {
             openedUrl = true;
+            clearTimeout(fallbackTimer);
             shell.openExternal(url).catch(() => {});
           }
         };
@@ -1792,11 +1999,15 @@ function setupIpcHandlers() {
         child.stdout.on('data', handleChunk);
         child.stderr.on('data', handleChunk);
         child.on('error', (err) => {
+          clearTimeout(fallbackTimer);
           resolve({ success: false, error: err.message || 'Could not start ollama signin.' });
         });
         child.on('close', (code) => {
+          clearTimeout(fallbackTimer);
           const text = output.trim();
-          const signedIn = code === 0 || /signed in|already signed|success/i.test(text);
+          const userHome = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\vedan';
+          const keyFile = path.join(userHome, '.ollama', 'id_ed25519');
+          const signedIn = code === 0 || fs.existsSync(keyFile) || /signed in|already signed|success/i.test(text);
           if (signedIn) {
             saveUltronConfigPatch({
               ollamaCloudSignedIn: true,
@@ -1806,7 +2017,7 @@ function setupIpcHandlers() {
           resolve({
             success: signedIn,
             output: text,
-            authUrl: extractOllamaSigninUrl(text) || null,
+            authUrl: extractOllamaSigninUrl(text) || 'https://ollama.com/signin',
             error: signedIn ? undefined : (text || 'Ollama sign-in did not complete.')
           });
         });
@@ -2339,24 +2550,43 @@ function getInstallationDefaultDataDir() {
     }
   });
 
+  let _prevCpuStats = null;
+  function calculateCpuLoadPct() {
+    try {
+      const os = require('os');
+      const cpus = os.cpus();
+      if (!cpus || cpus.length === 0) return null;
+      let totalIdle = 0;
+      let totalTick = 0;
+      for (let i = 0; i < cpus.length; i++) {
+        const times = cpus[i].times;
+        for (const type in times) {
+          totalTick += times[type];
+        }
+        totalIdle += times.idle;
+      }
+      if (!_prevCpuStats) {
+        _prevCpuStats = { idle: totalIdle, total: totalTick };
+        return 0;
+      }
+      const idleDelta = totalIdle - _prevCpuStats.idle;
+      const totalDelta = totalTick - _prevCpuStats.total;
+      _prevCpuStats = { idle: totalIdle, total: totalTick };
+      if (totalDelta <= 0) return 0;
+      const usage = 100 - Math.round((idleDelta / totalDelta) * 100);
+      return Math.max(0, Math.min(100, usage));
+    } catch (e) {
+      return null;
+    }
+  }
+
   ipcMain.handle('get-live-metrics', async () => {
     try {
       const os = require('os');
       const totalMem = os.totalmem();
       const freeMem = os.freemem();
       const usedPct = totalMem > 0 ? Math.round(((totalMem - freeMem) / totalMem) * 100) : 0;
-      let cpuLoad = null;
-      try {
-        const raw = await new Promise((resolve, reject) => {
-          cpExec(
-            'powershell -NoProfile -Command "(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average"',
-            { windowsHide: true, timeout: 5000 },
-            (err, stdout) => err ? reject(err) : resolve(stdout)
-          );
-        });
-        const parsed = parseFloat(String(raw || '').trim());
-        if (Number.isFinite(parsed)) cpuLoad = Math.round(parsed);
-      } catch (e) {}
+      const cpuLoad = calculateCpuLoadPct();
       return {
         success: true,
         freeMemoryGB: (freeMem / (1024 ** 3)).toFixed(1),
@@ -3173,6 +3403,16 @@ function getInstallationDefaultDataDir() {
     try {
       const rag = require('./rag-engine');
       return await rag.indexFile(filePath);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:index-text', async (_event, payload = {}) => {
+    try {
+      const rag = require('./rag-engine');
+      const { id, title, content, metadata } = payload;
+      return await rag.indexTextContent(id, title, content, metadata);
     } catch (err) {
       return { success: false, error: err.message };
     }

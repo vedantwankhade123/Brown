@@ -36,14 +36,24 @@ function parseVramGB(value) {
   return numeric / 1024;
 }
 
+let _cachedHardwareProfile = null;
+let _cachedHardwareTimestamp = 0;
+const HARDWARE_CACHE_TTL_MS = 60000;
+
 /**
  * Profiles the host system's hardware configurations.
  * Retrieves total RAM, CPU threads, and GPU details.
  * Falls back to PowerShell if systeminformation fails.
  * 
+ * @param {boolean} [forceRefresh=false]
  * @returns {Promise<{totalRamGB: number, cpuThreads: number, gpus: Array<string>}>}
  */
-async function profileHardware() {
+async function profileHardware(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && _cachedHardwareProfile && (now - _cachedHardwareTimestamp < HARDWARE_CACHE_TTL_MS)) {
+    return _cachedHardwareProfile;
+  }
+
   let totalRamGB = 0;
   let cpuThreads = 0;
   let gpus = [];
@@ -140,7 +150,7 @@ async function profileHardware() {
 
   const dedicatedGpu = gpuDetails.find(g => g.dedicated) || null;
 
-  return {
+  const result = {
     totalRamGB: parseFloat(totalRamGB.toFixed(2)),
     cpuThreads: cpuThreads || 4,
     gpus,
@@ -148,6 +158,11 @@ async function profileHardware() {
     hasDedicatedGpu: Boolean(dedicatedGpu),
     dedicatedGpu
   };
+
+  _cachedHardwareProfile = result;
+  _cachedHardwareTimestamp = Date.now();
+
+  return result;
 }
 
 /**

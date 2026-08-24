@@ -36,18 +36,20 @@ Download pre-built ready-to-run Windows binaries directly from the official webs
   <tbody>
     <tr>
       <td><b>Installer</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.13/Ultron.AI.Setup.v1.0.13.exe"><code>Ultron.AI.Setup.v1.0.13.exe</code></a></td>
-      <td>Standard Windows setup wizard with Start Menu and Desktop shortcuts. AI voice models download on first use (~130 MB).</td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.14-beta.1/Ultron.AI.Setup.v1.0.14.exe"><code>Ultron.AI.Setup.v1.0.14.exe</code></a></td>
+      <td>Standard Windows setup wizard with Start Menu and Desktop shortcuts.</td>
     </tr>
     <tr>
       <td><b>Portable</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.13/Ultron.AI.Setup.v1.0.13.exe"><code>Ultron.AI.Setup.v1.0.13.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.14-beta.1/Ultron.AI.v1.0.14.exe"><code>Ultron.AI.v1.0.14.exe</code></a></td>
       <td>Standalone executable. Runs immediately on Windows without installation.</td>
     </tr>
   </tbody>
 </table>
 
-> 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases/latest) (**Ultron v1.0.13**).
+> 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases) (**Ultron BETA v1.0.0**).
+> 
+> 📸 Follow us on Instagram: [@ultron_offline](https://www.instagram.com/ultron_offline) | ✉️ Contact: `vedantwankhade47@gmail.com`
 
 ---
 
