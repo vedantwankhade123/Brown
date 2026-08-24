@@ -66,7 +66,7 @@ jobs:
 
       - name: Build & Publish to GitHub Releases
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
         run: npm run release
 
       - name: Update release.json manifest for Website
@@ -78,8 +78,8 @@ jobs:
             version = $version
             tagName = $tag
             releaseDate = (Get-Date -Format "yyyy-MM-dd")
-            setupUrl = "https://github.com/vedantwankhade123/Ultron/releases/download/$tag/Ultron.AI.Setup.v$version.exe"
-            portableUrl = "https://github.com/vedantwankhade123/Ultron/releases/download/$tag/Ultron.AI.v$version.exe"
+            setupUrl = "https://github.com/vedantwankhade123/ultron-releases/releases/download/$tag/Ultron.AI.Setup.v$version.exe"
+            portableUrl = "https://github.com/vedantwankhade123/ultron-releases/releases/download/$tag/Ultron.AI.v$version.exe"
             setupName = "Ultron.AI.Setup.v$version.exe"
             portableName = "Ultron.AI.v$version.exe"
           }
