@@ -2673,9 +2673,9 @@
     </div>
   </div>
 
-  <!-- RELEASE NOTES MODAL (Shown on first install/launch & on demand in Settings) -->
+  <!-- RELEASE NOTES MODAL (Centered Modal Popup Dialog) -->
   <div id="release-notes-modal" class="settings-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="release-notes-title">
-    <div class="settings-panel-card release-notes-card" style="max-width: 680px; max-height: 85vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 16px;">
+    <div class="settings-panel-card release-notes-card">
       <div class="settings-panel-header" style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 12px;">
           <img src="../../Assets/Brand-Assets/ultron-logo.png" style="width: 28px; height: 28px; object-fit: contain;" alt="Ultron">
@@ -2690,65 +2690,101 @@
         <button id="btn-release-notes-close" class="btn-settings-close" title="Close release notes">✕</button>
       </div>
 
-      <div class="release-notes-scroll-area" style="flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
-        <div class="release-banner" style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(147, 51, 234, 0.15)); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 12px; padding: 14px 16px;">
-          <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: #818cf8;">🎉 WHAT'S NEW IN BETA 1</span>
-          <h4 style="margin: 4px 0 0 0; font-size: 14px; font-weight: 600; color: #ffffff;">Supercharged Performance, Autonomy &amp; Hybrid Acceleration</h4>
+      <div class="release-notes-scroll-area" style="flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 14px;">
+        <div class="release-banner" style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(147, 51, 234, 0.15)); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 12px; padding: 14px 16px; display: flex; align-items: flex-start; gap: 12px;">
+          <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(99, 102, 241, 0.2); border: 1px solid rgba(99, 102, 241, 0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0; color: #a5b4fc;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+          </div>
+          <div>
+            <span style="font-size: 10.5px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: #818cf8;">WHAT'S NEW IN BETA 1</span>
+            <h4 style="margin: 2px 0 0 0; font-size: 13.5px; font-weight: 600; color: #ffffff;">Supercharged Performance, Autonomy &amp; Hybrid Acceleration</h4>
+          </div>
         </div>
 
-        <div class="release-features-grid" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
-          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px;">
-            <div style="font-size: 20px; line-height: 1;">⚡</div>
+        <div class="release-features-grid" style="display: grid; grid-template-columns: 1fr; gap: 10px;">
+          <!-- Feature 1: Performance Engine -->
+          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px 14px; align-items: flex-start;">
+            <div style="width: 34px; height: 34px; border-radius: 10px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+              </svg>
+            </div>
             <div style="flex: 1;">
               <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #38bdf8;">GPU / CPU / Auto Performance Engine</h5>
-              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4;">Manually toggle between <strong>Auto Adaptive</strong>, <strong>GPU Priority</strong> (maximum speed), and <strong>CPU Only</strong> (power-saver &amp; VRAM release) right from the top-right corner of the interface.</p>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.45;">Manually toggle between <strong>Auto Adaptive</strong>, <strong>GPU Priority</strong> (maximum speed), and <strong>CPU Only</strong> (power-saver &amp; VRAM release) right from the top-right corner of the interface.</p>
             </div>
           </div>
 
-          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px;">
-            <div style="font-size: 20px; line-height: 1;">🚀</div>
+          <!-- Feature 2: Zero-Lag Engine -->
+          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px 14px; align-items: flex-start;">
+            <div style="width: 34px; height: 34px; border-radius: 10px; background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+            </div>
             <div style="flex: 1;">
               <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #34d399;">Zero-Lag Anti-Freeze Engine</h5>
-              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4;">Instant microsecond-level native CPU load calculation, eliminating background WMI process locks and UI freezing during multitasking.</p>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.45;">Instant microsecond-level native CPU load calculation, eliminating background WMI process locks and UI freezing during multitasking.</p>
             </div>
           </div>
 
-          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px;">
-            <div style="font-size: 20px; line-height: 1;">🧠</div>
+          <!-- Feature 3: Autonomous Reasoning -->
+          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px 14px; align-items: flex-start;">
+            <div style="width: 34px; height: 34px; border-radius: 10px; background: rgba(192, 132, 252, 0.12); border: 1px solid rgba(192, 132, 252, 0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17">
+                <path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"></path>
+                <line x1="9" y1="21" x2="15" y2="21"></line>
+              </svg>
+            </div>
             <div style="flex: 1;">
               <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #c084fc;">Autonomous Reasoning &amp; Task Planning</h5>
-              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4;">Autonomous loop guard, tool decomposition, desktop screen awareness, and multi-step workflows for self-directed execution.</p>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.45;">Autonomous loop guard, tool decomposition, desktop screen awareness, and multi-step workflows for self-directed execution.</p>
             </div>
           </div>
 
-          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px;">
-            <div style="font-size: 20px; line-height: 1;">🎙️</div>
+          <!-- Feature 4: Local Voice -->
+          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px 14px; align-items: flex-start;">
+            <div style="width: 34px; height: 34px; border-radius: 10px; background: rgba(96, 165, 250, 0.12); border: 1px solid rgba(96, 165, 250, 0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
+              </svg>
+            </div>
             <div style="flex: 1;">
-              <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #60a5fa;">Local Voice + Gemini Live Dialog</h5>
-              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4;">High-fidelity local text-to-speech with Kokoro neural voice, whisper STT, and real-time bidirectional Gemini Live speech conversations.</p>
+              <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #60a5fa;">Local Voice &amp; High-Fidelity Speech</h5>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.45;">High-fidelity local text-to-speech with Kokoro neural voice, whisper STT, and on-demand audio synthesis.</p>
             </div>
           </div>
 
-          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px;">
-            <div style="font-size: 20px; line-height: 1;">📱</div>
+          <!-- Feature 5: Mobile Companion -->
+          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 12px 14px; align-items: flex-start;">
+            <div style="width: 34px; height: 34px; border-radius: 10px; background: rgba(251, 146, 60, 0.12); border: 1px solid rgba(251, 146, 60, 0.25); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="17" height="17">
+                <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+                <line x1="12" y1="18" x2="12.01" y2="18"></line>
+              </svg>
+            </div>
             <div style="flex: 1;">
               <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #fb923c;">Mobile Companion &amp; Desktop Sync</h5>
-              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4;">Secure peer-to-peer PIN pairing with Ultron Mobile to import chat threads and sync sovereign agent state across devices.</p>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.45;">Secure peer-to-peer PIN pairing with Ultron Mobile to import chat threads and sync sovereign agent state across devices.</p>
             </div>
           </div>
         </div>
 
-        <div class="release-community-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+        <div class="release-community-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;">
           <div>
-            <h6 style="margin: 0 0 2px 0; font-size: 12.5px; font-weight: 600; color: #fff;">Join the Community &amp; Give Feedback</h6>
-            <p style="margin: 0; font-size: 11.5px; color: #9ca3af;">Follow updates, request features, and connect directly with the developer.</p>
+            <h6 style="margin: 0 0 2px 0; font-size: 12px; font-weight: 600; color: #fff;">Join the Community &amp; Give Feedback</h6>
+            <p style="margin: 0; font-size: 11px; color: #9ca3af;">Follow updates, request features, and connect directly with the developer.</p>
           </div>
           <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-            <a href="https://www.instagram.com/ultron_offline" id="btn-rn-instagram" class="btn-instagram-feedback" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); color: #fff; text-decoration: none; font-size: 11.5px; font-weight: 600;">
+            <a href="https://www.instagram.com/ultron_offline" id="btn-rn-instagram" class="btn-instagram-feedback" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); color: #fff; text-decoration: none; font-size: 11.5px; font-weight: 600;">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
               <span>@ultron_offline</span>
             </a>
-            <a href="mailto:vedantwankhade47@gmail.com" id="btn-rn-email" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); color: #fff; text-decoration: none; font-size: 11.5px; font-weight: 500;">
+            <a href="mailto:vedantwankhade47@gmail.com" id="btn-rn-email" style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); color: #fff; text-decoration: none; font-size: 11.5px; font-weight: 500;">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#ef4444" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
               <span>vedantwankhade47@gmail.com</span>
             </a>
