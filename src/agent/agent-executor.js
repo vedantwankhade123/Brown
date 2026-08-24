@@ -526,6 +526,79 @@
         return schema.normalizeToolResult({ success: false, message: 'Clipboard action failed.' });
       }
 
+      if (toolCall.type === 'DELETE_FILE' || toolCall.type === 'REMOVE_FILE') {
+        const target = toolCall.path || toolCall.targetPath || toolCall.target;
+        const delRes = await withTimeout(window.ultronAPI.deleteFile(target));
+        return schema.normalizeToolResult(delRes.success
+          ? { success: true, message: delRes.message || `Deleted ${target}`, evidence: target }
+          : { success: false, message: delRes.error || 'Delete failed.', errorCode: 'DELETE_FAILED' });
+      }
+
+      if (toolCall.type === 'LIST_DIR') {
+        const target = toolCall.path || toolCall.targetPath || toolCall.target;
+        const listRes = await withTimeout(window.ultronAPI.listDir(target));
+        if (listRes.success) {
+          const names = (listRes.files || []).map(f => `${f.isDirectory ? '[DIR] ' : ''}${f.name} (${f.size} B)`).join('\n');
+          return schema.normalizeToolResult({
+            success: true,
+            message: `Listed ${listRes.files?.length || 0} items in ${listRes.path}`,
+            evidence: names || '(empty directory)',
+            raw: listRes.files
+          });
+        }
+        return schema.normalizeToolResult({ success: false, message: listRes.error || 'Failed to list directory.', errorCode: 'LIST_FAILED' });
+      }
+
+      if (toolCall.type === 'SEARCH') {
+        const query = toolCall.query || toolCall.target || '';
+        const searchRes = await withTimeout(window.ultronAPI.searchWeb(query));
+        if (searchRes && searchRes.success && searchRes.results && searchRes.results.length > 0) {
+          const evidence = searchRes.results.slice(0, 4).map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`).join('\n\n');
+          return schema.normalizeToolResult({
+            success: true,
+            message: `Found ${searchRes.results.length} web search results for "${query}"`,
+            evidence: evidence || searchRes.answerContext,
+            raw: searchRes
+          });
+        }
+        return schema.normalizeToolResult({
+          success: true,
+          message: `Searched for "${query}".`,
+          evidence: searchRes?.answerContext || searchRes?.clarification || 'No detailed results found.'
+        });
+      }
+
+      if (toolCall.type === 'WEB_FETCH') {
+        const url = toolCall.url || toolCall.target || '';
+        const fetchRes = await withTimeout(window.ultronAPI.fetchWebPage(url));
+        if (fetchRes && fetchRes.success) {
+          return schema.normalizeToolResult({
+            success: true,
+            message: `Fetched content from ${url}`,
+            evidence: fetchRes.markdown || fetchRes.plain || ''
+          });
+        }
+        return schema.normalizeToolResult({ success: false, message: fetchRes?.error || 'Web fetch failed.', errorCode: 'FETCH_FAILED' });
+      }
+
+      if (toolCall.type === 'DOWNLOAD_FILE' || toolCall.type === 'FETCH_IMAGE' || toolCall.type === 'DOWNLOAD_IMAGE') {
+        const payload = {
+          url: toolCall.url || toolCall.target,
+          query: toolCall.query || toolCall.target,
+          targetPath: toolCall.targetPath || toolCall.path,
+          filename: toolCall.filename
+        };
+        const downRes = await withTimeout(window.ultronAPI.downloadFile(payload), 30000);
+        return schema.normalizeToolResult(downRes.success
+          ? {
+              success: true,
+              message: downRes.message || `File downloaded to ${downRes.filePath}`,
+              evidence: downRes.filePath,
+              raw: downRes
+            }
+          : { success: false, message: downRes.error || 'Download failed.', errorCode: 'DOWNLOAD_FAILED' });
+      }
+
       if (toolCall.type === 'RAG_SEARCH') {
         const query = toolCall.query || toolCall.target || '';
         const searchRes = await withTimeout(window.ultronAPI.ragSearch({ query, topK: toolCall.topK || 4 }));

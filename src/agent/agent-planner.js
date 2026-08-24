@@ -318,12 +318,95 @@
     return `${appName} how to use basics`;
   }
 
+  const DOMAIN_MAP = {
+    youtube: 'https://www.youtube.com',
+    google: 'https://www.google.com',
+    github: 'https://github.com',
+    gmail: 'https://mail.google.com',
+    calendar: 'https://calendar.google.com',
+    reddit: 'https://www.reddit.com',
+    twitter: 'https://twitter.com',
+    chatgpt: 'https://chatgpt.com',
+    wikipedia: 'https://www.wikipedia.org'
+  };
+
+  function extractUrlFromPrompt(prompt) {
+    const directUrl = String(prompt || '').match(/https?:\/\/[^\s]+/i);
+    if (directUrl) return directUrl[0];
+    const p = String(prompt || '').toLowerCase();
+    for (const [key, url] of Object.entries(DOMAIN_MAP)) {
+      if (new RegExp(`\\b${key}\\b`, 'i').test(p)) return url;
+    }
+    const domainMatch = p.match(/\b([a-z0-9-]+\.(?:com|org|net|io|dev|app|edu|gov))\b/i);
+    if (domainMatch) return `https://${domainMatch[1]}`;
+    return '';
+  }
+
+  function getNextPendingPlanStep(plan) {
+    if (!Array.isArray(plan)) return null;
+    return plan.find(s => s.status !== 'completed' && s.status !== 'failed') || null;
+  }
+
+  function resolveToolCallForPlanStep(step, userPrompt, executedActions = [], sysEnv = null) {
+    if (!step) return null;
+    const p = String(userPrompt || '');
+    const dirs = (sysEnv && sysEnv.keyDirectories) || {};
+    const userHome = (sysEnv && sysEnv.homeDir) || 'C:\\Users\\vedan';
+    const desktopDir = dirs.desktop || `${userHome}\\Desktop`;
+    const documentsDir = dirs.documents || `${userHome}\\Documents`;
+    const downloadsDir = dirs.downloads || `${userHome}\\Downloads`;
+
+    switch (step.tool_hint) {
+      case 'OPEN_APP': {
+        const appName = extractAppName(p) || 'Google Chrome';
+        return { type: 'APP_ACTION', action: 'OPEN_APP', appName, target: appName };
+      }
+      case 'OPEN_URL': {
+        const url = extractUrlFromPrompt(p) || 'https://www.youtube.com';
+        return { type: 'APP_ACTION', action: 'OPEN_URL', url, target: url };
+      }
+      case 'WRITE_FILE': {
+        const target = extractObject(p) || 'untitled.txt';
+        const targetPath = `${desktopDir}\\${target.replace(/^[/\\]+/, '')}`;
+        return { type: 'WRITE_FILE', path: targetPath, targetPath, content: '', target: targetPath };
+      }
+      case 'READ_FILE': {
+        const target = extractObject(p) || 'document.txt';
+        return { type: 'READ_FILE', target, targetPath: target };
+      }
+      case 'TYPE_TEXT': {
+        const quoted = p.match(/\b(?:type|enter|paste)\s+["']([^"']{2,120})["']/i);
+        const text = quoted ? quoted[1] : (extractObject(p) || '');
+        return { type: 'APP_ACTION', action: 'TYPE_TEXT', text, target: 'text input' };
+      }
+      case 'HOTKEY': {
+        return { type: 'APP_ACTION', action: 'HOTKEY', keys: ['ctrl', 's'], target: 'Ctrl+S' };
+      }
+      case 'CLICK': {
+        const target = extractObject(p) || 'button';
+        return { type: 'APP_ACTION', action: 'CLICK', target };
+      }
+      case 'SEARCH': {
+        const query = p.replace(/\b(search|look up|google|find out)\b/i, '').trim() || p;
+        return { type: 'SEARCH', query, target: query };
+      }
+      case 'EXECUTE': {
+        return { type: 'EXECUTE', command: p, target: p };
+      }
+      default:
+        return null;
+    }
+  }
+
   window.UltronAgentPlanner = {
     needsPlanning,
     buildStepPlan,
     planToSubgoals,
     markPlanStep,
     insertPlanStep,
+    getNextPendingPlanStep,
+    resolveToolCallForPlanStep,
+    extractUrlFromPrompt,
     getVerificationRequirement,
     verifyActionResult,
     getRecoveryStrategy,

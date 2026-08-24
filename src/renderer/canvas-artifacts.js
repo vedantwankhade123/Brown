@@ -274,7 +274,9 @@
     renderTabs();
     
     const activeFile = getActiveFile();
-    if (activeFile && (activeFile.type === 'html' || activeFile.name.endsWith('.html')) && defaultMode === 'preview') {
+    if (activeFile && (activeFile.type === 'markdown' || activeFile.name.endsWith('.md') || defaultMode === 'markdown')) {
+      switchViewMode('markdown');
+    } else if (activeFile && (activeFile.type === 'html' || activeFile.name.endsWith('.html')) && defaultMode === 'preview') {
       switchViewMode('preview');
     } else {
       switchViewMode(defaultMode || 'code');
@@ -302,6 +304,65 @@
     }
   }
 
+  function renderActiveMarkdown() {
+    const activeFile = getActiveFile();
+    if (!activeFile || !_markdownContainerEl) return;
+    const content = activeFile.content || '';
+
+    let html = '';
+    try {
+      if (window.ultronAPI && typeof window.ultronAPI.parseMarkdown === 'function') {
+        html = window.ultronAPI.parseMarkdown(content);
+      } else if (typeof marked !== 'undefined' && marked.parse) {
+        html = marked.parse(content);
+      } else {
+        html = `<pre>${escapeHtml(content)}</pre>`;
+      }
+    } catch (_) {
+      html = `<pre>${escapeHtml(content)}</pre>`;
+    }
+
+    const isPlan = activeFile.name.toLowerCase().includes('plan') || /# Implementation Plan|## Planned Steps|## Proposed Changes/i.test(content);
+    let planHeaderHtml = '';
+    if (isPlan) {
+      planHeaderHtml = `
+        <div class="canvas-plan-action-bar">
+          <div class="plan-badge-group">
+            <span class="plan-pill-tag">⚡ AGENT EXECUTION READY</span>
+            <span class="plan-pill-title">${escapeHtml(activeFile.name)}</span>
+          </div>
+          <button type="button" class="btn-canvas-proceed-plan" id="btn-canvas-proceed-plan" title="Start executing this implementation plan autonomously">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <span>Proceed with Plan</span>
+          </button>
+        </div>
+      `;
+    }
+
+    _markdownContainerEl.innerHTML = `${planHeaderHtml}<div class="canvas-markdown-body markdown-body">${html}</div>`;
+
+    const proceedBtn = document.getElementById('btn-canvas-proceed-plan');
+    if (proceedBtn) {
+      proceedBtn.addEventListener('click', () => {
+        if (typeof window.startAutonomousPlanExecution === 'function') {
+          window.startAutonomousPlanExecution(activeFile.content, activeFile.name);
+        } else {
+          const chatInput = document.getElementById('chat-user-input');
+          if (chatInput) {
+            chatInput.value = `Proceed with the implementation plan: ${activeFile.name}`;
+            const sendBtn = document.getElementById('btn-send-message');
+            if (sendBtn) sendBtn.click();
+          }
+        }
+      });
+    }
+
+    const badgeEl = document.getElementById('canvas-type-badge');
+    if (badgeEl) {
+      badgeEl.textContent = 'MARKDOWN';
+    }
+  }
+
   function switchViewMode(mode) {
     _activeMode = mode;
 
@@ -326,6 +387,8 @@
       renderActiveFileInEditor();
     } else if (mode === 'preview') {
       refreshLivePreview();
+    } else if (mode === 'markdown') {
+      renderActiveMarkdown();
     } else if (mode === 'terminal') {
       if (_terminalInputEl) _terminalInputEl.focus();
     }
@@ -359,9 +422,12 @@
       tab.addEventListener('click', () => {
         _activeFileId = file.id;
         renderTabs();
-        renderActiveFileInEditor();
-        if (_activeMode === 'preview') {
+        if (file.type === 'markdown' || file.name.endsWith('.md')) {
+          switchViewMode('markdown');
+        } else if (_activeMode === 'preview') {
           refreshLivePreview();
+        } else {
+          renderActiveFileInEditor();
         }
       });
 

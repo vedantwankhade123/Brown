@@ -9,8 +9,34 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* Critical initial boot rendering styles to prevent initial black screen */
+    html, body {
+      background-color: #08090c !important;
+      margin: 0;
+      padding: 0;
+    }
+    .app-splash-screen {
+      position: fixed;
+      inset: 0;
+      background: #08090c;
+      background-image: radial-gradient(circle at center, #12203a 0%, #0a0c10 55%, #050608 100%);
+      z-index: 10000000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .app-skeleton-overlay {
+      position: fixed;
+      inset: 0;
+      background-color: #08090c;
+      z-index: 999999;
+      display: flex;
+    }
+  </style>
 </head>
-<body class="ultron-app" style="background-color: #000000; color: #ffffff;">
+<body class="ultron-app" style="background-color: #08090c; color: #ffffff;">
 
   <!-- Windows custom title bar: logo + app name -->
   <div class="app-window-titlebar">
@@ -20,10 +46,11 @@
     </div>
   </div>
 
-  <!-- APP INTRO SPLASH SCREEN -->
+  <!-- APP INTRO SPLASH SCREEN — logo + brand only (no status / dots) -->
   <div id="app-splash-screen" class="app-splash-screen">
     <div class="splash-card">
       <div class="splash-logo-container">
+        <div class="splash-logo-glow"></div>
         <img src="../../Assets/Brand-Assets/ultron-logo.png" class="splash-logo-img" alt="Ultron Logo">
       </div>
       <div class="splash-text-container">
@@ -131,6 +158,100 @@
       </div>
 
       <div class="chat-header-actions">
+        <!-- Top Performance Mode Selector (CPU / GPU / AUTO) -->
+        <div id="performance-toggle-wrapper" class="performance-toggle-wrapper">
+          <button type="button" id="btn-performance-mode" class="btn-performance-mode" aria-haspopup="true" aria-expanded="false" title="Performance Mode: Auto (Adaptive)">
+            <span id="performance-mode-icon" class="performance-mode-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>
+              </svg>
+            </span>
+            <span id="performance-mode-label" class="performance-mode-label">Auto</span>
+            <svg class="performance-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+
+          <!-- Performance Dropdown Menu -->
+          <div id="performance-mode-dropdown" class="performance-mode-dropdown hidden" role="menu">
+            <div class="perf-dropdown-header">
+              <span class="perf-dropdown-title">Performance Engine</span>
+              <span class="perf-dropdown-subtitle">Hardware acceleration mode</span>
+            </div>
+            <div class="perf-dropdown-options">
+              <!-- Auto Mode -->
+              <button type="button" class="perf-option-item active" data-mode="auto" role="menuitem">
+                <div class="perf-option-icon icon-auto">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>
+                  </svg>
+                </div>
+                <div class="perf-option-text">
+                  <div class="perf-option-title-row">
+                    <span class="perf-option-title">Auto Adaptive</span>
+                    <span class="perf-tag-recommended">Recommended</span>
+                  </div>
+                  <span class="perf-option-desc">Auto-detects hardware & balances memory dynamically</span>
+                </div>
+                <span class="perf-option-check">✓</span>
+              </button>
+
+              <!-- GPU Priority Mode -->
+              <button type="button" class="perf-option-item" data-mode="gpu" role="menuitem">
+                <div class="perf-option-icon icon-gpu">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+                    <rect x="2" y="3" width="20" height="14" rx="2"/>
+                    <line x1="8" y1="21" x2="16" y2="21"/>
+                    <line x1="12" y1="17" x2="12" y2="21"/>
+                  </svg>
+                </div>
+                <div class="perf-option-text">
+                  <div class="perf-option-title-row">
+                    <span class="perf-option-title">GPU Priority</span>
+                    <span class="perf-tag-speed">Maximum Speed</span>
+                  </div>
+                  <span class="perf-option-desc">Force maximum GPU acceleration for AI generation</span>
+                </div>
+                <span class="perf-option-check">✓</span>
+              </button>
+
+              <!-- CPU Only Mode -->
+              <button type="button" class="perf-option-item" data-mode="cpu" role="menuitem">
+                <div class="perf-option-icon icon-cpu">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15">
+                    <rect x="4" y="4" width="16" height="16" rx="2"/>
+                    <rect x="9" y="9" width="6" height="6"/>
+                    <line x1="9" y1="1" x2="9" y2="4"/>
+                    <line x1="15" y1="1" x2="15" y2="4"/>
+                    <line x1="9" y1="20" x2="9" y2="23"/>
+                    <line x1="15" y1="20" x2="15" y2="23"/>
+                  </svg>
+                </div>
+                <div class="perf-option-text">
+                  <div class="perf-option-title-row">
+                    <span class="perf-option-title">CPU Only</span>
+                    <span class="perf-tag-eco">Safe & Low Power</span>
+                  </div>
+                  <span class="perf-option-desc">Pure CPU processing to eliminate VRAM locks & save battery</span>
+                </div>
+                <span class="perf-option-check">✓</span>
+              </button>
+            </div>
+            <div class="perf-dropdown-footer">
+              <div class="perf-telemetry-row">
+                <span class="perf-telemetry-label">Active GPU:</span>
+                <span id="perf-gpu-telemetry" class="perf-telemetry-val">Detecting...</span>
+              </div>
+              <div class="perf-telemetry-row">
+                <span class="perf-telemetry-label">Memory:</span>
+                <span id="perf-mem-telemetry" class="perf-telemetry-val">--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Top Update Bar (Right Side) -->
         <div id="top-update-bar" class="top-update-bar" style="display: flex; align-items: center; gap: 8px;">
           <button id="top-btn-check-update" class="btn-top-update" title="Check for software updates">
@@ -263,39 +384,96 @@
     </div>
 
     <!-- UI Overlay Permission Dialog (Floats above input pill) -->
-    <div id="permission-dialog" class="permission-modal hidden">
+    <div id="permission-dialog" class="permission-modal hidden" role="dialog" aria-modal="true" aria-labelledby="perm-title-text">
       <div class="permission-content">
         <div class="permission-header">
           <div class="alert-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-              <line x1="12" y1="9" x2="12" y2="13"></line>
-              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
             </svg>
           </div>
           <div class="permission-title-area">
-            <h4 class="permission-title">Action Authorization Required</h4>
+            <div class="permission-title-row">
+              <h4 id="perm-title-text" class="permission-title">Action Authorization Required</h4>
+              <span id="perm-risk-badge" class="perm-risk-badge hidden">Medium risk</span>
+            </div>
             <p id="perm-reason-text" class="permission-subtitle">The agent requested execution of a local subsystem modification.</p>
           </div>
-          <span id="perm-risk-badge" class="perm-risk-badge hidden">Medium risk</span>
         </div>
         
         <div class="code-block-container">
-          <span class="code-title">Target Action</span>
+          <div class="code-block-header">
+            <div class="code-block-header-left">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
+                <polyline points="4 17 10 11 4 5"></polyline>
+                <line x1="12" y1="19" x2="20" y2="19"></line>
+              </svg>
+              <span class="code-title">Target Action</span>
+            </div>
+            <button type="button" id="btn-copy-perm-action" class="btn-copy-perm" title="Copy command">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <span>Copy</span>
+            </button>
+          </div>
           <div id="perm-action-code" class="code-content"></div>
         </div>
         
         <!-- Modification Field -->
         <div class="override-field">
-          <label for="perm-override-input" class="override-label">Authorization Constraints / Overrides</label>
-          <input type="text" id="perm-override-input" placeholder="Supply optional custom parameters or execution filters..." class="override-input">
+          <label for="perm-override-input" class="override-label">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+              <line x1="4" y1="21" x2="4" y2="14"></line>
+              <line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line>
+              <line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line>
+              <line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
+            </svg>
+            <span>Constraints / Parameters</span>
+            <span class="override-optional-tag">Optional</span>
+          </label>
+          <input type="text" id="perm-override-input" placeholder="Supply optional custom parameters or execution filters..." class="override-input" autocomplete="off" spellcheck="false">
         </div>
 
-        <div class="permission-actions">
-          <button id="btn-perm-deny" class="btn-deny">Deny</button>
-          <button id="btn-perm-accept" class="btn-accept">Allow once</button>
-          <button id="btn-perm-accept-session" class="btn-accept btn-accept-session">Allow for session</button>
-          <button id="btn-perm-accept-always" class="btn-accept btn-accept-always">Always allow this category</button>
+        <div class="permission-actions-wrapper">
+          <div class="permission-actions-primary">
+            <button id="btn-perm-deny" class="btn-deny" title="Deny execution (Esc)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+              <span>Deny</span>
+            </button>
+            <button id="btn-perm-accept-session" class="btn-accept btn-accept-session" title="Allow for current session">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              <span>Allow for session</span>
+            </button>
+            <button id="btn-perm-accept" class="btn-accept btn-accept-primary" title="Allow execution once (Enter)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span>Allow once</span>
+            </button>
+          </div>
+          <div class="permission-actions-secondary">
+            <button id="btn-perm-accept-always" class="btn-accept btn-accept-always" title="Trust and always allow this category">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+              </svg>
+              <span>Always allow this category</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -2084,7 +2262,7 @@
                 <div class="about-app-brand">
                   <img src="../../Assets/Brand-Assets/ultron-logo.png" class="about-app-logo" alt="Ultron">
                   <div>
-                    <h4 class="about-app-title">Ultron <span class="about-app-version-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); vertical-align: middle; margin-left: 6px;">v1.0.13</span></h4>
+                    <h4 class="about-app-title">Ultron <span class="about-app-version-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); vertical-align: middle; margin-left: 6px;">BETA v1.0.0</span></h4>
                     <p class="developer-tagline">Local &amp; Offline Windows AI Agent</p>
                   </div>
                 </div>
@@ -2097,17 +2275,36 @@
                 </p>
 
                 <div class="about-specs-grid" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 16px;">
-                  <div class="about-spec-item" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 8px; padding: 12px;">
+                  <div class="about-spec-item">
                     <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Version</div>
-                    <div style="font-size: 14px; color: #f3f4f6; font-weight: 600; margin-top: 4px;">v1.0.13 Release</div>
+                    <div style="font-size: 14px; color: #f3f4f6; font-weight: 600; margin-top: 4px;">BETA v1.0.0</div>
                   </div>
-                  <div class="about-spec-item" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 8px; padding: 12px;">
+                  <div class="about-spec-item">
                     <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Platform</div>
                     <div style="font-size: 14px; color: #f3f4f6; font-weight: 600; margin-top: 4px;">Windows (x64)</div>
                   </div>
                 </div>
 
-                <div class="developer-links-container" style="margin-top: 24px; display: flex; flex-direction: column; align-items: center; gap: 12px;">
+                <!-- Feedback & Community Section -->
+                <div class="settings-feedback-card" style="margin-top: 20px; padding: 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);">
+                  <h5 style="margin: 0 0 6px 0; font-size: 13px; color: #fff;">Feedback &amp; Community</h5>
+                  <p style="margin: 0 0 12px 0; font-size: 12px; color: #9ca3af;">Have a suggestion, bug report, or feature request? We'd love to connect with you!</p>
+                  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <a href="https://www.instagram.com/ultron_offline" id="btn-settings-instagram" class="btn-instagram-feedback" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); color: #fff; text-decoration: none; font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px rgba(220, 39, 67, 0.3);">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                      <span>Instagram (@ultron_offline)</span>
+                    </a>
+                    <a href="mailto:vedantwankhade47@gmail.com" id="btn-settings-email" class="btn-email-feedback" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; text-decoration: none; font-size: 12px; font-weight: 500;">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                      <span>vedantwankhade47@gmail.com</span>
+                    </a>
+                  </div>
+                </div>
+
+                <div class="developer-links-container" style="margin-top: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
+                  <button type="button" id="btn-open-release-notes" class="btn-faint" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.25); color: #60a5fa; font-size: 12px; font-weight: 600; cursor: pointer;">
+                    📋 View BETA v1 Release Notes
+                  </button>
                   <a href="https://ultron.dev/download?platform=android" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 26px; background: #ffffff; border: none; border-radius: 9999px; color: #0a0a0a; text-decoration: none; font-size: 13px; font-weight: 700; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s;">
                     <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 16px; height: 16px; object-fit: contain;" />
                     <span>Download For Android</span>
@@ -2483,6 +2680,96 @@
     </div>
   </div>
 
+  <!-- RELEASE NOTES MODAL (Shown on first install/launch & on demand in Settings) -->
+  <div id="release-notes-modal" class="settings-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="release-notes-title">
+    <div class="settings-panel-card release-notes-card" style="max-width: 680px; max-height: 85vh; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-radius: 16px;">
+      <div class="settings-panel-header" style="padding: 16px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <img src="../../Assets/Brand-Assets/ultron-logo.png" style="width: 28px; height: 28px; object-fit: contain;" alt="Ultron">
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <h3 id="release-notes-title" style="margin: 0; font-size: 16px; font-weight: 700; color: #fff;">Welcome to Ultron</h3>
+              <span style="font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.35);">BETA v1.0.0</span>
+            </div>
+            <p style="margin: 2px 0 0 0; font-size: 11.5px; color: #9ca3af;">Autonomous Local AI Agent &amp; Cognitive Operating Environment</p>
+          </div>
+        </div>
+        <button id="btn-release-notes-close" class="btn-settings-close" title="Close release notes">✕</button>
+      </div>
+
+      <div class="release-notes-scroll-area" style="flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+        <div class="release-banner" style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(147, 51, 234, 0.15)); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 12px; padding: 14px 16px;">
+          <span style="font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: #818cf8;">🎉 WHAT'S NEW IN BETA 1</span>
+          <h4 style="margin: 4px 0 0 0; font-size: 14px; font-weight: 600; color: #ffffff;">Supercharged Performance, Autonomy &amp; Hybrid Acceleration</h4>
+        </div>
+
+        <div class="release-features-grid" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px;">
+            <div style="font-size: 20px; line-height: 1;">⚡</div>
+            <div style="flex: 1;">
+              <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #38bdf8;">GPU / CPU / Auto Performance Engine</h5>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4;">Manually toggle between <strong>Auto Adaptive</strong>, <strong>GPU Priority</strong> (maximum speed), and <strong>CPU Only</strong> (power-saver &amp; VRAM release) right from the top-right corner of the interface.</p>
+            </div>
+          </div>
+
+          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px;">
+            <div style="font-size: 20px; line-height: 1;">🚀</div>
+            <div style="flex: 1;">
+              <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #34d399;">Zero-Lag Anti-Freeze Engine</h5>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4;">Instant microsecond-level native CPU load calculation, eliminating background WMI process locks and UI freezing during multitasking.</p>
+            </div>
+          </div>
+
+          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px;">
+            <div style="font-size: 20px; line-height: 1;">🧠</div>
+            <div style="flex: 1;">
+              <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #c084fc;">Autonomous Reasoning &amp; Task Planning</h5>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4;">Autonomous loop guard, tool decomposition, desktop screen awareness, and multi-step workflows for self-directed execution.</p>
+            </div>
+          </div>
+
+          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px;">
+            <div style="font-size: 20px; line-height: 1;">🎙️</div>
+            <div style="flex: 1;">
+              <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #60a5fa;">Local Voice + Gemini Live Dialog</h5>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4;">High-fidelity local text-to-speech with Kokoro neural voice, whisper STT, and real-time bidirectional Gemini Live speech conversations.</p>
+            </div>
+          </div>
+
+          <div class="release-feature-item" style="display: flex; gap: 12px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px;">
+            <div style="font-size: 20px; line-height: 1;">📱</div>
+            <div style="flex: 1;">
+              <h5 style="margin: 0 0 3px 0; font-size: 13px; font-weight: 600; color: #fb923c;">Mobile Companion &amp; Desktop Sync</h5>
+              <p style="margin: 0; font-size: 12px; color: #9ca3af; line-height: 1.4;">Secure peer-to-peer PIN pairing with Ultron Mobile to import chat threads and sync sovereign agent state across devices.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="release-community-box" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div>
+            <h6 style="margin: 0 0 2px 0; font-size: 12.5px; font-weight: 600; color: #fff;">Join the Community &amp; Give Feedback</h6>
+            <p style="margin: 0; font-size: 11.5px; color: #9ca3af;">Follow updates, request features, and connect directly with the developer.</p>
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <a href="https://www.instagram.com/ultron_offline" id="btn-rn-instagram" class="btn-instagram-feedback" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); color: #fff; text-decoration: none; font-size: 11.5px; font-weight: 600;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+              <span>@ultron_offline</span>
+            </a>
+            <a href="mailto:vedantwankhade47@gmail.com" id="btn-rn-email" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 8px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.1); color: #fff; text-decoration: none; font-size: 11.5px; font-weight: 500;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#ef4444" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+              <span>vedantwankhade47@gmail.com</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="release-notes-footer" style="padding: 14px 20px; border-top: 1px solid rgba(255, 255, 255, 0.08); background: rgba(0, 0, 0, 0.2); display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+        <span style="font-size: 11px; color: #6b7280;">Revisit anytime in <strong>Settings → About → Release Notes</strong></span>
+        <button type="button" id="btn-release-notes-dismiss" class="btn-accept" style="padding: 8px 24px; font-size: 13px; font-weight: 600;">Get Started</button>
+      </div>
+    </div>
+  </div>
+
   <script src="../agent/app-registry.js"></script>
   <script src="../agent/agent-automation-safety.js"></script>
   <script src="../agent/agent-session-permissions.js"></script>
@@ -2505,6 +2792,8 @@
   <script src="../agent/agent-executor.js"></script>
   <script src="../agent/agent-prompt.js"></script>
   <script src="../agent/multi-provider-hub.js"></script>
+  <script src="../config/gpu-config.js"></script>
+  <script src="../ui/performance-toggle.js"></script>
   <script src="canvas-artifacts.js"></script>
   <script src="clipboard-manager.js"></script>
   <script src="renderer.js"></script>

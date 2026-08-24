@@ -1,26 +1,36 @@
-# 🚀 Ultron AI v1.0.0 — Initial Release
+# 🚀 Ultron AI — BETA v1.0.0 Release Notes
 
-We are excited to announce the official **v1.0.0 release of Ultron AI**, an autonomous, privacy-focused local AI Agent framework designed for operating systems.
-
-Ultron AI operates completely offline on your device, empowering you with local LLM capabilities, real-time system interaction, and a futuristic desktop interface.
+We are thrilled to announce **Ultron AI BETA v1.0.0**, our milestone release delivering hybrid intelligence, dedicated GPU/CPU/Auto performance controls, zero-lag background metrics, full autonomous execution loops, multi-provider model integration, local neural voice (Kokoro TTS + Whisper STT), Gemini Live bidirectional audio, and mobile device synchronization.
 
 ---
 
-## ✨ Key Features & Highlights
+## ✨ Key Features & Highlights in BETA v1
 
-- **🔒 100% Local & Privacy-Focused**: Runs models locally via Ollama with zero telemetry or data leakage.
-- **🎨 Modern Glassmorphism UI/UX**:
-  - Centered interactive input pill with dynamic UI transitions.
-  - Built-in live audio voice waveform visualizer.
-  - Collapsible sidebar navigation, asset file carousel, and dark theme.
-- **🤖 Model Catalog & Download Controls**:
-  - Live model search and one-click Ollama pull/download management.
-  - Upward model selection dropdown and customizable AI persona settings.
-- **📐 Enterprise Architecture & Methodology**:
-  - Complete architectural documentation, topology maps, sequence flows, and GHRU synopsis alignment in `SYSTEM_ARCHITECTURE.md`.
-- **💻 Desktop Distribution**:
-  - Full NSIS installer with customizable installation path, desktop shortcuts, and isolated user data directory.
-  - Standalone portable executable requiring no installation.
+### ⚡ GPU / CPU / Auto Performance Engine
+- **Top-Right Quick Toggle**: An interactive glassmorphism switcher in the top-right header that lets users manually select their hardware acceleration mode or set it to Auto:
+  - **⚡ Auto Adaptive (Recommended)**: Dynamically detects dedicated GPUs, available VRAM, and RAM to balance inference layers automatically.
+  - **🚀 GPU Priority**: Forces maximum GPU offloading (`num_gpu: 999`) for lightning-fast LLM generation, embeddings, and neural TTS.
+  - **⚙️ CPU Only**: Executes models purely on the CPU (`num_gpu: 0`) to prevent VRAM allocation, lower temperatures, and conserve battery.
+- **Real-Time Hardware Telemetry**: Live display of active GPU controller, VRAM, and memory load in the performance dropdown.
+
+### 🚀 Zero-Lag Anti-Freeze Optimization
+- **Native CPU Telemetry**: Replaced synchronous background WMI queries with microsecond-level native CPU load delta calculations, completely eliminating UI stuttering, process locks, and freezes.
+- **Intelligent Profile Caching**: Added hardware profile caching with TTL to eliminate redundant system calls during multi-tasking.
+
+### 🧠 Autonomous Execution Loop & Task Decomposition
+- **Autonomous Decision Engine**: Multi-step task planner, tool decomposition, loop guard, safety risk matrix, and screen perception.
+- **Interactive Code Canvas**: Split-view workspace for live code generation, HTML/JS sandbox preview, and integrated terminal.
+
+### 🎙️ Sovereign Local Voice & Gemini Live
+- **Local Kokoro TTS & Whisper STT**: Ultra-low latency offline voice synthesis and speech recognition without cloud dependencies.
+- **Gemini Live Dialog**: Bidirectional real-time voice and vision conversations.
+
+### 📱 Ultron Mobile Companion & Sync
+- **P2P Sync Server**: Local WebSocket synchronization with PIN pairing to transfer chats and synchronize sovereign agent memory between PC and smartphone.
+
+### 🌐 Official Feedback & Community
+- **Instagram**: Follow [@ultron_offline](https://www.instagram.com/ultron_offline) for product updates and feature previews.
+- **Developer Email**: Contact `vedantwankhade47@gmail.com` for direct inquiries and feedback.
 
 ---
 
@@ -28,12 +38,14 @@ Ultron AI operates completely offline on your device, empowering you with local 
 
 | Asset | Type | Description |
 | :--- | :--- | :--- |
-| **`Ultron AI Setup 1.0.0.exe`** | **Installer** | Recommended. Standard Windows NSIS Setup Wizard with start menu and desktop shortcuts. |
-| **`Ultron AI 1.0.0.exe`** | **Portable** | Single-file executable. Runs directly without installation. |
+| **`Ultron.AI.Setup.v1.0.14.exe`** | **Installer** | Recommended. Standard Windows NSIS Setup Wizard with custom path, start menu, and desktop shortcuts. |
+| **`Ultron.AI.v1.0.14.exe`** | **Portable** | Standalone portable executable. Runs directly without installation. |
 
 ---
 
-## 🛠️ Requirements
+## 🛠️ System Requirements
 
-- **OS**: Windows 10 / 11 (64-bit)
-- **Local Engine**: [Ollama](https://ollama.com/) (Recommended for local model inference)
+- **Operating System**: Windows 10 / 11 (64-bit, x64)
+- **Memory**: 8 GB RAM (16 GB Recommended for 8B+ local models)
+- **Local Neural Engine**: [Ollama](https://ollama.com/) / LM Studio for offline models
+- **Cloud Providers (Optional)**: Google Gemini, Anthropic Claude, OpenAI, OpenRouter, DeepSeek, Groq

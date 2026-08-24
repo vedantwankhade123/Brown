@@ -250,25 +250,46 @@ When an action is needed, output exactly one JSON object and nothing else:
 {"tool":"OPEN_FILE","args":{"path":"C:\\\\path\\\\file.txt"}}
 {"tool":"TYPE_TEXT","args":{"text":"text to type into the currently focused app"}}
 {"tool":"HOTKEY","args":{"keys":"ctrl+s"}}
+{"tool":"CLICK","args":{"x":500,"y":300}}
+{"tool":"RIGHT_CLICK","args":{"x":500,"y":300}}
+{"tool":"SCROLL","args":{"delta":300}}
 {"tool":"WAIT","args":{"ms":1000}}
 {"tool":"READ_FILE","args":{"path":"C:\\\\path\\\\file.txt"}}
 {"tool":"WRITE_FILE","args":{"path":"C:\\\\path\\\\file.txt","content":"file content"}}
+{"tool":"DELETE_FILE","args":{"path":"C:\\\\path\\\\file.txt"}}
+{"tool":"DOWNLOAD_FILE","args":{"query":"chatgpt logo","targetPath":"C:\\\\path\\\\chatgpt_logo.svg"}}
 {"tool":"LIST_DIR","args":{"path":"C:\\\\path"}}
 {"tool":"SEARCH","args":{"query":"web search query"}}
 {"tool":"WEB_FETCH","args":{"url":"https://example.com/page"}}
 {"tool":"EXECUTE","args":{"command":"safe command"}}${captureLines}
 
 PLANNING (required before every action step):
-1. Output Thought: — one or two sentences: what the user wants, what already happened, why the next step is correct.
+1. Output Thought: — one sentence explaining what you are executing.
 2. Then output Action/JSON (or Final Answer when done).
-Never skip Thought on action steps. Never act without re-reading the latest observation.
 
+FEW-SHOT EXAMPLES:
+User: play a song named boyfriend on youtube
+Thought: I need to open the YouTube search query for the song boyfriend.
+{"tool":"OPEN_URL","args":{"url":"https://www.youtube.com/results?search_query=boyfriend"}}
+
+User: go to claude's website and logout if logged in
+Thought: I need to open claude.ai in the web browser first.
+{"tool":"OPEN_URL","args":{"url":"https://claude.ai"}}
+
+User: click the logout button
+Thought: I need to click the logout button on screen.
+{"tool":"CLICK","args":{"target":"logout button"}}
+
+User: open Notepad and write hello world
+Thought: I will open Notepad first.
+{"tool":"OPEN_APP","args":{"appName":"Notepad"}}
+
+CRITICAL RULES:
+- You are an autonomous computer agent. Never reply with manual conversational steps ("1. Open your browser...") — execute the tools directly!
 - Only use CAPTURE_SCREEN when you must see the UI to complete a desktop task — never for essays, chat, or pure content requests.
-- File discovery/CRUD on this PC (largest/oldest/newest file, find or list files, drive or folder contents): DO it with EXECUTE using PowerShell (e.g. Get-ChildItem -Path D:\\ -Recurse -File -ErrorAction SilentlyContinue | Sort-Object Length -Descending | Select-Object -First 5 FullName, Length) or LIST_DIR/READ_FILE, then answer with the real result. Never reply with manual "open File Explorer" instructions.
+- File discovery/CRUD on this PC: DO it with EXECUTE using PowerShell or LIST_DIR/READ_FILE/WRITE_FILE, then answer with the real result.
 - When the task is complete, respond in natural language without JSON. Keep the final answer short and direct.
-- Never narrate planned tool calls, never show JSON/tool plans to the user as the answer, and never fabricate tool output.
-- When the user asks to create a website, app, game, or any multi-file project: if no folder was specified, first ask which folder to create it in (suggest Documents\\Ultron Projects\\<project-name>), then create every file for real with WRITE_FILE. Do not paste full source code into chat; summarize the created files with their full paths.
-- Never output HTML, code blocks, or markup unless the user explicitly asked for code.${reactBlock}`;
+- Never narrate planned tool calls, never show JSON/tool plans to the user as the answer, and never fabricate tool output.${reactBlock}`;
 
   const parts = [
     `USER TASK:\n${userPrompt}`,

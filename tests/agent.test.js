@@ -268,7 +268,7 @@ async function runAsyncAgentTests() {
   const path = require('path');
   const pdfPath = path.join(__dirname, '..', 'Research Paper.pdf');
   if (fs.existsSync(pdfPath)) {
-    // pdf-parse bundles pdf.js which expects browser globals at load time
+    // pdf-parse bundles pdf.js which expects browser globals at load time in Node
     if (typeof globalThis.DOMMatrix === 'undefined') {
       globalThis.DOMMatrix = class DOMMatrix {
         constructor(init) {
@@ -279,19 +279,63 @@ async function runAsyncAgentTests() {
         }
       };
     }
+    if (typeof globalThis.ImageData === 'undefined') {
+      globalThis.ImageData = class ImageData {
+        constructor(width, height) {
+          this.width = width || 0;
+          this.height = height || 0;
+          this.data = new Uint8ClampedArray((this.width * this.height * 4) || 0);
+        }
+      };
+    }
+    if (typeof globalThis.Path2D === 'undefined') {
+      globalThis.Path2D = class Path2D {
+        constructor() {}
+        addPath() {}
+        closePath() {}
+        moveTo() {}
+        lineTo() {}
+        bezierCurveTo() {}
+        quadraticCurveTo() {}
+        arc() {}
+        arcTo() {}
+        ellipse() {}
+        rect() {}
+      };
+    }
+
     let PDFParse;
+    const origWarn = console.warn;
+    const origError = console.error;
     try {
+      console.warn = (...args) => {
+        const msg = String(args[0] || '');
+        if (msg.includes('standardFontDataUrl') || msg.includes('polyfill') || msg.includes('require') || msg.includes('URL')) return;
+        origWarn.apply(console, args);
+      };
+      console.error = (...args) => {
+        const msg = String(args[0] || '');
+        if (msg.includes('standardFontDataUrl') || msg.includes('polyfill') || msg.includes('require')) return;
+        origError.apply(console, args);
+      };
       ({ PDFParse } = require('pdf-parse'));
     } catch (e) {
+      console.warn = origWarn;
+      console.error = origError;
       console.log('⚠ PDF extraction test skipped: pdf-parse could not load in this Node environment (' + e.message + ')');
       return;
     }
     const buf = fs.readFileSync(pdfPath);
-    const parser = new PDFParse(new Uint8Array(buf));
-    const result = await parser.getText();
-    assert.ok(result && result.text && result.text.length > 1000, 'PDF text should be extracted');
-    assert.match(result.text, /International Journal|Research|Computer/i);
-    console.log('✓ PDF extraction test passed with ' + result.text.length + ' characters extracted.');
+    try {
+      const parser = new PDFParse(new Uint8Array(buf));
+      const result = await parser.getText();
+      assert.ok(result && result.text && result.text.length > 1000, 'PDF text should be extracted');
+      assert.match(result.text, /International Journal|Research|Computer/i);
+      console.log('✓ PDF extraction test passed with ' + result.text.length + ' characters extracted.');
+    } finally {
+      console.warn = origWarn;
+      console.error = origError;
+    }
   }
 }
 
