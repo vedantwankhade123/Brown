@@ -39,7 +39,7 @@ function initAutoUpdater(mainWindow) {
     autoUpdater.setFeedURL({
       provider: 'github',
       owner: 'vedantwankhade123',
-      repo: 'Ultron',
+      repo: 'ultron-releases',
       releaseType: 'release'
     });
   } catch (e) {
