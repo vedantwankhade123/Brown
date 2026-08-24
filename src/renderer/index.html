@@ -479,15 +479,15 @@
       <!-- PROMPT TOP HEADER BAR: Text/Voice mode toggle + Permission mode selector -->
       <div id="prompt-top-bar" class="prompt-top-bar">
         <div class="prompt-top-left">
-          <!-- Text / Voice Mode Toggle Switcher -->
-          <div class="chat-mode-toggle" role="tablist" aria-label="Chat mode">
+          <!-- Text / Voice Mode Toggle Switcher (Voice Mode Disabled for Beta 1) -->
+          <div class="chat-mode-toggle" role="tablist" aria-label="Chat mode" style="display: none !important;">
             <button type="button" id="btn-chat-mode-text" class="chat-mode-btn active" data-mode="text" role="tab" aria-selected="true" title="Text mode">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
                 <path d="M17 6.1H3M21 12.1H3M15.8 18.1H3"></path>
               </svg>
               <span>Text</span>
             </button>
-            <button type="button" id="btn-chat-mode-voice" class="chat-mode-btn" data-mode="voice" role="tab" aria-selected="false" title="Voice mode — speak with Ultron">
+            <button type="button" id="btn-chat-mode-voice" class="chat-mode-btn" data-mode="voice" role="tab" aria-selected="false" title="Voice mode (In Development)" disabled>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
                 <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
