@@ -12990,11 +12990,12 @@ function getHardwareAdaptiveVoiceConfig() {
 }
 
 function isVoiceChatModeEnabled() {
-  return window.localStorage.getItem(CHAT_MODE_KEY) === 'voice';
+  // Voice mode is disabled in Beta 1 while under development
+  return false;
 }
 
 function setVoiceChatMode(enabled = false, options = {}) {
-  window.localStorage.setItem(CHAT_MODE_KEY, enabled ? 'voice' : 'text');
+  window.localStorage.setItem(CHAT_MODE_KEY, 'text');
   applyVoiceChatModeUi(options);
 }
 
@@ -13851,10 +13852,9 @@ if (btnChatModeText) {
 }
 
 if (btnChatModeVoice) {
-  btnChatModeVoice.addEventListener('click', () => {
-    if (isVoiceChatModeEnabled()) return;
-    unlockVoiceModeAudio();
-    setVoiceChatMode(true, { fromUserGesture: true });
+  btnChatModeVoice.addEventListener('click', (e) => {
+    e.preventDefault();
+    logTrace('Voice mode is currently in development and will be available in a future update.', 'system');
   });
 }
 
