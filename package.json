@@ -77,7 +77,7 @@
       "cscLink": null
     },
     "portable": {
-      "artifactName": "Ultron AI v${version}.${ext}"
+      "artifactName": "Ultron.AI.v${version}.${ext}"
     },
     "appx": {
       "applicationId": "UltronAI",
@@ -103,7 +103,7 @@
       "installerSidebar": "Assets/installerSidebar.bmp",
       "uninstallerSidebar": "Assets/installerSidebar.bmp",
       "installerHeader": "Assets/installerHeader.bmp",
-      "artifactName": "Ultron AI Setup v${version}.${ext}",
+      "artifactName": "Ultron.AI.Setup.v${version}.${ext}",
       "runAfterFinish": true,
       "differentialPackage": false,
       "include": "build/installer.nsh"
