@@ -685,10 +685,10 @@ function getAppPerformanceMode() {
   }
 }
 
-function getOllamaGpuOptions(sysEnv = {}, modelName = activeModel) {
+function getOllamaGpuOptions(sysEnv = {}, modelName = activeModel, intent = 'conversation', isHeavyTask = false) {
   const mode = getAppPerformanceMode();
 
-  // Manual CPU-only mode: force 0 GPU layers across all models
+  // Manual CPU-only mode: force 0 GPU layers across all models and tasks
   if (mode === 'cpu') {
     return { num_gpu: 0 };
   }
@@ -698,20 +698,31 @@ function getOllamaGpuOptions(sysEnv = {}, modelName = activeModel) {
     return { num_gpu: 999 };
   }
 
-  // AUTO Mode: Dynamic hardware detection & optimal layer allocation
+  // AUTO Mode: Smart Dynamic CPU/GPU Switching
+  const hasGpu = hasDedicatedGpuAvailable(sysEnv);
   const isVisionModel = modelSupportsVision(modelName);
 
-  // Text models in Auto mode: let Ollama auto-balance VRAM vs system RAM
-  if (!isVisionModel) return {};
+  // If lightweight task (casual conversation, basic Q&A, greetings) in Auto mode:
+  // Use CPU / low overhead (num_gpu: 0) to avoid VRAM allocation delays, prevent UI freezes,
+  // and keep the system cool and completely fluid.
+  if (!isHeavyTask && intent === 'conversation' && !isVisionModel) {
+    return { num_gpu: 0 };
+  }
 
-  if (!hasDedicatedGpuAvailable(sysEnv)) return {};
+  // If heavy task (code generation, content generation, vision, multi-step actions, search)
+  // and dedicated GPU is available -> dynamically engage GPU acceleration
+  if (hasGpu) {
+    const dedicatedGpu = sysEnv.dedicatedGpu || sysEnv.hardware?.dedicatedGpu || {};
+    const vramGB = Number(dedicatedGpu.vramGB || 0);
 
-  const dedicatedGpu = sysEnv.dedicatedGpu || sysEnv.hardware?.dedicatedGpu || {};
-  const vramGB = Number(dedicatedGpu.vramGB || 0);
+    if (isVisionModel) {
+      if (vramGB > 0 && vramGB <= 4.5) return { num_gpu: 16 };
+      if (vramGB > 0 && vramGB <= 6.5) return { num_gpu: 24 };
+      return { num_gpu: 999 };
+    }
 
-  // Vision models on small VRAM cards need explicit partial offload cap
-  if (vramGB > 0 && vramGB <= 4.5) return { num_gpu: 16 };
-  if (vramGB > 0 && vramGB <= 6.5) return { num_gpu: 24 };
+    return { num_gpu: 999 };
+  }
 
   return {};
 }
@@ -2249,10 +2260,6 @@ function finalizeAiMessageBubble(contentElement, fullText, { autoSpeak = true } 
   if (actionsDiv) wireMessageActionButtons(actionsDiv, fullText);
   renderCreatedFileActionButtons(contentElement, fullText);
   if (autoSpeak) finishStreamingAutoSpeak(fullText);
-  // In text mode, pre-synthesize TTS in background so Speak button is instant
-  if (!isVoiceChatModeEnabled()) {
-    precacheTtsAudio(fullText);
-  }
 }
 
 async function typeMessageResponse(contentElement, fullText, options = {}) {
@@ -5686,8 +5693,8 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
     
     let bodyData;
     let endpoint = '/api/generate';
-    const activeTemp = isCodeRequest ? 0.15 : (intent === 'conversation' ? 0.7 : 0.2);
-    const gpuOptions = getOllamaGpuOptions(sysEnv, activeModel);
+    const isHeavyTask = isCodeRequest || isContentRequest || canUseVision || intent === 'action' || intent === 'search';
+    const gpuOptions = getOllamaGpuOptions(sysEnv, activeModel, intent, isHeavyTask);
     const ollamaOptions = buildOllamaRequestOptions({
       gpuOptions,
       intent,
@@ -6949,67 +6956,41 @@ function addSessionToHistory(title) {
   if (activeChatTitle) activeChatTitle.textContent = title;
 }
 
-// Background AI-driven title generation
-async function triggerAiTitleGeneration(userPrompt) {
+function generateInstantSmartTitle(userPrompt) {
+  if (!userPrompt || typeof userPrompt !== 'string') return 'New Chat';
+  let clean = userPrompt.trim()
+    .replace(/^[\s\W_]+/, '')
+    .replace(/^(can you|please|could you|help me with|help me|i want to|how to|what is|tell me about|explain|write a|create a|give me)\s+/i, '')
+    .trim();
+  if (!clean) clean = userPrompt.trim();
+  const words = clean.split(/\s+/).slice(0, 4).join(' ');
+  let title = words.charAt(0).toUpperCase() + words.slice(1);
+  if (title.length > 28) title = title.substring(0, 25) + '...';
+  return title || 'New Chat';
+}
+
+// Instant smart title generation (0ms overhead, zero Ollama queue locks)
+function triggerAiTitleGeneration(userPrompt) {
   try {
     const targetSessionId = currentSessionId;
-    const summaryPrompt = `You are a summarizer. Generate an extremely concise 2-3 words title summarizing the following user prompt. Do not write 'Title:', do not write any introductory comments, quotes or punctuation, just output the plain summary text: "${userPrompt}"`;
-    
-    logTrace('Running background summary task on local LLM for title generation...', 'system');
-    const llmResponse = await fetch('http://127.0.0.1:11434/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: activeModel,
-        prompt: summaryPrompt,
-        stream: false,
-        options: {
-          num_ctx: 512,
-          num_predict: 16,
-          temperature: 0.2
-        }
-      })
-    });
-    if (!llmResponse.ok) return;
+    if (!targetSessionId || !conversationsStore[targetSessionId]) return;
 
-    const data = await llmResponse.json();
-    const response = data.response || '';
-    
-    // Clean up summary string
-    let finalTitle = response
-      .split('\n')[0]
-      .replace(/^title\s*:\s*/i, '')
-      .replace(/["'`‘’.“]/g, '')
-      .trim();
-    if (finalTitle.includes(' - ')) {
-      finalTitle = finalTitle.split(' - ')[0].trim();
+    const finalTitle = generateInstantSmartTitle(userPrompt);
+    conversationsStore[targetSessionId].title = finalTitle;
+    touchSession(targetSessionId);
+    rebuildSessionHistoryList();
+    saveConversationsToDisk();
+
+    const sidebarItem = document.querySelector(`[data-session-id="${targetSessionId}"] .nav-text`);
+    if (sidebarItem) {
+      sidebarItem.textContent = finalTitle;
     }
-    if (finalTitle.length > 30) {
-      finalTitle = finalTitle.substring(0, 27) + '...';
+    if (currentSessionId === targetSessionId && activeChatTitle) {
+      activeChatTitle.textContent = finalTitle;
     }
-    if (finalTitle && !finalTitle.toLowerCase().includes('failed') && !finalTitle.toLowerCase().includes('offline')) {
-      // Update memory store
-      if (conversationsStore[targetSessionId]) {
-        conversationsStore[targetSessionId].title = finalTitle;
-        touchSession(targetSessionId);
-        rebuildSessionHistoryList();
-        saveConversationsToDisk();
-      }
-      
-      // Update sidebar DOM item text
-      const sidebarItem = document.querySelector(`[data-session-id="${targetSessionId}"] .nav-text`);
-      if (sidebarItem) {
-        sidebarItem.textContent = finalTitle;
-      }
-      
-      // Update header title if it is still the active session
-      if (currentSessionId === targetSessionId && activeChatTitle) {
-        activeChatTitle.textContent = finalTitle;
-      }
-      logTrace(`AI generated session title: "${finalTitle}"`, 'system');
-    }
-  } catch (err) {
-    logTrace(`AI title summary generation failed: ${err.message}`, 'system');
+    logTrace(`Session title set to: "${finalTitle}"`, 'system');
+  } catch (e) {
+    // Non-fatal
   }
 }
 

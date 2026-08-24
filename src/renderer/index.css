@@ -622,53 +622,53 @@ body.platform-win32 .chat-header-actions {
 .btn-performance-mode {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  gap: 7px;
+  padding: 5px 13px;
+  background: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.9);
   border-radius: 9999px;
-  color: #f3f4f6;
-  font-size: 12px;
-  font-weight: 500;
+  color: #0f172a;
+  font-size: 12.5px;
+  font-weight: 700;
   cursor: pointer;
-  backdrop-filter: blur(12px);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
 }
 
 .btn-performance-mode:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.24);
-  color: #ffffff;
+  background: #f8fafc;
+  border-color: #ffffff;
+  color: #000000;
   transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.38);
 }
 
 .btn-performance-mode:active {
   transform: translateY(0);
+  background: #e2e8f0;
 }
 
-.btn-performance-mode[data-mode="auto"] {
-  border-color: rgba(56, 189, 248, 0.35);
-  background: rgba(56, 189, 248, 0.08);
-}
-.btn-performance-mode[data-mode="auto"] .performance-mode-icon {
-  color: #38bdf8;
+.btn-performance-mode .performance-mode-icon {
+  color: #0f172a;
 }
 
-.btn-performance-mode[data-mode="gpu"] {
-  border-color: rgba(52, 211, 153, 0.4);
-  background: rgba(52, 211, 153, 0.1);
-}
-.btn-performance-mode[data-mode="gpu"] .performance-mode-icon {
-  color: #34d399;
+.btn-performance-mode .performance-mode-label {
+  color: #0f172a;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.1px;
 }
 
-.btn-performance-mode[data-mode="cpu"] {
-  border-color: rgba(251, 191, 36, 0.35);
-  background: rgba(251, 191, 36, 0.08);
+.btn-performance-mode .performance-chevron {
+  color: #475569;
+  width: 11px;
+  height: 11px;
+  opacity: 0.85;
+  transition: transform 0.2s ease;
 }
-.btn-performance-mode[data-mode="cpu"] .performance-mode-icon {
-  color: #fbbf24;
+
+.btn-performance-mode[aria-expanded="true"] .performance-chevron {
+  transform: rotate(180deg);
 }
 
 .performance-mode-icon {
@@ -677,25 +677,8 @@ body.platform-win32 .chat-header-actions {
   justify-content: center;
   width: 14px;
   height: 14px;
+  color: #0f172a;
   transition: color 0.2s ease;
-}
-
-.performance-mode-label {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-}
-
-.performance-chevron {
-  width: 11px;
-  height: 11px;
-  opacity: 0.6;
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.btn-performance-mode[aria-expanded="true"] .performance-chevron {
-  transform: rotate(180deg);
-  opacity: 1;
 }
 
 /* Dropdown Menu */
@@ -754,8 +737,8 @@ body.platform-win32 .chat-header-actions {
 .perf-option-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 10px;
+  gap: 12px;
+  padding: 10px 12px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: 10px;
@@ -768,7 +751,7 @@ body.platform-win32 .chat-header-actions {
 }
 
 .perf-option-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.08);
 }
 
@@ -788,31 +771,28 @@ body.platform-win32 .chat-header-actions {
 }
 
 .perf-option-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.06);
-  color: #d1d5db;
-  transition: all 0.2s ease;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0;
+  margin-top: 2px;
 }
 
 .perf-option-icon.icon-auto {
   color: #38bdf8;
-  background: rgba(56, 189, 248, 0.12);
 }
 
 .perf-option-icon.icon-gpu {
   color: #34d399;
-  background: rgba(52, 211, 153, 0.12);
 }
 
 .perf-option-icon.icon-cpu {
   color: #fbbf24;
-  background: rgba(251, 191, 36, 0.12);
 }
 
 .perf-option-text {
