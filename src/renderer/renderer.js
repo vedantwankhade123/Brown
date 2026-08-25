@@ -2658,6 +2658,256 @@ function hideOllamaBanner() {
   }
 }
 
+const TOAST_ICONS = {
+  error: '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>',
+  warning: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>',
+  success: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>',
+  info: '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>'
+};
+
+function ensureToastStack() {
+  let stack = document.getElementById('ultron-toast-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.id = 'ultron-toast-stack';
+    stack.className = 'ultron-toast-stack';
+    stack.setAttribute('aria-live', 'polite');
+    document.body.appendChild(stack);
+  }
+  return stack;
+}
+
+function dismissToast(el) {
+  if (!el || el.classList.contains('is-leaving')) return;
+  el.classList.add('is-leaving');
+  setTimeout(() => el.remove(), 220);
+}
+
+function showToast({ type = 'info', title = '', message = '', duration = 6500, actions = [] } = {}) {
+  const stack = ensureToastStack();
+  const toast = document.createElement('div');
+  toast.className = `ultron-toast ${type}`;
+  toast.setAttribute('role', type === 'error' || type === 'warning' ? 'alert' : 'status');
+  const iconSvg = TOAST_ICONS[type] || TOAST_ICONS.info;
+  const actionsHtml = (actions || []).map((a, i) =>
+    `<button type="button" class="ultron-toast-action${a.primary ? ' primary' : ''}" data-toast-action="${i}">${a.label}</button>`
+  ).join('');
+  toast.innerHTML = `
+    <svg class="ultron-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconSvg}</svg>
+    <div class="ultron-toast-body">
+      ${title ? `<p class="ultron-toast-title">${title}</p>` : ''}
+      ${message ? `<p class="ultron-toast-message">${message}</p>` : ''}
+      ${actionsHtml ? `<div class="ultron-toast-actions">${actionsHtml}</div>` : ''}
+    </div>
+    <button type="button" class="ultron-toast-close" aria-label="Dismiss">✕</button>
+  `;
+  toast.querySelector('.ultron-toast-close')?.addEventListener('click', () => dismissToast(toast));
+  toast.querySelectorAll('[data-toast-action]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.getAttribute('data-toast-action'));
+      try { actions[idx]?.onClick?.(); } catch (_) { /* ignore */ }
+      dismissToast(toast);
+    });
+  });
+  stack.appendChild(toast);
+  while (stack.children.length > 4) stack.removeChild(stack.firstChild);
+  const ms = type === 'error' ? Math.max(duration, 8000) : duration;
+  if (ms > 0) setTimeout(() => dismissToast(toast), ms);
+  return toast;
+}
+
+function openSettingsModelsPane() {
+  try {
+    (document.getElementById('btn-open-settings') || document.querySelector('[data-open-settings]'))?.click();
+    setTimeout(() => {
+      document.querySelector('[data-settings-tab="models"], #settings-tab-models, button[data-section="models"]')?.click();
+    }, 120);
+  } catch (_) { /* ignore */ }
+}
+
+function modelNeedsOllama(modelName = activeModel) {
+  if (window.UltronMultiProviderHub?.isOllamaBackedModel) {
+    return window.UltronMultiProviderHub.isOllamaBackedModel(modelName);
+  }
+  const m = String(modelName || '').toLowerCase();
+  if (!m) return true;
+  if (m.startsWith('gemini') || m.startsWith('gpt-') || m.startsWith('claude') || m.startsWith('o1') || m.startsWith('o3')) return false;
+  return true;
+}
+
+function classifyModelFailure(errOrText, modelName = activeModel) {
+  const raw = typeof errOrText === 'string' ? errOrText : (errOrText?.message || String(errOrText || ''));
+  const msg = raw.toLowerCase();
+  const model = String(modelName || 'model');
+  const isHf = model.startsWith('hf.co/');
+  const isCloud = model.endsWith('-cloud');
+  if (/activeTemp is not defined/i.test(raw)) {
+    return { code: 'INTERNAL', title: 'Internal chat error', message: 'A temperature setting bug was hit. Restart Ultron after updating — this should be fixed.', toastType: 'error' };
+  }
+  if (/failed to fetch|networkerror|econnrefused|enotfound|fetch failed|could not connect|err_connection/i.test(msg)) {
+    return { code: 'OLLAMA_OFFLINE', title: 'Ollama not reachable', message: 'Could not reach http://127.0.0.1:11434. Start Ollama (tray app or `ollama serve`), then retry.', toastType: 'error' };
+  }
+  if (/api key|unauthorized|401|invalid.*key|permission denied|gemini api key/i.test(msg)) {
+    return { code: 'API_KEY', title: 'API key required', message: raw || 'Add or fix your cloud API key in Settings → Models.', toastType: 'error' };
+  }
+  if (/sign.?in|not signed|ollama cloud|cloud auth/i.test(msg) || (isCloud && /unauthorized|403|401/.test(msg))) {
+    return { code: 'OLLAMA_CLOUD_AUTH', title: 'Ollama Cloud sign-in required', message: `"${model}" runs on Ollama Cloud. Sign in under Settings → Models.`, toastType: 'warning' };
+  }
+  if (/not found|no such model|pull|unknown model/i.test(msg) || (isHf && /404|file does not exist/.test(msg))) {
+    return {
+      code: 'MODEL_MISSING',
+      title: isHf ? 'Hugging Face model not installed' : 'Model not installed',
+      message: isHf
+        ? `"${model}" is not on this PC yet. Download it from Settings → Models.`
+        : `"${model}" is not installed. Pull it from Settings → Models or run ollama pull ${model}.`,
+      toastType: 'warning'
+    };
+  }
+  if (/memory|vram|out of memory|requires more|num_gpu/i.test(msg)) {
+    return { code: 'MEMORY', title: 'Not enough memory for this model', message: `"${model}" needs more RAM/VRAM. Close heavy apps, pick a smaller model, or use Gemini / Ollama Cloud.`, toastType: 'warning' };
+  }
+  if (/quota|rate limit|resource.?exhausted|429/i.test(msg)) {
+    return { code: 'QUOTA', title: 'Cloud quota exceeded', message: raw || 'This cloud model hit a rate/quota limit. Wait or switch models.', toastType: 'warning' };
+  }
+  return { code: 'GENERIC', title: 'Model request failed', message: raw || `Could not get a response from ${model}.`, toastType: 'error' };
+}
+
+function notifyModelIssue(classified, { actions } = {}) {
+  if (!classified) return;
+  const defaults = [];
+  if (classified.code === 'OLLAMA_OFFLINE') {
+    defaults.push({
+      label: 'Start Ollama',
+      primary: true,
+      onClick: () => { startOllamaInstallFlow(document.createElement('button')).catch(() => {}); }
+    });
+  }
+  if (classified.code === 'API_KEY' || classified.code === 'OLLAMA_CLOUD_AUTH' || classified.code === 'MODEL_MISSING') {
+    defaults.push({ label: 'Open Settings', primary: true, onClick: openSettingsModelsPane });
+  }
+  showToast({
+    type: classified.toastType || 'error',
+    title: classified.title,
+    message: classified.message,
+    actions: actions || defaults,
+    duration: classified.toastType === 'error' ? 9000 : 7000
+  });
+}
+
+async function ensureOllamaReadyForChat({ silent = false } = {}) {
+  let conn = await checkOllamaConnection();
+  if (conn.connected) return { ok: true, started: false };
+  const installCheck = await window.ultronAPI?.checkOllamaInstalled?.().catch(() => ({ installed: false }));
+  if (installCheck?.installed) {
+    if (!silent) {
+      showToast({ type: 'warning', title: 'Starting Ollama…', message: 'Ollama is installed but was not running. Trying to start it now.', duration: 4000 });
+    }
+    try {
+      await window.ultronAPI.startOllamaService(installCheck.path);
+      for (let i = 0; i < 8; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        conn = await checkOllamaConnection();
+        if (conn.connected) {
+          if (!silent) showToast({ type: 'success', title: 'Ollama connected', message: 'Local model service is ready.', duration: 3500 });
+          hideOllamaBanner();
+          return { ok: true, started: true };
+        }
+      }
+    } catch (_) { /* fall through */ }
+  }
+  const classified = {
+    code: 'OLLAMA_OFFLINE',
+    title: installCheck?.installed ? 'Ollama is not running' : 'Ollama is not installed',
+    message: installCheck?.installed
+      ? 'Could not start Ollama automatically. Open the Ollama app from the Start menu, then retry.'
+      : 'Install Ollama to run local, Hugging Face GGUF, and Ollama Cloud models — or pick Google Gemini in the model dropdown.',
+    toastType: 'error'
+  };
+  if (!silent) notifyModelIssue(classified);
+  showOllamaBanner('warning', classified.message, true, !installCheck?.installed);
+  return { ok: false, started: false, classified };
+}
+
+async function preflightActiveModelForChat() {
+  const model = activeModel || '';
+  const hub = window.UltronMultiProviderHub;
+  const provider = hub ? hub.detectProviderForModel(model) : 'ollama';
+  if (provider !== 'ollama') {
+    const key = hub?.getStoredApiKey?.(provider) || (provider === 'gemini' ? (localStorage.getItem('ultron-gemini-api-key') || '') : '');
+    if (['gemini', 'openai', 'anthropic', 'deepseek', 'groq'].includes(provider) && !String(key).trim()) {
+      const classified = {
+        code: 'API_KEY',
+        title: `${provider} API key missing`,
+        message: `Add your ${provider} API key in Settings → Models before using ${model || provider}.`,
+        toastType: 'error'
+      };
+      notifyModelIssue(classified);
+      return { ok: false, classified, provider };
+    }
+    return { ok: true, provider };
+  }
+  const ollama = await ensureOllamaReadyForChat();
+  if (!ollama.ok) return { ok: false, classified: ollama.classified, provider: 'ollama' };
+  if (String(model).endsWith('-cloud') && window.ultronAPI?.getOllamaAuthStatus) {
+    try {
+      const status = await window.ultronAPI.getOllamaAuthStatus();
+      if (!status.signedIn) {
+        const classified = {
+          code: 'OLLAMA_CLOUD_AUTH',
+          title: 'Sign in to Ollama Cloud',
+          message: `"${model}" needs an Ollama account. Sign in under Settings → Models.`,
+          toastType: 'warning'
+        };
+        notifyModelIssue(classified, {
+          actions: [
+            { label: 'Sign in', primary: true, onClick: () => window.ultronAPI?.ollamaSignin?.().catch(() => openSettingsModelsPane()) },
+            { label: 'Settings', onClick: openSettingsModelsPane }
+          ]
+        });
+        return { ok: false, classified, provider: 'ollama' };
+      }
+    } catch (_) { /* continue */ }
+  }
+  if (String(model).startsWith('hf.co/')) {
+    await refreshInstalledModelsFromOllama();
+    const installed = (installedModelsList || []).some((m) => String(m.name || m).toLowerCase() === String(model).toLowerCase());
+    if (!installed) {
+      const classified = {
+        code: 'MODEL_MISSING',
+        title: 'Hugging Face model not pulled',
+        message: `"${model}" is not installed locally yet. Download it from Settings → Models first.`,
+        toastType: 'warning'
+      };
+      notifyModelIssue(classified);
+      return { ok: false, classified, provider: 'ollama' };
+    }
+  }
+  return { ok: true, provider: 'ollama' };
+}
+
+async function tryGeminiFallbackAfterLocalFailure(prompt, systemPrompt, extraMessages, visionImages) {
+  const apiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
+  if (!apiKey || getLocalAiMode() === 'local-only') return null;
+  if (!ONLINE_GEMINI_MODELS.length) {
+    try { ONLINE_GEMINI_MODELS = await discoverGeminiModels(apiKey); } catch (_) { /* ignore */ }
+  }
+  const geminiModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name || 'gemini-3.6-flash';
+  showToast({ type: 'warning', title: 'Falling back to Google Gemini', message: `Local/Ollama request failed. Trying ${geminiModel}…`, duration: 4500 });
+  try {
+    const output = await queryGeminiAPI(prompt, systemPrompt, geminiModel, apiKey, extraMessages || [], visionImages || []);
+    if (output && String(output).trim()) {
+      activeModel = geminiModel;
+      updateModelSelectorLabel();
+      syncModelAttachmentCapabilities();
+      showToast({ type: 'success', title: 'Gemini fallback succeeded', message: `Switched to ${geminiModel} for this reply.`, duration: 5000 });
+      return output;
+    }
+  } catch (err) {
+    notifyModelIssue(classifyModelFailure(err, geminiModel));
+  }
+  return null;
+}
+
 async function checkOllamaStartup() {
   logTrace('Checking Ollama connection status...', 'system');
   const conn = await checkOllamaConnection();
@@ -5634,6 +5884,8 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
     const isCodeRequest = intent === 'conversation' && isCodeOnlyGenerationRequest(prompt);
     const isContentRequest = intent === 'conversation' && isContentGenerationRequest(prompt);
     const skipConversationHistory = intent === 'conversation' && shouldSkipConversationHistory(prompt);
+    // Temperature for local Ollama (was referenced as undeclared activeTemp — broke all local chats)
+    const activeTemp = isCodeRequest ? 0.15 : (isContentRequest ? 0.75 : (intent === 'conversation' ? 0.7 : 0.2));
 
     const systemPrompt = customSystemPromptOverride || window.localStorage.getItem('ultron-custom-system-prompt') || agentSystemPrompt || (intent === 'conversation'
       ? (isCodeRequest
@@ -5668,7 +5920,7 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       finalUserPrompt = `${prompt}\n\n[Formatting Instruction: Respond using standard Markdown table syntax (| Header 1 | Header 2 |). DO NOT write HTML/CSS code.]`;
     }
 
-    // Route Multi-Provider models (Google Gemini, OpenAI, Anthropic Claude, DeepSeek, Groq, Custom)
+    // Cloud APIs only — HF GGUF + Ollama Cloud stay on the local Ollama path below.
     const provider = window.UltronMultiProviderHub ? window.UltronMultiProviderHub.detectProviderForModel(activeModel) : 'ollama';
     if (provider !== 'ollama' && getLocalAiMode() !== 'local-only') {
       try {
@@ -5678,14 +5930,16 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
           prompt: finalUserPrompt,
           systemPrompt,
           messages: extraMessages,
-          temperature: isCodeRequest ? 0.15 : (intent === 'conversation' ? 0.7 : 0.2),
+          temperature: activeTemp,
           visionImages,
           signal: _activeAbortController ? _activeAbortController.signal : undefined
         });
         return output;
       } catch (err) {
         logTrace(`${provider} API execution error: ${err.message}`, 'system');
-        return `⚠️ **${provider.toUpperCase()} Provider Error**\n\n${err.message}\n\nPlease check your configuration in **Settings > Models** or select another model from the dropdown.`;
+        const classified = classifyModelFailure(err, activeModel);
+        notifyModelIssue(classified);
+        return `⚠️ **${provider.toUpperCase()} Provider Error**\n\n${classified.message}\n\nPlease check your configuration in **Settings > Models** or select another model from the dropdown.`;
       }
     }
 
@@ -5997,7 +6251,11 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       throw e;
     }
     logTrace(`Local LLM offline loop exception: ${e.message}`, 'error');
-    return `⚠️ **Ollama Connection Error**\n\nCould not connect to Ollama service at ` + '`http://127.0.0.1:11434`' + `.\n\n*Make sure Ollama is running (` + '`ollama serve`' + `).*`;
+    const classified = classifyModelFailure(e, activeModel);
+    notifyModelIssue(classified);
+    const geminiFallback = await tryGeminiFallbackAfterLocalFailure(prompt, null, extraMessages, imagePayloads || []);
+    if (geminiFallback) return geminiFallback;
+    return `⚠️ **${classified.title}**\n\n${classified.message}\n\n*Endpoint: ` + '`http://127.0.0.1:11434`' + `*`;
   } finally {
     if (typeof restoredActiveModel === 'string' && restoredActiveModel) {
       activeModel = restoredActiveModel;
@@ -7167,21 +7425,20 @@ async function submitPrompt(overridePrompt) {
       // 4. Setup AI placeholder loading bubble
       const aiBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
       
-      // Check if Ollama is connected when LLM query is required
+      // Check model readiness (Ollama / cloud keys / HF pull / Ollama Cloud auth)
       if (intent === 'action' || intent === 'conversation' || intent === 'search') {
-        const conn = await checkOllamaConnection();
-        const isGemini = activeModel && activeModel.startsWith('gemini');
-        const localMode = getLocalAiMode();
-        if (!conn.connected && !isGemini) {
-          if (localMode === 'local-only' || !installedModelsList.length) {
-            await new Promise(resolve => setTimeout(resolve, 400));
-            const offlineCard = `<div class="agent-final-response">${renderErrorRecoveryCard('OLLAMA_OFFLINE', 'Local AI engine offline — start Ollama (`ollama serve`) or pick a Google Gemini model from the dropdown.')}</div>`;
-            renderMessageContent(aiBubble, offlineCard);
-            finalizeAiMessageBubble(aiBubble, offlineCard, { autoSpeak: false });
-            appendChatMessage('Ultron', offlineCard, true, { skipRender: true });
-            setSendingState(false);
-            return;
-          }
+        const preflight = await preflightActiveModelForChat();
+        if (!preflight.ok) {
+          await new Promise(resolve => setTimeout(resolve, 300));
+          const cardMsg = preflight.classified?.message
+            || 'Model is not ready. Check Settings → Models or start Ollama.';
+          const code = preflight.classified?.code || 'OLLAMA_OFFLINE';
+          const offlineCard = `<div class="agent-final-response">${renderErrorRecoveryCard(code === 'API_KEY' ? 'GEMINI_KEY_MISSING' : 'OLLAMA_OFFLINE', cardMsg)}</div>`;
+          renderMessageContent(aiBubble, offlineCard);
+          finalizeAiMessageBubble(aiBubble, offlineCard, { autoSpeak: false });
+          appendChatMessage('Ultron', offlineCard, true, { skipRender: true });
+          setSendingState(false);
+          return;
         }
       }
       
@@ -7288,9 +7545,13 @@ async function submitPrompt(overridePrompt) {
           const isGemini = activeModel && activeModel.startsWith('gemini');
           if (isGemini) {
             response = `⚠️ **Google Gemini Connection Error**\n\nCould not receive a response from **${activeModel}**.\n\nPlease check your internet connection or verify your API key in **Settings > Models**.`;
+            notifyModelIssue(classifyModelFailure(response, activeModel));
           } else {
             response = `⚠️ **Local Ollama Model Connection Error**\n\nCould not connect to model **${activeModel || 'ollama'}** on ` + '`http://127.0.0.1:11434`' + `.\n\n**To Fix:**\n1. Make sure Ollama is running (` + '`ollama serve`' + `).\n2. Pull your model (` + '`ollama pull ' + (activeModel || 'tinyllama') + '`' + `).\n3. Or select Google Gemini from the top dropdown.`;
+            notifyModelIssue(classifyModelFailure('Could not connect to Ollama service', activeModel));
           }
+        } else if (/Connection Error|Provider Error|API Key Required|Memory Limit Exceeded|Model request failed/i.test(response)) {
+          notifyModelIssue(classifyModelFailure(response, activeModel));
         }
         response = String(response || '').replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, 'Ultron');
         if (response && (shouldFallbackToWebSearch(routingPrompt, response) || (isGenericAssistantGreeting(response) && isProductOrShoppingQuery(routingPrompt)))) {
