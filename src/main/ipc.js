@@ -400,6 +400,73 @@ function buildDateTimeSnapshot(now = new Date()) {
   };
 }
 
+const INSTALL_FIRST_RUN_MARKER = '.ultron-firstrun';
+let installFirstRunForced = false;
+
+function getUltronConfigPath() {
+  return path.join(app.getPath('userData'), 'ultron-config.json');
+}
+
+function readUltronConfigFile() {
+  const configPath = getUltronConfigPath();
+  if (!fs.existsSync(configPath)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (e) {
+    return {};
+  }
+}
+
+function writeUltronConfigFile(config) {
+  const configPath = getUltronConfigPath();
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+}
+
+/**
+ * Belt-and-suspenders after Fresh install: marker lives beside the exe.
+ * Fresh wipes INSTDIR (marker gone). If UltronData somehow still says
+ * setupCompleted, force onboarding once and recreate the marker.
+ */
+function reconcileInstallFirstRunMarker() {
+  installFirstRunForced = false;
+  try {
+    if (!app.isPackaged) {
+      return { forced: false };
+    }
+    const { getInstallRoot } = require('./paths');
+    const markerPath = path.join(getInstallRoot(), INSTALL_FIRST_RUN_MARKER);
+    if (fs.existsSync(markerPath)) {
+      return { forced: false };
+    }
+
+    const config = readUltronConfigFile();
+    config.setupCompleted = false;
+    config.setupDeferred = false;
+    writeUltronConfigFile(config);
+
+    try {
+      fs.writeFileSync(
+        markerPath,
+        JSON.stringify({
+          createdAt: new Date().toISOString(),
+          version: typeof app.getVersion === 'function' ? app.getVersion() : null
+        }, null, 2),
+        'utf8'
+      );
+    } catch (markerErr) {
+      console.warn('[setup] Could not write install first-run marker:', markerErr.message);
+    }
+
+    installFirstRunForced = true;
+    console.log('[setup] Install first-run marker missing — forcing onboarding');
+    return { forced: true };
+  } catch (err) {
+    console.warn('[setup] First-run reconcile failed:', err.message);
+    return { forced: false };
+  }
+}
+
 function setMainWindow(win) {
   mainWindow = win;
 }
@@ -2157,15 +2224,22 @@ function setupIpcHandlers() {
   });
 
   // First-Time Setup Status Storage
-  ipcMain.handle('save-setup-status', async (event, completed) => {
+  // payload: boolean | { completed?: boolean, deferred?: boolean }
+  // deferred = "Setup Later" — main UI allowed, Kokoro still outstanding
+  ipcMain.handle('save-setup-status', async (event, payload) => {
     try {
-      const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
-      let config = {};
-      if (fs.existsSync(configPath)) {
-        try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch (e) {}
+      const config = readUltronConfigFile();
+      if (typeof payload === 'boolean') {
+        config.setupCompleted = payload;
+        if (payload) config.setupDeferred = false;
+      } else if (payload && typeof payload === 'object') {
+        if ('completed' in payload) config.setupCompleted = Boolean(payload.completed);
+        if ('deferred' in payload) config.setupDeferred = Boolean(payload.deferred);
+        if (config.setupCompleted) config.setupDeferred = false;
+      } else {
+        config.setupCompleted = false;
       }
-      config.setupCompleted = Boolean(completed);
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+      writeUltronConfigFile(config);
       return { success: true };
     } catch (err) {
       return { success: false, error: err.message };
@@ -2174,14 +2248,15 @@ function setupIpcHandlers() {
 
   ipcMain.handle('load-setup-status', async () => {
     try {
-      const configPath = path.join(app.getPath('userData'), 'ultron-config.json');
-      if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        return Boolean(config.setupCompleted);
-      }
-      return false;
+      const config = readUltronConfigFile();
+      const completed = Boolean(config.setupCompleted);
+      return {
+        completed,
+        deferred: Boolean(config.setupDeferred) && !completed,
+        forcedReset: installFirstRunForced
+      };
     } catch (err) {
-      return false;
+      return { completed: false, deferred: false, forcedReset: installFirstRunForced };
     }
   });
 
@@ -3535,6 +3610,7 @@ function getInstallationDefaultDataDir() {
 
 module.exports = {
   setupIpcHandlers,
-  setMainWindow
+  setMainWindow,
+  reconcileInstallFirstRunMarker
 };
 

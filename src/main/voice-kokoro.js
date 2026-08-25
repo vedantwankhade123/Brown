@@ -27,12 +27,32 @@ let transformersEnvConfigured = false;
 function getKokoroCacheDir() {
   try {
     const { getOllamaModelsDir } = require('./paths');
-    return path.join(getOllamaModelsDir(), 'tts-cache', KOKORO_ENGINE_KEY);
+    const modelsDir = getOllamaModelsDir();
+    const cacheDir = path.join(modelsDir, 'tts-cache', KOKORO_ENGINE_KEY);
+    fs.mkdirSync(cacheDir, { recursive: true });
+    return cacheDir;
   } catch (e) {
     const fallback = path.join(process.cwd(), 'Ultron-local', 'models', 'tts-cache', KOKORO_ENGINE_KEY);
     fs.mkdirSync(fallback, { recursive: true });
     return fallback;
   }
+}
+
+function getKokoroDiagnostics() {
+  const cacheDir = getKokoroCacheDir();
+  let modelsDir = null;
+  try {
+    modelsDir = require('./paths').getOllamaModelsDir();
+  } catch (e) {
+    modelsDir = process.env.ULTRON_MODELS_DIR || process.env.OLLAMA_MODELS || null;
+  }
+  return {
+    cacheDir,
+    modelsDir,
+    device: getKokoroDevicePreference(),
+    cacheBytes: getKokoroCacheBytes(),
+    modelPath: findKokoroModelOnnxPath()
+  };
 }
 
 function walkDir(dir, matcher, results = []) {
@@ -301,6 +321,9 @@ async function downloadKokoroEngine(sendProgress) {
 
   emit({ phase: 'download', percent: 0, status: 'Preparing Kokoro neural engine…' });
   clearKokoroInstalledMarker();
+  // Ensure cache lives under resolved modelsDir (post applyStoragePaths) before HF download.
+  const cacheDir = getKokoroCacheDir();
+  fs.mkdirSync(cacheDir, { recursive: true });
   // Never destroy a complete download: only reset when the model is missing
   // or partial.
   if (!hasCompleteKokoroModel()) {
@@ -334,9 +357,12 @@ async function downloadKokoroEngine(sendProgress) {
     const modelPath = findKokoroModelOnnxPath();
     if (!modelPath || !isValidOnnxModelFile(modelPath, KOKORO_MIN_MODEL_BYTES)) {
       removeIncompleteKokoroCache();
+      const diag = getKokoroDiagnostics();
+      console.error('[voice-kokoro] incomplete ONNX after download:', diag);
       return {
         success: false,
-        error: 'Kokoro download finished but the ONNX model file is incomplete. Please retry the download.'
+        error: 'Kokoro download finished but the ONNX model file is incomplete. Please retry the download.',
+        diagnostics: diag
       };
     }
 
@@ -363,8 +389,14 @@ async function downloadKokoroEngine(sendProgress) {
     if (kokoroDownloadState.cancelled) {
       return { success: false, cancelled: true, error: 'Download cancelled.' };
     }
-    console.error('[voice-kokoro] download failed:', err);
-    return { success: false, error: err.message || 'Kokoro download failed.' };
+    const diag = getKokoroDiagnostics();
+    console.error('[voice-kokoro] download failed:', err.message || err, diag);
+    const baseMsg = err.message || 'Kokoro download failed.';
+    return {
+      success: false,
+      error: `${baseMsg} (device: ${diag.device}, cache: ${diag.cacheDir})`,
+      diagnostics: diag
+    };
   } finally {
     kokoroDownloadState = { inProgress: false, cancelled: false };
   }
@@ -513,6 +545,7 @@ module.exports = {
   KOKORO_MODEL_ID,
   getKokoroCacheDir,
   getKokoroCacheBytes,
+  getKokoroDiagnostics,
   isKokoroEngineInstalled,
   isKokoroVoiceInstalled,
   markVoiceInstalled,

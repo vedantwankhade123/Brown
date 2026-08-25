@@ -288,6 +288,21 @@
       </div>
     </div>
 
+    <!-- Finish setup (Setup Later) — non-blocking Kokoro prompt -->
+    <div id="finish-setup-banner" class="notification-banner warning hidden">
+      <div class="notification-content">
+        <svg class="notification-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+          <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
+        </svg>
+        <span class="notification-message">Finish setup: download Kokoro neural voices for offline TTS.</span>
+      </div>
+      <div class="notification-actions">
+        <button type="button" id="btn-finish-setup-voices" class="btn-banner-action">Download Voices</button>
+        <button type="button" id="btn-finish-setup-dismiss" class="btn-banner-close">✕</button>
+      </div>
+    </div>
+
 
     <!-- Voice Mode Stage — full-screen mesh gradient -->
     <div id="voice-mode-stage" class="voice-mode-stage hidden" aria-hidden="true" data-orb-state="idle">
@@ -2544,7 +2559,7 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   Download &amp; Setup All Requirements
                 </button>
-                <button type="button" id="btn-onboard-skip-later" class="btn-onboard-skip hidden">
+                <button type="button" id="btn-onboard-skip-later" class="btn-onboard-skip">
                   Skip &amp; Setup Later
                 </button>
               </div>
@@ -2859,6 +2874,9 @@
   <script src="../ui/performance-toggle.js"></script>
   <script src="canvas-artifacts.js"></script>
   <script src="clipboard-manager.js"></script>
+  <!-- Stackable model / connection toasts -->
+  <div id="ultron-toast-stack" class="ultron-toast-stack" aria-live="polite" aria-relevant="additions"></div>
+
   <script src="renderer.js"></script>
 </body>
 </html>

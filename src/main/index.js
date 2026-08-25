@@ -1,7 +1,7 @@
 const { app, BrowserWindow, shell, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { setupIpcHandlers, setMainWindow } = require('./ipc');
+const { setupIpcHandlers, setMainWindow, reconcileInstallFirstRunMarker } = require('./ipc');
 const { startDesktopSyncServer, stopDesktopSyncServer } = require('./desktop-sync-server');
 const { initAutoUpdater } = require('./updater');
 const { createFloatingBarWindow } = require('./floating-bar-window');
@@ -20,6 +20,8 @@ app.commandLine.appendSwitch('disk-cache-size', '1');
 
 function initializeDataDirectories() {
   applyStoragePaths();
+  // After Fresh wipe of INSTDIR, missing beside-exe marker forces setupCompleted=false
+  reconcileInstallFirstRunMarker();
 }
 
 module.exports = { getDefaultDataDirectory: () => require('./paths').getDefaultAgentDataDir() };

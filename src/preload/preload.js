@@ -76,7 +76,7 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   getActiveWindow: () => ipcRenderer.invoke('get-active-window'),
   saveUserProfile: (profile) => ipcRenderer.invoke('save-user-profile', profile),
   loadUserProfile: () => ipcRenderer.invoke('load-user-profile'),
-  saveSetupStatus: (completed) => ipcRenderer.invoke('save-setup-status', completed),
+  saveSetupStatus: (payload) => ipcRenderer.invoke('save-setup-status', payload),
   loadSetupStatus: () => ipcRenderer.invoke('load-setup-status'),
   deleteModel: (modelName) => ipcRenderer.invoke('delete-model', modelName),
   searchWeb: (query, options) => ipcRenderer.invoke('search-web', query, options),

@@ -97,6 +97,7 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Ultron AI",
       "uninstallDisplayName": "Ultron AI",
+      "deleteAppDataOnUninstall": true,
       "installerIcon": "Assets/Brand-Assets/ultron-logo.ico",
       "uninstallerIcon": "Assets/Brand-Assets/ultron-logo.ico",
       "installerHeaderIcon": "Assets/Brand-Assets/ultron-logo.ico",
