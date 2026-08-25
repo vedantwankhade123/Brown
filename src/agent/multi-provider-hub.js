@@ -120,17 +120,25 @@
     if (m.endsWith('(groq)') || m.startsWith('groq/') || m === 'llama-3.3-70b-versatile' || m.includes('distill-llama') || m === 'mixtral-8x7b-32768' || m === 'gemma2-9b-it') return 'groq';
     if (m.includes('deepseek-reasoner') || m.includes('deepseek-chat') || (m.startsWith('deepseek') && !m.includes(':'))) return 'deepseek';
 
+    // Hugging Face GGUF IDs (hf.co/...) and Ollama Cloud (*-cloud) are served by local Ollama.
+    if (m.startsWith('hf.co/') || m.startsWith('huggingface/')) return 'ollama';
+    if (m.endsWith('-cloud')) return 'ollama';
+
     if (discoveredModelsCache) {
       for (const [pId, models] of Object.entries(discoveredModelsCache)) {
+        if (pId === 'huggingface' || pId === 'ollama') continue;
         if (Array.isArray(models) && models.some(x => x.id === modelName || x.name === modelName)) {
           return pId;
         }
       }
     }
 
-    if (m.startsWith('hf.co/') || m.startsWith('huggingface/') || m.includes('huggingface')) return 'huggingface';
     if (m.startsWith('custom') || m.startsWith('http://') || m.startsWith('https://')) return 'custom';
     return 'ollama';
+  }
+
+  function isOllamaBackedModel(modelName) {
+    return detectProviderForModel(modelName) === 'ollama';
   }
 
   function getStoredApiKey(providerId) {
@@ -535,7 +543,21 @@
     });
 
     if (!response.ok) {
-      throw new Error(`Ollama Error: Could not connect to local model ${model} at localhost:11434.`);
+      let detail = '';
+      try {
+        const errJson = await response.json();
+        detail = errJson.error || JSON.stringify(errJson);
+      } catch (_) {
+        try { detail = await response.text(); } catch (__) { /* ignore */ }
+      }
+      const hint = String(model || '').startsWith('hf.co/')
+        ? ' Pull it first with ollama pull, or download it from Settings → Models.'
+        : String(model || '').endsWith('-cloud')
+          ? ' Sign in to Ollama Cloud in Settings → Models, then retry.'
+          : ' Make sure Ollama is running and the model is installed.';
+      throw new Error(
+        `Ollama Error (${response.status}) for "${model}": ${detail || 'request failed'}.${hint}`
+      );
     }
 
     const data = await response.json();
@@ -874,6 +896,7 @@
     PROVIDERS,
     getProviderCatalog,
     detectProviderForModel,
+    isOllamaBackedModel,
     isChatCapableModel,
     getStoredApiKey,
     setStoredApiKey,
