@@ -49,7 +49,7 @@ function createWindow() {
     height: 800,
     show: false,
     backgroundColor: isWin32 ? TITLE_BAR_COLOR : WINDOW_BG,
-    title: 'Ultron: Autonomous Local AI Agent',
+    title: 'Brown: Autonomous Local AI Agent',
     icon: fs.existsSync(path.join(__dirname, '..', '..', 'Assets', 'Brand-Assets', isWin32 ? 'ultron-logo.ico' : 'ultron-logo.png'))
       ? path.join(__dirname, '..', '..', 'Assets', 'Brand-Assets', isWin32 ? 'ultron-logo.ico' : 'ultron-logo.png')
       : path.join(__dirname, '..', '..', 'Assets', isWin32 ? 'ultron-logo.ico' : 'ultron-logo.png'),
@@ -207,11 +207,6 @@ app.whenReady().then(() => {
   }
 
   createWindow();
-  try {
-    createFloatingBarWindow(mainWindow);
-  } catch (err) {
-    console.warn('[MAIN] Failed to initialize floating bar window:', err.message);
-  }
 
   try {
     startDesktopSyncServer({ getMainWindow: () => mainWindow });
@@ -222,7 +217,6 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
-      try { createFloatingBarWindow(mainWindow); } catch (e) {}
     }
   });
 });

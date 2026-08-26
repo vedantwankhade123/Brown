@@ -48,3 +48,14 @@ portfolio-builder/
 !progress-file.md
 .agent-docs/
 
+# Secrets & Environment
+.env
+.env.*
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+*.pfx
+secrets/
+

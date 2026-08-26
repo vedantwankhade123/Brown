@@ -9,7 +9,7 @@ marked.setOptions({
   breaks: true
 });
 
-contextBridge.exposeInMainWorld('ultronAPI', {
+const apiMethods = {
   // Markdown parser
   parseMarkdown: (text) => marked.parse(text),
   // Profiling & setup queries
@@ -64,9 +64,11 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   loadConversations: () => ipcRenderer.invoke('load-conversations'),
   saveGeminiKey: (key) => ipcRenderer.invoke('save-gemini-key', key),
   loadGeminiKey: () => ipcRenderer.invoke('load-gemini-key'),
-  getOllamaAuthStatus: () => ipcRenderer.invoke('ollama-auth-status'),
-  ollamaSignin: () => ipcRenderer.invoke('ollama-signin'),
-  ollamaSignout: () => ipcRenderer.invoke('ollama-signout'),
+   getOllamaAuthStatus: () => ipcRenderer.invoke('ollama-auth-status'),
+   setOllamaAuthStatus: (signedIn, email) => ipcRenderer.invoke('set-ollama-auth-status', signedIn, email),
+   verifyOllamaCloudAuth: () => ipcRenderer.invoke('verify-ollama-cloud-auth'),
+   ollamaSignin: () => ipcRenderer.invoke('ollama-signin'),
+   ollamaSignout: () => ipcRenderer.invoke('ollama-signout'),
   installMcpWindowsUia: () => ipcRenderer.invoke('install-mcp-windows-uia'),
   checkMcpWindowsUia: () => ipcRenderer.invoke('check-mcp-windows-uia'),
   downloadKokoroOnboardingVoices: () => ipcRenderer.invoke('download-kokoro-onboarding-voices'),
@@ -232,4 +234,7 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   windowsRestart: () => ipcRenderer.invoke('windows:restart'),
   windowsGetBrightness: () => ipcRenderer.invoke('windows:get-brightness'),
   windowsSetBrightness: (level) => ipcRenderer.invoke('windows:set-brightness', level),
-});
+};
+
+contextBridge.exposeInMainWorld('ultronAPI', apiMethods);
+contextBridge.exposeInMainWorld('brownAPI', apiMethods);

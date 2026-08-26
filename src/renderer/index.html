@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ultron: Autonomous Local AI Agent</title>
+  <title>Brown: Autonomous Local AI Agent</title>
   <link rel="stylesheet" href="index.css">
   <link rel="stylesheet" href="canvas-artifacts.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -41,8 +41,8 @@
   <!-- Windows custom title bar: logo + app name -->
   <div class="app-window-titlebar">
     <div class="app-titlebar-brand">
-      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="app-titlebar-logo" alt="">
-      <span class="app-titlebar-name">Ultron <span class="beta-badge-pill">BETA</span></span>
+      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="app-titlebar-logo" alt="Brown Logo">
+      <span class="app-titlebar-name">Brown <span class="beta-badge-pill">BETA</span></span>
     </div>
   </div>
 
@@ -51,10 +51,10 @@
     <div class="splash-card">
       <div class="splash-logo-container">
         <div class="splash-logo-glow"></div>
-        <img src="../../Assets/Brand-Assets/ultron-logo.png" class="splash-logo-img" alt="Ultron Logo">
+        <img src="../../Assets/Brand-Assets/ultron-logo.png" class="splash-logo-img" alt="Brown Logo">
       </div>
       <div class="splash-text-container">
-        <h1 class="splash-brand-title shiny-text">Ultron</h1>
+        <h1 class="splash-brand-title shiny-text">Brown</h1>
       </div>
     </div>
   </div>
@@ -89,8 +89,8 @@
       <!-- Title Header -->
       <div class="brand-header">
         <div class="brand-left">
-          <img src="../../Assets/Brand-Assets/ultron-logo.png" class="brand-logo" alt="Ultron Logo">
-          <span class="brand-name">Ultron <span class="beta-badge-pill">BETA</span></span>
+          <img src="../../Assets/Brand-Assets/ultron-logo.png" class="brand-logo" alt="Brown Logo">
+          <span class="brand-name">Brown <span class="beta-badge-pill">BETA</span></span>
         </div>
         <button id="btn-toggle-left-sidebar" class="btn-toggle-left-sidebar" title="Collapse navigation">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
@@ -303,7 +303,7 @@
               <span></span>
               <span></span>
             </div>
-            <img src="../../Assets/Brand-Assets/ultron-logo.png" class="voice-mode-logo" alt="Ultron">
+            <img src="../../Assets/Brand-Assets/ultron-logo.png" class="voice-mode-logo" alt="Brown">
           </div>
           <p id="voice-mode-caption" class="voice-mode-caption" aria-hidden="true" data-role=""></p>
           <button type="button" id="voice-mode-status" class="voice-mode-status">Tap to start listening</button>
@@ -367,9 +367,9 @@
     <div id="chat-pane-column" class="chat-pane-column">
       <!-- WELCOME SCREEN -->
       <div id="welcome-screen" class="welcome-screen">
-      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="welcome-logo" alt="Ultron Logo">
+      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="welcome-logo" alt="Brown Logo">
       <h1 id="welcome-title" class="welcome-title">Good evening, User</h1>
-      <p class="welcome-subtitle">How can Ultron assist you today?</p>
+      <p class="welcome-subtitle">How can Brown assist you today?</p>
     </div>
 
     <!-- Chat Area -->
@@ -510,10 +510,10 @@
               </svg>
             </button>
 
-            <!-- Permission Mode Dropdown Card (Ultron Action Authorization) -->
+            <!-- Permission Mode Dropdown Card (Brown Action Authorization) -->
             <div id="perm-mode-dropdown" class="perm-mode-dropdown hidden" role="menu">
               <div class="perm-popover-header">
-                <span class="perm-popover-title">Ultron Action Authorization</span>
+                <span class="perm-popover-title">Brown Action Authorization</span>
               </div>
               <div class="perm-popover-list">
                 <!-- Option 1: Review Mode -->
@@ -576,7 +576,7 @@
         <input type="file" id="hidden-file-input" multiple style="display: none;" />
 
         <!-- Main Prompt Input -->
-        <textarea id="chat-input" placeholder="Ask Ultron to execute local tasks..." class="chat-input-field" rows="1"></textarea>
+        <textarea id="chat-input" placeholder="Ask Brown to execute local tasks..." class="chat-input-field" rows="1"></textarea>
 
         <!-- Actions Row at Bottom -->
         <div class="input-pill-actions">
@@ -765,7 +765,7 @@
           <button type="button" id="btn-canvas-download" class="canvas-btn" title="Download project file">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           </button>
-          <button type="button" id="btn-canvas-save-disk" class="canvas-btn" title="Save all workspace files to disk (Documents\Ultron Projects)">
+          <button type="button" id="btn-canvas-save-disk" class="canvas-btn" title="Save all workspace files to disk (Documents\Brown Projects)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
           </button>
           <button type="button" id="btn-canvas-fullscreen" class="canvas-btn" title="Toggle Fullscreen Canvas">
@@ -820,7 +820,7 @@
               <button type="button" id="btn-clear-terminal" class="btn-clear-terminal" title="Clear terminal output">Clear</button>
             </div>
             <div id="terminal-output-area" class="terminal-output-area">
-              <div class="terminal-line system-line">[Ultron Agent Workspace Terminal v1.0] Ready.</div>
+              <div class="terminal-line system-line">[Brown Agent Workspace Terminal v1.0] Ready.</div>
             </div>
             <div class="terminal-input-row">
               <span class="terminal-prompt">$</span>
@@ -994,7 +994,51 @@
           
           <!-- Models Tab -->
           <div id="tab-models" class="tab-pane hidden">
-            <h4>Connectors & Weights</h4>
+            <div class="models-tab-header-row">
+              <h4 style="margin: 0;">Connectors &amp; Weights</h4>
+              
+              <!-- Download Activity Tracker in Top-Right -->
+              <div id="models-download-tracker" class="models-download-tracker hidden">
+                <button type="button" id="btn-models-download-indicator" class="btn-models-download-indicator" title="Active Model Downloads" aria-label="Model Downloads">
+                  <svg class="download-circular-progress" viewBox="0 0 36 36" width="32" height="32">
+                    <circle class="progress-ring-bg" cx="18" cy="18" r="14"></circle>
+                    <circle id="download-progress-ring" class="progress-ring-fill" cx="18" cy="18" r="14"></circle>
+                  </svg>
+                  <div class="download-icon-inner">
+                    <svg class="lottie-download-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                      <line class="lottie-download-beam" x1="12" y1="2" x2="12" y2="13" stroke="#22c55e" stroke-width="1.8"></line>
+                      <g class="lottie-download-arrow">
+                        <line class="lottie-download-stem" x1="12" y1="4" x2="12" y2="13"></line>
+                        <polyline points="8 9.5 12 13.5 16 9.5"></polyline>
+                      </g>
+                      <path class="lottie-download-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+                    </svg>
+                  </div>
+                  <span id="download-active-badge" class="download-active-badge hidden">1</span>
+                </button>
+
+                <!-- Dropdown Popover on Click -->
+                <div id="models-download-popover" class="models-download-popover hidden">
+                  <div class="download-popover-header">
+                    <div class="download-popover-title">
+                      <svg class="lottie-download-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#22c55e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <g class="lottie-download-arrow">
+                          <line x1="12" y1="4" x2="12" y2="13"></line>
+                          <polyline points="8 9.5 12 13.5 16 9.5"></polyline>
+                        </g>
+                        <path class="lottie-download-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+                      </svg>
+                      <span>Model Downloads</span>
+                    </div>
+                    <span id="download-popover-status-summary" class="download-popover-status-summary">Downloading</span>
+                  </div>
+
+                  <div id="download-popover-items" class="download-popover-items">
+                    <!-- Populated dynamically -->
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <!-- Google Gemini Cloud API Connector -->
             <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
@@ -1219,12 +1263,45 @@
               </p>
             </div>
 
-            <div class="connector-row">
+            <!-- Ollama Cloud Connector -->
+            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+              <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama Cloud" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #12151e !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
+                  <div style="display: flex; flex-direction: column;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Ollama Cloud</span>
+                      <span id="ollama-cloud-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Not connected</span>
+                    </div>
+                    <p id="ollama-cloud-subtitle" class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: https://ollama.com • Official Cloud Models</p>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
+                Connect your Ollama account to use high-capacity cloud models (<b>GPT-OSS 20B/120B</b>, <b>DeepSeek v3.1</b>, <b>Qwen 3 Coder</b>, <b>MiniMax</b>) running on Ollama's official servers. Free tier available — no GPU VRAM required.
+              </p>
+              <div id="ollama-cloud-trigger-container" style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
+                <button type="button" id="btn-toggle-ollama-cloud-connect" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                  <svg class="lottie-cloud-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
+                    <path class="lottie-cloud-body" d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+                    <g class="lottie-cloud-arrows">
+                      <polyline points="12 12.5 14 14.5 12 16.5"></polyline>
+                      <polyline points="12 16.5 10 14.5 12 12.5"></polyline>
+                    </g>
+                  </svg>
+                  <span id="ollama-cloud-btn-text">Connect Ollama Cloud</span>
+                </button>
+                <button type="button" id="btn-disconnect-ollama-cloud" class="hidden" style="height: 36px; padding: 0 14px; font-size: 12px; border-radius: 6px; cursor: pointer; background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); font-weight: 500; display: none;">Disconnect</button>
+              </div>
+            </div>
+
+            <!-- Local Ollama Connector -->
+            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; gap: 14px; margin-bottom: 12px;">
                 <img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama Logo" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
                 <div style="display: flex; flex-direction: column;">
                   <div class="connector-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 0;">
-                    <span id="ollama-connector-title" class="connector-title" style="font-weight: 600; font-size: 14px;">Connect Ollama</span>
+                    <span id="ollama-connector-title" class="connector-title" style="font-weight: 600; font-size: 14px;">Ollama (Local Engine)</span>
                     <span id="ollama-status-badge" class="badge-active">Detecting...</span>
                     <button id="btn-refresh-ollama" class="btn-icon" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: #a1a1aa; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" title="Refresh Ollama status">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
@@ -1237,20 +1314,10 @@
                 </div>
               </div>
               <p class="text-xs text-muted" style="margin-bottom: 10px; line-height: 1.4;">
-                Ollama runs models locally on your machine. Visit
+                Ollama runs models locally on your machine GPU/CPU. Visit
                 <a href="https://ollama.com" target="_blank" class="ollama-link" style="color: #60a5fa; text-decoration: underline; font-weight: 500;">ollama.com</a>
                 to install manually.
               </p>
-              <div id="ollama-cloud-auth-row" class="ollama-cloud-auth-card">
-                <div class="ollama-cloud-auth-main">
-                  <div class="ollama-cloud-auth-title-row">
-                    <span class="ollama-cloud-auth-title">Ollama Cloud</span>
-                    <span id="ollama-cloud-auth-badge" class="ollama-cloud-auth-badge is-checking">Checking…</span>
-                  </div>
-                  <p class="ollama-cloud-auth-desc">Sign in once, then pull <code>-cloud</code> models below — free tier, runs on Ollama servers.</p>
-                </div>
-                <button type="button" id="btn-ollama-signin" class="btn-primary-sm ollama-cloud-signin-btn">Sign in</button>
-              </div>
               <button id="btn-install-ollama" class="btn-primary-sm hidden" style="height: 36px; box-sizing: border-box;">Download & Install Ollama</button>
             </div>
             
@@ -1429,7 +1496,7 @@
 
               <div class="models-sound-row voice-model-row">
                 <div class="voice-model-row-info">
-                  <span class="voice-model-name">Ultron Speech (Windows)</span>
+                  <span class="voice-model-name">Brown Speech (Windows)</span>
                   <span id="voice-model-size-label" class="text-xs text-muted">Built-in · no download required</span>
                 </div>
                 <div class="models-sound-row-actions" id="voice-input-row-actions">
@@ -1463,7 +1530,7 @@
               <div class="models-sound-row voice-model-row">
                 <div class="voice-model-row-info">
                   <span class="voice-model-name">Input device</span>
-                  <span class="text-xs text-muted">Choose the microphone Ultron records from</span>
+                  <span class="text-xs text-muted">Choose the microphone Brown records from</span>
                 </div>
                 <select id="setting-voice-input-device" class="tts-select"></select>
               </div>
@@ -1532,7 +1599,7 @@
               <div class="models-sound-row voice-model-row" style="margin-top: 8px;">
                 <div class="voice-model-row-info">
                   <span class="voice-model-name">Preview voice</span>
-                  <span class="text-xs text-muted">"Hello, I'm Ultron."</span>
+                  <span class="text-xs text-muted">"Hello, I'm Brown."</span>
                 </div>
                 <div class="models-sound-row-actions">
                   <button type="button" id="btn-preview-tts" class="sound-preview-btn">Preview</button>
@@ -1600,7 +1667,7 @@
               </div>
             </div>
             <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.5;">
-              Index local folders, project notes, PDFs, and code files into a local semantic vector database. Ultron retrieves relevant excerpts automatically during chat and agent workflows with zero cloud data transmission.
+              Index local folders, project notes, PDFs, and code files into a local semantic vector database. Brown retrieves relevant excerpts automatically during chat and agent workflows with zero cloud data transmission.
             </p>
 
             <!-- Auto-learn toggle: zero-setup mode for non-technical users -->
@@ -1608,7 +1675,7 @@
               <input type="checkbox" id="rag-auto-toggle" checked style="margin-top: 2px; accent-color: #3b82f6; width: 15px; height: 15px; cursor: pointer; flex-shrink: 0;" />
               <div>
                 <div style="font-size: 13px; font-weight: 600; color: #ffffff;">Auto-learn from your activity</div>
-                <div style="font-size: 11.5px; color: #a1a1aa; margin-top: 3px; line-height: 1.5;">Ultron quietly indexes projects you open and files it works on, then recalls relevant notes automatically during chat. Everything stays on this PC. Turn off anytime.</div>
+                <div style="font-size: 11.5px; color: #a1a1aa; margin-top: 3px; line-height: 1.5;">Brown quietly indexes projects you open and files it works on, then recalls relevant notes automatically during chat. Everything stays on this PC. Turn off anytime.</div>
               </div>
             </div>
 
@@ -1657,7 +1724,7 @@
               <h5 style="margin: 0 0 10px 0;">Indexed Folders &amp; Documents</h5>
               <div id="rag-sources-list" style="display: flex; flex-direction: column; gap: 8px;">
                 <div style="padding: 16px; text-align: center; color: #6b7280; font-size: 13px; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px dashed var(--border-color);">
-                  No folders or documents added yet. With Auto-learn on, projects you open and files Ultron works on appear here automatically — or click "Add Folder" to add any folder.
+                  No folders or documents added yet. With Auto-learn on, projects you open and files Brown works on appear here automatically — or click "Add Folder" to add any folder.
                 </div>
               </div>
             </div>
@@ -1665,7 +1732,7 @@
             <!-- Test Query Sandbox -->
             <div style="border-top: 1px solid var(--border-color); padding-top: 16px;">
               <h5 style="margin: 0 0 8px 0;">Semantic Query Test</h5>
-              <p class="text-xs text-muted" style="margin: 0 0 10px 0;">Test how Ultron matches natural language queries against your indexed document vector chunks.</p>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0;">Test how Brown matches natural language queries against your indexed document vector chunks.</p>
               <div style="display: flex; gap: 8px;">
                 <input type="text" id="input-rag-test-query" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; font-size: 12px;" placeholder="e.g. Find database connection config or API endpoints..." />
                 <button id="btn-rag-test-search" class="btn-faint" style="height: 36px; padding: 0 16px; font-size: 12px;">Search Index</button>
@@ -1689,7 +1756,7 @@
               </div>
             </div>
             <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.5;">
-              Pair your Android device running the <b>Ultron Mobile</b> app with this PC over your local home/office Wi-Fi. Query desktop models, sync chats, and share API configurations privately.
+              Pair your Android device running the <b>Brown Mobile</b> app with this PC over your local home/office Wi-Fi. Query desktop models, sync chats, and share API configurations privately.
             </p>
 
             <!-- Sync Info Card -->
@@ -1706,7 +1773,7 @@
                   </div>
                   <div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                      <span id="sync-desktop-id" style="font-weight: 700; font-size: 15px; color: #ffffff; font-family: 'JetBrains Mono', monospace;">ULTRON-WIN-DETECTING</span>
+                      <span id="sync-desktop-id" style="font-weight: 700; font-size: 15px; color: #ffffff; font-family: 'JetBrains Mono', monospace;">BROWN-WIN-DETECTING</span>
                       <span id="sync-status-badge" style="font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">● Ready for Pairing</span>
                     </div>
                     <p id="sync-lan-endpoint" class="text-xs text-muted" style="margin: 2px 0 0 0;">LAN Endpoint: 0.0.0.0:49200</p>
@@ -1731,7 +1798,7 @@
 
               <!-- Pair Code Display Banner (Hidden until generated) -->
               <div id="sync-pair-code-banner" class="hidden" style="background: rgba(66, 133, 244, 0.08); border: 1px dashed rgba(66, 133, 244, 0.35); border-radius: 8px; padding: 12px; text-align: center; margin-top: 10px;">
-                <p style="margin: 0 0 6px 0; font-size: 12px; color: #93c5fd;">Enter this 4-letter code in your Ultron Mobile app:</p>
+                <p style="margin: 0 0 6px 0; font-size: 12px; color: #93c5fd;">Enter this 4-letter code in your Brown Mobile app:</p>
                 <div id="sync-pair-code-display" style="font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #60a5fa;">----</div>
                 <p id="sync-pair-code-timer" style="margin: 6px 0 0 0; font-size: 11px; color: #a1a1aa;">Code expires in 60s</p>
               </div>
@@ -1836,7 +1903,7 @@
                 <div class="voice-model-section-title">
                   <div>
                     <h5 class="voice-model-heading">Runtime Profile</h5>
-                    <p class="text-xs text-muted voice-model-desc">Choose how much background work, AI execution threads, and visual activity Ultron uses.</p>
+                    <p class="text-xs text-muted voice-model-desc">Choose how much background work, AI execution threads, and visual activity Brown uses.</p>
                   </div>
                 </div>
               </div>
@@ -1879,7 +1946,7 @@
                 <div class="voice-model-section-title">
                   <div>
                     <h5 class="voice-model-heading">Background Execution</h5>
-                    <p class="text-xs text-muted voice-model-desc">Allow autonomous desktop workflows to proceed when Ultron is minimized.</p>
+                    <p class="text-xs text-muted voice-model-desc">Allow autonomous desktop workflows to proceed when Brown is minimized.</p>
                   </div>
                 </div>
               </div>
@@ -1894,35 +1961,13 @@
                 </label>
               </div>
             </div>
-
-            <div class="models-sound-section voice-model-section">
-              <div class="voice-model-section-header">
-                <div class="voice-model-section-title">
-                  <div>
-                    <h5 class="voice-model-heading">UI Controls &amp; Desktop Companion</h5>
-                    <p class="text-xs text-muted voice-model-desc">Configure floating companion bar behavior when Ultron is minimized.</p>
-                  </div>
-                </div>
-              </div>
-              <div class="models-sound-row voice-model-row">
-                <div class="voice-model-row-info">
-                  <span class="voice-model-name">Show "Ask Ultron" Mini Pill on Minimize</span>
-                  <span class="text-xs text-muted">Displays compact pill widget above taskbar for instant companion access</span>
-                </div>
-                <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
-                  <input type="checkbox" id="setting-show-mini-pill" checked style="opacity: 0; width: 0; height: 0;">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-            </div>
-
           </div>
 
           <!-- Desktop Automation Tab -->
           <div id="tab-desktop" class="tab-pane hidden">
             <h4>Desktop Automation</h4>
             <p class="text-xs text-muted settings-section-intro">
-              Connectors that let Ultron open apps, read/write files, click UI elements, and navigate File Explorer. Install and connect all three for the most reliable desktop tasks.
+              Connectors that let Brown open apps, read/write files, click UI elements, and navigate File Explorer. Install and connect all three for the most reliable desktop tasks.
             </p>
 
             <div id="windows-uia-connector" class="connector-row" style="border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); border-radius: 8px;">
@@ -2012,13 +2057,13 @@
                   <span>Add</span>
                 </button>
               </div>
-              <p class="text-xs text-muted settings-section-intro">Multi-step routines Ultron can run on command. Say <em>run morning routine</em> or <em>save workflow called Backup: LIST_DIR Downloads then OPEN_APP Explorer</em>.</p>
+              <p class="text-xs text-muted settings-section-intro">Multi-step routines Brown can run on command. Say <em>run morning routine</em> or <em>save workflow called Backup: LIST_DIR Downloads then OPEN_APP Explorer</em>.</p>
               <div id="workflows-list" class="workflows-list"></div>
             </div>
 
             <div class="automation-section">
               <h5 class="automation-section-title">Scheduled workflows</h5>
-              <p class="text-xs text-muted settings-section-intro">Run a saved workflow automatically at a set time (checks every minute while Ultron is open).</p>
+              <p class="text-xs text-muted settings-section-intro">Run a saved workflow automatically at a set time (checks every minute while Brown is open).</p>
               <div id="schedules-list" class="workflows-list"></div>
               <div class="schedule-add-row">
                 <select id="schedule-workflow-pick" class="tts-select" style="flex:1; max-width:none;"></select>
@@ -2050,32 +2095,32 @@
             <div class="setting-item" style="margin-top: 4px;">
               <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Agent Storage &amp; Memory</label>
               <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. %LOCALAPPDATA%\UltronData\data">
+                <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. %LOCALAPPDATA%\BrownData\data">
                 <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
                 <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
               </div>
               <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                Conversations, agent memory, and session data. Defaults to <code style="font-size:11px;">%LOCALAPPDATA%\UltronData\data</code>.
+                Conversations, agent memory, and session data. Defaults to <code style="font-size:11px;">%LOCALAPPDATA%\BrownData\data</code>.
               </p>
             </div>
 
             <div class="setting-item" style="margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 16px;">
               <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Connectors &amp; Downloads</label>
               <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="setting-connectors-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. D:\Ultron\connectors">
+                <input type="text" id="setting-connectors-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. D:\Brown\connectors">
                 <button id="btn-browse-connectors" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
                 <button id="btn-reset-connectors" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
               </div>
               <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                Desktop automation connectors (UI Automation, MCP servers). Defaults to <code style="font-size:11px;">{Ultron-local or Ultron-AI}\connectors</code>.
+                Desktop automation connectors (UI Automation, MCP servers). Defaults to <code style="font-size:11px;">{Brown-local or Brown-AI}\connectors</code>.
               </p>
             </div>
 
             <div class="setting-item" style="margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 16px;">
               <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Ollama Models</label>
-              <input type="text" id="setting-ollama-models-dir" class="override-input" readonly style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); color: rgba(255,255,255,0.55); font-size: 12px; box-sizing: border-box; cursor: default;" placeholder="Detecting Ollama…">
+              <input type="text" id="setting-ollama-models-dir" class="override-input" readonly style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); color: rgba(255,255,0.55); font-size: 12px; box-sizing: border-box; cursor: default;" placeholder="Detecting Ollama…">
               <p id="setting-ollama-install-note" class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                Stored in <code style="font-size:11px;">{Ultron-local or Ultron-AI}\models</code>. Created when Ollama is installed.
+                Stored in <code style="font-size:11px;">{Brown-local or Brown-AI}\models</code>. Created when Ollama is installed.
               </p>
             </div>
             
@@ -2091,7 +2136,7 @@
           <!-- Permissions Tab -->
           <div id="tab-permissions" class="tab-pane hidden">
             <div style="margin-bottom: 24px;">
-              <h4 style="margin: 0 0 6px 0;">Ultron Action Authorization</h4>
+              <h4 style="margin: 0 0 6px 0;">Brown Action Authorization</h4>
               <p class="text-xs text-muted" style="margin: 0 0 14px 0; line-height: 1.4;">Configure execution safety boundaries for file edits, terminal commands, web research, and autonomous tools.</p>
               
               <div class="perm-popover-list settings-perm-list" style="display: flex; flex-direction: column; gap: 8px; max-width: 580px;">
@@ -2166,7 +2211,7 @@
               <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
                 <div>
                   <label style="display: block; margin-bottom: 4px;">Live Screen Capture</label>
-                  <p class="text-xs text-muted" style="margin: 0; line-height: 1.4;">Allow Ultron to capture desktop screenshots during agent tasks for visual verification and UI understanding. Only screenshots needed for the task are analyzed.</p>
+                  <p class="text-xs text-muted" style="margin: 0; line-height: 1.4;">Allow Brown to capture desktop screenshots during agent tasks for visual verification and UI understanding. Only screenshots needed for the task are analyzed.</p>
                 </div>
                 <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
                   <input type="checkbox" id="setting-screen-capture-toggle" style="opacity: 0; width: 0; height: 0;">
@@ -2182,7 +2227,7 @@
           <div id="tab-apps" class="tab-pane hidden">
             <div class="apps-settings-header">
               <h4>Applications</h4>
-              <p class="text-xs text-muted settings-section-intro">Select which local applications Ultron is authorized to interact with, launch, or read configurations from.</p>
+              <p class="text-xs text-muted settings-section-intro">Select which local applications Brown is authorized to interact with, launch, or read configurations from.</p>
             </div>
 
             <div class="apps-toolbar">
@@ -2226,8 +2271,8 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                   </div>
                   <div>
-                    <h5 id="update-status-title" style="margin: 0; font-size: 15px; font-weight: 600; color: #fff;">Ultron is up to date</h5>
-                    <p id="update-status-subtitle" style="margin: 4px 0 0 0; font-size: 12px; color: #a1a1aa;">Current Version: v1.0.13</p>
+                    <h5 id="update-status-title" style="margin: 0; font-size: 15px; font-weight: 600; color: #fff;">Brown is up to date</h5>
+                    <p id="update-status-subtitle" style="margin: 4px 0 0 0; font-size: 12px; color: #a1a1aa;">Current Version: v1.0.14</p>
                   </div>
                 </div>
                 <button id="btn-check-updates" style="background: #4285f4; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background 0.2s;">
@@ -2253,18 +2298,18 @@
             <div class="developer-settings-card about-settings-card">
               <div class="about-app-intro">
                 <div class="about-app-brand">
-                  <img src="../../Assets/Brand-Assets/ultron-logo.png" class="about-app-logo" alt="Ultron">
+                  <img src="../../Assets/Brand-Assets/ultron-logo.png" class="about-app-logo" alt="Brown">
                   <div>
-                    <h4 class="about-app-title">Ultron <span class="about-app-version-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); vertical-align: middle; margin-left: 6px;">BETA v1.0.0</span></h4>
+                    <h4 class="about-app-title">Brown <span class="about-app-version-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); vertical-align: middle; margin-left: 6px;">BETA v1.0.0</span></h4>
                     <p class="developer-tagline">Local &amp; Offline Windows AI Agent</p>
                   </div>
                 </div>
-                <h5 class="developer-section-subtitle">About Ultron</h5>
+                <h5 class="developer-section-subtitle">About Brown</h5>
                 <p class="developer-bio-text">
-                  Ultron is an advanced, privacy-first AI agent designed exclusively for Windows. It operates locally on your machine, interacts naturally via text and speech, and assists with intelligent chat, code execution, file management, system diagnostics, and desktop automation — without sending your data to external clouds by default.
+                  Brown is an advanced, privacy-first AI agent designed exclusively for Windows. It operates locally on your machine, interacts naturally via text and speech, and assists with intelligent chat, code execution, file management, system diagnostics, and desktop automation — without sending your data to external clouds by default.
                 </p>
                 <p class="developer-bio-text" style="margin-top: 8px;">
-                  Powered by local Ollama neural models with seamless fallback to Google Gemini cloud intelligence when requested, Ultron delivers fast, autonomous capabilities while keeping you in complete control.
+                  Powered by local Ollama neural models with seamless fallback to Google Gemini cloud intelligence when requested, Brown delivers fast, autonomous capabilities while keeping you in complete control.
                 </p>
 
                 <div class="about-specs-grid" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 16px;">
@@ -2287,9 +2332,9 @@
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
                       <span>Instagram (@ultron_offline)</span>
                     </a>
-                    <a href="mailto:vedantwankhade47@gmail.com" id="btn-settings-email" class="btn-email-feedback" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; text-decoration: none; font-size: 12px; font-weight: 500;">
+                    <a href="mailto:contact@usebrown.online" id="btn-settings-email" class="btn-email-feedback" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; text-decoration: none; font-size: 12px; font-weight: 500;">
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-                      <span>vedantwankhade47@gmail.com</span>
+                      <span>contact@usebrown.online</span>
                     </a>
                   </div>
                 </div>
@@ -2340,7 +2385,7 @@
     <!-- Session pane: tasks, files changed, artifacts and uploads of the active chat -->
     <div id="sidebar-session-pane" class="sidebar-session-pane">
       <div id="session-panel-empty" class="session-panel-empty">
-        No session activity yet.<br>Files Ultron creates, opens or reads — and the task plan — will appear here.
+        No session activity yet.<br>Files Brown creates, opens or reads — and the task plan — will appear here.
       </div>
       <div id="session-panel-content" class="session-panel-content"></div>
     </div>
@@ -2373,11 +2418,12 @@
   <!-- First-Time Setup & Onboarding View (Cursor-inspired) -->
   <div id="onboarding-screen" class="onboarding-screen hidden">
     <div class="onboarding-container">
-      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="onboarding-logo-img" alt="Ultron Logo" />
+      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="onboarding-logo-img" alt="Brown Logo" />
 
       <!-- Step 0: Welcome -->
       <div id="onboard-step-0" class="onboard-step onboard-welcome">
-        <h1 class="onboarding-title">Welcome to Ultron AI</h1>
+        <h1 class="onboarding-title">Welcome to Brown AI</h1>
+        <p class="onboarding-tagline">The Autonomous AI Agent for Windows</p>
         <p class="onboarding-tagline">The Autonomous AI Agent for Windows</p>
         <div class="onboard-btn-stack">
           <button id="btn-onboard-start" type="button" class="btn-onboard-primary btn-onboard-full">Get Started</button>
@@ -2817,9 +2863,9 @@
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
               <span>@ultron_offline</span>
             </a>
-            <a href="mailto:vedantwankhade47@gmail.com" id="btn-rn-email" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; text-decoration: none; font-size: 12px; font-weight: 500;">
+            <a href="mailto:contact@usebrown.online" id="btn-rn-email" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; text-decoration: none; font-size: 12px; font-weight: 500;">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#ef4444" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-              <span>vedantwankhade47@gmail.com</span>
+              <span>contact@usebrown.online</span>
             </a>
           </div>
         </div>

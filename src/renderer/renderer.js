@@ -148,11 +148,14 @@ function getRecoveryModelCandidates(intent, failedModel) {
 function getInstalledLocalModelCandidates(excludedModels = []) {
   const excluded = new Set(excludedModels.map(name => normalizeModelName(name).toLowerCase()).filter(Boolean));
   return (installedModelsList || [])
+    .filter(model => {
+      const name = normalizeModelName(model);
+      return name && !isOllamaCloudPulledModel(name) && !excluded.has(name.toLowerCase());
+    })
     .map(model => ({
       name: normalizeModelName(model),
       size: typeof model === 'object' && model ? model.size : 0
     }))
-    .filter(model => model.name && !excluded.has(model.name.toLowerCase()))
     .sort((a, b) => {
       const rankDiff = getModelFallbackRank(a.name) - getModelFallbackRank(b.name);
       if (rankDiff !== 0) return rankDiff;
@@ -2578,16 +2581,22 @@ async function checkOllamaConnection() {
   try {
     const response = await fetch('http://127.0.0.1:11434/api/tags');
     if (response.ok) {
+      const data = await response.json().catch(() => ({}));
+      if (data && Array.isArray(data.models)) {
+        installedModelsList = data.models;
+      }
       return { connected: true };
     }
   } catch (err) {}
 
   // Fallback check via system profiler / installed models query
   try {
-    const res = await window.ultronAPI.profileSystem();
-    if (res && res.success && Array.isArray(res.installedModels) && res.installedModels.length > 0) {
-      installedModelsList = res.installedModels;
-      return { connected: true };
+    if (window.ultronAPI && typeof window.ultronAPI.profileSystem === 'function') {
+      const res = await window.ultronAPI.profileSystem();
+      if (res && res.success && Array.isArray(res.installedModels) && res.installedModels.length > 0) {
+        installedModelsList = res.installedModels;
+        return { connected: true };
+      }
     }
   } catch (e) {}
 
@@ -3137,34 +3146,58 @@ async function refreshOllamaStatus() {
 }
 
 async function refreshOllamaCloudAuthUI() {
-  const badge = document.getElementById('ollama-cloud-auth-badge');
-  const btnSignin = document.getElementById('btn-ollama-signin');
-  if (!badge || !window.ultronAPI?.getOllamaAuthStatus) return;
+  const badge = document.getElementById('ollama-cloud-status-badge') || document.getElementById('ollama-cloud-auth-badge');
+  const btnConnect = document.getElementById('btn-toggle-ollama-cloud-connect') || document.getElementById('btn-ollama-signin');
+  const btnDisconnect = document.getElementById('btn-disconnect-ollama-cloud');
+  const subtitle = document.getElementById('ollama-cloud-subtitle');
 
-  badge.classList.remove('is-signed-in', 'is-signed-out', 'is-checking');
+  if (!window.ultronAPI?.getOllamaAuthStatus) return;
 
   try {
     const status = await window.ultronAPI.getOllamaAuthStatus();
+    isOllamaCloudConnectedState = Boolean(status && status.signedIn);
     if (status.signedIn) {
-      badge.textContent = 'Signed in';
-      badge.classList.add('is-signed-in');
-      if (btnSignin) {
-        btnSignin.textContent = 'Sign out';
-        btnSignin.classList.remove('btn-primary-sm');
-        btnSignin.classList.add('btn-secondary-sm');
+      if (badge) {
+        badge.textContent = `Connected (${OLLAMA_CLOUD_PULL_MODELS.length} Cloud Models)`;
+        badge.style.background = 'rgba(52, 211, 153, 0.15)';
+        badge.style.color = '#34d399';
+        badge.style.borderColor = 'rgba(52, 211, 153, 0.3)';
+      }
+      if (subtitle) {
+        subtitle.textContent = `Connected • ${OLLAMA_CLOUD_PULL_MODELS.length} Ollama Cloud models unlocked (free tier)`;
+      }
+      if (btnConnect) {
+        btnConnect.style.display = 'none';
+      }
+      if (btnDisconnect) {
+        btnDisconnect.style.display = 'inline-flex';
+        btnDisconnect.classList.remove('hidden');
       }
     } else {
-      badge.textContent = 'Not signed in';
-      badge.classList.add('is-signed-out');
-      if (btnSignin) {
-        btnSignin.textContent = 'Sign in';
-        btnSignin.classList.add('btn-primary-sm');
-        btnSignin.classList.remove('btn-secondary-sm');
+      if (badge) {
+        badge.textContent = 'Not connected';
+        badge.style.background = 'rgba(161, 161, 170, 0.12)';
+        badge.style.color = '#a1a1aa';
+        badge.style.borderColor = 'rgba(161, 161, 170, 0.25)';
+      }
+      if (subtitle) {
+        subtitle.textContent = 'Endpoint: https://ollama.com • Official Cloud Models';
+      }
+      if (btnConnect) {
+        btnConnect.style.display = 'inline-flex';
+        btnConnect.classList.remove('hidden');
+      }
+      if (btnDisconnect) {
+        btnDisconnect.style.display = 'none';
+        btnDisconnect.classList.add('hidden');
       }
     }
   } catch (e) {
-    badge.textContent = 'Unavailable';
-    badge.classList.add('is-signed-out');
+    if (badge) {
+      badge.textContent = 'Not connected';
+      badge.style.background = 'rgba(161, 161, 170, 0.12)';
+      badge.style.color = '#a1a1aa';
+    }
   }
 }
 
@@ -3176,7 +3209,7 @@ async function ensureOllamaCloudAuthForPull(modelName) {
   if (status.signedIn) return true;
 
   const proceed = window.confirm(
-    'Ollama Cloud models require signing in with your Ollama account.\n\nOpen the sign-in page in your browser now?'
+    'Ollama Cloud models require connecting your Ollama account.\n\nOpen the official Ollama authorization page in your browser now?'
   );
   if (!proceed) return false;
 
@@ -3184,54 +3217,103 @@ async function ensureOllamaCloudAuthForPull(modelName) {
 }
 
 async function runOllamaSigninFlow() {
-  const btnSignin = document.getElementById('btn-ollama-signin');
-  const badge = document.getElementById('ollama-cloud-auth-badge');
-  if (btnSignin) {
-    btnSignin.disabled = true;
-    btnSignin.textContent = 'Signing in…';
+  const btnConnect = document.getElementById('btn-toggle-ollama-cloud-connect') || document.getElementById('btn-ollama-signin');
+  const btnText = document.getElementById('ollama-cloud-btn-text');
+  const badge = document.getElementById('ollama-cloud-status-badge') || document.getElementById('ollama-cloud-auth-badge');
+
+  if (btnConnect) {
+    btnConnect.disabled = true;
+    if (btnText) btnText.textContent = 'Connecting…';
   }
-  if (badge) badge.textContent = 'Waiting for browser…';
+  if (badge) {
+    badge.textContent = 'Awaiting Browser Approval…';
+    badge.style.background = 'rgba(234, 179, 8, 0.15)';
+    badge.style.color = '#eab308';
+    badge.style.borderColor = 'rgba(234, 179, 8, 0.3)';
+  }
 
-  const result = await window.ultronAPI.ollamaSignin().catch(err => ({
-    success: false,
-    error: err.message || 'Sign-in failed.'
-  }));
+  // 1. Trigger sign-in (spawns ollama signin and opens connect URL in browser)
+  const signinRes = await window.ultronAPI.ollamaSignin().catch(() => ({ success: false }));
+  logTrace(`Ollama Cloud authorization flow initiated in browser: ${signinRes?.authUrl || 'https://ollama.com/signin'}`, 'system');
 
-  if (btnSignin) btnSignin.disabled = false;
-  await refreshOllamaCloudAuthUI();
+  showOllamaBanner(
+    'info',
+    'Opening Ollama authorization in your browser. Please approve or log in on ollama.com, then return here.',
+    true
+  );
 
-  if (result.success) {
-    logTrace('Signed in to Ollama Cloud.', 'system');
+  // 2. Poll live verification for up to 45 seconds (every 2.5s)
+  const startTime = Date.now();
+  const maxWaitMs = 45000;
+  let isAuthed = false;
+
+  while (Date.now() - startTime < maxWaitMs) {
+    await new Promise(r => setTimeout(r, 2500));
+    try {
+      const verify = await window.ultronAPI.verifyOllamaCloudAuth();
+      if (verify && verify.authorized) {
+        isAuthed = true;
+        break;
+      }
+    } catch (_) {}
+  }
+
+  if (btnConnect) {
+    btnConnect.disabled = false;
+    if (btnText) btnText.textContent = 'Connect Ollama Cloud';
+  }
+
+  if (isAuthed) {
+    await window.ultronAPI.setOllamaAuthStatus(true);
+    await refreshOllamaCloudAuthUI();
+    renderModelDropdownList();
+    renderSettingsModels();
+    renderOllamaCatalog();
+    showOllamaBanner('success', '✓ Successfully connected to Ollama Cloud! All cloud models are now available in your library.', true);
+    logTrace('Verified and connected to Ollama Cloud.', 'system');
     return true;
+  } else {
+    await window.ultronAPI.setOllamaAuthStatus(false);
+    await refreshOllamaCloudAuthUI();
+    showOllamaBanner('warning', 'Ollama Cloud connection was not approved or timed out. Please click Connect to try again.', true);
+    logTrace('Ollama Cloud authorization was not completed in browser.', 'system');
+    return false;
   }
-
-  logTrace(result.error || 'Ollama Cloud sign-in did not complete.', 'system');
-  alert(result.error || 'Ollama Cloud sign-in did not complete. Finish sign-in in your browser, then try again.');
-  return false;
 }
 
 function initOllamaCloudAuthUI() {
-  const btnSignin = document.getElementById('btn-ollama-signin');
-  if (!btnSignin) return;
+  const btnConnect = document.getElementById('btn-toggle-ollama-cloud-connect') || document.getElementById('btn-ollama-signin');
+  const btnDisconnect = document.getElementById('btn-disconnect-ollama-cloud');
 
   refreshOllamaCloudAuthUI();
 
-  btnSignin.addEventListener('click', async (e) => {
-    e.preventDefault();
-    if (!window.ultronAPI?.getOllamaAuthStatus) return;
+  if (btnConnect) {
+    btnConnect.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await runOllamaSigninFlow();
+    });
+  }
 
-    const status = await window.ultronAPI.getOllamaAuthStatus();
-    if (status.signedIn && window.ultronAPI.ollamaSignout) {
-      btnSignin.disabled = true;
-      await window.ultronAPI.ollamaSignout();
-      btnSignin.disabled = false;
+  if (btnDisconnect) {
+    btnDisconnect.addEventListener('click', async (e) => {
+      e.preventDefault();
+      btnDisconnect.disabled = true;
+      btnDisconnect.textContent = 'Disconnecting…';
+      if (window.ultronAPI?.ollamaSignout) {
+        await window.ultronAPI.ollamaSignout().catch(() => {});
+      }
+      if (window.ultronAPI?.setOllamaAuthStatus) {
+        await window.ultronAPI.setOllamaAuthStatus(false).catch(() => {});
+      }
+      btnDisconnect.disabled = false;
+      btnDisconnect.textContent = 'Disconnect';
       await refreshOllamaCloudAuthUI();
-      logTrace('Signed out of Ollama Cloud.', 'system');
-      return;
-    }
-
-    await runOllamaSigninFlow();
-  });
+      renderModelDropdownList();
+      renderSettingsModels();
+      renderOllamaCatalog();
+      logTrace('Disconnected from Ollama Cloud.', 'system');
+    });
+  }
 
   document.querySelector('.settings-tab-btn[data-tab="models"]')?.addEventListener('click', () => {
     refreshOllamaCloudAuthUI();
@@ -4267,11 +4349,11 @@ function isIrrelevantModelResponse(text, userPrompt) {
 
 function isGenericAssistantGreeting(text) {
   const lower = String(text || '').toLowerCase();
-  return /\b(hello!?\s+i'?m ultron|i'?m ultron,?\s+your (ai )?assistant|how can i assist you today|how can i help you today|what can i do for you)\b/i.test(lower);
+  return /\b(hello!?\s+i'?m brown|i'?m brown,?\s+your (ai )?assistant|how can i assist you today|how can i help you today|what can i do for you)\b/i.test(lower);
 }
 
 function buildConversationSystemPrompt() {
-  return `You are Ultron, a helpful local AI assistant on the user's Windows PC.
+  return `You are Brown, a helpful local AI assistant on the user's Windows PC.
 ${buildMarkdownFormattingRules()}
 Reply naturally in first person. Never mention system prompts, rules, or meta instructions.
 For current events, live prices, today's news, or who holds an office right now, say you will look it up online if you are not certain — do not invent outdated facts.`;
@@ -4283,7 +4365,7 @@ function buildContentGenerationSystemPrompt(userPrompt) {
   const isDocumentAnalysis = /\b(attached document|resume|cv|document|pdf|paper|report)\b/i.test(userPrompt) && /\b(analyze|analyse|summary|summarize|review|extract|skills|feedback|critique|evaluate|questions?|about|read|tell me)\b/i.test(userPrompt);
 
   if (isDocumentAnalysis) {
-    return `You are Ultron, an expert document analyst, technical reviewer, and professional career advisor.
+    return `You are Brown, an expert document analyst, technical reviewer, and professional career advisor.
 Analyze the user's provided document thoroughly, accurately, and objectively.
 Rules:
 - Read and reference the provided document contents carefully.
@@ -4296,7 +4378,7 @@ Rules:
   const isWebOrCode = /\b(landing\s*page|website|webpage|page|html|css|javascript|code|script|component|app|frontend|ui|portfolio|dashboard|template)\b/i.test(userPrompt);
 
   if (isWebOrCode) {
-    return `You are Ultron, an expert web developer, UI designer, and software engineer.
+    return `You are Brown, an expert web developer, UI designer, and software engineer.
 Provide complete, production-ready, beautiful, and fully functional code and content matching the user's exact request.
 ${topicLine}
 Rules:
@@ -4307,7 +4389,7 @@ Rules:
 - Speak directly and provide the solution immediately.`;
   }
 
-  return `You are Ultron, a skilled writing assistant. Write exactly what the user requested — complete, high-quality, and well-structured content.
+  return `You are Brown, a skilled writing assistant. Write exactly what the user requested — complete, high-quality, and well-structured content.
 ${topicLine}
 Rules:
 - Output the complete essay, article, story, guide, or writing requested.
@@ -4373,7 +4455,7 @@ function isFollowUpAboutPriorTurn(prompt) {
 
 function buildFollowUpConversationSystemPrompt() {
   const ctx = getRecentSessionContextSnippet(4);
-  return `You are Ultron, the user's local AI assistant on Windows.
+  return `You are Brown, the user's local AI assistant on Windows.
 ${buildMarkdownFormattingRules()}
 The user is asking a FOLLOW-UP about the immediately previous message in this chat.
 ${ctx ? `\n${ctx}\n` : ''}
@@ -5192,7 +5274,7 @@ Rules:
 - Budget "${userPrompt.match(/\b(under|below)\s+[\d,.]+/i)?.[0] || ''}" means ${regional.currency === 'INR' ? 'Indian Rupees' : regional.currencyWord || 'local currency'}.
 - No generic brand advice. No "I don't have real-time access". No essays.` : '';
 
-  const summarySystemPrompt = `You are Ultron, a concise assistant in a direct conversation with ${userName}.
+  const summarySystemPrompt = `You are Brown, a concise assistant in a direct conversation with ${userName}.
 Answer using ONLY the live web information provided.${hopNote}${locationNote}${weatherBlock}${productBlock}
 
 CRITICAL:
@@ -5426,7 +5508,7 @@ function detectRequestedCodeLanguage(prompt) {
 function buildCodeGenerationSystemPrompt(userPrompt) {
   const lang = detectRequestedCodeLanguage(userPrompt);
   const langLabel = lang === 'html' ? 'HTML5' : lang;
-  return `You are Ultron, a coding assistant. The user wants source code only.
+  return `You are Brown, a coding assistant. The user wants source code only.
 
 Rules:
 - Output exactly ONE fenced code block: \`\`\`${lang}
@@ -5817,16 +5899,31 @@ async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMess
   }
 }
 
+let isOllamaCloudConnectedState = false;
+
 function isOllamaCloudPulledModel(modelName) {
   return String(modelName || '').toLowerCase().endsWith('-cloud');
 }
 
 function getInstalledCloudModels() {
   const map = new Map();
+  // 1. Any pulled cloud models from local Ollama
   (installedModelsList || []).forEach((model) => {
     const name = typeof model === 'string' ? model : model.name;
-    if (name && isOllamaCloudPulledModel(name)) map.set(name, typeof model === 'string' ? { name, size: 0 } : model);
+    if (name && isOllamaCloudPulledModel(name)) {
+      map.set(name.toLowerCase(), typeof model === 'string' ? { name, size: 0 } : model);
+    }
   });
+
+  // 2. If user is connected to Ollama Cloud, make all cloud models available
+  if (isOllamaCloudConnectedState) {
+    (OLLAMA_CLOUD_PULL_MODELS || []).forEach((model) => {
+      if (!map.has(model.name.toLowerCase())) {
+        map.set(model.name.toLowerCase(), { name: model.name, size: model.size || 'Cloud', desc: model.desc });
+      }
+    });
+  }
+
   return Array.from(map.values());
 }
 
@@ -5891,7 +5988,7 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
       ? (isCodeRequest
         ? buildCodeGenerationSystemPrompt(prompt)
         : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt()))
-      : `You are Ultron, a warm, highly intelligent, articulate, and engaging AI assistant in a direct 1-on-1 personal conversation with ${userName}.
+      : `You are Brown, a warm, highly intelligent, articulate, and engaging AI assistant in a direct 1-on-1 personal conversation with ${userName}.
 
 CONVERSATIONAL PERSONA & DIRECT VOICE RULES:
 1. ALWAYS speak directly to ${userName} in the first person ("I", "me", "my") addressing ${userName} as "you".
@@ -6235,6 +6332,36 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       }
 
       logTrace(`Local LLM response HTTP error (${response.status}): ${errDetail}`, 'error');
+      
+      // Auto-recover if model is not found in Ollama by switching to an actually available model
+      if (errDetail && errDetail.toLowerCase().includes('not found')) {
+        const fallbackCandidates = [
+          ...getInstalledCloudModels().map(m => m.name),
+          ...getInstalledOfflineModels().map(m => m.name),
+          ...(window.UltronMultiProviderHub?.getAvailableModels?.(true) || []).map(m => m.name)
+        ].filter(name => name && name.toLowerCase() !== activeModel.toLowerCase());
+
+        if (fallbackCandidates.length > 0) {
+          const alternateModel = fallbackCandidates[0];
+          logTrace(`Model "${activeModel}" was not found on Ollama. Automatically switching to available model: "${alternateModel}"`, 'system');
+          activeModel = alternateModel;
+          updateModelSelectorLabel();
+          renderModelDropdownList();
+          // Retry with the available model
+          return queryOfflineLLM(prompt, extraMessages, intentOverride, customSystemPromptOverride, imagePayloads, streamCallbacks);
+        }
+      }
+
+      // Handle Unauthorized Ollama Cloud requests
+      if (response.status === 401 || (errDetail && errDetail.toLowerCase().includes('unauthorized'))) {
+        isOllamaCloudConnectedState = false;
+        if (window.ultronAPI?.setOllamaAuthStatus) {
+          window.ultronAPI.setOllamaAuthStatus(false).catch(() => {});
+        }
+        refreshOllamaCloudAuthUI();
+        return `⚠️ **Ollama Cloud Authorization Required (${activeModel})**\n\nYour session is not yet authorized on Ollama's official servers to run cloud-streamed models.\n\n**To Fix:**\n1. Open **Settings → Models**.\n2. Click **Connect Ollama Cloud** and approve the authorization in your browser.\n3. Or select an installed offline model or Google Gemini from the model dropdown.`;
+      }
+
       if (!isOllamaRecoverableError(errDetail)) {
         return `Warning: **Ollama Model Error (${activeModel})**\n\nOllama returned an error before generating a response:\n\n` + '`' + `${errDetail || 'Unknown error'}` + '`' + `\n\nTry another model from the dropdown, pull an **Ollama Cloud** model (Settings → Models → Sign in to Ollama Cloud), or restart Ollama.`;
       }
@@ -9289,7 +9416,7 @@ ${missingInstruction}`;
         finalResponse = `Could not fetch content from ${pageUrl}. Check the URL or your network connection.`;
       } else {
         toolResult = pageContent.slice(0, 12000);
-        const summarySystemPrompt = `You are Ultron in a direct 1-on-1 conversation.
+        const summarySystemPrompt = `You are Brown in a direct 1-on-1 conversation.
 Summarize or answer using ONLY the fetched page content below.
 Never include raw URLs in the body. Be concise and structured.`;
         const summaryPrompt = `User request:
@@ -9992,6 +10119,18 @@ function getModelBrandInfo(modelName, author = '', provider = '') {
     };
   }
 
+  const isCloud = m.endsWith('-cloud') || provider === 'cloud';
+  const isGptOss = m.startsWith('gpt-oss') || m.startsWith('gptoss');
+
+  if (isCloud || isGptOss) {
+    return {
+      brand: isCloud ? 'Ollama Cloud' : 'Ollama',
+      author: author || 'ollama',
+      avatar: `<div class="model-brand-avatar ollama-avatar"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
+      prefix: ''
+    };
+  }
+
   // Cloud multi-providers
   if (provider === 'gemini' || m.includes('gemini')) {
     return {
@@ -10001,7 +10140,7 @@ function getModelBrandInfo(modelName, author = '', provider = '') {
       prefix: ''
     };
   }
-  if (provider === 'openai' || m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) {
+  if (provider === 'openai' || ((m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) && !isGptOss && !isCloud)) {
     return {
       brand: 'OpenAI',
       author: author || 'openai',
@@ -10171,6 +10310,7 @@ function selectAndActivateModel(modelName) {
   updateModelSelectorLabel();
   syncModelAttachmentCapabilities();
   renderSettingsModels();
+  renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
   logTrace(`Active model set to "${modelName}".`, 'system');
 }
 
@@ -10192,17 +10332,37 @@ function renderSettingsModels() {
   settingsModelsList.innerHTML = '';
   renderModelTypeFilterBar(document.getElementById('installed-model-filters'));
 
-  const filteredInstalled = (installedModelsList || []).filter(model => {
+  const effectiveInstalledMap = new Map();
+  // 1. Locally installed models
+  (installedModelsList || []).forEach(model => {
+    const name = typeof model === 'string' ? model : model.name;
+    if (name) {
+      effectiveInstalledMap.set(name.toLowerCase(), typeof model === 'string' ? { name } : model);
+    }
+  });
+
+  // 2. If signed in with Ollama Cloud, include all cloud models in the Installed Models library!
+  if (isOllamaCloudConnectedState) {
+    (OLLAMA_CLOUD_PULL_MODELS || []).forEach(model => {
+      if (!effectiveInstalledMap.has(model.name.toLowerCase())) {
+        effectiveInstalledMap.set(model.name.toLowerCase(), model);
+      }
+    });
+  }
+
+  const allEffectiveInstalled = Array.from(effectiveInstalledMap.values());
+
+  const filteredInstalled = allEffectiveInstalled.filter(model => {
     const name = typeof model === 'string' ? model : model.name;
     return modelMatchesFilter(name, '', [], activeModelCatalogFilter);
   });
   
-  // 2. Render downloaded models
-  if (installedModelsList.length === 0) {
+  // 2. Render downloaded / unlocked models
+  if (allEffectiveInstalled.length === 0) {
     settingsModelsList.innerHTML = `
       <div style="border: 1px dashed var(--border-color); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 8px;">
-        <p style="font-size: 13px; color: var(--accent-white); font-weight: 500; margin: 0 0 6px 0;">No local model weights installed yet</p>
-        <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 14px 0;">Click below to download <strong>Phi-3</strong> (2.2 GB), a stronger small model for reliable offline replies.</p>
+        <p style="font-size: 13px; color: var(--accent-white); font-weight: 500; margin: 0 0 6px 0;">No model weights installed yet</p>
+        <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 14px 0;">Connect your <strong>Ollama Cloud</strong> account above or download <strong>Phi-3</strong> (2.2 GB) for offline replies.</p>
         <button id="btn-quick-download-phi3" class="btn-primary-sm" style="background-color: #ffffff !important; color: #000000 !important; font-weight: 600; padding: 6px 16px; font-size: 12px; border-radius: 6px; cursor: pointer; border: none;">
           Download Phi-3 (2.2 GB)
         </button>
@@ -10296,8 +10456,11 @@ function renderSettingsModels() {
         <div class="card-header-right">
           <span class="card-token-metric">${escapeHtml(paramBadge)} • ${escapeHtml(sizeText)}</span>
           ${isActive
-            ? `<span class="badge-installed">ACTIVE</span>`
-            : `<button class="btn-select-model" data-model="${escapeHtml(name)}">Select</button>`
+            ? `<span class="badge-in-use">In Use</span>`
+            : (isCloudModel
+                ? `<button class="btn-cloud-use btn-select-model" data-model="${escapeHtml(name)}">Use Model</button>`
+                : `<button class="btn-select-model" data-model="${escapeHtml(name)}">Select</button>`
+              )
           }
           <button class="btn-delete-model" data-model="${escapeHtml(name)}" title="Delete this model">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
@@ -11107,6 +11270,189 @@ if (btnBannerClose) {
   });
 }
 
+// ==========================================
+// MODELS TOP-RIGHT DOWNLOAD TRACKER & CIRCULAR PROGRESS CONTROLLER
+// ==========================================
+const activeModelDownloadsMap = new Map();
+let isDownloadPopoverOpen = false;
+
+function getDownloadProgressRingOffset(percent) {
+  const radius = 14;
+  const circumference = 2 * Math.PI * radius; // ~87.9646
+  const pct = Math.max(0, Math.min(100, Number(percent) || 0));
+  return circumference - (pct / 100) * circumference;
+}
+
+function updateModelsDownloadTrackerUI() {
+  const trackerEl = document.getElementById('models-download-tracker');
+  const btnIndicator = document.getElementById('btn-models-download-indicator');
+  const ringFill = document.getElementById('download-progress-ring');
+  const badge = document.getElementById('download-active-badge');
+  const popover = document.getElementById('models-download-popover');
+  const popoverSummary = document.getElementById('download-popover-status-summary');
+  const itemsContainer = document.getElementById('download-popover-items');
+
+  if (!trackerEl || !btnIndicator || !ringFill) return;
+
+  const entries = Array.from(activeModelDownloadsMap.values());
+  const activeDownloads = entries.filter(e => e.status !== 'Completed' && e.status !== 'Failed' && e.status !== 'Cancelled');
+
+  if (entries.length === 0) {
+    trackerEl.classList.add('hidden');
+    if (popover) popover.classList.add('hidden');
+    isDownloadPopoverOpen = false;
+    return;
+  }
+
+  // Show tracker in top right of models header
+  trackerEl.classList.remove('hidden');
+
+  if (activeDownloads.length > 0) {
+    btnIndicator.classList.add('is-downloading');
+    if (badge) {
+      badge.classList.remove('hidden');
+      badge.textContent = String(activeDownloads.length);
+    }
+    
+    // Average progress percentage for the circular ring
+    const avgPercent = activeDownloads.reduce((acc, curr) => acc + (curr.percent || 0), 0) / activeDownloads.length;
+    ringFill.style.strokeDashoffset = `${getDownloadProgressRingOffset(avgPercent)}px`;
+    ringFill.style.stroke = '#22c55e';
+    if (popoverSummary) {
+      popoverSummary.textContent = `${activeDownloads.length} Downloading`;
+      popoverSummary.style.color = '#22c55e';
+    }
+  } else {
+    btnIndicator.classList.remove('is-downloading');
+    if (badge) badge.classList.add('hidden');
+    ringFill.style.strokeDashoffset = '0px';
+    ringFill.style.stroke = '#22c55e';
+    if (popoverSummary) {
+      popoverSummary.textContent = 'All Finished';
+      popoverSummary.style.color = '#a1a1aa';
+    }
+  }
+
+  // Render popover items
+  if (itemsContainer) {
+    itemsContainer.innerHTML = '';
+    entries.forEach((item) => {
+      const isHf = item.modelName.startsWith('hf.co/');
+      const card = document.createElement('div');
+      card.className = 'download-popover-card';
+      
+      const isDone = item.status === 'Completed';
+      const isCancelled = item.status === 'Cancelled';
+      const isFailed = item.status === 'Failed';
+
+      card.innerHTML = `
+        <div class="download-card-title-row">
+          <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+            <span class="download-card-name" title="${escapeHtml(item.modelName)}">${escapeHtml(item.modelName)}</span>
+            <span class="download-card-tag">${isHf ? 'GGUF' : 'OLLAMA'}</span>
+          </div>
+          ${(!isDone && !isCancelled && !isFailed) ? `
+            <button type="button" class="btn-popover-cancel" data-model="${escapeHtml(item.modelName)}">Cancel</button>
+          ` : `
+            <span style="font-size: 10px; font-weight: 600; color: ${isDone ? '#22c55e' : '#ef4444'};">${escapeHtml(item.status)}</span>
+          `}
+        </div>
+        <div class="download-card-progress-track">
+          <div class="download-card-progress-fill" style="width: ${item.percent || 0}%; ${isDone ? 'background: #22c55e;' : ''}"></div>
+        </div>
+        <div class="download-card-stats-row">
+          <span>${item.percent || 0}% ${item.downloaded ? `(${escapeHtml(item.downloaded)}${item.total ? ` / ${escapeHtml(item.total)}` : ''})` : ''}</span>
+          <span>${item.speed ? escapeHtml(item.speed) : (isDone ? 'Completed' : '--')}</span>
+        </div>
+      `;
+
+      const btnCancel = card.querySelector('.btn-popover-cancel');
+      if (btnCancel) {
+        btnCancel.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          btnCancel.disabled = true;
+          btnCancel.textContent = 'Cancelling…';
+          try {
+            await window.ultronAPI.cancelDownloadModel(item.modelName);
+            item.status = 'Cancelled';
+            updateModelsDownloadTrackerUI();
+          } catch (err) {
+            console.warn('Cancel error:', err);
+          }
+        });
+      }
+
+      itemsContainer.appendChild(card);
+    });
+  }
+}
+
+function initModelsDownloadTracker() {
+  const btnIndicator = document.getElementById('btn-models-download-indicator');
+  const popover = document.getElementById('models-download-popover');
+  const trackerEl = document.getElementById('models-download-tracker');
+
+  if (!btnIndicator || !popover) return;
+
+  btnIndicator.addEventListener('click', (e) => {
+    e.stopPropagation();
+    isDownloadPopoverOpen = !isDownloadPopoverOpen;
+    if (isDownloadPopoverOpen) {
+      popover.classList.remove('hidden');
+      updateModelsDownloadTrackerUI();
+    } else {
+      popover.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (isDownloadPopoverOpen && trackerEl && !trackerEl.contains(e.target)) {
+      isDownloadPopoverOpen = false;
+      popover.classList.add('hidden');
+    }
+  });
+
+  // Global listener for download progress from any model download
+  if (window.ultronAPI?.onDownloadProgress) {
+    window.ultronAPI.onDownloadProgress((data) => {
+      if (!data || !data.modelName) return;
+      const key = data.modelName.toLowerCase();
+      const existing = activeModelDownloadsMap.get(key) || { modelName: data.modelName };
+      
+      existing.modelName = data.modelName;
+      existing.percent = typeof data.percent === 'number' ? data.percent : (existing.percent || 0);
+      existing.downloaded = data.downloaded || existing.downloaded || '';
+      existing.total = data.total || existing.total || '';
+      existing.speed = data.speed || existing.speed || '';
+      existing.status = existing.percent >= 100 ? 'Completed' : 'Downloading…';
+      existing.timestamp = Date.now();
+
+      activeModelDownloadsMap.set(key, existing);
+      updateModelsDownloadTrackerUI();
+
+      // Update specific card button if visible
+      const activeCardBtn = document.querySelector(`.btn-catalog-pull[data-model="${data.modelName}"], .btn-catalog-pull[data-model="${key}"]`);
+      if (activeCardBtn && existing.status !== 'Completed') {
+        activeCardBtn.classList.add('is-downloading');
+        activeCardBtn.disabled = true;
+        activeCardBtn.innerHTML = `
+          <svg class="lottie-download-svg is-active-anim" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#22c55e" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;">
+            <line class="lottie-download-beam" x1="12" y1="2" x2="12" y2="13" stroke="#22c55e" stroke-width="1.8"></line>
+            <g class="lottie-download-arrow">
+              <line class="lottie-download-stem" x1="12" y1="4" x2="12" y2="13"></line>
+              <polyline points="8 9.5 12 13.5 16 9.5"></polyline>
+            </g>
+            <path class="lottie-download-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+          </svg>
+          Downloading (${existing.percent}%)
+        `;
+      }
+    });
+  }
+}
+
+initModelsDownloadTracker();
+
 let activeDownloadingModel = null;
 
 // Bind model downloader
@@ -11118,7 +11464,6 @@ btnDownloadModel.addEventListener('click', async () => {
   if (!cloudOk) return;
   
   activeDownloadingModel = modelName;
-  const inputsRow = document.getElementById('download-inputs-row');
   const progressContainer = document.getElementById('download-progress-container');
   const progressStatus = document.getElementById('download-progress-status');
   const progressStats = document.getElementById('download-progress-stats');
@@ -11141,6 +11486,19 @@ btnDownloadModel.addEventListener('click', async () => {
   
   logTrace(`Triggering background weight pull: "ollama pull ${modelName}"`, 'system');
   
+  // Register in download activity tracker
+  activeModelDownloadsMap.set(modelName.toLowerCase(), {
+    modelName,
+    percent: 0,
+    downloaded: '0 MB',
+    total: '',
+    speed: '--',
+    status: 'Downloading…',
+    timestamp: Date.now()
+  });
+  updateModelsDownloadTrackerUI();
+  renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+
   if (progressContainer) {
     progressContainer.style.setProperty('display', 'block', 'important');
     progressContainer.classList.remove('hidden');
@@ -11161,13 +11519,40 @@ btnDownloadModel.addEventListener('click', async () => {
       if (progressSpeed) {
         progressSpeed.textContent = data.speed ? `Speed: ${data.speed}` : 'Speed: --';
       }
+
+      // Update tracker Map
+      const item = activeModelDownloadsMap.get(modelName.toLowerCase()) || { modelName };
+      item.percent = data.percent;
+      item.downloaded = data.downloaded;
+      item.total = data.total;
+      item.speed = data.speed;
+      item.status = data.percent >= 100 ? 'Completed' : 'Downloading…';
+      activeModelDownloadsMap.set(modelName.toLowerCase(), item);
+      updateModelsDownloadTrackerUI();
     }
   });
   
   try {
     const result = await window.ultronAPI.downloadModel(modelName);
+    const item = activeModelDownloadsMap.get(modelName.toLowerCase());
+
     if (result.success) {
       logTrace(`Model weights for "${modelName}" pulled successfully!`, 'system');
+      if (item) {
+        item.status = 'Completed';
+        item.percent = 100;
+        item.justCompleted = true;
+        updateModelsDownloadTrackerUI();
+        renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+        renderSettingsModels();
+
+        setTimeout(() => {
+          if (item) item.justCompleted = false;
+          activeModelDownloadsMap.delete(modelName.toLowerCase());
+          updateModelsDownloadTrackerUI();
+          renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+        }, 4500);
+      }
       alert(`Model weights for "${modelName}" pulled successfully!\n\nTo run this model manually from the command line, run:\nollama run ${modelName}`);
       inputDownloadModel.value = '';
       
@@ -11176,8 +11561,22 @@ btnDownloadModel.addEventListener('click', async () => {
       renderSettingsModels();
     } else if (result.cancelled) {
       logTrace(`Model pull for "${modelName}" was cancelled by user.`, 'system');
+      if (item) {
+        item.status = 'Cancelled';
+        updateModelsDownloadTrackerUI();
+        setTimeout(() => {
+          activeModelDownloadsMap.delete(modelName.toLowerCase());
+          updateModelsDownloadTrackerUI();
+          renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+        }, 3000);
+      }
     } else {
       logTrace(`Failed to download weights: ${result.error}`, 'system');
+      if (item) {
+        item.status = 'Failed';
+        updateModelsDownloadTrackerUI();
+        renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+      }
       alert(`Failed to download weights: ${result.error}`);
     }
   } catch (err) {
@@ -11223,11 +11622,14 @@ let hfSearchDebounceTimer = null;
 let activeHfSearchQuery = '';
 
 const OLLAMA_CLOUD_PULL_MODELS = [
-  { name: 'gpt-oss:20b-cloud', size: '20B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Fast general tasks on Ollama Cloud (free tier — sign in in Settings → Models)', tags: ['cloud', 'thinking'] },
-  { name: 'gpt-oss:120b-cloud', size: '120B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Large reasoning model — runs on Ollama servers, not your GPU', tags: ['cloud', 'thinking'] },
-  { name: 'deepseek-v3.1:671b-cloud', size: '671B', downloadSize: 'Cloud', provider: 'ollama', desc: 'DeepSeek v3.1 cloud inference via Ollama', tags: ['cloud', 'thinking'] },
-  { name: 'qwen3-coder:480b-cloud', size: '480B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Heavy code generation on Ollama Cloud', tags: ['cloud', 'code'] },
-  { name: 'minimax-m2.7-cloud', size: 'CLOUD', downloadSize: 'Cloud', provider: 'ollama', desc: 'MiniMax M2.7 cloud model', tags: ['cloud'] },
+  { name: 'gpt-oss:20b-cloud', size: '20B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Fast general tasks & coding on Ollama Cloud (free tier — runs on Ollama servers)', tags: ['cloud', 'thinking', 'code'] },
+  { name: 'gpt-oss:120b-cloud', size: '120B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Large reasoning & chain-of-thought model — runs on Ollama cloud infrastructure', tags: ['cloud', 'thinking'] },
+  { name: 'deepseek-v3.1:671b-cloud', size: '671B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Flagship DeepSeek v3.1 671B mixture-of-experts cloud inference via Ollama', tags: ['cloud', 'thinking'] },
+  { name: 'deepseek-r1:70b-cloud', size: '70B', downloadSize: 'Cloud', provider: 'ollama', desc: 'DeepSeek R1 70B reasoning & math model hosted on Ollama Cloud', tags: ['cloud', 'thinking'] },
+  { name: 'qwen3-coder:480b-cloud', size: '480B', downloadSize: 'Cloud', provider: 'ollama', desc: 'State-of-the-art code generation & repository reasoning on Ollama Cloud', tags: ['cloud', 'code'] },
+  { name: 'qwen2.5:72b-cloud', size: '72B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Alibaba Qwen 2.5 72B flagship high-accuracy cloud model', tags: ['cloud', 'thinking'] },
+  { name: 'llama3.3:70b-cloud', size: '70B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Meta Llama 3.3 70B versatile reasoning & chat model hosted on Ollama servers', tags: ['cloud'] },
+  { name: 'minimax-m2.7-cloud', size: 'CLOUD', downloadSize: 'Cloud', provider: 'ollama', desc: 'MiniMax M2.7 high speed multimodal cloud model', tags: ['cloud'] },
 ];
 
 const OLLAMA_POPULAR_MODELS = [
@@ -11492,7 +11894,10 @@ function renderOllamaCatalog(filterQuery = '') {
 
   catalogListEl.innerHTML = '';
   const query = filterQuery.toLowerCase().trim();
-  const installedNames = new Set((installedModelsList || []).map(m => (typeof m === 'string' ? m : m.name).toLowerCase()));
+  const installedNames = new Set([
+    ...(installedModelsList || []).map(m => (typeof m === 'string' ? m : m.name).toLowerCase()),
+    ...(isOllamaCloudConnectedState ? (OLLAMA_CLOUD_PULL_MODELS || []).map(m => m.name.toLowerCase()) : [])
+  ]);
 
   function appendCatalogSection(title, titleColor, models, limitSlice = true, badgeType = null) {
     const filtered = filterCatalogModels(models, filterQuery);
@@ -11552,12 +11957,77 @@ function renderOllamaCatalog(filterQuery = '') {
       ? `<div class="card-tags-row">${tagPills.map(t => `<span class="card-tag-pill"><span class="card-tag-dot" style="background:${t.color}"></span>${escapeHtml(t.label)}</span>`).join('')}</div>`
       : '';
 
+    const dlInfo = activeModelDownloadsMap.get(model.name.toLowerCase());
+    const isActivelyDownloading = dlInfo && dlInfo.status !== 'Completed' && dlInfo.status !== 'Failed' && dlInfo.status !== 'Cancelled';
+    const isJustCompleted = dlInfo && dlInfo.status === 'Completed' && dlInfo.justCompleted;
+
     // Build action button
-    let actionButtonHtml = `<button class="btn-catalog-pull" data-model="${escapeHtml(model.name)}">Download Model</button>`;
-    if (isInstalled) {
-      actionButtonHtml = `<span class="badge-installed">INSTALLED</span>`;
-    } else if (isCloudModel) {
-      actionButtonHtml = `<button class="btn-catalog-pull btn-cloud-use" data-model="${escapeHtml(model.name)}">Use Model</button>`;
+    let actionButtonHtml = '';
+    if (isCloudModel) {
+      const isActiveCloud = activeModel && (activeModel.toLowerCase() === model.name.toLowerCase() || activeModel.toLowerCase().split(':')[0] === model.name.toLowerCase().split(':')[0]);
+      if (isActiveCloud) {
+        actionButtonHtml = `
+          <span class="badge-in-use" title="Model is currently active">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            In Use
+          </span>
+        `;
+      } else {
+        actionButtonHtml = `
+          <button class="btn-cloud-use btn-catalog-pull" data-model="${escapeHtml(model.name)}" title="Select and use this cloud model">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" stroke="none" style="margin-right: 4px;">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            Use Model
+          </button>
+        `;
+      }
+    } else if (isActivelyDownloading) {
+      actionButtonHtml = `
+        <button class="btn-catalog-pull is-downloading" disabled data-model="${escapeHtml(model.name)}">
+          <svg class="lottie-download-svg is-active-anim" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#22c55e" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;">
+            <line class="lottie-download-beam" x1="12" y1="2" x2="12" y2="13" stroke="#22c55e" stroke-width="1.8"></line>
+            <g class="lottie-download-arrow">
+              <line class="lottie-download-stem" x1="12" y1="4" x2="12" y2="13"></line>
+              <polyline points="8 9.5 12 13.5 16 9.5"></polyline>
+            </g>
+            <path class="lottie-download-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+          </svg>
+          Downloading (${dlInfo.percent || 0}%)
+        </button>
+      `;
+    } else if (isJustCompleted) {
+      actionButtonHtml = `
+        <span class="badge-installed just-completed">
+          <svg class="lottie-check-svg play-once" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#22c55e" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+            <circle class="lottie-check-circle" cx="12" cy="12" r="10" stroke="#22c55e" stroke-width="2.2" fill="none"></circle>
+            <polyline class="lottie-check-mark" points="7.5 12 10.5 15 16.5 9" stroke="#22c55e" stroke-width="2.6"></polyline>
+          </svg>
+          INSTALLED
+        </span>
+      `;
+    } else if (isInstalled) {
+      actionButtonHtml = `
+        <span class="badge-installed">
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 3px;">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          INSTALLED
+        </span>
+      `;
+    } else {
+      actionButtonHtml = `
+        <button class="btn-catalog-pull" data-model="${escapeHtml(model.name)}">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;">
+            <line x1="12" y1="4" x2="12" y2="14"></line>
+            <polyline points="8 10 12 14 16 10"></polyline>
+            <path d="M4 18v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1"></path>
+          </svg>
+          Download
+        </button>
+      `;
     }
 
     // HuggingFace logo badge
@@ -15900,10 +16370,10 @@ function settleBootStep(promise, timeoutMs = 10000) {
   ]);
 }
 
-const BOOT_MIN_TOTAL_MS = 2800;
-const SPLASH_SHARE = 0.5;
-const SPLASH_FADE_MS = 350;
-const BOOT_FAILSAFE_MS = 20000;
+const SPLASH_DISPLAY_DURATION_MS = 10000; // Strictly display Ultron logo & title screen for 10 seconds
+const SKELETON_DISPLAY_DURATION_MS = 2500; // Display skeleton loader before opening interface
+const SPLASH_FADE_MS = 400;
+const BOOT_FAILSAFE_MS = 30000;
 
 function waitMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -15935,13 +16405,7 @@ function runSplashIntroSequence(splashDurationMs) {
       resolve();
     };
 
-    const timer = setTimeout(finish, splashDurationMs);
-
-    // Skip only on direct click of splash screen
-    splashScreen.addEventListener('click', () => {
-      clearTimeout(timer);
-      finish();
-    }, { once: true });
+    setTimeout(finish, splashDurationMs);
   });
 }
 
@@ -15962,15 +16426,12 @@ setTimeout(() => {
 }, BOOT_FAILSAFE_MS);
 
 async function bootSystem() {
-  const bootStartedAt = Date.now();
-  const splashDurationMs = Math.round(BOOT_MIN_TOTAL_MS * SPLASH_SHARE);
-
-  // 1. Logo + Ultron text for first 50% of the min boot window
-  const splashPromise = runSplashIntroSequence(splashDurationMs);
+  // 1. Show Ultron logo + text splash screen for 10 seconds
+  const splashPromise = runSplashIntroSequence(SPLASH_DISPLAY_DURATION_MS);
   ensureSkeletonVisible();
 
   try {
-    // 2. Instant Synchronous UI pre-renders (hidden under splash / skeleton)
+    // 2. Instant Synchronous UI pre-renders
     updateWelcomeGreeting();
     setSendingState(false);
     initTraceEmptyState();
@@ -15979,7 +16440,7 @@ async function bootSystem() {
     initAutomationSettingsUI();
     startLiveMetricsPolling();
 
-    // 3. Parallel preload — Ollama, models, location, storage, config, etc.
+    // 3. Parallel preload & resource verification — Ollama, local models, location, storage, config, providers, MCP
     const coreTasks = [
       settleBootStep(syncStoragePathOnBoot().then(() => loadStoragePathsUI())),
       settleBootStep(reloadConversationsFromDisk()),
@@ -16008,27 +16469,27 @@ async function bootSystem() {
 
     const resourcesPromise = Promise.allSettled(coreTasks);
 
-    // Wait for splash (50%) to finish, then expose skeleton overlay
+    // Wait for the full 10-second splash display duration to finish
     await splashPromise;
+
+    // 4. Reveal and display Skeleton loader before opening the app interface
     ensureSkeletonVisible();
 
-    // 4. Skeleton phase: remain until resources finish AND the other 50% of min duration has elapsed
-    const elapsed = Date.now() - bootStartedAt;
-    const skeletonMinMs = Math.max(0, BOOT_MIN_TOTAL_MS - elapsed);
-
+    // Wait for background resource checks AND ensure skeleton loader displays for its duration
     await Promise.all([
       resourcesPromise,
-      waitMs(skeletonMinMs)
+      waitMs(SKELETON_DISPLAY_DURATION_MS)
     ]);
 
     await checkAndRunFirstTimeOnboarding().catch(() => {});
     initVoiceChatModeAfterBoot();
 
-    // 5. Hydrate model UI with loaded data
+    // 5. Hydrate model UI with loaded offline models & multi-provider models
     renderModelDropdownList();
+    renderSettingsModels();
     updateModelSelectorLabel();
 
-    // 6. All resources ready → reveal the real interface
+    // 6. All resources ready → gracefully hide skeleton loader and reveal app interface
     hideSkeletonLoader();
   } catch (err) {
     console.error('Boot sequence error:', err);
@@ -18533,18 +18994,6 @@ function setupAutoUpdaterUI() {
 
 setupAutoUpdaterUI();
 
-// UI Controls: Show Mini Pill Setting Persistence
-const settingShowMiniPill = document.getElementById('setting-show-mini-pill');
-if (settingShowMiniPill) {
-  const savedVal = localStorage.getItem('ultron-show-mini-pill');
-  if (savedVal !== null) {
-    settingShowMiniPill.checked = savedVal === 'true';
-  }
-  settingShowMiniPill.addEventListener('change', () => {
-    localStorage.setItem('ultron-show-mini-pill', settingShowMiniPill.checked);
-  });
-}
-
 // Handle hand-off from Floating Action Bar companion
 
 function saveAndRenderFloatingBarSession(prompt, answer) {
@@ -18807,6 +19256,22 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
         if (keys.groq) window.UltronMultiProviderHub.setStoredApiKey('groq', keys.groq);
         if (keys.customUrl) window.UltronMultiProviderHub.setCustomEndpointUrl(keys.customUrl);
         if (keys.customKey) window.UltronMultiProviderHub.setStoredApiKey('custom', keys.customKey);
+      }
+
+      // Proactively discover models for all configured providers
+      if (window.UltronMultiProviderHub) {
+        const providersToCheck = ['gemini', 'openai', 'anthropic', 'deepseek', 'groq', 'custom'];
+        providersToCheck.forEach(p => {
+          const hasKey = p === 'custom'
+            ? (window.UltronMultiProviderHub.getCustomEndpointUrl() || window.UltronMultiProviderHub.getStoredApiKey('custom'))
+            : (p === 'gemini' ? (localStorage.getItem('ultron-gemini-api-key') || window.UltronMultiProviderHub.getStoredApiKey('gemini')) : window.UltronMultiProviderHub.getStoredApiKey(p));
+          if (hasKey) {
+            window.UltronMultiProviderHub.fetchProviderModels(p).then(() => {
+              renderModelDropdownList();
+              updateModelSelectorLabel();
+            }).catch(() => {});
+          }
+        });
       }
     } catch {}
 

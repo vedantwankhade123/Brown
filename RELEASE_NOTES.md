@@ -30,7 +30,7 @@ We are thrilled to announce **Ultron AI BETA v1.0.0**, our milestone release del
 
 ### 🌐 Official Feedback & Community
 - **Instagram**: Follow [@ultron_offline](https://www.instagram.com/ultron_offline) for product updates and feature previews.
-- **Developer Email**: Contact `vedantwankhade47@gmail.com` for direct inquiries and feedback.
+- **Developer Email**: Contact `contact@usebrown.online` for direct inquiries and feedback.
 
 ---
 

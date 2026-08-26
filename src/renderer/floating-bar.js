@@ -212,16 +212,31 @@
       const name = typeof model === 'string' ? model : (model.name || model.id || '');
       if (!name) return;
 
-      const provider = model.provider || (name.startsWith('hf.co/') ? 'huggingface' : name.startsWith('gemini') ? 'gemini' : name.startsWith('gpt') || name.startsWith('o1') || name.startsWith('o3') ? 'openai' : name.startsWith('claude') ? 'claude' : name.startsWith('deepseek') ? 'deepseek' : 'ollama');
-      const isHf = name.startsWith('hf.co/') || provider === 'huggingface';
+      const isCloud = name.endsWith('-cloud');
+      const isHf = name.startsWith('hf.co/') || model.provider === 'huggingface';
+      const isGptOss = name.startsWith('gpt-oss') || name.startsWith('gptoss');
+
+      let provider = model.provider;
+      if (!provider) {
+        if (isCloud || isGptOss) provider = 'ollama';
+        else if (isHf) provider = 'huggingface';
+        else if (name.startsWith('gemini')) provider = 'gemini';
+        else if (name.startsWith('claude')) provider = 'claude';
+        else if (name.startsWith('deepseek')) provider = 'deepseek';
+        else if (name.startsWith('gpt') || name.startsWith('o1') || name.startsWith('o3')) provider = 'openai';
+        else provider = 'ollama';
+      }
+
       const isSelected = name === activeModel;
 
       let iconSrc = '../../Assets/Brand-Assets/ollama-white-logo.png';
       if (isHf) {
         iconSrc = '../../Assets/Brand-Assets/hf-logo.png';
+      } else if (isCloud || isGptOss) {
+        iconSrc = '../../Assets/Brand-Assets/ollama-white-logo.png';
       } else if (provider === 'gemini' || name.includes('gemini')) {
         iconSrc = '../../Assets/Brand-Assets/gemini-logo.png';
-      } else if (provider === 'openai' || name.includes('gpt') || name.includes('o1') || name.includes('o3')) {
+      } else if (provider === 'openai' || (name.includes('gpt') && !isGptOss) || name.includes('o1') || name.includes('o3')) {
         iconSrc = '../../Assets/Brand-Assets/openai-white-logo.png';
       } else if (provider === 'claude' || name.includes('claude')) {
         iconSrc = '../../Assets/Brand-Assets/claude-logo.png';
