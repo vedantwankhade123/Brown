@@ -1,21 +1,21 @@
-# Ultron: An Autonomous AI Agent for Operating Systems
+# Brown AI: Autonomous Hybrid AI Agent for Windows & Android
 
-[![Website](https://img.shields.io/badge/Website-ultron--brown--mu.vercel.app-7928CA?logo=vercel&logoColor=white)](https://ultron-brown-mu.vercel.app/)
-[![Release](https://img.shields.io/badge/Release-BETA%20v1-0078D4?logo=github)](https://github.com/vedantwankhade123/Ultron/releases)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D4?logo=windows)](https://github.com/vedantwankhade123/Ultron/releases)
+[![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
+[![Release](https://img.shields.io/badge/Release-BETA%20v1.0.14-0078D4?logo=github)](https://github.com/vedantwankhade123/ultron-releases/releases)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20%7C%20Android-0078D4?logo=windows)](https://github.com/vedantwankhade123/ultron-releases/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 <p align="center">
-  <a href="https://ultron-brown-mu.vercel.app/">
-    <img src="Assets/ultron-app.png" alt="Ultron AI Desktop Application Interface" width="100%" />
+  <a href="https://usebrown.online/">
+    <img src="Assets/workforce.png" alt="Brown AI Multi-Device Ecosystem Interface" width="100%" />
   </a>
 </p>
 
 <p align="center">
-  <strong><a href="https://ultron-brown-mu.vercel.app/">ultron-brown-mu.vercel.app</a></strong> — Official website with setup guides, docs, and direct downloads.
+  <strong><a href="https://usebrown.online/">usebrown.online</a></strong> — Official website with setup guides, docs, and direct downloads.
 </p>
 
-Ultron is a premium, high-fidelity offline AI desktop assistant built specifically for Windows. Utilizing local LLMs powered by Ollama, Ultron serves as an autonomous interface agent capable of scanning configurations, executing system commands inside controlled sandbox parameters, and performing natural language operations—all while keeping your data entirely local and private.
+Brown AI is a premium, high-fidelity offline AI assistant built for Windows and Android. Utilizing local LLMs powered by Ollama alongside hybrid cloud intelligence (Gemini 3.5, Claude 3.7, DeepSeek R1, OpenAI), Brown serves as an autonomous interface agent capable of scanning configurations, executing system commands inside controlled sandbox parameters, and performing natural language operations—all while keeping your data entirely local and private.
 
 ---
 
@@ -23,7 +23,7 @@ Ultron is a premium, high-fidelity offline AI desktop assistant built specifical
 
 Download pre-built ready-to-run Windows binaries directly from the official website or GitHub release:
 
-🌐 **Official Website**: [ultron-brown-mu.vercel.app](https://ultron-brown-mu.vercel.app/)
+🌐 **Official Website**: [usebrown.online](https://usebrown.online/)
 
 <table width="100%">
   <thead>
