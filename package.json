@@ -1,7 +1,7 @@
 {
-  "name": "ultron",
+  "name": "brown",
   "version": "1.0.14",
-  "description": "Local offline privacy-focused Windows AI Agent framework",
+  "description": "Local offline privacy-focused Windows AI Agent framework (Brown)",
   "author": "Vedant Wankhade",
   "license": "Proprietary",
   "main": "src/main/index.js",
@@ -17,8 +17,8 @@
     "test": "node tests/run.js"
   },
   "build": {
-    "appId": "com.ultron.desktop",
-    "productName": "Ultron AI",
+    "appId": "com.brown.desktop",
+    "productName": "Brown AI",
     "copyright": "Copyright © 2026 Vedant Wankhade",
     "directories": {
       "output": "dist"

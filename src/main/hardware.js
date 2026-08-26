@@ -165,43 +165,157 @@ async function profileHardware(forceRefresh = false) {
   return result;
 }
 
+const fs = require('fs');
+const path = require('path');
+
+function resolveOllamaCliExecutable() {
+  const userLocal = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || '', 'AppData', 'Local');
+  const candidates = [
+    path.join(userLocal, 'Programs', 'Ollama', 'ollama.exe'),
+    'C:\\Program Files\\Ollama\\ollama.exe',
+    'C:\\Program Files (x86)\\Ollama\\ollama.exe',
+    'ollama.exe'
+  ];
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) return candidate;
+  }
+  return 'ollama';
+}
+
+function scanOllamaManifestsDir(manifestsDir) {
+  const models = [];
+  if (!manifestsDir || !fs.existsSync(manifestsDir)) return models;
+
+  function walk(currentDir, parts = []) {
+    try {
+      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          walk(fullPath, [...parts, entry.name]);
+        } else if (entry.isFile()) {
+          const tag = entry.name;
+          let modelName = '';
+          if (parts.length >= 3 && parts[0] === 'registry.ollama.ai' && parts[1] === 'library') {
+            modelName = parts.slice(2).join('/') + (tag === 'latest' ? ':latest' : `:${tag}`);
+          } else if (parts.length >= 2 && parts[0] === 'hf.co') {
+            modelName = `hf.co/${parts.slice(1).join('/')}${tag === 'latest' ? '' : `:${tag}`}`;
+          } else if (parts.length >= 2) {
+            modelName = `${parts.slice(1).join('/')}:${tag}`;
+          } else if (parts.length === 1) {
+            modelName = `${parts[0]}:${tag}`;
+          }
+          if (modelName) {
+            let size = 0;
+            try {
+              const content = fs.readFileSync(fullPath, 'utf8');
+              const parsed = JSON.parse(content);
+              if (Array.isArray(parsed.layers)) {
+                size = parsed.layers.reduce((acc, l) => acc + (l.size || 0), 0);
+              }
+            } catch {}
+            models.push({ name: modelName, size });
+          }
+        }
+      }
+    } catch {}
+  }
+
+  walk(manifestsDir);
+  return models;
+}
+
 /**
- * Queries the local Ollama backend on 127.0.0.1:11434 to list installed weights.
+ * Queries the local Ollama backend on 127.0.0.1:11434, the CLI, and local manifest storage to list installed weights.
  * @returns {Promise<Array<{name: string, size: number}>>} Array of installed models.
  */
 async function queryLocalOllamaModels() {
+  const modelMap = new Map();
+
+  // Tier 1: Query running Ollama HTTP API (authoritative source of truth when live)
   try {
-    const response = await fetch('http://127.0.0.1:11434/api/tags');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    const response = await fetch('http://127.0.0.1:11434/api/tags', { signal: controller.signal });
+    clearTimeout(timeoutId);
     if (response.ok) {
       const data = await response.json();
-      if (data && Array.isArray(data.models) && data.models.length > 0) {
-        return data.models;
+      if (data && Array.isArray(data.models)) {
+        for (const m of data.models) {
+          if (m && m.name) {
+            modelMap.set(m.name.toLowerCase(), {
+              name: m.name,
+              size: m.size || 0,
+              modified_at: m.modified_at,
+              digest: m.digest,
+              details: m.details
+            });
+          }
+        }
+        // When the live daemon responds, this is the exact, authoritative list of usable models.
+        return Array.from(modelMap.values());
       }
     }
   } catch (err) {}
 
-  // Fallback CLI query for installed models
+  // Tier 2: Fallback to CLI when HTTP daemon is starting or on non-standard port
   try {
     const { exec: cpExec } = require('child_process');
+    const cliExe = resolveOllamaCliExecutable();
+    const cmd = cliExe.includes(' ') ? `"${cliExe}" list` : `${cliExe} list`;
     const stdout = await new Promise((resolve) => {
-      cpExec('ollama list', { windowsHide: true }, (err, stdout) => {
+      cpExec(cmd, { windowsHide: true, timeout: 3000 }, (err, stdout) => {
         if (err) resolve('');
         else resolve(stdout || '');
       });
     });
 
     const lines = (stdout || '').split('\n').map(l => l.trim()).filter(Boolean);
-    const models = [];
     for (const line of lines.slice(1)) {
       const parts = line.split(/\s+/);
       if (parts.length >= 1 && parts[0] && !parts[0].toLowerCase().startsWith('name')) {
-        models.push({ name: parts[0] });
+        const name = parts[0];
+        if (!modelMap.has(name.toLowerCase())) {
+          modelMap.set(name.toLowerCase(), { name, size: 0 });
+        }
       }
     }
-    return models;
-  } catch (e) {
-    return [];
-  }
+    if (modelMap.size > 0) {
+      return Array.from(modelMap.values());
+    }
+  } catch (e) {}
+
+  // Tier 3: Cold-start disk manifest scan when daemon and CLI are completely offline
+  try {
+    const userHome = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\vedan';
+    const userLocal = process.env.LOCALAPPDATA || path.join(userHome, 'AppData', 'Local');
+    
+    let candidateManifestDirs = [
+      path.join(userHome, '.ollama', 'models', 'manifests'),
+      path.join(userLocal, 'Ollama', 'models', 'manifests')
+    ];
+
+    try {
+      const { getOllamaModelsDir } = require('./paths');
+      const customModelsDir = getOllamaModelsDir();
+      if (customModelsDir) {
+        candidateManifestDirs.unshift(path.join(customModelsDir, 'manifests'));
+      }
+    } catch {}
+
+    for (const mDir of candidateManifestDirs) {
+      if (fs.existsSync(mDir)) {
+        const diskModels = scanOllamaManifestsDir(mDir);
+        for (const dm of diskModels) {
+          if (!modelMap.has(dm.name.toLowerCase())) {
+            modelMap.set(dm.name.toLowerCase(), dm);
+          }
+        }
+      }
+    }
+  } catch (e) {}
+
+  return Array.from(modelMap.values());
 }
 
 /**

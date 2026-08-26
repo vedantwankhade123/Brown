@@ -49,7 +49,7 @@ Download pre-built ready-to-run Windows binaries directly from the official webs
 
 > 🔗 Or view all assets on the [Official Releases Page](https://github.com/vedantwankhade123/Ultron/releases) (**Ultron BETA v1.0.0**).
 > 
-> 📸 Follow us on Instagram: [@ultron_offline](https://www.instagram.com/ultron_offline) | ✉️ Contact: `vedantwankhade47@gmail.com`
+> 📸 Follow us on Instagram: [@ultron_offline](https://www.instagram.com/ultron_offline) | ✉️ Contact: `contact@usebrown.online`
 
 ---
 
