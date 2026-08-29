@@ -17936,6 +17936,14 @@ if (btnToggleLeftSidebar && leftSidebar) {
   });
 }
 
+// Top-left quick-option buttons (replace the brand logo)
+const quickNewChat = document.getElementById('quick-new-chat');
+const quickSearch = document.getElementById('quick-search');
+const quickSettings = document.getElementById('quick-settings');
+if (quickNewChat) quickNewChat.addEventListener('click', () => { document.getElementById('nav-new-chat')?.click(); });
+if (quickSearch) quickSearch.addEventListener('click', () => { document.getElementById('nav-search-chats')?.click(); });
+if (quickSettings) quickSettings.addEventListener('click', () => { if (typeof openSettingsPanel === 'function') openSettingsPanel('account'); });
+
 // Bind right sidebar collapsible sections (collapse state persisted per section)
 const rightSections = document.querySelectorAll('.right-section.collapsible');
 rightSections.forEach((section) => {

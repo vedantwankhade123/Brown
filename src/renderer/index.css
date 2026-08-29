@@ -210,6 +210,38 @@ body.platform-win32 .chat-header-actions {
   transition: opacity 0.2s ease;
 }
 
+/* Quick-option buttons replacing the brand logo at the sidebar top. */
+.quick-options {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.quick-opt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+.quick-opt-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+/* Keep quick options usable when the sidebar is collapsed (stack vertically). */
+.sidebar.collapsed .brand-left.quick-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  opacity: 1;
+}
+
 .brand-logo {
   height: 26px;
   width: auto;
