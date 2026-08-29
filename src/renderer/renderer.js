@@ -17936,13 +17936,50 @@ if (btnToggleLeftSidebar && leftSidebar) {
   });
 }
 
-// Top-left quick-option buttons (replace the brand logo)
-const quickNewChat = document.getElementById('quick-new-chat');
-const quickSearch = document.getElementById('quick-search');
-const quickSettings = document.getElementById('quick-settings');
-if (quickNewChat) quickNewChat.addEventListener('click', () => { document.getElementById('nav-new-chat')?.click(); });
-if (quickSearch) quickSearch.addEventListener('click', () => { document.getElementById('nav-search-chats')?.click(); });
-if (quickSettings) quickSettings.addEventListener('click', () => { if (typeof openSettingsPanel === 'function') openSettingsPanel('account'); });
+// Windows top title bar settings quick-option buttons
+function handleTopBarSettingsShortcut(tabName) {
+  if (typeof openSettingsPanel === 'function') {
+    const currentActiveTab = document.querySelector('.settings-tab-btn.active')?.getAttribute('data-tab');
+    if (typeof settingsPanelOpen !== 'undefined' && settingsPanelOpen && currentActiveTab === tabName) {
+      if (typeof closeSettingsPanel === 'function') closeSettingsPanel();
+    } else {
+      openSettingsPanel(tabName);
+    }
+  } else {
+    document.getElementById('btn-settings')?.click();
+  }
+}
+
+document.getElementById('titlebar-btn-models')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  handleTopBarSettingsShortcut('models');
+});
+document.getElementById('titlebar-btn-knowledge')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  handleTopBarSettingsShortcut('knowledge');
+});
+document.getElementById('titlebar-btn-automation')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  handleTopBarSettingsShortcut('desktop');
+});
+document.getElementById('titlebar-btn-apps')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  handleTopBarSettingsShortcut('apps');
+});
+document.getElementById('titlebar-btn-sync')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  handleTopBarSettingsShortcut('sync');
+});
+document.getElementById('titlebar-btn-settings')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (typeof settingsPanelOpen !== 'undefined' && settingsPanelOpen) {
+    if (typeof closeSettingsPanel === 'function') closeSettingsPanel();
+  } else if (typeof openSettingsPanel === 'function') {
+    openSettingsPanel('account');
+  } else {
+    document.getElementById('btn-settings')?.click();
+  }
+});
 
 // Bind right sidebar collapsible sections (collapse state persisted per section)
 const rightSections = document.querySelectorAll('.right-section.collapsible');

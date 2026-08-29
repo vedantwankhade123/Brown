@@ -76,7 +76,7 @@ body.platform-win32 .app-window-titlebar {
   top: 0;
   left: 0;
   right: 0;
-  height: 32px;
+  height: 36px;
   align-items: center;
   padding: 0 14px;
   padding-right: calc(env(titlebar-area-width, 138px) + 8px);
@@ -88,31 +88,57 @@ body.platform-win32 .app-window-titlebar {
 }
 
 body.platform-win32 {
-  padding-top: 32px;
+  padding-top: 36px;
   box-sizing: border-box;
   -webkit-app-region: drag;
 }
 
-.app-titlebar-brand {
+.app-titlebar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  pointer-events: none;
+  gap: 3px;
+  -webkit-app-region: no-drag;
 }
 
-.app-titlebar-logo {
-  height: 18px;
-  width: auto;
-  max-width: 90px;
+.titlebar-opt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  -webkit-app-region: no-drag !important;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
   flex-shrink: 0;
-  object-fit: contain;
+  user-select: none;
+  white-space: nowrap;
 }
 
-.app-titlebar-name {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-white);
-  letter-spacing: normal;
+.titlebar-opt-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+}
+
+.titlebar-opt-btn:active {
+  background: rgba(255, 255, 255, 0.16);
+  transform: scale(0.96);
+}
+
+.titlebar-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 0 4px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
 }
 
 body.platform-win32 button,
@@ -210,37 +236,6 @@ body.platform-win32 .chat-header-actions {
   transition: opacity 0.2s ease;
 }
 
-/* Quick-option buttons replacing the brand logo at the sidebar top. */
-.quick-options {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.quick-opt-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.7);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-  flex-shrink: 0;
-}
-.quick-opt-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
-}
-/* Keep quick options usable when the sidebar is collapsed (stack vertically). */
-.sidebar.collapsed .brand-left.quick-options {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  opacity: 1;
-}
 
 .brand-logo {
   height: 26px;
@@ -560,7 +555,7 @@ body.platform-win32 .chat-header-actions {
   background-color: var(--bg-obsidian);
   position: relative;
   overflow: hidden;
-  border-top-left-radius: 16px;
+  border-top-left-radius: 20px;
 }
 
 .chat-main.empty-state .chat-container {
@@ -576,6 +571,7 @@ body.platform-win32 .chat-header-actions {
   padding: 0 24px;
   background-color: #000000;
   flex-shrink: 0;
+  border-top-left-radius: 20px;
 }
 
 .chat-title {
