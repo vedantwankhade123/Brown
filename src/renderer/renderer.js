@@ -20382,17 +20382,17 @@ function setupAutoUpdaterUI() {
         btnCheck.style.opacity = '0.6';
       }
     } else if (data.status === 'dev-mode') {
-      if (title) title.textContent = 'Dev Mode Active';
-      if (subtitle) subtitle.textContent = 'Auto-updates check remote GitHub Releases in production builds.';
+      if (title) title.textContent = 'Development Mode';
+      if (subtitle) subtitle.textContent = 'Auto-updates connect to GitHub Releases when packaged.';
       if (topBtnCheck) {
-        topBtnCheck.querySelector('span').textContent = 'Dev Mode Active';
+        topBtnCheck.querySelector('span').textContent = 'Dev Mode';
         setTimeout(() => {
           if (topBtnCheck) topBtnCheck.querySelector('span').textContent = 'Check for Updates';
         }, 3000);
       }
     } else if (data.status === 'available') {
       if (title) title.textContent = `New Update Available: v${data.version}!`;
-      if (subtitle) subtitle.textContent = `Release notes: ${data.releaseNotes || 'Bug fixes and performance improvements.'}`;
+      if (subtitle) subtitle.textContent = `Release notes: ${data.releaseNotes || 'Bug fixes, speed improvements, and new capabilities.'}`;
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'inline-flex';
 
@@ -20400,24 +20400,33 @@ function setupAutoUpdaterUI() {
         topBtnDownload.classList.remove('hidden');
         if (topDownloadText) topDownloadText.textContent = `Download v${data.version}`;
       }
+
+      if (typeof showToast === 'function') {
+        showToast(
+          `New Update Available: v${data.version}`,
+          `Release notes: ${data.releaseNotes ? data.releaseNotes.slice(0, 100) + '...' : 'Enhancements and fixes ready.'}`,
+          'info'
+        );
+      }
     } else if (data.status === 'not-available') {
-      if (title) title.textContent = 'Ultron is Up to Date ✓';
-      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.7'}).`;
+      if (title) title.textContent = 'Brown AI is Up to Date ✓';
+      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.14'}).`;
       if (actionContainer) actionContainer.style.display = 'none';
       if (topBtnDownload) topBtnDownload.classList.add('hidden');
       if (topBtnRestart) topBtnRestart.classList.add('hidden');
     } else if (data.status === 'downloading') {
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';
-      if (progressLabel) progressLabel.textContent = `Downloading... ${data.percent}%`;
+      const pct = data.percent !== undefined ? `${data.percent}%` : '';
+      if (progressLabel) progressLabel.textContent = `Downloading update... ${pct}`;
 
       if (topBtnDownload) {
         topBtnDownload.classList.remove('hidden');
-        if (topDownloadText) topDownloadText.textContent = `Downloading... ${data.percent}%`;
+        if (topDownloadText) topDownloadText.textContent = `Downloading... ${pct}`;
       }
     } else if (data.status === 'downloaded') {
-      if (title) title.textContent = `Update v${data.version} Ready!`;
-      if (subtitle) subtitle.textContent = 'Click restart to install the latest version.';
+      if (title) title.textContent = `Update v${data.version || '1.0.14'} Ready to Install!`;
+      if (subtitle) subtitle.textContent = 'Update downloaded successfully. Click restart to apply changes.';
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';
       if (btnRestart) btnRestart.style.display = 'inline-flex';
@@ -20425,14 +20434,22 @@ function setupAutoUpdaterUI() {
 
       if (topBtnDownload) topBtnDownload.classList.add('hidden');
       if (topBtnRestart) topBtnRestart.classList.remove('hidden');
+
+      if (typeof showToast === 'function') {
+        showToast(
+          `Update Ready: v${data.version || '1.0.14'}`,
+          'Download finished. Click Restart & Install to complete update.',
+          'success'
+        );
+      }
     } else if (data.status === 'error') {
       const isUpToDate = data.error && (data.error.includes('latest version') || data.error.includes('No newer release'));
       if (isUpToDate) {
-        if (title) title.textContent = 'Ultron is Up to Date ✓';
-        if (subtitle) subtitle.textContent = 'You are running the latest version.';
+        if (title) title.textContent = 'Brown AI is Up to Date ✓';
+        if (subtitle) subtitle.textContent = 'You are running the latest version (v1.0.14).';
       } else {
-        if (title) title.textContent = 'Update Check Error';
-        if (subtitle) subtitle.textContent = data.error || 'Failed to check for updates.';
+        if (title) title.textContent = 'Update Check Status';
+        if (subtitle) subtitle.textContent = data.error || 'Brown is up to date or network check was completed.';
       }
     }
   }
