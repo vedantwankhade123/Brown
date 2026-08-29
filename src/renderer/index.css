@@ -7553,7 +7553,9 @@ body.platform-win32 .chat-header-actions {
 }
 #main-input-pill .voice-recording-pill {
   width: 100%;
-  margin: 2px 0;
+  max-width: 480px;
+  align-self: flex-start;
+  margin: 2px 0 2px 2px;
 }
 
 .btn-primary-sm.hidden,
