@@ -2489,6 +2489,10 @@
                 <label for="onboard-email">Email</label>
               </div>
             </div>
+            <div class="onboard-email-note" style="margin-top: 10px; font-size: 12px; line-height: 1.5; color: #94a3b8; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); padding: 10px 14px; border-radius: 8px; display: flex; align-items: flex-start; gap: 8px;">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#60a5fa" stroke-width="2" style="flex-shrink: 0; margin-top: 2px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              <span>This email will be used to send you personalized recommendations, critical security updates, and in-app notifications.</span>
+            </div>
             <div id="onboard-step-3-error" class="onboard-error-msg hidden">Please enter a valid email address.</div>
           </div>
 
@@ -2581,7 +2585,7 @@
           </div>
 
           <div id="onboard-step-5" class="onboard-step onboard-ready-step hidden">
-            <h2 class="onboard-ready-title">Ultron is ready</h2>
+            <h2 class="onboard-ready-title">Brown is ready</h2>
             <p class="onboard-ready-subtitle">Your profile is configured and your workspace is online.</p>
             <div class="onboard-ready-pills">
               <span class="onboard-ready-pill">
@@ -2597,6 +2601,20 @@
                 Agent Online
               </span>
             </div>
+
+            <!-- Privacy Policy & Terms Acceptance -->
+            <div class="onboard-privacy-acceptance-card" style="margin: 18px auto 8px; max-width: 440px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 12px 16px; text-align: left;">
+              <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
+                <input type="checkbox" id="onboard-privacy-checkbox" checked style="margin-top: 3px; accent-color: #3b82f6; width: 16px; height: 16px; cursor: pointer;" />
+                <span style="font-size: 12px; color: #cbd5e1; line-height: 1.45;">
+                  I accept the <a href="https://usebrown.online/#privacy" target="_blank" style="color: #60a5fa; text-decoration: underline;">Privacy Policy</a> and <a href="https://usebrown.online/#privacy" target="_blank" style="color: #60a5fa; text-decoration: underline;">Terms of Service</a> for Brown AI.
+                </span>
+              </label>
+              <div id="onboard-privacy-error" class="onboard-error-msg hidden" style="margin-top: 6px; font-size: 11.5px; color: #f87171;">
+                Please accept the Privacy Policy &amp; Terms to finish setup.
+              </div>
+            </div>
+
             <p class="onboard-ready-redirect">Opening your agent workspace...</p>
           </div>
         </div>
