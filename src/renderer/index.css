@@ -10972,11 +10972,11 @@ span.settings-action-btn.is-ready {
 }
 
 .onboarding-logo-img {
-  width: 64px;
-  height: 64px;
+  width: 180px;
+  height: auto;
   object-fit: contain;
   filter: brightness(0) invert(1);
-  margin-bottom: 10px;
+  margin-bottom: 14px;
   flex-shrink: 0;
 }
 
