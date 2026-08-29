@@ -1,6 +1,6 @@
 # Synopsis & System Architecture Specification
 
-**Project Title:** An Autonomous AI Agent for Operating Systems (Ultron)  
+**Project Title:** Brown AI: An Autonomous AI Agent for Operating Systems  
 **Institution:** G H Raisoni University, Amravati — School of Engineering & Technology  
 **Department:** Computer Science & Engineering  
 **Academic Session:** 2026–27  
@@ -10,13 +10,13 @@
 
 ## 1. Title of the Project
 
-**An Autonomous AI Agent for Operating Systems** (Project Codename: *Ultron*)  
+**Brown AI: An Autonomous AI Agent for Operating Systems** (Project Codename: *Brown / Ultron Framework*)  
 
 ---
 
 ## 2. Abstract
 
-Ultron is an advanced, high-fidelity offline AI desktop assistant designed specifically for the Microsoft Windows environment. Built on an isolated **Electron + CommonJS Preload Sandbox** architecture, Ultron integrates local quantized Large Language Models (LLMs) via Ollama and optional cloud services (such as Google Gemini APIs) directly into native Windows system APIs. The system features dynamic hardware profiling to match local models (such as `phi4` or `llama3.2`) to host RAM and GPU constraints, a global Spotlight Command Overlay (`Ctrl+K`), an automated Start Menu shortcut parser with brand icon resolution, and an asynchronous chat session summarizer. To prevent unauthorized actions, Ultron incorporates a **Human-in-the-Loop (HITL) security validation boundary** that prompts user verification before executing shell subprocesses. By operating locally, Ultron delivers 100% data privacy, zero API operational costs, and sub-second execution latency, setting a benchmark for privacy-preserving desktop autonomous agents.
+Brown AI is an advanced, high-fidelity offline AI desktop assistant designed specifically for the Microsoft Windows environment. Built on an isolated **Electron + CommonJS Preload Sandbox** architecture, Brown integrates local quantized Large Language Models (LLMs) via Ollama and optional cloud services (such as Google Gemini APIs) directly into native Windows system APIs. The system features dynamic hardware profiling to match local models (such as `phi4` or `llama3.2`) to host RAM and GPU constraints, a global Spotlight Command Overlay (`Ctrl+K`), an automated Start Menu shortcut parser with brand icon resolution, and an asynchronous chat session summarizer. To prevent unauthorized actions, Brown incorporates a **Human-in-the-Loop (HITL) security validation boundary** that prompts user verification before executing shell subprocesses. By operating locally, Brown delivers 100% data privacy, zero API operational costs, and sub-second execution latency, setting a benchmark for privacy-preserving desktop autonomous agents.
 
 ---
 

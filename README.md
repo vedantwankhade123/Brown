@@ -1,4 +1,4 @@
-# Ultron AI: Autonomous Local-First AI Ecosystem
+# Brown AI: Autonomous Local-First AI Ecosystem
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
 [![Release](https://img.shields.io/badge/Release-BETA%20v1.0.14-0078D4?logo=github)](https://github.com/vedantwankhade123/ultron-releases/releases)
@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://usebrown.online/">
-    <img src="Assets/workforce.png" alt="Ultron AI Multi-Device Ecosystem Interface" width="100%" />
+    <img src="Assets/brown-lg.png" alt="Brown AI Logo" width="160" />
   </a>
 </p>
 
@@ -15,7 +15,7 @@
   <strong><a href="https://usebrown.online/">usebrown.online</a></strong> — Official website with setup guides, docs, and direct downloads.
 </p>
 
-**Ultron AI** is a production-grade, local-first, privacy-focused autonomous AI assistant ecosystem spanning **Windows Desktop**, **Mobile (Android/iOS)**, and **Web**. Combining local on-device quantized LLMs (via Ollama, GGUF, and Hugging Face) with hybrid cloud intelligence (Gemini 2.5/3, Claude 3.7, DeepSeek R1, OpenAI), Ultron provides an autonomous desktop interface agent capable of workflow execution, system orchestration, local voice synthesis, and cross-device synchronization without compromising data privacy.
+**Brown AI** is a production-grade, local-first, privacy-focused autonomous AI assistant ecosystem spanning **Windows Desktop**, **Mobile (Android/iOS)**, and **Web**. Combining local on-device quantized LLMs (via Ollama, GGUF, and Hugging Face) with hybrid cloud intelligence (Gemini 2.5/3, Claude 3.7, DeepSeek R1, OpenAI), Brown provides an autonomous desktop interface agent capable of workflow execution, system orchestration, local voice synthesis, and cross-device synchronization without compromising data privacy.
 
 ---
 
@@ -120,12 +120,12 @@ Pre-compiled Windows binaries are available directly from the official website a
   <tbody>
     <tr>
       <td><b>Installer</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.14-beta.1/Ultron.AI.Setup.v1.0.14.exe"><code>Ultron.AI.Setup.v1.0.14.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/ultron-releases/releases/download/v1.0.14/Ultron.AI.Setup.v1.0.14.exe"><code>Ultron.AI.Setup.v1.0.14.exe</code></a></td>
       <td>Standard Windows setup wizard with Start Menu and Desktop shortcuts.</td>
     </tr>
     <tr>
       <td><b>Portable</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Ultron/releases/download/v1.0.14-beta.1/Ultron.AI.v1.0.14.exe"><code>Ultron.AI.v1.0.14.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/ultron-releases/releases/download/v1.0.14/Ultron.AI.v1.0.14.exe"><code>Ultron.AI.v1.0.14.exe</code></a></td>
       <td>Standalone executable. Runs immediately on Windows without installation.</td>
     </tr>
   </tbody>
