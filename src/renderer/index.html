@@ -41,20 +41,19 @@
   <!-- Windows custom title bar: logo + app name -->
   <div class="app-window-titlebar">
     <div class="app-titlebar-brand">
-      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="app-titlebar-logo" alt="Brown Logo">
-      <span class="app-titlebar-name">Brown <span class="beta-badge-pill">BETA</span></span>
+      <img src="../../Assets/Brand-Assets/brown-logo.png" class="app-titlebar-logo" alt="Brown Logo">
+      <span class="beta-badge-pill">BETA</span>
     </div>
   </div>
 
-  <!-- APP INTRO SPLASH SCREEN — logo + brand only (no status / dots) -->
+  <!-- APP INTRO SPLASH SCREEN — Brown logo with real-time status updates -->
   <div id="app-splash-screen" class="app-splash-screen">
     <div class="splash-card">
       <div class="splash-logo-container">
-        <div class="splash-logo-glow"></div>
-        <img src="../../Assets/Brand-Assets/ultron-logo.png" class="splash-logo-img" alt="Brown Logo">
+        <img src="../../Assets/Brand-Assets/brown-logo.png" class="splash-logo-img" alt="Brown Logo" onerror="this.src='../../Assets/brown-logo.png'">
       </div>
-      <div class="splash-text-container">
-        <h1 class="splash-brand-title shiny-text">Brown</h1>
+      <div class="splash-status-container" id="splash-status-container">
+        <span id="splash-status-text" class="splash-status-text">Starting up...</span>
       </div>
     </div>
   </div>
@@ -89,8 +88,8 @@
       <!-- Title Header -->
       <div class="brand-header">
         <div class="brand-left">
-          <img src="../../Assets/Brand-Assets/ultron-logo.png" class="brand-logo" alt="Brown Logo">
-          <span class="brand-name">Brown <span class="beta-badge-pill">BETA</span></span>
+          <img src="../../Assets/Brand-Assets/brown-logo.png" class="brand-logo" alt="Brown Logo">
+          <span class="beta-badge-pill">BETA</span>
         </div>
         <button id="btn-toggle-left-sidebar" class="btn-toggle-left-sidebar" title="Collapse navigation">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
@@ -303,7 +302,7 @@
               <span></span>
               <span></span>
             </div>
-            <img src="../../Assets/Brand-Assets/ultron-logo.png" class="voice-mode-logo" alt="Brown">
+            <img src="../../Assets/Brand-Assets/brown-logo.png" class="voice-mode-logo" alt="Brown">
           </div>
           <p id="voice-mode-caption" class="voice-mode-caption" aria-hidden="true" data-role=""></p>
           <button type="button" id="voice-mode-status" class="voice-mode-status">Tap to start listening</button>
@@ -367,7 +366,7 @@
     <div id="chat-pane-column" class="chat-pane-column">
       <!-- WELCOME SCREEN -->
       <div id="welcome-screen" class="welcome-screen">
-      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="welcome-logo" alt="Brown Logo">
+      <img src="../../Assets/Brand-Assets/brown-logo.png" class="welcome-logo" alt="Brown Logo">
       <h1 id="welcome-title" class="welcome-title">Good evening, User</h1>
       <p class="welcome-subtitle">How can Brown assist you today?</p>
     </div>
@@ -826,6 +825,34 @@
               <span class="terminal-prompt">$</span>
               <input type="text" id="terminal-command-input" class="terminal-command-input" placeholder="Run command in workspace..." />
             </div>
+          </div>
+        </div>
+
+        <!-- 5. Interactive Visual & Diagram Inspector View (with Infinite X & Y Pan, 2D Scroll, and Zoom) -->
+        <div id="canvas-visual-pane" class="canvas-view-pane hidden">
+          <div class="visual-inspector-topbar">
+            <div class="visual-inspector-left">
+              <span id="visual-inspector-badge" class="visual-inspector-badge">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect></svg>
+                <span id="visual-inspector-title">Visual Diagram Inspector</span>
+              </span>
+            </div>
+            <div class="visual-inspector-zoom-controls">
+              <button type="button" id="btn-visual-zoom-out" class="visual-zoom-btn" title="Zoom Out (Ctrl + Scroll Down)">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <span id="visual-zoom-level" class="visual-zoom-level" title="Current Zoom Level">100%</span>
+              <button type="button" id="btn-visual-zoom-in" class="visual-zoom-btn" title="Zoom In (Ctrl + Scroll Up)">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <button type="button" id="btn-visual-zoom-reset" class="visual-zoom-btn visual-zoom-reset" title="Reset Zoom / Fit to Screen">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
+                <span>Fit</span>
+              </button>
+            </div>
+          </div>
+          <div id="canvas-visual-viewport" class="canvas-visual-viewport" title="Drag to pan across X and Y, Scroll or Pinch to zoom">
+            <div id="canvas-visual-content" class="canvas-visual-content"></div>
           </div>
         </div>
 
@@ -1818,67 +1845,7 @@
               <div id="sync-paired-devices-container" style="display: flex; flex-direction: column; gap: 8px;">
                 <div class="sync-empty-state-card">
                   <div class="sync-empty-svg-wrapper">
-                    <svg class="sync-empty-illustration" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
-                      <defs>
-                        <filter id="sync-subtle-glow" x="-20%" y="-20%" width="140%" height="140%">
-                          <feGaussianBlur stdDeviation="1.5" result="blur" />
-                          <feMerge>
-                            <feMergeNode in="blur" />
-                            <feMergeNode in="SourceGraphic" />
-                          </feMerge>
-                        </filter>
-                        <linearGradient id="sync-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stop-color="rgba(96, 165, 250, 0.18)" />
-                          <stop offset="100%" stop-color="rgba(255, 255, 255, 0.04)" />
-                        </linearGradient>
-                      </defs>
-
-                      <!-- Connection Lines -->
-                      <line x1="88" y1="60" x2="138" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="182" y1="60" x2="232" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="88" y1="60" x2="138" y2="60" class="connection-left" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
-                      <line x1="182" y1="60" x2="232" y2="60" class="connection-right" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
-
-                      <!-- Traveling Data Pulses -->
-                      <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-phone-to-laptop" fill="#ffffff" filter="url(#sync-subtle-glow)" />
-                      <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-laptop-to-phone" fill="#ffffff" filter="url(#sync-subtle-glow)" />
-
-                      <!-- Smartphone (Left) -->
-                      <g class="phone" transform="translate(42, 22)">
-                        <rect x="0" y="0" width="46" height="76" rx="8" ry="8" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
-                        <rect x="4" y="7" width="38" height="62" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
-                        <rect x="16" y="3" width="14" height="2.5" rx="1.2" fill="rgba(255, 255, 255, 0.6)" />
-                        <line x1="9" y1="18" x2="25" y2="18" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
-                        <line x1="9" y1="24" x2="35" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                        <line x1="9" y1="30" x2="29" y2="30" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                        <circle cx="23" cy="50" r="4" stroke="rgba(96, 165, 250, 0.7)" stroke-width="1" fill="rgba(96, 165, 250, 0.15)" />
-                        <circle cx="23" cy="50" r="1.5" fill="#60a5fa" />
-                        <line x1="16" y1="72" x2="30" y2="72" stroke="rgba(255, 255, 255, 0.5)" stroke-width="1.5" stroke-linecap="round" />
-                      </g>
-
-                      <!-- Sync Symbol (Center) -->
-                      <g class="sync-container">
-                        <circle cx="160" cy="60" r="18" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" fill="url(#sync-ring-grad)" />
-                        <g class="sync-icon">
-                          <path d="M 152 54 A 10 10 0 0 1 168 57" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
-                          <path d="M 165 55 L 168 57 L 166 60" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                          <path d="M 168 66 A 10 10 0 0 1 152 63" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
-                          <path d="M 155 65 L 152 63 L 154 60" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                        </g>
-                      </g>
-
-                      <!-- Laptop Screen (Right) -->
-                      <g class="laptop" transform="translate(232, 26)">
-                        <rect x="6" y="0" width="76" height="52" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
-                        <rect x="10" y="4" width="68" height="42" rx="2" ry="2" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
-                        <circle cx="44" cy="2" r="0.8" fill="rgba(255, 255, 255, 0.5)" />
-                        <line x1="16" y1="12" x2="36" y2="12" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
-                        <line x1="16" y1="18" x2="54" y2="18" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                        <line x1="16" y1="24" x2="46" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                        <path d="M0 54 H88 L83 61 H5 Z" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" stroke-linejoin="round" fill="rgba(255, 255, 255, 0.04)" />
-                        <line x1="38" y1="55" x2="50" y2="55" stroke="rgba(255, 255, 255, 0.4)" stroke-width="1.5" stroke-linecap="round" />
-                      </g>
-                    </svg>
+                    <img class="sync-empty-illustration sync-animated-devices" src="../../Assets/computer-phone-connection.svg" alt="Device Connection" />
                   </div>
                   <h6 class="sync-empty-title">No mobile devices paired yet</h6>
                   <p class="sync-empty-desc">Click “Generate Pair Code” and enter the code in your mobile app to connect your device.</p>
@@ -2298,7 +2265,7 @@
             <div class="developer-settings-card about-settings-card">
               <div class="about-app-intro">
                 <div class="about-app-brand">
-                  <img src="../../Assets/Brand-Assets/ultron-logo.png" class="about-app-logo" alt="Brown">
+                  <img src="../../Assets/Brand-Assets/brown-logo.png" class="about-app-logo" alt="Brown">
                   <div>
                     <h4 class="about-app-title">Brown <span class="about-app-version-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); vertical-align: middle; margin-left: 6px;">BETA v1.0.0</span></h4>
                     <p class="developer-tagline">Local &amp; Offline Windows AI Agent</p>
@@ -2327,12 +2294,12 @@
                 <div class="settings-feedback-card" style="margin-top: 20px; padding: 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);">
                   <h5 style="margin: 0 0 6px 0; font-size: 13px; color: #fff;">Feedback &amp; Community</h5>
                   <p style="margin: 0 0 12px 0; font-size: 12px; color: #9ca3af;">Have a suggestion, bug report, or feature request? We'd love to connect with you!</p>
-                  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <a href="https://www.instagram.com/ultron_offline" id="btn-settings-instagram" class="btn-instagram-feedback" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); color: #fff; text-decoration: none; font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px rgba(220, 39, 67, 0.3);">
+                  <div style="display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
+                    <a href="https://www.instagram.com/usebrown.online" id="btn-settings-instagram" class="btn-instagram-feedback" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #e11d48; text-decoration: none; font-size: 12.5px; font-weight: 600;">
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-                      <span>Instagram (@ultron_offline)</span>
+                      <span>Instagram (@usebrown.online)</span>
                     </a>
-                    <a href="mailto:contact@usebrown.online" id="btn-settings-email" class="btn-email-feedback" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; text-decoration: none; font-size: 12px; font-weight: 500;">
+                    <a href="mailto:contact@usebrown.online" id="btn-settings-email" class="btn-email-feedback" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #94a3b8; text-decoration: none; font-size: 12.5px; font-weight: 500;">
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
                       <span>contact@usebrown.online</span>
                     </a>
@@ -2417,16 +2384,35 @@
 
   <!-- First-Time Setup & Onboarding View (Cursor-inspired) -->
   <div id="onboarding-screen" class="onboarding-screen hidden">
+    <!-- Top-left voice guide narrator toggle (Michael voice) -->
+    <button id="btn-onboard-voice-guide" class="onboard-voice-toggle-btn" type="button" aria-label="Toggle Voice Guide" title="Voice Guide (Michael) — Click to Mute / Play">
+      <svg class="voice-icon-idle" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+      </svg>
+      <svg class="voice-icon-muted hidden" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+        <line x1="23" y1="9" x2="17" y2="15"></line>
+        <line x1="17" y1="9" x2="23" y2="15"></line>
+      </svg>
+      <span class="voice-wave-container hidden">
+        <span class="voice-wave-bar"></span>
+        <span class="voice-wave-bar"></span>
+        <span class="voice-wave-bar"></span>
+      </span>
+      <span class="onboard-voice-label">Voice Guide</span>
+    </button>
+
     <div class="onboarding-container">
-      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="onboarding-logo-img" alt="Brown Logo" />
+      <img src="../../Assets/Brand-Assets/brown-logo.png" class="onboarding-logo-img" alt="Brown Logo" />
 
       <!-- Step 0: Welcome -->
       <div id="onboard-step-0" class="onboard-step onboard-welcome">
         <h1 class="onboarding-title">Welcome to Brown AI</h1>
         <p class="onboarding-tagline">The Autonomous AI Agent for Windows</p>
-        <p class="onboarding-tagline">The Autonomous AI Agent for Windows</p>
         <div class="onboard-btn-stack">
-          <button id="btn-onboard-start" type="button" class="btn-onboard-primary btn-onboard-full">Get Started</button>
+          <button id="btn-onboard-start" type="button" class="btn-onboard-primary btn-onboard-start">Get Started</button>
         </div>
       </div>
 
@@ -2508,78 +2494,75 @@
 
           <div id="onboard-step-4" class="onboard-step hidden">
             <div class="onboard-requirements-container">
-              <p class="onboard-requirements-desc">Configure core AI components for your PC. Download them now for full offline capabilities, or skip and set up anytime in Settings.</p>
+              <p class="onboard-requirements-desc">Configure core AI components for your PC for full offline capabilities.</p>
               
               <div class="onboard-components-grid">
                 <!-- Card 1: Ollama Local LLM -->
                 <div class="onboard-comp-card" id="onboard-card-ollama">
-                  <div class="onboard-comp-header">
+                  <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
                     </div>
                     <div class="onboard-comp-titles">
-                      <h4 class="onboard-comp-name">Local AI Engine (Ollama)</h4>
-                      <span class="onboard-comp-sub">Offline neural language models &amp; agent reasoning</span>
-                    </div>
-                    <span id="onboard-badge-ollama" class="onboard-comp-badge checking">Checking...</span>
-                  </div>
-                  <div class="onboard-comp-body">
-                    <p id="onboard-desc-ollama" class="onboard-comp-status-text">Verifying local Ollama service...</p>
-                    <div id="onboard-progress-ollama" class="onboard-comp-progress-wrap hidden">
-                      <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
-                      <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      <div class="onboard-comp-heading-row">
+                        <h4 class="onboard-comp-name">Local AI Engine (Ollama)</h4>
+                        <span id="onboard-badge-ollama" class="onboard-comp-badge checking">Checking...</span>
+                      </div>
+                      <p id="onboard-desc-ollama" class="onboard-comp-status-text">Verifying local Ollama service...</p>
+                      <div id="onboard-progress-ollama" class="onboard-comp-progress-wrap hidden">
+                        <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
+                        <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      </div>
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-ollama" class="btn-onboard-comp-action">Install Ollama</button>
+                    <button type="button" id="btn-onboard-action-ollama" class="btn-onboard-comp-action">Install</button>
                   </div>
                 </div>
 
                 <!-- Card 2: Windows UI Automation -->
                 <div class="onboard-comp-card" id="onboard-card-uia">
-                  <div class="onboard-comp-header">
+                  <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
                     </div>
                     <div class="onboard-comp-titles">
-                      <h4 class="onboard-comp-name">Windows UI Automation MCP</h4>
-                      <span class="onboard-comp-sub">Native Windows accessibility tree &amp; desktop control</span>
-                    </div>
-                    <span id="onboard-badge-uia" class="onboard-comp-badge checking">Checking...</span>
-                  </div>
-                  <div class="onboard-comp-body">
-                    <p id="onboard-desc-uia" class="onboard-comp-status-text">Checking Windows automation server...</p>
-                    <div id="onboard-progress-uia" class="onboard-comp-progress-wrap hidden">
-                      <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
-                      <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      <div class="onboard-comp-heading-row">
+                        <h4 class="onboard-comp-name">Windows UI Automation MCP</h4>
+                        <span id="onboard-badge-uia" class="onboard-comp-badge checking">Checking...</span>
+                      </div>
+                      <p id="onboard-desc-uia" class="onboard-comp-status-text">Checking Windows automation server...</p>
+                      <div id="onboard-progress-uia" class="onboard-comp-progress-wrap hidden">
+                        <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
+                        <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      </div>
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-uia" class="btn-onboard-comp-action">Setup Automation</button>
+                    <button type="button" id="btn-onboard-action-uia" class="btn-onboard-comp-action">Setup</button>
                   </div>
                 </div>
 
                 <!-- Card 3: Kokoro Neural Voices -->
                 <div class="onboard-comp-card" id="onboard-card-kokoro">
-                  <div class="onboard-comp-header">
+                  <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path></svg>
                     </div>
                     <div class="onboard-comp-titles">
-                      <h4 class="onboard-comp-name">Kokoro Neural Voice Engine</h4>
-                      <span class="onboard-comp-sub">Offline TTS · Includes Heart (Female) &amp; Michael (Male)</span>
-                    </div>
-                    <span id="onboard-badge-kokoro" class="onboard-comp-badge checking">Checking...</span>
-                  </div>
-                  <div class="onboard-comp-body">
-                    <p id="onboard-desc-kokoro" class="onboard-comp-status-text">Checking offline voice synthesizer...</p>
-                    <div id="onboard-progress-kokoro" class="onboard-comp-progress-wrap hidden">
-                      <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
-                      <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      <div class="onboard-comp-heading-row">
+                        <h4 class="onboard-comp-name">Kokoro Neural Voice Engine</h4>
+                        <span id="onboard-badge-kokoro" class="onboard-comp-badge checking">Checking...</span>
+                      </div>
+                      <p id="onboard-desc-kokoro" class="onboard-comp-status-text">Checking offline voice synthesizer...</p>
+                      <div id="onboard-progress-kokoro" class="onboard-comp-progress-wrap hidden">
+                        <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
+                        <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      </div>
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action">Download Voices</button>
+                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action">Download</button>
                   </div>
                 </div>
               </div>
@@ -2587,7 +2570,7 @@
               <!-- Overall batch action bar -->
               <div class="onboard-req-batch-bar">
                 <button type="button" id="btn-onboard-download-all" class="btn-onboard-primary btn-onboard-batch">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   Download &amp; Setup All Requirements
                 </button>
                 <button type="button" id="btn-onboard-skip-later" class="btn-onboard-skip hidden">
@@ -2619,8 +2602,8 @@
         </div>
 
         <div id="onboard-footer-actions" class="onboard-footer-actions">
-          <button id="btn-onboard-next" type="button" class="btn-onboard-primary btn-onboard-full">Continue</button>
-          <button id="btn-onboard-finish" type="button" class="btn-onboard-primary btn-onboard-full hidden">Finish</button>
+          <button id="btn-onboard-next" type="button" class="btn-onboard-primary btn-onboard-action-btn">Continue</button>
+          <button id="btn-onboard-finish" type="button" class="btn-onboard-primary btn-onboard-action-btn hidden">Finish</button>
           <button id="btn-onboard-back" type="button" class="btn-onboard-link hidden">Back</button>
         </div>
       </div>
@@ -2725,10 +2708,10 @@
       <!-- Header -->
       <div class="settings-panel-header" style="padding: 16px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between; background: rgba(0, 0, 0, 0.15);">
         <div style="display: flex; align-items: center; gap: 12px;">
-          <img src="../../Assets/Brand-Assets/ultron-logo.png" style="width: 26px; height: 26px; object-fit: contain;" alt="Ultron">
+          <img src="../../Assets/Brand-Assets/brown-logo.png" style="height: 24px; width: auto; object-fit: contain;" alt="Brown">
           <div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <h3 id="release-notes-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">Ultron Release Notes</h3>
+              <h3 id="release-notes-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">Brown Release Notes</h3>
               <span style="font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 5px; background: rgba(59, 130, 246, 0.18); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">BETA v1.0.0</span>
             </div>
           </div>
@@ -2858,12 +2841,12 @@
             <div style="font-size: 13px; font-weight: 700; color: #ffffff;">Join the Official Community &amp; Direct Feedback</div>
             <div style="font-size: 11.5px; color: #9ca3af; margin-top: 2px;">Connect directly with the creator, share suggestions, and request new capabilities.</div>
           </div>
-          <div style="display: flex; gap: 10px; align-items: center;">
-            <a href="https://www.instagram.com/ultron_offline" id="btn-rn-instagram" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); color: #fff; text-decoration: none; font-size: 12px; font-weight: 600;">
+          <div style="display: flex; gap: 16px; align-items: center;">
+            <a href="https://www.instagram.com/usebrown.online" id="btn-rn-instagram" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #e11d48; text-decoration: none; font-size: 12.5px; font-weight: 600;">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-              <span>@ultron_offline</span>
+              <span>@usebrown.online</span>
             </a>
-            <a href="mailto:contact@usebrown.online" id="btn-rn-email" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; text-decoration: none; font-size: 12px; font-weight: 500;">
+            <a href="mailto:contact@usebrown.online" id="btn-rn-email" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #94a3b8; text-decoration: none; font-size: 12.5px; font-weight: 500;">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#ef4444" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
               <span>contact@usebrown.online</span>
             </a>
@@ -2905,6 +2888,8 @@
   <script src="../ui/performance-toggle.js"></script>
   <script src="canvas-artifacts.js"></script>
   <script src="clipboard-manager.js"></script>
+  <script src="../../node_modules/mermaid/dist/mermaid.min.js"></script>
+  <script src="visual-engine.js"></script>
   <div id="ultron-toast-stack" class="ultron-toast-stack" aria-live="polite" aria-relevant="additions"></div>
   <script src="renderer.js"></script>
 </body>

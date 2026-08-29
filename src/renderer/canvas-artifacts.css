@@ -9,6 +9,49 @@
   position: relative;
 }
 
+.chat-view {
+  display: flex !important;
+  flex-direction: row !important;
+  height: 100% !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  position: relative !important;
+}
+
+.chat-pane-column {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  flex: 1 1 100%;
+  width: 100%;
+  overflow: hidden !important;
+  position: relative !important;
+  transition: flex 0.25s cubic-bezier(0.16, 1, 0.3, 1), width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.workspace-splitter {
+  width: 6px;
+  height: 100%;
+  background: #1a1b23;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: col-resize;
+  flex-shrink: 0;
+  z-index: 30;
+  transition: background 0.15s ease;
+}
+
+.workspace-splitter:hover,
+.workspace-splitter.is-dragging {
+  background: #6366f1;
+}
+
+.workspace-splitter.hidden {
+  display: none !important;
+}
+
 .canvas-panel {
   display: flex;
   flex-direction: column;
@@ -20,7 +63,7 @@
   border-left: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.6);
   z-index: 25;
-  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  transition: flex 0.25s cubic-bezier(0.16, 1, 0.3, 1), width 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
   position: relative;
 }
 
@@ -418,4 +461,109 @@
   border-radius: 4px;
   font-family: 'JetBrains Mono', Consolas, monospace;
   font-size: 12.5px;
+}
+
+/* ========================================================================= */
+/* VISUAL DIAGRAM & GENERATIVE UI INSPECTOR SPLIT-VIEW                       */
+/* ========================================================================= */
+.visual-inspector-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: #14151b;
+  border-bottom: 1.5px solid #272832;
+  user-select: none;
+}
+
+.visual-inspector-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #c7d2fe;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.visual-inspector-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #1d1e26;
+  border: 1px solid #333644;
+  border-radius: 8px;
+  padding: 3px 6px;
+}
+
+.visual-zoom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.visual-zoom-btn:hover {
+  background: #2b2e3a;
+  color: #ffffff;
+}
+
+.visual-zoom-level {
+  font-size: 11px;
+  font-weight: 700;
+  color: #818cf8;
+  min-width: 44px;
+  text-align: center;
+  user-select: none;
+}
+
+.canvas-visual-viewport {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  background: #0a0b0e;
+  position: relative;
+  cursor: grab;
+  user-select: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 30px;
+}
+
+.canvas-visual-viewport.is-panning {
+  cursor: grabbing !important;
+}
+
+.canvas-visual-content {
+  transform-origin: 0 0;
+  transition: transform 0.08s ease-out;
+  display: inline-block;
+  min-width: 100%;
+}
+
+.canvas-visual-content svg {
+  display: block;
+  margin: 0 auto;
+  filter: drop-shadow(0 6px 24px rgba(0, 0, 0, 0.6));
+}
+
+.canvas-visual-content .gen-ui-inspector-iframe {
+  width: 100%;
+  min-height: 540px;
+  height: 82vh;
+  border: 1.5px solid #272832;
+  border-radius: 12px;
+  background: #111216;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }

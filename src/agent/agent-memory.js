@@ -326,7 +326,63 @@
     return Boolean(entry && entry.decision === 'deny');
   }
 
-  window.UltronAgentMemory = {
+  // ---------------------------------------------------------------
+  // User Preference & Long-Term Memory Vault
+  // ---------------------------------------------------------------
+  const PREFERENCES_KEY = 'ultron-agent-user-preferences';
+
+  function loadUserPreferences() {
+    try {
+      const saved = window.localStorage.getItem(PREFERENCES_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      preferredLanguage: 'JavaScript/TypeScript & Python',
+      preferredFramework: 'React / Next.js',
+      themePreference: 'Dark',
+      customNotes: []
+    };
+  }
+
+  function saveUserPreference(key, value) {
+    const prefs = loadUserPreferences();
+    if (typeof key === 'object') {
+      Object.assign(prefs, key);
+    } else if (key) {
+      prefs[key] = value;
+    }
+    try {
+      window.localStorage.setItem(PREFERENCES_KEY, JSON.stringify(prefs));
+    } catch (e) {}
+    return prefs;
+  }
+
+  function appendPreferenceNote(note) {
+    const prefs = loadUserPreferences();
+    if (!Array.isArray(prefs.customNotes)) prefs.customNotes = [];
+    const text = String(note || '').trim();
+    if (text && !prefs.customNotes.includes(text)) {
+      prefs.customNotes.push(text);
+      try {
+        window.localStorage.setItem(PREFERENCES_KEY, JSON.stringify(prefs));
+      } catch (e) {}
+    }
+    return prefs;
+  }
+
+  function getFormattedPreferencesPrompt() {
+    const prefs = loadUserPreferences();
+    const items = [];
+    if (prefs.preferredLanguage) items.push(`- Preferred Languages: ${prefs.preferredLanguage}`);
+    if (prefs.preferredFramework) items.push(`- Preferred Frameworks: ${prefs.preferredFramework}`);
+    if (Array.isArray(prefs.customNotes) && prefs.customNotes.length > 0) {
+      prefs.customNotes.forEach(n => items.push(`- User Note: ${n}`));
+    }
+    if (!items.length) return '';
+    return `\n\nUSER PERSISTENT PREFERENCES (Memory Vault):\n${items.join('\n')}`;
+  }
+
+  const memoryApi = {
     loadTaskMemory,
     saveTaskMemory,
     pushTaskMemory,
@@ -349,6 +405,17 @@
     savePermissionDecision,
     clearPermissionDecision,
     hasAlwaysAllow,
-    hasAlwaysDeny
+    hasAlwaysDeny,
+    loadUserPreferences,
+    saveUserPreference,
+    appendPreferenceNote,
+    getFormattedPreferencesPrompt
   };
+
+  if (typeof window !== 'undefined') {
+    window.UltronAgentMemory = memoryApi;
+  }
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = memoryApi;
+  }
 })();
