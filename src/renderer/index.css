@@ -7528,6 +7528,24 @@ body.platform-win32 .chat-header-actions {
   box-sizing: border-box;
 }
 
+/* In-input recording mode: the input pill stays open but its field/actions are
+   swapped for the capsule, and the outer box chrome is removed so only the
+   capsule (pause + waveform + timer) shows, matching the reference image. */
+#main-input-pill.is-recording {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  padding: 0;
+  backdrop-filter: none;
+}
+#main-input-pill.is-recording > .chat-input-field,
+#main-input-pill.is-recording > .input-pill-actions {
+  display: none !important;
+}
+#main-input-pill .voice-recording-pill {
+  width: 100%;
+}
+
 .btn-primary-sm.hidden,
 #btn-install-ollama.hidden,
 button.hidden,

@@ -684,9 +684,9 @@
             </button>
           </div>
         </div>
-      </div>
 
-      <!-- Voice Recording Capsule Pill (Shown when mic is active, matching image reference) -->
+      <!-- Voice Recording Capsule Pill (nested inside the input pill so the main
+           input field stays open and the mic transforms into this UI in-place) -->
       <div id="voice-recording-pill" class="voice-recording-pill hidden">
         <!-- Left Plus Button -->
         <button id="voice-btn-add" class="voice-pill-btn voice-btn-circle" title="Add attachment">
@@ -721,6 +721,7 @@
             </svg>
           </button>
         </div>
+      </div>
       </div>
     </div>
     </div>
