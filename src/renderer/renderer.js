@@ -13645,6 +13645,71 @@ async function loadAccountDetails(options = {}) {
       forceRefresh: false
     });
   }
+
+  // Silently sync desktop app telemetry & onboarding email in background
+  syncDesktopAppTelemetry().catch(() => {});
+}
+
+// ── Silent Background Telemetry & Onboarding Email Sync ─────────────────────
+function getOrCreateDesktopDeviceId() {
+  try {
+    let id = window.localStorage.getItem('ultron-device-id');
+    if (!id) {
+      const rand = Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12);
+      id = `win_${Date.now().toString(36)}_${rand}`;
+      window.localStorage.setItem('ultron-device-id', id);
+    }
+    return id;
+  } catch (_) {
+    return `win_sess_${Date.now()}`;
+  }
+}
+
+async function syncDesktopAppTelemetry() {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  try {
+    const userEmail = (window.localStorage.getItem('ultron-user-email') || '').trim();
+    const userName = (window.localStorage.getItem('ultron-user-name') || '').trim();
+    const deviceId = getOrCreateDesktopDeviceId();
+
+    if (!userEmail || userEmail === 'user@example.com' || !userEmail.includes('@')) {
+      return;
+    }
+
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/ultron-da7a0/databases/(default)/documents/deviceAppSync/${deviceId}`;
+    const payload = {
+      fields: {
+        deviceId: { stringValue: deviceId },
+        email: { stringValue: userEmail.toLowerCase() },
+        name: { stringValue: userName || userEmail.split('@')[0] },
+        platform: { stringValue: 'Windows 11 / 10 x64' },
+        appVersion: { stringValue: 'v1.0.14' },
+        onboarded: { booleanValue: true },
+        lastOnlineAt: { timestampValue: new Date().toISOString() }
+      }
+    };
+
+    await fetch(firestoreUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  } catch (_) {
+    // Silent fail in background
+  }
+}
+
+// Auto-trigger background telemetry on startup and when connection resumes
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    syncDesktopAppTelemetry().catch(() => {});
+  });
+  setTimeout(() => {
+    syncDesktopAppTelemetry().catch(() => {});
+  }, 4000);
+  setInterval(() => {
+    syncDesktopAppTelemetry().catch(() => {});
+  }, 30 * 60 * 1000);
 }
 
 async function checkAndRunFirstTimeOnboarding() {
