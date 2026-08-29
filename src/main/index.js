@@ -35,7 +35,7 @@ function applyWinTitleBarOverlay(win) {
     win.setTitleBarOverlay({
       color: TITLE_BAR_COLOR,
       symbolColor: '#ffffff',
-      height: 32
+      height: 36
     });
   } catch (err) {
     console.warn('[window] setTitleBarOverlay failed:', err.message);
@@ -59,7 +59,7 @@ function createWindow() {
           titleBarOverlay: {
             color: TITLE_BAR_COLOR,
             symbolColor: '#ffffff',
-            height: 32
+            height: 36
           }
         }
       : { frame: true }),
