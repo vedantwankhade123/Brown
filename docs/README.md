@@ -1,6 +1,6 @@
-# Ultron Documentation Hub
+# Brown AI Documentation Hub
 
-Welcome to the central documentation index for the **Ultron Ecosystem** (Windows Desktop Application, Mobile App, and Web Application).
+Welcome to the central documentation index for the **Brown AI Ecosystem** (Windows Desktop Application, Mobile App, and Web Application).
 
 ---
 

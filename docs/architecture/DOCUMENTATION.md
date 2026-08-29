@@ -1,6 +1,6 @@
-# Ultron AI Agent: Comprehensive Technical Documentation & Architecture Manual
+# Brown AI Agent: Comprehensive Technical Documentation & Architecture Manual
 
-Welcome to the official technical documentation for **Ultron AI Agent**, an autonomous, privacy-focused offline AI desktop assistant built specifically for Microsoft Windows. 
+Welcome to the official technical documentation for **Brown AI Agent**, an autonomous, privacy-focused offline AI desktop assistant built specifically for Microsoft Windows. 
 
 This documentation covers system architecture, technology stack, local model selection strategies via Ollama, cloud API fallbacks, installation instructions, and complete configuration manuals.
 
@@ -23,7 +23,7 @@ This documentation covers system architecture, technology stack, local model sel
 
 ## 1. Overview & Key Features
 
-**Ultron** is designed to bridge the gap between natural language AI reasoning and local Windows desktop control. Unlike cloud-bound assistants that stream user keystrokes and code snippets to remote servers, Ultron runs local quantized Large Language Models (LLMs) on host hardware.
+**Brown AI** is designed to bridge the gap between natural language AI reasoning and local Windows desktop control. Unlike cloud-bound assistants that stream user keystrokes and code snippets to remote servers, Brown runs local quantized Large Language Models (LLMs) on host hardware.
 
 ### 🌟 Key Features
 
