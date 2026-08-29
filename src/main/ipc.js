@@ -975,55 +975,53 @@ function registerAudioIpcHandlers() {
   if (registerAudioIpcHandlers._done) return;
   registerAudioIpcHandlers._done = true;
 
+  // Warm up the local Whisper model in the background so the first
+  // transcription doesn't pay the model-load cost.
+  setImmediate(() => {
+    try {
+      require('./voice-whisper').warmupWhisper().catch((e) => {
+        console.warn('[ipc] Whisper warmup notice:', e.message);
+      });
+    } catch (e) {
+      console.warn('[ipc] Whisper warmup init notice:', e.message);
+    }
+  });
 
 
   ipcMain.handle('transcribe-audio', async (_event, payload = {}) => {
     try {
       const culture = String(payload.culture || '').trim() || undefined;
-      const { transcribeWhisperFloat32, transcribeWhisperWavBuffer, isWhisperReady } = require('./voice-whisper');
+      const { transcribeWhisperFloat32, transcribeWhisperWavBuffer } = require('./voice-whisper');
       const { transcribeAudioWavBase64, transcribeAudioFloat32 } = require('./voice-stt');
 
-      let windowsResult = null;
+      const samples = payload.samples || payload.audio || [];
+      const hasSamples = Array.isArray(samples) && samples.length > 800;
+      const sampleRate = Number(payload.sampleRate) || 16000;
 
-      if (payload.wavBase64) {
-        windowsResult = await transcribeAudioWavBase64(payload.wavBase64, culture);
-        if (windowsResult?.success && windowsResult?.text) {
-          return windowsResult;
+      // 1) Local Whisper engine first — the neural model is far more accurate
+      // than the built-in Windows dictation, which mishears short phrases.
+      // Loads on demand (and is warmed up at startup), so it never needs a
+      // readiness gate here.
+      try {
+        if (payload.wavBase64) {
+          const whisperRes = await transcribeWhisperWavBuffer(Buffer.from(payload.wavBase64, 'base64'));
+          if (whisperRes?.success && whisperRes?.text) return whisperRes;
+        } else if (hasSamples) {
+          const whisperRes = await transcribeWhisperFloat32(Float32Array.from(samples), sampleRate);
+          if (whisperRes?.success && whisperRes?.text) return whisperRes;
         }
+      } catch (wErr) {
+        console.warn('[ipc] Whisper transcribe notice:', wErr.message);
       }
 
-      const samples = payload.samples || payload.audio || [];
-      if (Array.isArray(samples) && samples.length > 800) {
-        const sampleRate = Number(payload.sampleRate) || 16000;
-        // Only run the Windows engine over raw samples when the WAV path was
-        // not already attempted (re-running the same engine twice just doubles
-        // latency without new information).
-        if (!windowsResult) {
-          windowsResult = await transcribeAudioFloat32(samples, sampleRate, culture);
-          if (windowsResult?.text) return windowsResult;
-        }
-
-        if (isWhisperReady()) {
-          try {
-            const float32 = Float32Array.from(samples);
-            const whisperRes = await transcribeWhisperFloat32(float32, sampleRate);
-            if (whisperRes?.success && whisperRes?.text) {
-              return whisperRes;
-            }
-          } catch (wErr) {
-            console.warn('[ipc] Whisper Float32 transcribe notice:', wErr.message);
-          }
-        }
-      } else if (payload.wavBase64 && isWhisperReady()) {
-        try {
-          const wavBuf = Buffer.from(payload.wavBase64, 'base64');
-          const whisperRes = await transcribeWhisperWavBuffer(wavBuf);
-          if (whisperRes?.success && whisperRes?.text) {
-            return whisperRes;
-          }
-        } catch (wErr) {
-          console.warn('[ipc] Whisper WAV transcribe notice:', wErr.message);
-        }
+      // 2) Built-in Windows speech engine as fallback.
+      let windowsResult = null;
+      if (payload.wavBase64) {
+        windowsResult = await transcribeAudioWavBase64(payload.wavBase64, culture);
+        if (windowsResult?.success && windowsResult?.text) return windowsResult;
+      } else if (hasSamples) {
+        windowsResult = await transcribeAudioFloat32(samples, sampleRate, culture);
+        if (windowsResult?.text) return windowsResult;
       }
 
       return windowsResult || { success: false, error: 'No speech detected in the recording.' };

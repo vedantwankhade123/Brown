@@ -17136,7 +17136,7 @@ async function startVoiceRecording(options = {}) {
             logTrace(liveResult.error || 'Turn on Online speech recognition in Windows Settings \u2192 Privacy & security \u2192 Speech for the most accurate mic input.', 'system');
             if (!liveSttPrivacyWarned) {
               liveSttPrivacyWarned = true;
-              alert('For accurate voice input, turn on "Online speech recognition":\nWindows Settings \u2192 Privacy & security \u2192 Speech.\n\nUntil then, Ultron falls back to a less accurate offline engine.');
+              alert('For accurate voice input, turn on "Online speech recognition":\nWindows Settings \u2192 Privacy & security \u2192 Speech.\n\nUntil then, Brown falls back to a less accurate offline engine.');
             }
           }
         }
@@ -17169,7 +17169,7 @@ async function startVoiceRecording(options = {}) {
       setVoiceModeStatus('Tap to start listening');
       startVoiceOrbAnimation('idle');
       if (err.name === 'NotAllowedError') {
-        logTrace('Microphone blocked — allow Ultron in Windows Settings → Privacy → Microphone.', 'system');
+        logTrace('Microphone blocked — allow Brown in Windows Settings → Privacy → Microphone.', 'system');
       }
     } else {
       const msg = err.name === 'NotAllowedError'
