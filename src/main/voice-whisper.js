@@ -35,12 +35,16 @@ async function getWhisperTranscriber(onProgress) {
       const cacheDir = getSttCacheDir();
       fs.mkdirSync(cacheDir, { recursive: true });
 
+      // onnxruntime-node (N-API, ABI-stable) gives fast native inference in both
+      // Node and the Electron main process; transformers v3 drives it.
       primeOnnxRuntime();
       const transformers = await import('@huggingface/transformers');
       transformers.env.cacheDir = cacheDir;
       transformers.env.useFSCache = true;
       transformers.env.allowLocalModels = true;
-      transformers.env.backends.onnx.wasm.numThreads = 1;
+      if (transformers.env.backends?.onnx?.wasm) {
+        transformers.env.backends.onnx.wasm.numThreads = 1;
+      }
 
       console.log(`[voice-whisper] initializing local Whisper STT (${WHISPER_MODEL_ID})...`);
       const pipeline = await transformers.pipeline('automatic-speech-recognition', WHISPER_MODEL_ID, {

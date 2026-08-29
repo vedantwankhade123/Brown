@@ -16715,28 +16715,11 @@ function transitionVoicePillToMainInput() {
     return Promise.resolve();
   }
   return new Promise((resolve) => {
-    if (voiceRecordingPill) {
-      voiceRecordingPill.classList.add('fading-out');
-      setTimeout(() => {
-        voiceRecordingPill.classList.add('hidden');
-        voiceRecordingPill.classList.remove('fading-out');
-        if (mainInputPill) {
-          mainInputPill.classList.remove('hidden');
-          mainInputPill.classList.add('fading-out');
-          requestAnimationFrame(() => {
-            mainInputPill.classList.remove('fading-out');
-            resolve();
-          });
-        } else {
-          resolve();
-        }
-      }, 120);
-    } else if (mainInputPill) {
-      mainInputPill.classList.remove('hidden');
-      resolve();
-    } else {
-      resolve();
+    if (voiceRecordingPill) voiceRecordingPill.classList.add('hidden');
+    if (mainInputPill) {
+      mainInputPill.classList.remove('hidden', 'is-recording', 'fading-out');
     }
+    resolve();
   });
 }
 
@@ -17005,19 +16988,11 @@ async function startVoiceRecording(options = {}) {
       setVoiceModeStatus('Listening…');
     } else {
       updateVoiceLiveTranscript('Listening…', { processing: false });
+      // Keep the main input pill open and transform it in-place into the
+      // recording capsule (mic -> pause/waveform/timer) instead of swapping it out.
       if (mainInputPill) {
-        mainInputPill.classList.add('fading-out');
-        setTimeout(() => {
-          mainInputPill.classList.add('hidden');
-          mainInputPill.classList.remove('fading-out');
-          if (voiceRecordingPill) {
-            voiceRecordingPill.classList.remove('hidden');
-            voiceRecordingPill.classList.add('fading-out');
-            requestAnimationFrame(() => {
-              voiceRecordingPill.classList.remove('fading-out');
-            });
-          }
-        }, 120);
+        mainInputPill.classList.add('is-recording');
+        if (voiceRecordingPill) voiceRecordingPill.classList.remove('hidden');
       }
     }
 
