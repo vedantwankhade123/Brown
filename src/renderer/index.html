@@ -2489,10 +2489,6 @@
                 <label for="onboard-email">Email</label>
               </div>
             </div>
-            <div class="onboard-email-note" style="margin-top: 10px; font-size: 12px; line-height: 1.5; color: #94a3b8; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); padding: 10px 14px; border-radius: 8px; display: flex; align-items: flex-start; gap: 8px;">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#60a5fa" stroke-width="2" style="flex-shrink: 0; margin-top: 2px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-              <span>This email will be used to send you personalized recommendations, critical security updates, and in-app notifications.</span>
-            </div>
             <div id="onboard-step-3-error" class="onboard-error-msg hidden">Please enter a valid email address.</div>
           </div>
 
@@ -2510,7 +2506,7 @@
                     <div class="onboard-comp-titles">
                       <div class="onboard-comp-heading-row">
                         <h4 class="onboard-comp-name">Local AI Engine (Ollama)</h4>
-                        <span id="onboard-badge-ollama" class="onboard-comp-badge checking">Checking...</span>
+                        <span id="onboard-badge-ollama" class="onboard-comp-badge checking" aria-hidden="true"></span>
                       </div>
                       <p id="onboard-desc-ollama" class="onboard-comp-status-text">Verifying local Ollama service...</p>
                       <div id="onboard-progress-ollama" class="onboard-comp-progress-wrap hidden">
@@ -2520,7 +2516,7 @@
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-ollama" class="btn-onboard-comp-action">Install</button>
+                    <button type="button" id="btn-onboard-action-ollama" class="btn-onboard-comp-action" aria-label="Install or start Ollama" title="Install or start Ollama"></button>
                   </div>
                 </div>
 
@@ -2533,7 +2529,7 @@
                     <div class="onboard-comp-titles">
                       <div class="onboard-comp-heading-row">
                         <h4 class="onboard-comp-name">Windows UI Automation MCP</h4>
-                        <span id="onboard-badge-uia" class="onboard-comp-badge checking">Checking...</span>
+                        <span id="onboard-badge-uia" class="onboard-comp-badge checking" aria-hidden="true"></span>
                       </div>
                       <p id="onboard-desc-uia" class="onboard-comp-status-text">Checking Windows automation server...</p>
                       <div id="onboard-progress-uia" class="onboard-comp-progress-wrap hidden">
@@ -2543,7 +2539,7 @@
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-uia" class="btn-onboard-comp-action">Setup</button>
+                    <button type="button" id="btn-onboard-action-uia" class="btn-onboard-comp-action" aria-label="Set up Windows UI Automation" title="Set up Windows UI Automation"></button>
                   </div>
                 </div>
 
@@ -2556,7 +2552,7 @@
                     <div class="onboard-comp-titles">
                       <div class="onboard-comp-heading-row">
                         <h4 class="onboard-comp-name">Kokoro Neural Voice Engine</h4>
-                        <span id="onboard-badge-kokoro" class="onboard-comp-badge checking">Checking...</span>
+                        <span id="onboard-badge-kokoro" class="onboard-comp-badge checking" aria-hidden="true"></span>
                       </div>
                       <p id="onboard-desc-kokoro" class="onboard-comp-status-text">Checking offline voice synthesizer...</p>
                       <div id="onboard-progress-kokoro" class="onboard-comp-progress-wrap hidden">
@@ -2566,7 +2562,7 @@
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action">Download</button>
+                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action" aria-label="Download voice models" title="Download voice models"></button>
                   </div>
                 </div>
               </div>
@@ -2623,6 +2619,10 @@
           <button id="btn-onboard-next" type="button" class="btn-onboard-primary btn-onboard-action-btn">Continue</button>
           <button id="btn-onboard-finish" type="button" class="btn-onboard-primary btn-onboard-action-btn hidden">Finish</button>
           <button id="btn-onboard-back" type="button" class="btn-onboard-link hidden">Back</button>
+          <div id="onboard-email-note" class="onboard-email-note hidden">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            <span>This email will be used for personalized recommendations, security updates, and in-app notifications.</span>
+          </div>
         </div>
       </div>
 
