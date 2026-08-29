@@ -13,7 +13,7 @@ function getSttCacheDir() {
     const { getOllamaModelsDir } = require('./paths');
     return path.join(getOllamaModelsDir(), 'tts-cache', 'stt-whisper');
   } catch (e) {
-    const fallback = path.join(process.cwd(), 'Ultron-local', 'models', 'tts-cache', 'stt-whisper');
+    const fallback = path.join(process.cwd(), 'brown-local', 'models', 'tts-cache', 'stt-whisper');
     fs.mkdirSync(fallback, { recursive: true });
     return fallback;
   }

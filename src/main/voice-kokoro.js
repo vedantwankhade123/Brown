@@ -29,7 +29,7 @@ function getKokoroCacheDir() {
     const { getOllamaModelsDir } = require('./paths');
     return path.join(getOllamaModelsDir(), 'tts-cache', KOKORO_ENGINE_KEY);
   } catch (e) {
-    const fallback = path.join(process.cwd(), 'Ultron-local', 'models', 'tts-cache', KOKORO_ENGINE_KEY);
+    const fallback = path.join(process.cwd(), 'brown-local', 'models', 'tts-cache', KOKORO_ENGINE_KEY);
     fs.mkdirSync(fallback, { recursive: true });
     return fallback;
   }

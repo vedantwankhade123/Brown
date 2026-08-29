@@ -114,7 +114,7 @@ function getTtsCacheRoot() {
     const { getOllamaModelsDir } = require('./paths');
     return path.join(getOllamaModelsDir(), 'tts-cache');
   } catch (e) {
-    const fallback = path.join(process.cwd(), 'Ultron-local', 'models', 'tts-cache');
+    const fallback = path.join(process.cwd(), 'brown-local', 'models', 'tts-cache');
     fs.mkdirSync(fallback, { recursive: true });
     return fallback;
   }

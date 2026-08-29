@@ -41,6 +41,7 @@ yarn-error.log*
 
 # Local Development Runtimes & Caches (Models, Blobs, Manifests)
 Ultron-local/
+brown-local/
 .system_generated/
 .gemini/
 .agents/
@@ -59,3 +60,7 @@ Ultron-local/
 *.jks
 *.keystore
 secrets/
+
+# Sibling project checkouts (separate repos)
+brown-website/
+brown-releases/

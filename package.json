@@ -26,7 +26,7 @@
     "publish": {
       "provider": "github",
       "owner": "vedantwankhade123",
-      "repo": "ultron-releases",
+      "repo": "Brown-Releases",
       "releaseType": "release"
     },
     "compression": "store",

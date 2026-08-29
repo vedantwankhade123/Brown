@@ -2,3 +2,6 @@
 	path = Ultron Website
 	url = https://github.com/vedantwankhade123/Ultron-Website.git
 
+[submodule "mobile"]
+	path = mobile
+	url = https://github.com/vedantwankhade123/Brown-Mobile.git

@@ -3402,7 +3402,7 @@ async function startOllamaInstallFlow(buttonElement) {
   const result = await window.ultronAPI.installOllama();
   if (result.success) {
     if (result.ultronRoot) {
-      logTrace(`${paths.storageFolderName || 'Ultron-local'} ready at: ${result.ultronRoot} (models → ${result.modelsDir || result.ultronRoot + '\\models'})`, 'system');
+      logTrace(`${paths.storageFolderName || 'brown-local'} ready at: ${result.ultronRoot} (models → ${result.modelsDir || result.ultronRoot + '\\models'})`, 'system');
     }
     logTrace('winget Ollama installation command executed successfully.', 'system');
     showOllamaBanner('warning', 'Ollama installation spawned. Checking connection...', false);
@@ -17472,7 +17472,7 @@ async function loadStoragePathsUI() {
   if (!paths) return;
 
   if (storageUltronRootLabel) {
-    const folderLabel = paths.storageFolderName || (paths.ultronRoot?.includes('Ultron-AI') ? 'Ultron-AI' : 'Ultron-local');
+    const folderLabel = paths.storageFolderName || (paths.ultronRoot?.includes('Ultron-AI') ? 'Ultron-AI' : 'brown-local');
     storageUltronRootLabel.textContent = `${folderLabel}: ${paths.ultronRoot || paths.defaultUltronRoot || ''}`;
   }
   if (storageInstallRootLabel) {
@@ -17492,7 +17492,7 @@ async function loadStoragePathsUI() {
   const ollamaNote = document.getElementById('setting-ollama-install-note');
   if (ollamaNote) {
     const modelsPath = paths.modelsDir || paths.defaultModelsDir || '';
-    const folderName = paths.storageFolderName || 'Ultron-local';
+    const folderName = paths.storageFolderName || 'brown-local';
     ollamaNote.textContent = paths.ollamaInstallPath
       ? `Ollama: ${paths.ollamaInstallPath}. Models → ${modelsPath || `${folderName}\\models`}.`
       : `Models → ${modelsPath || `${folderName}\\models`} when Ollama is installed.`;
