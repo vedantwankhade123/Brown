@@ -13750,6 +13750,7 @@ async function checkAndRunFirstTimeOnboarding() {
   const step4 = document.getElementById('onboard-step-4');
   const step5 = document.getElementById('onboard-step-5');
   const footerActions = document.getElementById('onboard-footer-actions');
+  const emailNote = document.getElementById('onboard-email-note');
 
   const fullNameInput = document.getElementById('onboard-full-name');
   const birthdateInput = document.getElementById('onboard-birthdate');
@@ -14316,6 +14317,7 @@ async function checkAndRunFirstTimeOnboarding() {
     if (step4) step4.classList.add('hidden');
     if (step5) step5.classList.add('hidden');
     if (footerActions) footerActions.classList.remove('hidden');
+    if (emailNote) emailNote.classList.toggle('hidden', currentStep !== 3);
 
     if (currentStep === 1) {
       if (step1) step1.classList.remove('hidden');
@@ -14438,19 +14440,81 @@ async function checkAndRunFirstTimeOnboarding() {
     kokoro: false
   };
 
+  function areAllOnboardingComponentsReady() {
+    return Boolean(compStatus.ollama && compStatus.uia && compStatus.kokoro);
+  }
+
+  function updateRequirementsBatchButton({ busy = false } = {}) {
+    const btn = document.getElementById('btn-onboard-download-all');
+    if (!btn) return;
+
+    if (busy) {
+      btn.disabled = true;
+      btn.classList.remove('installed');
+      btn.innerHTML = `<div class="onboard-spinner"></div> Setting up components…`;
+      return;
+    }
+
+    if (areAllOnboardingComponentsReady()) {
+      btn.disabled = true;
+      btn.classList.add('installed');
+      btn.innerHTML = `All components ready`;
+      return;
+    }
+
+    btn.disabled = false;
+    btn.classList.remove('installed');
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      Set up missing components
+    `;
+  }
+
+  const onboardDownloadIcon = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+      <polyline points="7 10 12 15 17 10"></polyline>
+      <line x1="12" y1="15" x2="12" y2="3"></line>
+    </svg>
+  `;
+
+  const onboardCheckIcon = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12"></polyline>
+    </svg>
+  `;
+
+  function setOnboardComponentAction(btn, state, label) {
+    if (!btn) return;
+    btn.className = 'btn-onboard-comp-action';
+    btn.disabled = state === 'ready' || state === 'busy';
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('title', label);
+
+    if (state === 'ready') {
+      btn.classList.add('installed');
+      btn.innerHTML = onboardCheckIcon;
+    } else if (state === 'busy') {
+      btn.innerHTML = `<div class="onboard-spinner" aria-hidden="true"></div>`;
+    } else {
+      btn.innerHTML = onboardDownloadIcon;
+    }
+  }
+
   async function checkOllamaComp() {
     const badge = document.getElementById('onboard-badge-ollama');
     const desc = document.getElementById('onboard-desc-ollama');
     const btn = document.getElementById('btn-onboard-action-ollama');
-    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = 'Checking…'; }
+    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
+    setOnboardComponentAction(btn, 'busy', 'Checking Ollama');
     if (desc) desc.textContent = 'Verifying Ollama local neural service…';
 
     const conn = await checkOllamaConnection();
     if (conn.connected) {
       compStatus.ollama = true;
-      if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Ready'; }
-      if (desc) desc.textContent = 'Ollama is online and connected (Localhost:11434).';
-      if (btn) { btn.textContent = 'Connected'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+      if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
+      if (desc) desc.textContent = 'Ollama is online at Localhost:11434.';
+      setOnboardComponentAction(btn, 'ready', 'Ollama ready');
       return true;
     }
 
@@ -14464,9 +14528,9 @@ async function checkAndRunFirstTimeOnboarding() {
           const retry = await checkOllamaConnection();
           if (retry.connected) {
             compStatus.ollama = true;
-            if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Ready'; }
-            if (desc) desc.textContent = 'Ollama is online and connected.';
-            if (btn) { btn.textContent = 'Connected'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+            if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
+            if (desc) desc.textContent = 'Ollama is online.';
+            setOnboardComponentAction(btn, 'ready', 'Ollama ready');
             return true;
           }
         }
@@ -14474,9 +14538,9 @@ async function checkAndRunFirstTimeOnboarding() {
     }
 
     compStatus.ollama = false;
-    if (badge) { badge.className = 'onboard-comp-badge missing'; badge.textContent = 'Not Running'; }
+    if (badge) { badge.className = 'onboard-comp-badge missing'; badge.textContent = ''; }
     if (desc) desc.textContent = 'Ollama is not running. Install or launch Ollama to run local models.';
-    if (btn) { btn.textContent = 'Install / Start'; btn.className = 'btn-onboard-comp-action'; btn.disabled = false; }
+    setOnboardComponentAction(btn, 'download', 'Install or start Ollama');
     return false;
   }
 
@@ -14484,24 +14548,25 @@ async function checkAndRunFirstTimeOnboarding() {
     const badge = document.getElementById('onboard-badge-uia');
     const desc = document.getElementById('onboard-desc-uia');
     const btn = document.getElementById('btn-onboard-action-uia');
-    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = 'Checking…'; }
+    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
+    setOnboardComponentAction(btn, 'busy', 'Checking Windows UI Automation');
     if (desc) desc.textContent = 'Verifying Windows UI automation server…';
 
     try {
       const res = await window.ultronAPI?.checkMcpWindowsUia?.();
       if (res?.installed) {
         compStatus.uia = true;
-        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Installed'; }
+        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
         if (desc) desc.textContent = 'Windows UI Automation server is ready for desktop control.';
-        if (btn) { btn.textContent = 'Installed'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+        setOnboardComponentAction(btn, 'ready', 'Windows UI Automation ready');
         return true;
       }
     } catch (e) {}
 
     compStatus.uia = false;
-    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = 'Available'; }
+    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = ''; }
     if (desc) desc.textContent = 'Enables deep Windows UI automation and native app control.';
-    if (btn) { btn.textContent = 'Setup Automation'; btn.className = 'btn-onboard-comp-action'; btn.disabled = false; }
+    setOnboardComponentAction(btn, 'download', 'Set up Windows UI Automation');
     return false;
   }
 
@@ -14509,7 +14574,8 @@ async function checkAndRunFirstTimeOnboarding() {
     const badge = document.getElementById('onboard-badge-kokoro');
     const desc = document.getElementById('onboard-desc-kokoro');
     const btn = document.getElementById('btn-onboard-action-kokoro');
-    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = 'Checking…'; }
+    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
+    setOnboardComponentAction(btn, 'busy', 'Checking voice models');
     if (desc) desc.textContent = 'Verifying Kokoro neural voice synthesizer…';
 
     try {
@@ -14520,17 +14586,17 @@ async function checkAndRunFirstTimeOnboarding() {
 
       if (heartInstalled && michaelInstalled) {
         compStatus.kokoro = true;
-        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Installed'; }
+        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
         if (desc) desc.textContent = 'Heart & Michael neural voice models are ready.';
-        if (btn) { btn.textContent = 'Ready'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+        setOnboardComponentAction(btn, 'ready', 'Voice models ready');
         return true;
       }
     } catch (e) {}
 
     compStatus.kokoro = false;
-    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = 'Required'; }
+    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = ''; }
     if (desc) desc.textContent = 'Offline TTS · Downloads Heart (Female) & Michael (Male) voices. Required to finish setup.';
-    if (btn) { btn.textContent = 'Download Voices'; btn.className = 'btn-onboard-comp-action'; btn.disabled = false; }
+    setOnboardComponentAction(btn, 'download', 'Download voice models');
     return false;
   }
 
@@ -14546,27 +14612,29 @@ async function checkAndRunFirstTimeOnboarding() {
       await startKokoroOnboardDownload();
     }
     setFinishVisible(Boolean(compStatus.kokoro));
+    updateRequirementsBatchButton();
   }
 
   // Action listeners for individual cards
   const btnActionOllama = document.getElementById('btn-onboard-action-ollama');
   if (btnActionOllama) {
     btnActionOllama.onclick = async () => {
-      btnActionOllama.disabled = true;
+      setOnboardComponentAction(btnActionOllama, 'busy', 'Installing or starting Ollama');
       await startOllamaInstallFlow(btnActionOllama);
       await checkOllamaComp();
+      updateRequirementsBatchButton();
     };
   }
 
   const btnActionUia = document.getElementById('btn-onboard-action-uia');
   if (btnActionUia) {
     btnActionUia.onclick = async () => {
-      btnActionUia.disabled = true;
-      btnActionUia.textContent = 'Setting up…';
+      setOnboardComponentAction(btnActionUia, 'busy', 'Setting up Windows UI Automation');
       const badge = document.getElementById('onboard-badge-uia');
-      if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = 'Setting up…'; }
+      if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = ''; }
       await window.ultronAPI?.installMcpWindowsUia?.();
       await checkUiaComp();
+      updateRequirementsBatchButton();
     };
   }
 
@@ -14574,11 +14642,12 @@ async function checkAndRunFirstTimeOnboarding() {
   async function startKokoroOnboardDownload() {
     const btn = document.getElementById('btn-onboard-action-kokoro');
     const badge = document.getElementById('onboard-badge-kokoro');
-    if (btn) { btn.disabled = true; btn.textContent = 'Downloading…'; }
-    if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = 'Downloading…'; }
+    setOnboardComponentAction(btn, 'busy', 'Downloading voice models');
+    if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = ''; }
     await window.ultronAPI?.downloadKokoroOnboardingVoices?.();
     await checkKokoroComp();
     setFinishVisible(Boolean(compStatus.kokoro));
+    updateRequirementsBatchButton();
   }
   if (btnActionKokoro) {
     btnActionKokoro.onclick = () => startKokoroOnboardDownload();
@@ -14588,8 +14657,7 @@ async function checkAndRunFirstTimeOnboarding() {
   const btnDownloadAll = document.getElementById('btn-onboard-download-all');
   if (btnDownloadAll) {
     btnDownloadAll.onclick = async () => {
-      btnDownloadAll.disabled = true;
-      btnDownloadAll.innerHTML = `<div class="onboard-spinner"></div> Setting up all components…`;
+      updateRequirementsBatchButton({ busy: true });
 
       // 1. UIA
       if (!compStatus.uia && window.ultronAPI?.installMcpWindowsUia) {
@@ -14609,9 +14677,7 @@ async function checkAndRunFirstTimeOnboarding() {
       }
 
       setFinishVisible(Boolean(compStatus.kokoro));
-      btnDownloadAll.disabled = false;
-      btnDownloadAll.innerHTML = `✓ Requirements Setup Complete`;
-      btnDownloadAll.classList.add('installed');
+      updateRequirementsBatchButton();
     };
   }
 
@@ -21375,6 +21441,3 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
     } catch (e) {}
   }, 1200);
 })();
-
-
-

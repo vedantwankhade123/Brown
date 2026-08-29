@@ -10880,9 +10880,50 @@ span.settings-action-btn.is-ready {
   justify-content: center;
   padding: 32px 24px;
   box-sizing: border-box;
-  background: #141414;
+  background:
+    linear-gradient(180deg, #040815 0%, #07112c 43%, #143fb8 64%, #238cff 100%);
   overflow-y: auto;
   animation: onboardFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.onboarding-screen::before,
+.onboarding-screen::after {
+  content: "";
+  position: fixed;
+  left: -50%;
+  right: -50%;
+  top: -16%;
+  bottom: -20%;
+  pointer-events: none;
+  z-index: 0;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+.onboarding-screen::before {
+  background:
+    radial-gradient(42% 18% at 0% 55%, rgba(30, 144, 255, 0.64) 0%, rgba(23, 104, 239, 0.52) 42%, transparent 72%),
+    radial-gradient(42% 18% at 50% 55%, rgba(30, 144, 255, 0.64) 0%, rgba(23, 104, 239, 0.52) 42%, transparent 72%),
+    radial-gradient(42% 18% at 100% 55%, rgba(30, 144, 255, 0.64) 0%, rgba(23, 104, 239, 0.52) 42%, transparent 72%),
+    linear-gradient(180deg, rgba(3, 7, 20, 0.98) 0%, rgba(5, 12, 35, 0.96) 42%, rgba(27, 84, 221, 0.7) 66%, rgba(36, 137, 255, 0.88) 100%);
+  background-size: 50% 100%, 50% 100%, 50% 100%, 100% 100%;
+  background-position: 0% 0%, 50% 0%, 100% 0%, 0% 0%;
+  filter: blur(12px) saturate(1.14);
+  opacity: 0.96;
+  animation: onboardGradientDrift 18s linear infinite;
+}
+
+.onboarding-screen::after {
+  background:
+    radial-gradient(36% 13% at 0% 63%, rgba(109, 198, 255, 0.42) 0%, rgba(65, 121, 255, 0.28) 48%, transparent 74%),
+    radial-gradient(36% 13% at 50% 63%, rgba(109, 198, 255, 0.42) 0%, rgba(65, 121, 255, 0.28) 48%, transparent 74%),
+    radial-gradient(36% 13% at 100% 63%, rgba(109, 198, 255, 0.42) 0%, rgba(65, 121, 255, 0.28) 48%, transparent 74%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0.2) 42%, rgba(9, 27, 86, 0.06) 64%, rgba(77, 170, 255, 0.24) 100%);
+  background-size: 50% 100%, 50% 100%, 50% 100%, 100% 100%;
+  background-position: 100% 0%, 50% 0%, 0% 0%, 0% 0%;
+  filter: blur(16px) saturate(1.08);
+  opacity: 0.88;
+  animation: onboardGradientBreathe 24s linear infinite;
 }
 
 @keyframes onboardFadeIn {
@@ -10918,10 +10959,10 @@ span.settings-action-btn.is-ready {
 }
 
 .onboard-voice-toggle-btn.is-speaking {
-  background: #212121;
-  border-color: #60a5fa;
-  color: #93c5fd;
-  box-shadow: 0 0 14px rgba(96, 165, 250, 0.25);
+  background: #ffffff;
+  border-color: rgba(255, 255, 255, 0.9);
+  color: #050505;
+  box-shadow: 0 8px 24px rgba(255, 255, 255, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.3);
 }
 
 .onboard-voice-toggle-btn.is-muted {
@@ -10959,6 +11000,8 @@ span.settings-action-btn.is-ready {
   display: flex;
   flex-direction: column;
   align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
 .onboard-welcome {
@@ -11078,7 +11121,7 @@ span.settings-action-btn.is-ready {
   left: 12px;
   transform: translateY(-50%);
   padding: 0 6px;
-  background: #141414;
+  background: rgba(9, 13, 31, 0.78);
   font-size: 0.78rem;
   font-weight: 500;
   color: #a1a1aa;
@@ -11096,7 +11139,8 @@ span.settings-action-btn.is-ready {
   box-sizing: border-box;
   padding: 12px 14px 11px;
   border-radius: 9px;
-  background: #141414;
+  background: rgba(9, 13, 31, 0.42);
+  backdrop-filter: blur(18px);
   border: 1px solid rgba(255, 255, 255, 0.14);
   color: #f3f4f6;
   font-size: 0.9rem;
@@ -11323,8 +11367,36 @@ span.settings-action-btn.is-ready {
 
 .onboard-field:focus-within .onboard-input {
   border-color: rgba(59, 130, 246, 0.75);
-  background: #141414;
+  background: rgba(9, 13, 31, 0.5);
   box-shadow: none;
+}
+
+@keyframes onboardGradientDrift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1.02);
+  }
+  50% {
+    transform: translate3d(-12.5%, -1.2%, 0) scale(1.035);
+  }
+  100% {
+    transform: translate3d(-25%, 0, 0) scale(1.02);
+  }
+}
+
+@keyframes onboardGradientBreathe {
+  0% {
+    transform: translate3d(-25%, 0.8%, 0) scale(1.04);
+  }
+  100% {
+    transform: translate3d(0, -0.8%, 0) scale(1.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-screen::before,
+  .onboarding-screen::after {
+    animation: none;
+  }
 }
 
 .onboard-error-msg {
@@ -11437,6 +11509,28 @@ span.settings-action-btn.is-ready {
   padding-top: 2px;
 }
 
+.onboard-email-note {
+  width: 100%;
+  max-width: 310px;
+  box-sizing: border-box;
+  margin-top: 2px;
+  padding: 0 4px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.onboard-email-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #60a5fa;
+}
+
 .btn-onboard-action-btn,
 #btn-onboard-next,
 #btn-onboard-finish {
@@ -11459,7 +11553,7 @@ span.settings-action-btn.is-ready {
   padding: 11px 18px;
   font-size: 0.92rem;
   font-weight: 500;
-  border-radius: 8px;
+  border-radius: 999px;
   border: none;
   background: #ffffff;
   color: #000000;
@@ -11482,7 +11576,7 @@ span.settings-action-btn.is-ready {
   padding: 10px 16px;
   font-size: 0.88rem;
   font-weight: 500;
-  border-radius: 8px;
+  border-radius: 999px;
   border: none;
   background: #ffffff;
   color: #000000;
@@ -11501,6 +11595,7 @@ span.settings-action-btn.is-ready {
   font-size: 0.82rem;
   cursor: pointer;
   padding: 6px 4px;
+  border-radius: 999px;
   transition: color 0.15s;
 }
 
@@ -13387,14 +13482,7 @@ body[data-performance-profile="battery"] .voice-mode-stage {
 }
 
 .onboard-comp-badge {
-  font-size: 9.5px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  flex-shrink: 0;
-  border: none;
+  display: none !important;
 }
 
 .onboard-comp-badge.checking {
@@ -13467,16 +13555,19 @@ body[data-performance-profile="battery"] .voice-mode-stage {
 }
 
 .btn-onboard-comp-action {
-  padding: 4px 10px;
-  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(255, 255, 255, 0.08);
   color: #f3f4f6;
-  font-size: 11px;
-  font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .btn-onboard-comp-action:hover {
@@ -13488,8 +13579,19 @@ body[data-performance-profile="battery"] .voice-mode-stage {
   background: #10b981 !important;
   color: #000000 !important;
   border: none;
-  font-weight: 700;
   cursor: default;
+}
+
+.btn-onboard-comp-action svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.btn-onboard-comp-action .onboard-spinner {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
 }
 
 .onboard-req-batch-bar {
@@ -13505,15 +13607,23 @@ body[data-performance-profile="battery"] .voice-mode-stage {
 
 .btn-onboard-batch {
   width: 100%;
-  max-width: 100%;
+  max-width: 310px;
   box-sizing: border-box;
   padding: 8px 16px;
   font-size: 0.85rem;
-  border-radius: 8px;
+  border-radius: 999px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+}
+
+.btn-onboard-batch.installed {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+  cursor: default;
+  opacity: 1;
 }
 
 .btn-onboard-skip {
