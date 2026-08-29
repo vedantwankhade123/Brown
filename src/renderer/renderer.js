@@ -19636,6 +19636,12 @@ async function openSettingsPanel(tabName = 'account') {
   chatMain.classList.add('settings-open');
   btnSettings?.classList.add('active');
 
+  // Auto-collapse the recent-conversations sidebar while settings is open.
+  if (leftSidebar) {
+    leftSidebar.classList.add('collapsed');
+    try { localStorage.setItem('ultron-left-sidebar-collapsed', 'true'); } catch (e) {}
+  }
+
   if (activeChatTitle) activeChatTitle.textContent = 'Settings';
   btnBackFromSettings?.classList.remove('hidden');
 
@@ -19655,6 +19661,12 @@ function closeSettingsPanel() {
   settingsPanel.classList.add('hidden');
   chatMain.classList.remove('settings-open');
   btnSettings?.classList.remove('active');
+
+  // Restore the recent-conversations sidebar when settings closes.
+  if (leftSidebar) {
+    leftSidebar.classList.remove('collapsed');
+    try { localStorage.setItem('ultron-left-sidebar-collapsed', 'false'); } catch (e) {}
+  }
 
   if (activeChatTitle) {
     activeChatTitle.textContent = chatTitleBeforeSettings || 'New chat';
