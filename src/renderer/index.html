@@ -688,11 +688,11 @@
       <!-- Voice Recording Capsule Pill (nested inside the input pill so the main
            input field stays open and the mic transforms into this UI in-place) -->
       <div id="voice-recording-pill" class="voice-recording-pill hidden">
-        <!-- Left Plus Button -->
-        <button id="voice-btn-add" class="voice-pill-btn voice-btn-circle" title="Add attachment">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
+        <!-- Left circular stop button (pause-style, like the reference image) -->
+        <button id="voice-btn-done" class="voice-pill-btn voice-btn-circle voice-btn-stop" title="Stop & convert audio to text">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">
+            <rect x="7" y="6" width="3.6" height="12" rx="1.6"></rect>
+            <rect x="13.4" y="6" width="3.6" height="12" rx="1.6"></rect>
           </svg>
         </button>
 
@@ -702,22 +702,13 @@
           <span id="voice-live-transcript" class="voice-live-transcript" aria-live="polite"></span>
         </div>
 
-        <!-- Right Controls & Timer -->
+        <!-- Right: timer + subtle cancel -->
         <div class="voice-pill-right">
           <span id="voice-recording-timer" class="voice-timer">0:00</span>
-          
-          <!-- Cancel Button (X) -->
           <button id="voice-btn-cancel" class="voice-pill-btn voice-btn-icon" title="Cancel recording">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-
-          <!-- Done Button (Checkmark) -->
-          <button id="voice-btn-done" class="voice-pill-btn voice-btn-icon voice-btn-check" title="Done & convert audio to text">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-              <polyline points="20 6 9 17 4 12"></polyline>
             </svg>
           </button>
         </div>

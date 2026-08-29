@@ -17368,12 +17368,12 @@ function drawWaveform() {
       _prevHeights[i] += (targetHeight - _prevHeights[i]) * 0.45;
       const pillHeight = _prevHeights[i];
       const y = (height - pillHeight) / 2;
-      // Vibrant Blue visualizer waveform fill
+      // Light monochrome visualizer waveform fill (matches reference capsule)
       if (voiceFactor >= 0.01) {
-        const glowOpacity = Math.min(1.0, 0.65 + voiceFactor * 0.35);
-        canvasCtx.fillStyle = `rgba(59, 130, 246, ${glowOpacity})`;
+        const glowOpacity = Math.min(1.0, 0.75 + voiceFactor * 0.25);
+        canvasCtx.fillStyle = `rgba(255, 255, 255, ${glowOpacity})`;
       } else {
-        canvasCtx.fillStyle = 'rgba(96, 165, 250, 0.45)';
+        canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.35)';
       }
 
       canvasCtx.beginPath();
