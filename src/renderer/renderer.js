@@ -7860,9 +7860,9 @@ function renderModelDropdownList() {
     const hubModels = window.UltronMultiProviderHub.getAvailableModels(true);
     const providers = [
       { id: 'openai', label: 'OpenAI', color: '#10a37f' },
-      { id: 'anthropic', label: 'Anthropic Claude', color: '#d97706' },
+      { id: 'anthropic', label: 'Anthropic Claude', color: '#3b82f6' },
       { id: 'deepseek', label: 'DeepSeek API', color: '#3b82f6' },
-      { id: 'groq', label: 'Groq Cloud', color: '#f97316' },
+      { id: 'groq', label: 'Groq Cloud', color: '#60a5fa' },
       { id: 'custom', label: 'Custom Models', color: '#8b5cf6' }
     ];
 
