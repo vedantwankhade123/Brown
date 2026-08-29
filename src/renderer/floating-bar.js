@@ -616,7 +616,7 @@
     }
   }
 
-  function showAnswerCard(title = 'Ultron · AI Response') {
+  function showAnswerCard(title = 'Brown · AI Response') {
     hidePlusMenu();
     hideModelDropdown();
     hideApprovalDropdown();
@@ -806,8 +806,8 @@
 
     const isSimpleGreeting = /^(hello|hi|hey|good morning|good afternoon|good evening|yo)\b/i.test(rawQuery.trim());
     const systemPrompt = isSimpleGreeting
-      ? 'You are Ultron, a friendly and concise AI assistant for Windows. Reply with a short, warm greeting in 1-2 concise sentences.'
-      : 'You are Ultron, a fast, intelligent, and concise AI assistant built for Windows. Answer directly and concisely with clean markdown formatting. Avoid unnecessary corporate preamble.';
+      ? 'You are Brown, a friendly and concise AI assistant for Windows. Reply with a short, warm greeting in 1-2 concise sentences.'
+      : 'You are Brown, a fast, intelligent, and concise AI assistant built for Windows. Answer directly and concisely with clean markdown formatting. Avoid unnecessary corporate preamble.';
 
     try {
       const response = await fetch('http://127.0.0.1:11434/api/generate', {

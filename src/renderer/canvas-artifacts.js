@@ -262,7 +262,7 @@
       _files = [{
         id: `file-default`,
         name: 'index.html',
-        content: '<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: sans-serif; padding: 20px; }\n  </style>\n</head>\n<body>\n  <h2>Ultron Live Project Workspace</h2>\n</body>\n</html>',
+        content: '<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: sans-serif; padding: 20px; }\n  </style>\n</head>\n<body>\n  <h2>Brown Live Project Workspace</h2>\n</body>\n</html>',
         language: 'html',
         type: 'html'
       }];
