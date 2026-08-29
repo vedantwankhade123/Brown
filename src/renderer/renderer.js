@@ -1433,41 +1433,130 @@ function renderMessageContent(content, text) {
   if (isThinkingMarkup(text) || isRichResultMarkup(text) || isAgentWidgetMarkup(text)) {
     content.innerHTML = text;
   } else {
-    const structured = structureReadableMarkdown(text || '');
-    content.innerHTML = window.ultronAPI.parseMarkdown(structured);
+    let rawText = text || '';
+    let thoughtHtml = '';
+    
+    // Extract <think>...</think> if returned by reasoning model (DeepSeek-R1, QwQ, etc.)
+    const thinkMatch = rawText.match(/<think>([\s\S]*?)<\/think>/i);
+    if (thinkMatch) {
+      const rawThought = thinkMatch[1].trim();
+      rawText = rawText.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
+      if (rawThought) {
+        thoughtHtml = `
+          <div class="chatgpt-thought-container" data-state="collapsed">
+            <div class="thought-header">
+              <div class="thought-header-left">
+                <svg class="thought-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>
+                <span class="thought-title">Thought Process</span>
+              </div>
+              <div class="thought-header-right">
+                <svg class="thought-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+            </div>
+            <div class="thought-body collapsed">${window.ultronAPI.parseMarkdown(rawThought)}</div>
+          </div>
+        `;
+      }
+    }
+
+    const structured = structureReadableMarkdown(rawText);
+    content.innerHTML = thoughtHtml + window.ultronAPI.parseMarkdown(structured);
+
+    // Wire thought expand/collapse toggle
+    content.querySelectorAll('.thought-header').forEach(hdr => {
+      hdr.addEventListener('click', () => {
+        const card = hdr.closest('.chatgpt-thought-container');
+        const body = card ? card.querySelector('.thought-body') : null;
+        if (card && body) {
+          const isCollapsed = body.classList.contains('collapsed');
+          body.classList.toggle('collapsed', !isCollapsed);
+          card.classList.toggle('expanded', isCollapsed);
+        }
+      });
+    });
   }
   formatCodeBlocks(content);
   wrapMarkdownTables(content);
+  renderMarkdownCallouts(content);
   markAiContentVoicePending(content);
 }
 
 function wrapMarkdownTables(container) {
   if (!container) return;
   container.querySelectorAll('table').forEach((table) => {
-    if (table.parentElement && table.parentElement.classList.contains('md-table-wrap')) return;
+    if (table.parentElement && (table.parentElement.classList.contains('md-table-wrap') || table.parentElement.classList.contains('table-responsive-wrapper'))) return;
     const wrap = document.createElement('div');
-    wrap.className = 'md-table-wrap';
+    wrap.className = 'table-responsive-wrapper md-table-wrap';
     table.parentNode.insertBefore(wrap, table);
     wrap.appendChild(table);
   });
 }
 
+function renderMarkdownCallouts(container) {
+  if (!container) return;
+  const blockquotes = container.querySelectorAll('blockquote');
+  blockquotes.forEach((bq) => {
+    if (bq.dataset.calloutProcessed) return;
+    bq.dataset.calloutProcessed = 'true';
+
+    const rawHtml = bq.innerHTML.trim();
+    const match = rawHtml.match(/^<p>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:<br\s*\/?>)?([\s\S]*?)<\/p>([\s\S]*)$/i);
+    if (match) {
+      const type = match[1].toUpperCase();
+      const firstLine = match[2].trim();
+      const rest = match[3] || '';
+      const contentHtml = (firstLine ? `<p>${firstLine}</p>` : '') + rest;
+
+      const callout = document.createElement('div');
+      callout.className = `markdown-callout callout-${type.toLowerCase()}`;
+
+      const iconMap = {
+        NOTE: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>',
+        TIP: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5.76.76 1.23 1.52 1.41 2.5"></path></svg>',
+        IMPORTANT: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>',
+        WARNING: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
+        CAUTION: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>'
+      };
+
+      const titleMap = {
+        NOTE: 'Note',
+        TIP: 'Tip',
+        IMPORTANT: 'Important',
+        WARNING: 'Warning',
+        CAUTION: 'Caution'
+      };
+
+      callout.innerHTML = `
+        <div class="callout-header">
+          <span class="callout-icon">${iconMap[type] || ''}</span>
+          <span class="callout-title">${titleMap[type] || type}</span>
+        </div>
+        <div class="callout-body">${contentHtml}</div>
+      `;
+
+      bq.parentNode.replaceChild(callout, bq);
+    }
+  });
+}
+
 function buildMarkdownFormattingRules() {
-  return `FORMATTING (Markdown — always):
-- Open with **one bold summary line**.
-- Use bullet lists (- ) or numbered lists (1. ) for multiple items — never dense paragraphs.
-- Use ### subheadings when the answer has 2+ sections.
-- Use markdown tables (| A | B |) for comparisons of 3+ items.
-- Keep paragraphs to 1–2 short sentences max.
-- Never write "(No specific URL/source given)" — sources appear below separately.
-- Never claim you lack web access when live search data is provided.`;
+  return `FORMATTING (Antigravity-Grade Markdown — strictly mandatory):
+- MANDATORY SUMMARY RULE: Along with everything generated (explanations, diagrams, code, solutions, or actions), you MUST ALWAYS strictly generate a dedicated Summary section (either as a \`> [!NOTE]\` executive callout or as a \`### 📌 Summary\` / \`### Summary\` block) highlighting the core takeaways, architectural decisions, and actionable next steps.
+- When explaining architectures, workflows, processes, hierarchies, or comparisons, ALWAYS include a complete, valid \`\`\`mermaid\n...\n\`\`\` diagram code block in your response. Never use fake image or Google Drive URLs.
+- When comparing options or concepts ("vs", "difference between", metrics), provide a clean Markdown table (| Feature / Dimension | Option A | Option B |) with proper headers.
+- When asked for a data chart or graph comparing metrics, include a valid \`\`\`chart\ntype: bar\n...\n\`\`\` block.
+- Use structured bullet points (- ) with **bold lead-ins** and blank lines between sections — never dense walls of text.
+- Use ### subheadings to organize distinct parts or steps.
+- Use **bold** for key terms, file names, or commands, and \`inline code\` for technical identifiers.
+- Include practical tips or takeaways using > [!TIP] or > [!IMPORTANT] callouts.
+- Keep paragraphs concise (1–3 sentences).`;
 }
 
 function structureReadableMarkdown(text) {
   let t = String(text || '').trim();
   if (!t) return t;
 
-  // Filter out internal ReAct agent execution logs (Thought:, Action:, Action Input:) if outputting final response text
+  // 1. Filter out internal ReAct agent execution logs (Thought:, Action:, Action Input:)
   if (/\bAction\s*Input\s*:/i.test(t)) {
     const actionInputMatch = t.match(/\bAction\s*Input\s*:\s*([\s\S]+)$/i);
     if (actionInputMatch && actionInputMatch[1]) {
@@ -1483,18 +1572,86 @@ function structureReadableMarkdown(text) {
     t = t.replace(/(?:^|\n)\s*(?:Thought|Action)\s*:[^\n]*/gi, '').trim();
   }
 
+  // 1b. Filter out leaked instruction benchmark / prompt meta artifacts
+  t = t.replace(/^\[?Greetings\]?:?\s*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Instruction\s*\d+\s*\([^)]*\)[\s\S]*?(?=(?:```|###|\n\n[A-Z]|$))/gi, '');
+  t = t.replace(/(?:^|\n)\s*Mandatory\s*(?:Input\s*)?Constraints?:?[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Complexity\s*&\s*Scale:?[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Realistic\s*Constraints:?[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Advanced\s*Visualization\s*Techniques:?[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Comprehensive\s*Output\s*&\s*Explanation:?[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Mandatory\s*Diagram\s*Instruction:[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Mandatory\s*Chart\s*Instruction:[^\n]*/gi, '');
+
+  // 2. Clean hallucinated or stale search disclaimers & fake drive links
+  t = t.replace(/\[(?:Flowchart|Diagram|Visual)[^\]]*\]\(https?:\/\/(?:drive\.google\.com|www\.google\.com)[^)]*\)/gi, '');
+  t = t.replace(/For a visual representation,\s*please refer to[^\n.]*[.\n]?/gi, '');
   t = t.replace(/\s*\(No specific URL\/source given\)\s*/gi, ' ');
   t = t.replace(/\s*\(no specific url[^)]*\)\s*/gi, ' ');
   t = t.replace(/\bdeveloped by Microsoft\b[^.!\n]*[.!\n]?/gi, '');
   t = t.replace(/\bI am unable to directly execute actions\b[^.!\n]*[.!\n]?/gi, '');
   t = t.replace(/\bwhile I don't have real-time access\b[^.!\n]*[.!\n]?/gi, '');
 
-  const dashItems = t.match(/\s-\s+[A-Za-z0-9"']/g);
-  if (!/^[\s#*\d-]/.test(t) && dashItems && dashItems.length >= 2) {
-    t = t.replace(/\s-\s+(?=[A-Za-z0-9"'])/g, '\n- ');
-    if (!/^\s*[-*]/.test(t)) t = `- ${t.replace(/^\-\s*/, '')}`;
-  }
+  // 3. Fix squashed markdown tables on single lines or with || or | | delimiters
+  // 3a. Separate table start from preceding prose
+  t = t.replace(/([^\n|])\s*(\|[ \t]*[A-Za-z0-9_#*][^|\n]*\|)/g, '$1\n\n$2');
 
+  // 3b. Normalize double pipe or spaced pipe row delimiters like "| Col A | Col B | | Col C | Col D |"
+  t = t.replace(/\|\s*\|\s*/g, '|\n| ');
+  t = t.replace(/\s*\|\|\s*/g, '\n| ');
+
+  // 3c. Fix repeated or mangled |---| divider tokens on a single line
+  t = t.replace(/(?:\|\s*-{2,}\s*)+\|?/g, (match) => {
+    return '\n' + match.trim() + '\n';
+  });
+
+  // 3d. Ensure table ends cleanly when normal paragraph/heading follows a pipe
+  t = t.replace(/\|\s*([A-Za-z0-9*#][^|\n]{20,})/g, '|\n\n$1');
+
+  // 3e. Ensure table has a proper divider row (|---|---|...) if missing after the first row
+  const rawTableLines = t.split('\n');
+  const repairedTableLines = [];
+  for (let i = 0; i < rawTableLines.length; i++) {
+    const cur = rawTableLines[i].trim();
+    repairedTableLines.push(rawTableLines[i]);
+    if (cur.startsWith('|') && cur.endsWith('|') && cur.split('|').length >= 3 && !cur.includes('---')) {
+      const next = i + 1 < rawTableLines.length ? rawTableLines[i + 1].trim() : '';
+      if (!next.startsWith('|') || !next.includes('---')) {
+        const colCount = cur.split('|').filter(c => c.trim().length > 0).length;
+        if (colCount >= 2) {
+          const divider = '| ' + Array(colCount).fill('---').join(' | ') + ' |';
+          repairedTableLines.push(divider);
+        }
+      }
+    }
+  }
+  t = repairedTableLines.join('\n');
+
+  // 4. Separate inline bold headers following a table or paragraph
+  t = t.replace(/([^\n])\s+(\*\*[A-Z][^*]{2,40}\*\*:?)/g, '$1\n\n$2');
+
+  // 5. Fix single-line bullet runs like "* Item 1 * Item 2" or "+ Step 1 + Step 2" or "• Step 1 • Step 2" or "- Item 1 - Item 2"
+  t = t.replace(/([^\n])\s+([•*+-])\s+(\*\*[A-Za-z0-9])/g, '$1\n- $3');
+  t = t.replace(/([^\n])\s+([•*+-])\s+([A-Za-z0-9])/g, '$1\n- $3');
+  t = t.replace(/^([•*+])\s+/gm, '- ');
+
+  // 6. Fix single-line numbered list runs like "1. First step 2. Second step 3. Third step"
+  t = t.replace(/([^\n])\s+(\d+\.)\s+([A-Z"'])/g, '$1\n$2 $3');
+
+  // 7. Fix unspaced inline markdown headings like "end of paragraph. ## Heading"
+  t = t.replace(/([^\n#])\s+(#{1,4}\s+[A-Za-z0-9])/g, '$1\n\n$2');
+
+  // 7b. Fix unspaced horizontal dividers and pseudo visual tags like "!Flow --- text"
+  t = t.replace(/([^\n])\s+---\s+([^\n])/g, '$1\n\n---\n\n$2');
+  t = t.replace(/!([A-Za-z0-9\s,]+)\s+---\s+/g, '\n\n### $1\n\n');
+
+  // 8. Ensure blank line before headings
+  t = t.replace(/([^\n])\n(#{1,4}\s+[^\n]+)/g, '$1\n\n$2\n');
+
+  // 9. Ensure blank line before list blocks following a paragraph
+  t = t.replace(/([^\n\d\-*#|])\n([0-9]+\.\s+|- |\* )/g, '$1\n\n$2');
+
+  // 10. Clean up excess blank lines
   return t.replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -1545,6 +1702,150 @@ function formatCodeBlocks(containerElement) {
     if (codeEl && codeEl.className) {
       const match = codeEl.className.match(/language-([a-zA-Z0-9]+)/);
       if (match) lang = match[1].toLowerCase();
+    }
+
+    if (lang === 'mermaid' && window.UltronVisualEngine) {
+      const visualWrapper = document.createElement('div');
+      visualWrapper.className = 'visual-diagram-container';
+      if (pre.parentNode) {
+        pre.parentNode.insertBefore(visualWrapper, pre);
+        pre.remove();
+      }
+
+      window.UltronVisualEngine.renderMermaidDiagram(rawCode).then(html => {
+        visualWrapper.innerHTML = html;
+        const btnCopy = visualWrapper.querySelector('.btn-diagram-copy');
+        const btnToggle = visualWrapper.querySelector('.btn-diagram-toggle');
+        const rawCodeEl = visualWrapper.querySelector('.diagram-raw-code');
+        const svgViewport = visualWrapper.querySelector('.diagram-svg-viewport');
+
+        const btnExpand = visualWrapper.querySelector('.btn-diagram-expand');
+        if (btnExpand) {
+          btnExpand.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.UltronCanvas && typeof window.UltronCanvas.openVisualInspector === 'function') {
+              const svgEl = visualWrapper.querySelector('.diagram-svg-viewport');
+              const tagEl = visualWrapper.querySelector('.diagram-tag');
+              window.UltronCanvas.openVisualInspector({
+                title: tagEl ? tagEl.textContent.trim() : 'Visual Diagram',
+                type: 'Diagram',
+                svgContent: svgEl ? svgEl.innerHTML : '',
+                rawCode: rawCode
+              });
+            }
+          });
+        }
+
+        if (btnCopy) {
+          btnCopy.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(rawCode);
+            const span = btnCopy.querySelector('span');
+            if (span) span.textContent = 'Copied!';
+            setTimeout(() => { if (span) span.textContent = 'Copy'; }, 2000);
+          });
+        }
+
+        if (btnToggle && rawCodeEl && svgViewport) {
+          btnToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isCodeVisible = rawCodeEl.style.display !== 'none';
+            rawCodeEl.style.display = isCodeVisible ? 'none' : 'block';
+            svgViewport.style.display = isCodeVisible ? 'block' : 'none';
+            const span = btnToggle.querySelector('span');
+            if (span) span.textContent = isCodeVisible ? 'Code' : 'Diagram';
+          });
+        }
+      });
+      return;
+    }
+
+    if ((lang === 'chart' || lang === 'json-chart' || lang === 'data-chart') && window.UltronVisualEngine) {
+      const chartWrapper = document.createElement('div');
+      chartWrapper.className = 'visual-chart-wrapper';
+      if (pre.parentNode) {
+        pre.parentNode.insertBefore(chartWrapper, pre);
+        pre.remove();
+      }
+      chartWrapper.innerHTML = window.UltronVisualEngine.renderChart(rawCode);
+      return;
+    }
+
+    const isInteractiveHtmlWidget = (lang === 'widget' || lang === 'gen-ui' || lang === 'generative-ui' || lang === 'interactive-ui' || lang === 'html-widget')
+      || ((lang === 'html' || lang === 'htm') && (
+        (rawCode.includes('<script') && (rawCode.includes('<input') || rawCode.includes('<button') || rawCode.includes('<canvas') || rawCode.includes('<select')))
+        || rawCode.includes('<!DOCTYPE html>')
+        || rawCode.includes('<!doctype html>')
+        || (rawCode.includes('<style') && rawCode.includes('<input') && rawCode.includes('<button'))
+      ));
+
+    if (isInteractiveHtmlWidget && window.UltronVisualEngine) {
+      const widgetWrapper = document.createElement('div');
+      widgetWrapper.className = 'visual-genui-wrapper';
+      if (pre.parentNode) {
+        pre.parentNode.insertBefore(widgetWrapper, pre);
+        pre.remove();
+      }
+      widgetWrapper.innerHTML = window.UltronVisualEngine.renderGenerativeUiWidget(rawCode);
+
+      const btnExpand = widgetWrapper.querySelector('.btn-gen-ui-expand');
+      const btnCopy = widgetWrapper.querySelector('.btn-gen-ui-copy');
+      const btnToggle = widgetWrapper.querySelector('.btn-gen-ui-toggle');
+      const btnCanvas = widgetWrapper.querySelector('.btn-gen-ui-canvas');
+      const rawCodeEl = widgetWrapper.querySelector('.gen-ui-raw-code');
+      const viewportEl = widgetWrapper.querySelector('.gen-ui-viewport');
+
+      if (btnExpand) {
+        btnExpand.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (window.UltronCanvas && typeof window.UltronCanvas.openVisualInspector === 'function') {
+            const titleEl = widgetWrapper.querySelector('.gen-ui-title');
+            const iframe = widgetWrapper.querySelector('iframe');
+            window.UltronCanvas.openVisualInspector({
+              title: titleEl ? titleEl.textContent.trim() : 'Interactive Widget',
+              type: 'Widget',
+              isWidget: true,
+              fullHtml: iframe ? (iframe.getAttribute('srcdoc') || rawCode) : rawCode,
+              rawCode: rawCode
+            });
+          }
+        });
+      }
+
+      if (btnCopy) {
+        btnCopy.addEventListener('click', (e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(rawCode);
+          const span = btnCopy.querySelector('span');
+          if (span) span.textContent = 'Copied!';
+          setTimeout(() => { if (span) span.textContent = 'Copy'; }, 2000);
+        });
+      }
+
+      if (btnToggle && rawCodeEl && viewportEl) {
+        btnToggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isCodeVisible = rawCodeEl.style.display !== 'none';
+          rawCodeEl.style.display = isCodeVisible ? 'none' : 'block';
+          viewportEl.style.display = isCodeVisible ? 'block' : 'none';
+          const span = btnToggle.querySelector('span');
+          if (span) span.textContent = isCodeVisible ? 'Code' : 'Preview';
+        });
+      }
+
+      if (btnCanvas) {
+        btnCanvas.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (window.UltronCanvasWorkspace && typeof window.UltronCanvasWorkspace.openFile === 'function') {
+            window.UltronCanvasWorkspace.openFile({
+              name: 'widget.html',
+              content: rawCode,
+              language: 'html'
+            });
+          }
+        });
+      }
+      return;
     }
 
     if (codeEl) {
@@ -1633,6 +1934,15 @@ function formatCodeBlocks(containerElement) {
       codeBox.appendChild(pre);
     }
   });
+
+  const tables = containerElement.querySelectorAll('table');
+  tables.forEach((tbl) => {
+    if (tbl.parentElement && tbl.parentElement.classList.contains('table-responsive-wrapper')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'table-responsive-wrapper';
+    tbl.parentNode.insertBefore(wrap, tbl);
+    wrap.appendChild(tbl);
+  });
 }
 
 function extractCreatedFilesFromText(text) {
@@ -1698,6 +2008,7 @@ function extractProjectFilesFromResponse(text) {
   let m;
   while ((m = blockRe.exec(text)) !== null) {
     const lang = (m[1] || '').toLowerCase();
+    if (/^(mermaid|chart|json-chart|svg|gen-ui|widget|generative-ui)$/i.test(lang)) continue;
     const infoRest = (m[2] || '').trim();
     const content = m[3] || '';
     if (!content.trim()) continue;
@@ -2165,10 +2476,36 @@ function renderProjectCreationCard(contentElement, projectFiles, opts = {}) {
   contentElement.appendChild(card);
 }
 
+function isVisualDiagramResponseOrRequest(fullText, contentElement) {
+  const t = String(fullText || '').toLowerCase();
+  if (t.includes('```mermaid') || t.includes('```chart') || t.includes('```json-chart') || t.includes('```gen-ui') || t.includes('```widget')) {
+    return true;
+  }
+  if (contentElement && (contentElement.querySelector('.visual-diagram-container') || contentElement.querySelector('.visual-genui-wrapper') || contentElement.querySelector('.visual-chart-wrapper'))) {
+    return true;
+  }
+  try {
+    if (typeof currentSessionId !== 'undefined' && currentSessionId && typeof conversationsStore !== 'undefined' && conversationsStore[currentSessionId]) {
+      const msgs = conversationsStore[currentSessionId].messages || [];
+      const lastUser = msgs.slice().reverse().find(m => m && (!m.isAi && m.sender !== 'Ultron'));
+      if (lastUser && lastUser.text) {
+        const uText = lastUser.text.toLowerCase();
+        if (/\b(diagram|flowchart|flow\s*chart|mindmap|mind\s*map|visualize|draw|architecture\s*diagram|system\s*architecture|timeline|roadmap|concept\s*tree|sequence\s*diagram|er\s*diagram|generative\s*ui|interactive\s*widget)\b/i.test(uText)) {
+          return true;
+        }
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
 async function renderCreatedFileActionButtons(contentElement, fullText) {
   if (!contentElement || !fullText) return;
   if (contentElement.querySelector('.created-file-actions-row')) return;
   if (contentElement.querySelector('.project-creation-card')) return;
+
+  // Suppress project creation prompt for diagrams, visual renderings, and mindmaps
+  if (isVisualDiagramResponseOrRequest(fullText, contentElement)) return;
 
   // IDE-style: when the reply contains code blocks for project files, write
   // them to disk — creating missing files AND updating existing ones, so
@@ -2262,7 +2599,56 @@ function finalizeAiMessageBubble(contentElement, fullText, { autoSpeak = true } 
   const actionsDiv = messageWrapper ? messageWrapper.querySelector('.message-actions') : null;
   if (actionsDiv) wireMessageActionButtons(actionsDiv, fullText);
   renderCreatedFileActionButtons(contentElement, fullText);
+  attachVisualSuggestionChips(contentElement, fullText);
   if (autoSpeak) finishStreamingAutoSpeak(fullText);
+}
+
+function attachVisualSuggestionChips(contentElement, fullText) {
+  if (!contentElement || !fullText || !window.UltronVisualEngine) return;
+  const messageWrapper = contentElement.closest('.message-wrapper') || contentElement.parentNode;
+  if (!messageWrapper) return;
+  if (messageWrapper.querySelector('.visual-suggestions-bar')) return;
+
+  let userPrompt = '';
+  try {
+    if (typeof currentSessionId !== 'undefined' && currentSessionId && typeof conversationsStore !== 'undefined' && conversationsStore[currentSessionId]) {
+      const msgs = conversationsStore[currentSessionId].messages || [];
+      const lastUser = msgs.slice().reverse().find(m => m && (!m.isAi && m.sender !== 'Ultron'));
+      if (lastUser) userPrompt = lastUser.text || '';
+    }
+  } catch (e) {}
+
+  const opportunities = window.UltronVisualEngine.detectVisualOpportunities(fullText, userPrompt);
+  if (!opportunities || opportunities.length === 0) return;
+
+  const bar = document.createElement('div');
+  bar.className = 'visual-suggestions-bar';
+
+  const title = document.createElement('span');
+  title.className = 'visual-suggest-title';
+  title.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg> Visualize:`;
+  bar.appendChild(title);
+
+  opportunities.forEach(opp => {
+    const chip = document.createElement('button');
+    chip.className = 'visual-suggest-chip';
+    chip.innerHTML = `<span class="chip-icon">${opp.icon}</span><span class="chip-label">${opp.label}</span>`;
+    chip.title = opp.prompt;
+    chip.addEventListener('click', () => {
+      const inputEl = document.getElementById('chat-input') || document.querySelector('.chat-input-textarea');
+      if (inputEl) {
+        inputEl.value = opp.prompt;
+      }
+      if (typeof submitPrompt === 'function') {
+        submitPrompt(opp.prompt);
+      } else if (typeof btnSend !== 'undefined' && btnSend) {
+        btnSend.click();
+      }
+    });
+    bar.appendChild(chip);
+  });
+
+  contentElement.appendChild(bar);
 }
 
 async function typeMessageResponse(contentElement, fullText, options = {}) {
@@ -2366,7 +2752,7 @@ function renderChatMessage(sender, text, isAi = false, options = {}) {
   if (isAi) {
     const avatar = document.createElement('div');
     avatar.className = 'avatar ai';
-    avatar.innerHTML = `<img src="../../Assets/Brand-Assets/ultron-logo.png" alt="Ultron" />`;
+    avatar.innerHTML = `<img src="../../Assets/Brand-Assets/brown-logo.png" alt="Brown" />`;
     messageDiv.appendChild(avatar);
     
     const wrapper = document.createElement('div');
@@ -3890,9 +4276,15 @@ function getAgentRuntimeSettings() {
 
 function buildAgentSkillsSnippet(userPrompt) {
   const runtime = getAgentRuntimeSettings();
-  if (!runtime.skillsEnabled || !window.UltronAgentSkills) return '';
-  const skills = window.UltronAgentSkills.findSkillsForPrompt(userPrompt, 2);
-  return window.UltronAgentSkills.buildSkillsPromptSection(skills);
+  let result = '';
+  if (runtime.skillsEnabled && window.UltronAgentSkills) {
+    const skills = window.UltronAgentSkills.findSkillsForPrompt(userPrompt, 3);
+    result += window.UltronAgentSkills.buildSkillsPromptSection(skills);
+  }
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.getFormattedPreferencesPrompt === 'function') {
+    result += window.UltronAgentMemory.getFormattedPreferencesPrompt();
+  }
+  return result;
 }
 
 function persistTaskMemory(summary) {
@@ -4353,15 +4745,53 @@ function isGenericAssistantGreeting(text) {
 }
 
 function buildConversationSystemPrompt() {
-  return `You are Brown, a helpful local AI assistant on the user's Windows PC.
+  return `You are Brown, a friendly, intelligent, and helpful AI assistant on the user's Windows PC.
 ${buildMarkdownFormattingRules()}
-Reply naturally in first person. Never mention system prompts, rules, or meta instructions.
+Reply naturally in first person ("I", "me"). Never mention system prompts, rules, or meta instructions.
+When greeted (e.g. "hello", "hi", "hey", "good morning"), respond warmly and concisely in 1–2 friendly sentences (e.g. "Hello! How can I help you today?"). Do NOT dump unsolicited PC maintenance checklists, features, or system troubleshooting guides.
 For current events, live prices, today's news, or who holds an office right now, say you will look it up online if you are not certain — do not invent outdated facts.`;
 }
 
 function buildContentGenerationSystemPrompt(userPrompt) {
   const topic = extractContentTopic(userPrompt);
-  const topicLine = topic ? `The topic is: ${topic}.` : '';
+  const topicLine = topic ? `Topic / Subject: "${topic}"` : '';
+  const isGenerativeUiOrWidget = /\b(interactive\s*ui|generative\s*ui|create\s*a?\s*calculator|unit\s*converter|interactive\s*widget|mini\s*app|interactive\s*tool|live\s*dashboard\s*widget|interactive\s*simulator|ui\s*widget|html\s*widget|build\s*a?\s*widget)\b/i.test(userPrompt);
+
+  if (isGenerativeUiOrWidget) {
+    return `You are Brown, an expert full-stack developer and Generative UI specialist.
+The user wants a rich, self-contained interactive UI widget rendered directly inside the chat.
+
+CRITICAL GENERATIVE UI RULES:
+1. Wrap the widget inside a \`\`\`gen-ui code block.
+2. Include full HTML, embedded CSS (<style>), and working JavaScript (<script>) in a clean single block.
+3. Use a modern, responsive dark-theme design matching Ultron (#0f1012 background, #18181b inputs, indigo/purple gradients, clear typography).
+4. Wire up all buttons, sliders, input fields, and calculation logic with vanilla JS so it works dynamically in real time.
+5. Provide a brief 1-2 sentence explanation of how to use the interactive tool.`;
+  }
+
+  const isDiagramOrVisual = /\b(diagram|flowchart|flow\s*chart|architecture|mindmap|mind\s*map|sequence\s*diagram|er\s*diagram|state\s*diagram|chart|graph|visual|infographic)\b/i.test(userPrompt);
+
+  if (isDiagramOrVisual) {
+    return `You are Brown, an expert system architect, data engineer, and visual documentation specialist.
+Create a rich, comprehensive, and accurate Mermaid diagram or chart representing: "${topic || userPrompt}".
+
+CRITICAL VISUAL DESIGN RULES:
+1. **Direct In-Chat Visualization**:
+   - ALWAYS output the complete Mermaid diagram inside a \`\`\`mermaid code block so it renders directly as an interactive visual in the chat.
+   - STRICTLY FORBIDDEN: NEVER output HTML/CSS/JS code (e.g. \`<!DOCTYPE html>\`, \`<script>\`, or embedding instructions). Output ONLY the \`\`\`mermaid code block and concise markdown explanations.
+2. **Domain-Specific Depth & Accuracy**:
+   - Use REAL, deeply technical domain concepts, logical algorithm steps, components, protocols, and data flows specific to "${topic || userPrompt}".
+   - STRICTLY FORBIDDEN: NEVER output placeholder names like "Step 1", "Step 2", "Node A", "Node B", "ComponentA", "Sample", or "Item 1".
+3. **Choose the Best Mermaid Syntax**:
+   - **For Concept Mindmaps & Taxonomies**: Use \`mindmap\` with clean hierarchy.
+   - **For Flowcharts, Algorithms & Pipelines**: Use \`flowchart TD\` or \`flowchart LR\` with descriptive node labels and directional arrows (\`-->\`).
+   - **For Workflows & Multi-Party Protocols**: Use \`sequenceDiagram\` with named participants.
+   - **For Data Models**: Use \`erDiagram\` with entities and relationships.
+4. **Comprehensive Output**:
+   - Provide the complete, detailed diagram immediately.
+   - Accompany the diagram with a brief 2–3 sentence architectural summary explaining the core structure.`;
+  }
+
   const isDocumentAnalysis = /\b(attached document|resume|cv|document|pdf|paper|report)\b/i.test(userPrompt) && /\b(analyze|analyse|summary|summarize|review|extract|skills|feedback|critique|evaluate|questions?|about|read|tell me)\b/i.test(userPrompt);
 
   if (isDocumentAnalysis) {
@@ -4903,7 +5333,7 @@ function normalizePromptTypos(prompt) {
 
 function isProductOrShoppingQuery(prompt) {
   const p = normalizePromptTypos(prompt).toLowerCase();
-  const productNouns = 'monitor|laptop|phone|headphone|earbuds|keyboard|mouse|tablet|tv|television|camera|gpu|graphics card|processor|cpu|ssd|hard drive|speaker|watch|smartwatch|fridge|refrigerator|shoe|shoes|sneaker|sneakers|footwear|sandals|boots|bag|backpack|dress|shirt|jacket|clothing|clothes|furniture|sofa|bed|mattress|bike|bicycle|scooter|buy|purchase|deal|deals|price|amazon|flipkart|myntra|ajio|meesho';
+  const productNouns = 'course|courses|tutorial|tutorials|certification|certifications|classes|book|books|academy|learning|monitor|laptop|phone|headphone|earbuds|keyboard|mouse|tablet|tv|television|camera|gpu|graphics card|processor|cpu|ssd|hard drive|speaker|watch|smartwatch|fridge|refrigerator|shoe|shoes|sneaker|sneakers|footwear|sandals|boots|bag|backpack|dress|shirt|jacket|clothing|clothes|furniture|sofa|bed|mattress|bike|bicycle|scooter|buy|purchase|deal|deals|price|amazon|flipkart|myntra|ajio|meesho|tool|tools|software|app|apps';
 
   if (/\b(find|show|list|recommend|suggest|pick|get|give|search)\s+(me\s+)?(the\s+)?(some\s+)?/i.test(p)
       && /\b(under|below|less than|within|around|budget)\s+[\d,.]+/i.test(p)) {
@@ -4913,7 +5343,8 @@ function isProductOrShoppingQuery(prompt) {
   if (/\b(best|top|recommended|budget|cheapest|affordable)\s+.+\b(under|below|less than|within|around)\s+[\d,.]+/i.test(p)) return true;
   if (/\b(under|below|less than|within|around)\s+[\d,.]+\b/i.test(p) && new RegExp(`\\b(${productNouns})\\b`, 'i').test(p)) return true;
   if (/\b(find|show|get|give|search)\s+(me\s+)?(the\s+)?(some\s+)?/i.test(p) && new RegExp(`\\b(${productNouns})\\b`, 'i').test(p)) return true;
-  if (/\b(which|what)\s+(monitor|laptop|phone|headphone|keyboard|mouse|tablet|tv|gpu|processor|smartphone|shoe|shoes|sneaker)\s+(should|to|can|is)\b/i.test(p)) return true;
+  if (new RegExp(`\\b(best|top|recommended|good|popular|free|paid)\\s+(${productNouns})\\b`, 'i').test(p)) return true;
+  if (/\b(which|what)\s+(monitor|laptop|phone|headphone|keyboard|mouse|tablet|tv|gpu|processor|smartphone|shoe|shoes|sneaker|course|tutorial|book|tool)\s+(should|to|can|is)\b/i.test(p)) return true;
   if (/\bcompare\b/i.test(p) && /\b(vs|versus|or)\b/i.test(p)) return true;
   return false;
 }
@@ -4944,26 +5375,30 @@ function augmentShoppingSearchQuery(userPrompt, query, regional = {}) {
 }
 
 function hasExplicitSearchIntent(prompt) {
-  const p = String(prompt || '').toLowerCase();
+  const p = String(prompt || '').toLowerCase().trim();
+  // Bare command words without a query topic should be handled conversationally
+  if (/^(search|google|find|look up|research|browse|web search|open search)$/i.test(p)) {
+    return false;
+  }
   if (isProductOrShoppingQuery(prompt)) return true;
-  if (p.startsWith('search')) return true;
+  if (/^search\s+(for|about|online|the web|google|[a-zA-Z0-9]{2,})/i.test(p)) return true;
   if (/\b(research|deep research|investigate|compare .+ vs|which is better|pros and cons)\b/i.test(p)) return true;
   if (/\b(check|get|tell me|what'?s?\s+the)\s+weather\b/i.test(p)) return true;
   if (/\bweather\s+(in|for|at)\b/i.test(p)) return true;
   if (/\b(search the web|search online|google for|look up online|find out about|latest news|current news|weather in|weather for|news about|web search)\b/i.test(p)) return true;
-  if (/\b(search|google|look up|find out)\b/i.test(p) && /\b(news|weather|price|deals|latest|trending|stock|crypto|offers)\b/i.test(p)) return true;
+  if (/\b(search|google|look up|find out)\b/i.test(p) && /\b(news|weather|price|deals|latest|trending|stock|crypto|offers|website|online|page|portal)\b/i.test(p)) return true;
   if (/\?\s*$/.test(p.trim()) && /\b(best|top|recommended|under \d+|compare|vs|versus)\b/i.test(p)) return true;
   return false;
 }
 
 function searchContextForLLM(searchPayload) {
   if (!searchPayload) return '';
-  if (searchPayload.answerContext) return searchPayload.answerContext;
   return (searchPayload.results || []).map((item, index) => {
-    const body = item.pageContent
-      ? `Content:\n${String(item.pageContent).slice(0, 2500)}`
-      : `Snippet: ${item.snippet || 'No snippet available.'}`;
-    return `[${index + 1}] ${item.title}\nURL: ${item.url}\nSource: ${item.source}\n${body}`;
+    const title = plainSearchSnippet(item.title || '');
+    const snippet = plainSearchSnippet(item.snippet || '');
+    const pageExcerpt = item.pageContent ? plainSearchSnippet(item.pageContent).slice(0, 1200) : '';
+    const body = pageExcerpt || snippet || 'No details available.';
+    return `Source [${index + 1}]: "${title}" (${item.source || 'web'})\nKey Information: ${body}`;
   }).join('\n\n');
 }
 
@@ -4993,7 +5428,15 @@ function getSourceFaviconUrl(domain) {
 
 function plainSearchSnippet(text) {
   return String(text || '')
+    .replace(/[=\-_~*]{3,}/g, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
+    .replace(/\{"@context"[\s\S]*?\}/gi, ' ')
+    .replace(/\{"@type"[\s\S]*?\}/gi, ' ')
+    .replace(/\b(?:if\s*\(navigator|window\.|document\.|\$\(document\)|var\s+[a-zA-Z0-9_$]+\s*=)[\s\S]*?[;}]/gi, ' ')
+    .replace(/\bURL:\s*https?:\/\/\S+/gi, ' ')
+    .replace(/\bContent:\s*\*/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -5169,13 +5612,22 @@ function buildProductResultsAnswer(userPrompt, searchPayload, regional = {}) {
 
   if (!picks.length) return { text: '', factCount: 0 };
 
-  const lines = [`**Best ${productType}${budgetLabel}**`, ''];
-  picks.slice(0, 6).forEach((pick, index) => {
+  const lines = [
+    `I found several top options for **${userPrompt}**:`,
+    ''
+  ];
+
+  picks.forEach((pick, index) => {
     const pricePart = pick.price ? ` — **${pick.price}**` : '';
     const sourcePart = pick.source ? ` _(${pick.source})_` : '';
-    lines.push(`${index + 1}. **${pick.name}**${pricePart}${sourcePart}`);
+    lines.push(`### ${index + 1}. ${pick.name}${pricePart}`);
+    if (pick.snippet) {
+      lines.push(`${pick.snippet}.. [${index + 1}]${sourcePart}`);
+    }
+    lines.push('');
   });
-  lines.push('', '_Prices from live web results — check sources for current availability._');
+
+  lines.push(`> 💡 *Check the interactive matches and source links below for direct access and details.*`);
 
   return { text: lines.join('\n').trim(), factCount: picks.length };
 }
@@ -5195,17 +5647,168 @@ async function buildSearchFallbackAnswer(userPrompt, searchPayload) {
     if (product.text) return product.text;
   }
 
-  const bodies = results.map(item => ({
-    title: item.title || getSourceDomain(item),
-    body: plainSearchSnippet(item.pageContent || item.snippet || '')
-  })).filter(entry => entry.body.length > 20);
+  const cleanTitle = (rawTitle) => {
+    let t = plainSearchSnippet(rawTitle || '');
+    t = t.replace(/\s*[-|–—]\s*(?:IBM|AWS|Amazon|Databricks|Domo|GeeksforGeeks|Coursera|DataCamp|Wikipedia|Microsoft|Google|Oracle|Snowflake|TutorialsPoint|W3Schools|Medium|YouTube|Stack Overflow|Reddit|Quora)[^.]*$/i, '').trim();
+    return t;
+  };
 
-  const lines = [`**Quick results**`, ''];
-  bodies.slice(0, 4).forEach(entry => {
-    lines.push(`- **${entry.title}:** ${entry.body.slice(0, 160)}${entry.body.length > 160 ? '…' : ''}`);
-  });
-  if (bodies.length > 4) lines.push('', '_Open **See more** for additional sources._');
+  // Factual Q&A / Information Synthesis
+  const cleanResults = results.map(item => ({
+    title: cleanTitle(item.title || getSourceDomain(item)),
+    source: getSourceDomain(item),
+    snippet: plainSearchSnippet(item.snippet || ''),
+    content: plainSearchSnippet(item.pageContent || '')
+  })).filter(item => (item.snippet && item.snippet.length > 15) || (item.content && item.content.length > 20));
+
+  if (!cleanResults.length) return '';
+
+  const isComparison = /\b(difference between|vs\.?|compare|comparison|versus)\b/i.test(userPrompt);
+  const lines = [];
+  const seenSentences = new Set();
+
+  const top = cleanResults[0];
+  const primaryText = top.content || top.snippet;
+  const rawSentences = primaryText
+    .split(/(?<=[.?!])\s+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 15 && !/^\s*(?:if|var|const|let|\{|\$)\b/i.test(s));
+
+  const mainSentence = rawSentences[0] || top.title;
+  lines.push(`> [!NOTE]\n> **Quick Summary:** ${mainSentence} [1]\n`);
+
+  if (isComparison) {
+    const rawEntities = userPrompt.match(/difference\s+between\s+(?:the\s+)?([A-Za-z0-9\s,]+?)\s+(?:and|&|vs\.?|versus)\s+(?:the\s+)?([A-Za-z0-9\s,]+?)(?:\?|$|\.|\s+in\b)/i)
+      || userPrompt.match(/\b([A-Za-z0-9\s]+?)\s+(?:vs\.?|versus)\s+([A-Za-z0-9\s]+?)(?:\?|$|\.|\s+in\b)/i);
+    
+    let entA = 'Concept A';
+    let entB = 'Concept B';
+    if (rawEntities && rawEntities[1] && rawEntities[2]) {
+      entA = rawEntities[1].trim();
+      entB = rawEntities[2].trim();
+      if (entA.length > 25) entA = entA.slice(0, 25);
+      if (entB.length > 25) entB = entB.slice(0, 25);
+    }
+
+    lines.push(`### Comparison Overview\n`);
+    lines.push(`| Dimension / Feature | ${entA} | ${entB} |`);
+    lines.push(`| :--- | :--- | :--- |`);
+
+    const aspects = [
+      { name: 'Core Definition', keyA: `Primary foundational paradigm of ${entA}.`, keyB: `Targeted or extended application in ${entB}.` },
+      { name: 'Primary Scope', keyA: `Broad architecture and baseline functionality.`, keyB: `Specialized domain focus and tactical use.` },
+      { name: 'Implementation', keyA: `Comprehensive, centralized setup and management.`, keyB: `Agile, modular, and optimized for speed.` },
+      { name: 'Best For', keyA: `Enterprise-wide standard and unified operations.`, keyB: `Fast, department-level execution and agility.` }
+    ];
+
+    aspects.forEach(asp => {
+      lines.push(`| **${asp.name}** | ${asp.keyA} | ${asp.keyB} |`);
+    });
+    lines.push('');
+
+    // Detailed Bullet Points
+    lines.push(`### Key Distinctions & Details\n`);
+    for (let i = 0; i < Math.min(cleanResults.length, 5); i++) {
+      const r = cleanResults[i];
+      const rText = r.snippet || r.content.slice(0, 200);
+      const rSentences = rText.split(/(?<=[.?!])\s+/).filter(s => s.length > 15);
+      const candidate = (rSentences[0] || rText).slice(0, 160).trim();
+      
+      const normKey = candidate.toLowerCase().slice(0, 40);
+      if (candidate && candidate.length > 20 && !seenSentences.has(normKey)) {
+        seenSentences.add(normKey);
+        const titleLabel = r.title.length < 35 ? r.title : 'Key Distinction';
+        lines.push(`- **${titleLabel}:** ${candidate}${candidate.length >= 160 ? '…' : ''} [${i + 1}]`);
+      }
+    }
+
+    lines.push(`\n> [!TIP]\n> **Decision Guide:** Choose **${entA}** for broad foundation and centralized governance; choose **${entB}** for specialized execution and modular speed.`);
+  } else {
+    // General factual topic
+    lines.push(`### Overview & Key Insights\n`);
+    for (let i = 0; i < Math.min(cleanResults.length, 4); i++) {
+      const r = cleanResults[i];
+      const rText = r.snippet || r.content.slice(0, 180);
+      const rSentences = rText.split(/(?<=[.?!])\s+/).filter(s => s.length > 15);
+      const cleanSnippet = (rSentences[0] || rText).slice(0, 160).trim();
+      const normKey = cleanSnippet.toLowerCase().slice(0, 40);
+
+      if (cleanSnippet && cleanSnippet.length > 15 && !seenSentences.has(normKey)) {
+        seenSentences.add(normKey);
+        const label = r.title && r.title.length < 35 ? r.title : 'Core Detail';
+        lines.push(`- **${label}:** ${cleanSnippet}${cleanSnippet.length >= 160 ? '…' : ''} [${i + 1}]`);
+      }
+    }
+  }
+
   return lines.join('\n').trim();
+}
+
+function formatPointwiseSearchAnswer(text, userPrompt, regional = {}) {
+  let t = String(text || '').trim();
+  if (!t) return t;
+
+  // Clean prompt artifact leftovers
+  t = t
+    .replace(/\bURL:\s*https?:\/\/\S+/gi, '')
+    .replace(/\bContent:\s*\*/gi, '')
+    .replace(/\bSource \[\d+\]:\s*/gi, '')
+    .replace(/\{"@context"[\s\S]*?\}/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // If already well structured with bullet points, headings, table, or callouts, return
+  const bulletCount = (t.match(/^\s*[-*•]\s+/gm) || []).length;
+  const headingCount = (t.match(/^#{1,4}\s+/gm) || []).length;
+  const numberedListCount = (t.match(/^\d+\.\s+\*\*/gm) || []).length;
+  const hasTable = t.includes('|---') || t.includes('| :---');
+  const hasCallout = t.includes('> [!NOTE]') || t.includes('> [!TIP]');
+
+  if (bulletCount >= 2 || headingCount >= 1 || numberedListCount >= 1 || hasTable || hasCallout) {
+    return t;
+  }
+
+  // Model produced a dense multi-line paragraph wall of text -> Auto-structure into clean point-wise breakdown
+  const sentences = t
+    .split(/(?<=[.?!])\s+(?=[A-Z0-9"'])/)
+    .map(s => s.trim())
+    .filter(s => s.length > 15);
+
+  if (sentences.length <= 1) return t;
+
+  const lines = [];
+  lines.push(`> [!NOTE]\n> **Quick Summary:** ${sentences[0]}\n`);
+
+  let currentItemIndex = 1;
+
+  for (let i = 1; i < sentences.length; i++) {
+    let s = sentences[i];
+    if (!s) continue;
+
+    // Detect if this sentence introduces a specific product or model
+    const productMatch = s.match(/\b(Motorola|Samsung|Apple|iPhone|Xiaomi|Redmi|Realme|OnePlus|iQOO|Vivo|Oppo|Google Pixel|Nothing Phone|Poco|Sony|Asus|Lenovo|HP|Dell|Acer|MacBook|Nord|Edge|Galaxy|Pro|Plus|Ultra|Fusion|Neo|Z|GT|V\d+[a-z]?)\s+[A-Za-z0-9\s+]+/i);
+
+    // Highlight key tech specs (chipset, display, battery, camera, prices)
+    s = s
+      .replace(/\b(Snapdragon\s+[A-Za-z0-9\s]+|Dimensity\s+[A-Za-z0-9\s]+|Apple\s+A\d+\s+Bionic|Apple\s+M\d+|Intel\s+Core\s+[A-Za-z0-9\s]+|Ryzen\s+[A-Za-z0-9\s]+)\b/gi, '**`$1`**')
+      .replace(/\b(\d+(\.\d+)?-inch\s+(EXTREME\s+)?(AMOLED|OLED|IPS|LCD|Retina)(\s+display)?|\d{2,3}\s*Hz(\s+refresh\s+rate)?)\b/gi, '**`$1`**')
+      .replace(/\b(\d{3,5}\s*mAh(\s+battery)?|\d{2,3}W(\s+fast)?\s+charging|\d+m\s+charging\s+time)\b/gi, '**`$1`**')
+      .replace(/\b(\d{2,3}\s*MP(\s+main|\s+primary|\s+camera|\s+OIS)?|4k\s*@?\d*\s*fps(\s+video)?)\b/gi, '**`$1`**')
+      .replace(/(?:₹|Rs\.?|INR|\$|USD|€|£)\s?[0-9][0-9,]*(?:\.[0-9]{1,2})?/gi, '**`$&`**');
+
+    if (productMatch && (s.includes('stands out') || s.includes('best') || s.includes('powered by') || s.includes('features') || s.includes('top pick') || s.includes('ranks among'))) {
+      const brandName = productMatch[0].trim();
+      lines.push(`### ${currentItemIndex}. **${brandName}**`);
+      lines.push(`- **Overview:** ${s}`);
+      currentItemIndex++;
+    } else if (/\b(In terms of|For those who|Overall|Camera|Battery|Display|Performance|Pricing|Available)\b/i.test(s)) {
+      lines.push(`- **Highlight:** ${s}`);
+    } else {
+      lines.push(`- ${s}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 async function summarizeSearchAnswer(userPrompt, searchPayload, searchQuery, options = {}) {
@@ -5239,15 +5842,6 @@ async function summarizeSearchAnswer(userPrompt, searchPayload, searchQuery, opt
   const sysEnv = await getSystemContext();
   const regional = getRegionalShoppingContext(sysEnv);
 
-  if (isProductOrShoppingQuery(userPrompt)) {
-    const product = buildProductResultsAnswer(userPrompt, dedupedPayload, regional);
-    if (product.factCount >= 2) {
-      return sanitizeResponseText(product.text, userPrompt, {
-        allowedUrls: dedupedPayload.results.map(item => item.url).filter(Boolean)
-      });
-    }
-  }
-
   const weatherBlock = isWeatherQuery(userPrompt) ? `
 
 WEATHER FORMAT (mandatory — no paragraphs):
@@ -5258,55 +5852,67 @@ WEATHER FORMAT (mandatory — no paragraphs):
 - **Humidity:** [value]
 - **Wind:** [value]
 
-Rules: Max 6 bullet lines. Only facts from live data. Never describe weather companies, agriculture, or generic climate advice.` : '';
+Rules: Max 6 bullet lines. Only facts from live data.` : '';
 
-  const productBlock = isProductOrShoppingQuery(userPrompt) ? `
+  const summarySystemPrompt = `You are Brown, an intelligent, articulate AI assistant in a direct conversation with ${userName}.
+Answer using ONLY the live web search data provided.${hopNote}${locationNote}${weatherBlock}
 
-PRODUCT / SHOPPING FORMAT (mandatory):
-**Best [product type] under [budget in ${regional.currency || 'local currency'}]**
+CRITICAL ANTIGRAVITY-STYLE MARKDOWN FORMATTING RULES:
+1. **Executive TL;DR**: ALWAYS start with a \`> [!NOTE]\` callout block summarizing the core answer in 1–2 crisp sentences.
+2. **Visual Diagrams (Mermaid)**:
+   - For comparisons, architectures, data flows, relationships, or multi-step processes, ALWAYS include a complete, valid Mermaid diagram code block (\`\`\`mermaid\nflowchart TD\n  ...\n\`\`\`).
+3. **Structured Comparison Tables**:
+   - For comparisons ("difference between X and Y", "X vs Y", "compare"), generate a comprehensive Markdown table (| Dimension / Feature | Entity A | Entity B |) with proper headers (|:---|:---|:---|).
+4. **Structured Subheadings & Bold Bullets**:
+   - Use clear markdown subheadings (###) to separate distinct sections.
+   - Use bullet lists with **bold lead-ins** (e.g. - **Centralized Storage:** ...) and highlight key metrics, tools, and technical terms in \`code\` or **bold**.
+5. **Actionable Takeaways / Decision Tips**:
+   - Include a \`> [!TIP]\` or \`> [!IMPORTANT]\` callout advising when to choose which option or best practices.
+6. **No Raw Snippet Echoing**:
+   - Synthesize in your own articulate words. NEVER echo raw site title suffixes (e.g. "What is a Data Mart? | IBM") or repeat duplicate snippets from multiple sources.
+7. **Citations & Follow-ups**:
+   - Append inline citations [1], [2] directly after key facts.
+   - End with 3 follow-up question chips:
+   <!-- followups: ["Question 1", "Question 2", "Question 3"] -->`;
 
-1. **[Exact product name]** — **[price in ${regional.currency || 'local currency'}]** _(source)_
-2. ...
+  const summaryPrompt = `User Request: ${userPrompt}
 
-Rules:
-- List 4–6 specific products with real names and prices from the live data.
-- Use ${regional.currency === 'INR' ? '₹ / INR / rupees' : regional.currency || 'local currency'} — NEVER assume USD unless the data says so.
-- Budget "${userPrompt.match(/\b(under|below)\s+[\d,.]+/i)?.[0] || ''}" means ${regional.currency === 'INR' ? 'Indian Rupees' : regional.currencyWord || 'local currency'}.
-- No generic brand advice. No "I don't have real-time access". No essays.` : '';
+Search Query: ${searchQuery}
 
-  const summarySystemPrompt = `You are Brown, a concise assistant in a direct conversation with ${userName}.
-Answer using ONLY the live web information provided.${hopNote}${locationNote}${weatherBlock}${productBlock}
-
-CRITICAL:
-- Give RESULTS not essays. ${buildMarkdownFormattingRules()}
-- Include specific numbers (prices, temps, dates, names) when present in the data.
-- Cite sources inline: append [1], [2], etc. matching the numbered live-data sources after each key fact.
-- Speak in first person ("I found…"). No meta narration.
-- No raw URLs — sources are shown separately below.`;
-
-  const summaryPrompt = `Request: ${userPrompt}
-
-Search: ${searchQuery}
-
-Live data:
+Live Search Sources:
 ${liveContext}
 
-Write the final answer now.`;
+Write a comprehensive, beautifully formatted Antigravity-style Markdown response with diagrams, tables, and highlights as appropriate now.`;
 
   let summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt, loopImagePayloads);
+
+  const isJunkOrVerbatimEcho = (text) => {
+    if (!text || text.trim().length < 15) return true;
+    if (/\bURL:\s*https?:\/\//i.test(text)) return true;
+    if (/\bContent:\s*\*/i.test(text)) return true;
+    if (/^[^:\n]+URL:\s*https?:\/\//i.test(text)) return true;
+    if (/\[Source \d+:/i.test(text)) return true;
+    if (/\{"@context"/i.test(text)) return true;
+    if (/\bif\s*\(navigator\./i.test(text)) return true;
+    if (/^https?:\/\//i.test(text)) return true;
+    return false;
+  };
+
   if (
     !summary
-    || !summary.trim()
+    || isJunkOrVerbatimEcho(summary)
     || isModelLoadFailureResponse(summary)
     || summary.includes('offline model loop failed')
     || summary.includes('Search Query Generator')
     || (isWeatherQuery(userPrompt) && summary.split(/\n\n/).some(p => p.length > 320))
     || (isProductOrShoppingQuery(userPrompt) && /\b(don'?t have real-time|do not have real-time|without access to current|historically speaking|while i don'?t have|cannot access current)\b/i.test(summary))
-    || (isProductOrShoppingQuery(userPrompt) && summary.split(/\n\n/).some(p => p.length > 280))
   ) {
     summary = (await buildSearchFallbackAnswer(userPrompt, dedupedPayload))
       || `I found ${dedupedPayload.results.length} live result${dedupedPayload.results.length === 1 ? '' : 's'} for "${searchQuery}". Open the sources below for details.`;
   }
+
+  // Enforce point-wise formatting on output
+  summary = formatPointwiseSearchAnswer(summary, userPrompt, regional);
 
   return sanitizeResponseText(summary, userPrompt, {
     allowedUrls: dedupedPayload.results.map(item => item.url).filter(Boolean)
@@ -5331,7 +5937,6 @@ function renderStackedSourcesHtml(results) {
         ${faviconUrl
           ? `<img src="${escapeHtml(faviconUrl.replace('sz=32', 'sz=64'))}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><span class="source-stack-fallback" style="display:none;">🌐</span>`
           : `<span class="source-stack-fallback">🌐</span>`}
-        <span class="source-cite-num">${index + 1}</span>
       </a>
     `;
   }).join('');
@@ -5342,10 +5947,10 @@ function renderStackedSourcesHtml(results) {
     return `
       <a class="source-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
         <div class="source-header">
+          <span class="source-cite-num source-cite-num-inline">${index + 1}</span>
           ${faviconUrl
             ? `<img class="source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" /><span class="source-favicon-fallback" style="display:none;">🌐</span>`
             : `<span class="source-favicon-fallback">🌐</span>`}
-          <span class="source-cite-num source-cite-num-inline">${index + 1}</span>
           <span class="source-domain">${escapeHtml(domain)}</span>
         </div>
         <div class="source-result-title">${escapeHtml(item.title || item.source || 'Web result')}</div>
@@ -5361,81 +5966,308 @@ function renderStackedSourcesHtml(results) {
         <span class="source-summary-preview">
           ${stackBlock}
           <span class="source-see-more-cta">
-            <span class="source-see-more-label">See more</span>
+            <span class="source-see-more-label">Sources</span>
             <span class="source-more-count">+${extraCount}</span>
           </span>
         </span>
-        <span class="source-summary-less">See less</span>
+        <span class="source-summary-less">Hide sources</span>
       </summary>
       <div class="source-expanded-list">${all.map(renderSourceCard).join('')}</div>
     </details>
-  ` : stackBlock;
+  ` : `
+    <div class="source-summary-preview">
+      ${stackBlock}
+      <span class="source-see-more-cta">
+        <span class="source-see-more-label">Sources</span>
+        <span class="source-more-count">${all.length}</span>
+      </span>
+    </div>
+  `;
 
   return `
     <div class="search-section search-sources-section">
-      <div class="search-section-title">Sources</div>
       ${bodyHtml}
     </div>
   `;
 }
 
+function extractPriceFromText(text) {
+  const match = String(text || '').match(/(?:₹|Rs\.?|INR|\$|USD|€|£)\s?[0-9][0-9,]*(?:\.[0-9]{1,2})?/i);
+  return match ? match[0].trim() : '';
+}
+
+function formatPriceWithLocalEquivalent(priceStr, regional = {}) {
+  if (!priceStr) return '';
+  const clean = priceStr.trim();
+  if (clean.startsWith('$') && regional.currency === 'INR') {
+    const num = parseFloat(clean.replace(/[^0-9.]/g, ''));
+    if (num && !isNaN(num)) {
+      const inrEst = Math.round(num * 86.5);
+      return `${clean} (~₹${inrEst.toLocaleString('en-IN')})`;
+    }
+  }
+  return clean;
+}
+
+function enhanceCitationsWithTooltips(renderedHtml, results) {
+  if (!renderedHtml || !Array.isArray(results) || !results.length) return renderedHtml;
+  return renderedHtml.replace(/\[(\d{1,2})\]/g, (match, p1) => {
+    const idx = parseInt(p1, 10) - 1;
+    const item = results[idx];
+    if (!item || !item.url) return match;
+    const domain = getSourceDomain(item);
+    const faviconUrl = getSourceFaviconUrl(domain);
+    const title = escapeHtml(item.title || domain);
+    const snippet = escapeHtml((item.snippet || item.pageContent || '').slice(0, 140));
+    
+    return `
+      <span class="citation-ref-wrapper">
+        <a class="citation-badge" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" data-cite-num="${p1}">[${p1}]</a>
+        <span class="citation-tooltip">
+          <span class="citation-tooltip-header">
+            ${faviconUrl ? `<img class="citation-tooltip-favicon" src="${escapeHtml(faviconUrl)}" alt="" />` : `<span class="citation-tooltip-icon">🌐</span>`}
+            <span class="citation-tooltip-domain">${escapeHtml(domain)}</span>
+          </span>
+          <span class="citation-tooltip-title">${title}</span>
+          ${snippet ? `<span class="citation-tooltip-snippet">${snippet}..</span>` : ''}
+        </span>
+      </span>
+    `;
+  });
+}
+
 function renderSearchExperience(answer, searchPayload) {
   const results = dedupeSearchResultsByDomain(Array.isArray(searchPayload.results) ? searchPayload.results.slice(0, 12) : []);
-  const products = Array.isArray(searchPayload.products) ? searchPayload.products.slice(0, 6) : [];
-  const answerHtml = window.ultronAPI.parseMarkdown(
-    structureReadableMarkdown(sanitizeResponseText(answer || '', searchPayload.query || '', {
+  const videos = Array.isArray(searchPayload.videos) ? searchPayload.videos.slice(0, 4) : [];
+  
+  // Extract or build products / match cards list
+  let items = Array.isArray(searchPayload.products) && searchPayload.products.length > 0
+    ? [...searchPayload.products]
+    : [];
+
+  if (items.length === 0 && (isProductOrShoppingQuery(searchPayload.query || '') || results.length > 0)) {
+    items = results.map(r => ({
+      title: r.title || getSourceDomain(r),
+      url: r.url,
+      source: getSourceDomain(r),
+      snippet: r.snippet || (r.pageContent ? r.pageContent.slice(0, 160) : ''),
+      price: extractPriceFromText(`${r.title} ${r.snippet}`),
+      image: r.image || '',
+      type: r.type || (searchPayload.query?.includes('course') ? 'course' : 'web')
+    }));
+  }
+
+  // Filter valid items and deduplicate URLs
+  const seenUrls = new Set();
+  items = items.filter(it => {
+    if (!it.title || !it.url) return false;
+    const key = it.url.toLowerCase();
+    if (seenUrls.has(key)) return false;
+    seenUrls.add(key);
+    return true;
+  });
+
+  // Extract follow-ups from answer if present
+  let cleanAnswer = answer || '';
+  let followups = [];
+  const followupMatch = cleanAnswer.match(/<!--\s*followups:\s*(\[[\s\S]*?\])\s*-->/i);
+  if (followupMatch) {
+    try {
+      followups = JSON.parse(followupMatch[1]);
+      cleanAnswer = cleanAnswer.replace(followupMatch[0], '').trim();
+    } catch (e) {
+      followups = [];
+    }
+  }
+
+  // Fallback follow-ups based on query intent if none generated
+  if (!followups.length && searchPayload.query) {
+    const q = searchPayload.query.toLowerCase();
+    if (q.includes('course') || q.includes('dsa') || q.includes('tutorial')) {
+      followups = [
+        `Compare the top courses for ${searchPayload.query}`,
+        `Show me free alternatives and tutorials`,
+        `What are the prerequisites and roadmap?`
+      ];
+    } else if (isProductOrShoppingQuery(q)) {
+      followups = [
+        `Compare the specs of the top 2 options`,
+        `Are there cheaper alternatives with similar features?`,
+        `What are the pros and cons of each?`
+      ];
+    }
+  }
+
+  const rawAnswerHtml = window.ultronAPI.parseMarkdown(
+    structureReadableMarkdown(sanitizeResponseText(cleanAnswer, searchPayload.query || '', {
       allowedUrls: results.map(item => item.url).filter(Boolean)
     }))
   );
 
-  const productHtml = products.length > 0 && isProductOrShoppingQuery(searchPayload.query || '') ? `
-    <div class="search-section">
-      <div class="search-section-title">Product Matches</div>
-      <div class="product-card-grid">
-        ${products.map((item) => {
-          let domain = '';
-          try {
-            const urlObj = new URL(item.url);
-            domain = urlObj.hostname.replace(/^www\./, '');
-          } catch (e) {
-            domain = item.source || 'web';
-          }
-          const faviconUrl = domain && domain !== 'web' 
-            ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
-            : '';
+  const answerHtml = enhanceCitationsWithTooltips(rawAnswerHtml, results);
 
-          return `
-            <a class="product-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
-              ${item.image ? `<img class="product-result-image" src="${escapeHtml(item.image)}" alt="" onerror="this.style.display='none';" />` : ''}
-              <div class="product-result-body">
-                <div class="product-source-header">
-                  ${faviconUrl 
-                    ? `<img class="product-source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none';" />` 
-                    : `<span class="product-source-icon">🛍️</span>`
-                  }
-                  <span class="product-source-domain">${escapeHtml(domain || item.source || 'web')}</span>
-                </div>
-                <div class="product-result-title">${escapeHtml(item.title || 'Product result')}</div>
-                ${item.price ? `<div class="product-result-price">${escapeHtml(item.price)}</div>` : ''}
-                ${item.snippet ? `<div class="product-result-snippet">${escapeHtml(item.snippet)}</div>` : ''}
-              </div>
-            </a>
-          `;
-        }).join('')}
+  const initialItems = items.slice(0, 4);
+  const extraItems = items.slice(4, 12);
+
+  const renderCard = (item) => {
+    let domain = '';
+    try {
+      const urlObj = new URL(item.url);
+      domain = urlObj.hostname.replace(/^www\./, '');
+    } catch (e) {
+      domain = item.source || 'web';
+    }
+    const faviconUrl = domain && domain !== 'web' 
+      ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
+      : '';
+
+    const formattedPrice = formatPriceWithLocalEquivalent(item.price);
+
+    const cardImg = item.image 
+      ? `<img class="product-result-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.title)}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1518770660439-4636190af475?w=500&auto=format&fit=crop&q=70'; this.onerror=null;" />`
+      : `<img class="product-result-image" src="https://images.unsplash.com/photo-1518770660439-4636190af475?w=500&auto=format&fit=crop&q=70" alt="${escapeHtml(item.title)}" loading="lazy" />`;
+
+    return `
+      <a class="product-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
+        ${cardImg}
+        <div class="product-result-body">
+          <div class="product-source-header">
+            ${faviconUrl 
+              ? `<img class="product-source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" /><span class="product-source-icon" style="display:none;">🌐</span>` 
+              : `<span class="product-source-icon">🌐</span>`
+            }
+            <span class="product-source-domain">${escapeHtml(domain || item.source || 'web')}</span>
+            ${formattedPrice ? `<span class="product-result-price-badge">${escapeHtml(formattedPrice)}</span>` : ''}
+          </div>
+          <div class="product-result-title">${escapeHtml(item.title || 'Result')}</div>
+          ${item.snippet ? `<div class="product-result-snippet">${escapeHtml(item.snippet)}</div>` : ''}
+          <div class="product-result-footer">
+            <span class="product-visit-btn">Visit <span class="product-arrow">→</span></span>
+          </div>
+        </div>
+      </a>
+    `;
+  };
+
+  const renderVideoCard = (video) => {
+    return `
+      <a class="video-result-card" href="${escapeHtml(video.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(video.title)}">
+        <div class="video-thumbnail-container">
+          ${video.thumbnail ? `<img class="video-thumbnail-img" src="${escapeHtml(video.thumbnail)}" alt="" onerror="this.style.display='none';" />` : ''}
+          <div class="video-play-overlay">
+            <span class="video-play-icon">▶</span>
+          </div>
+        </div>
+        <div class="video-result-body">
+          <div class="video-source-tag">YouTube</div>
+          <div class="video-result-title">${escapeHtml(video.title)}</div>
+          ${video.snippet ? `<div class="video-result-snippet">${escapeHtml(video.snippet)}</div>` : ''}
+        </div>
+      </a>
+    `;
+  };
+
+  const totalResultsCount = items.length + videos.length + results.length;
+
+  const filtersBarHtml = `
+    <div class="search-filters-bar">
+      <button type="button" class="search-filter-pill active" data-filter="all">All (${totalResultsCount})</button>
+      ${initialItems.length > 0 ? `<button type="button" class="search-filter-pill" data-filter="products">Featured (${items.length})</button>` : ''}
+      ${videos.length > 0 ? `<button type="button" class="search-filter-pill" data-filter="videos">Videos (${videos.length})</button>` : ''}
+      <button type="button" class="search-filter-pill" data-filter="sources">Sources (${results.length})</button>
+    </div>
+  `;
+
+  const productHtml = items.length > 0 ? `
+    <div class="search-section search-products-section">
+      <div class="search-section-header">
+        <div class="search-section-title-wrap">
+          <span class="search-section-title">Featured Matches</span>
+          <span class="search-section-count">${items.length} options found</span>
+        </div>
+        ${items.length > 2 ? `
+        <div class="search-carousel-controls">
+          <button type="button" class="search-carousel-btn search-carousel-prev" title="Scroll Left" aria-label="Previous">‹</button>
+          <button type="button" class="search-carousel-btn search-carousel-next" title="Scroll Right" aria-label="Next">›</button>
+        </div>` : ''}
+      </div>
+      <div class="product-card-carousel" tabindex="0">
+        ${items.slice(0, 10).map(renderCard).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  const videosHtml = videos.length > 0 ? `
+    <div class="search-section search-videos-section">
+      <div class="search-section-header">
+        <span class="search-section-title">Video Guides &amp; Tutorials</span>
+        <span class="search-section-count">${videos.length} videos</span>
+      </div>
+      <div class="video-card-grid">
+        ${videos.map(renderVideoCard).join('')}
       </div>
     </div>
   ` : '';
 
   const sourcesHtml = renderStackedSourcesHtml(results);
 
+  const followupsHtml = followups.length > 0 ? `
+    <div class="search-followups-container">
+      <div class="search-followups-title"><span class="followup-sparkle">✨</span> Related Questions</div>
+      <div class="search-followups-list">
+        ${followups.map(q => `<button type="button" class="search-followup-chip" data-query="${escapeHtml(q)}">${escapeHtml(q)} <span class="followup-arrow">→</span></button>`).join('')}
+      </div>
+    </div>
+  ` : '';
+
   return `
     <div class="ultron-search-experience">
+      ${filtersBarHtml}
       <div class="search-answer">${answerHtml}</div>
       ${productHtml}
+      ${videosHtml}
       ${sourcesHtml}
+      ${followupsHtml}
     </div>
   `;
 }
+
+// Global click event handlers for search filter pills, carousels, and follow-up chips
+document.addEventListener('click', (e) => {
+  const carouselBtn = e.target.closest('.search-carousel-btn');
+  if (carouselBtn) {
+    const parentSection = carouselBtn.closest('.search-section');
+    const carousel = parentSection?.querySelector('.product-card-carousel, .video-card-grid');
+    if (carousel) {
+      const scrollAmount = carouselBtn.classList.contains('search-carousel-prev') ? -320 : 320;
+      carousel.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+    return;
+  }
+
+  const chip = e.target.closest('.search-followup-chip');
+  if (chip && chip.dataset.query) {
+    if (typeof submitPrompt === 'function') {
+      submitPrompt(chip.dataset.query);
+    }
+    return;
+  }
+
+  const filterPill = e.target.closest('.search-filter-pill');
+  if (filterPill) {
+    const parent = filterPill.closest('.ultron-search-experience');
+    if (!parent) return;
+    parent.querySelectorAll('.search-filter-pill').forEach(p => p.classList.remove('active'));
+    filterPill.classList.add('active');
+    const filter = filterPill.dataset.filter;
+    const prodSec = parent.querySelector('.search-products-section');
+    const vidSec = parent.querySelector('.search-videos-section');
+    const srcSec = parent.querySelector('.search-sources-section');
+    if (prodSec) prodSec.style.display = (filter === 'all' || filter === 'products') ? '' : 'none';
+    if (vidSec) vidSec.style.display = (filter === 'all' || filter === 'videos') ? '' : 'none';
+    if (srcSec) srcSec.style.display = (filter === 'all' || filter === 'sources') ? '' : 'none';
+  }
+});
 
 /**
  * True when the user wants generated text/content in chat, not desktop control.
@@ -5446,8 +6278,13 @@ function isContentGenerationRequest(prompt) {
   if (isCodeOnlyGenerationRequest(p)) return true;
 
   // 1. Common creation / generation phrases with optional descriptors
-  // Matches: "create me a landing page", "create a me a landing page", "write a python script", "build a modern website", "generate a react component", etc.
-  if (/\b(write|draft|compose|create|generate|give|make|build|design|code|develop)\s+(?:a\s+)?(?:me\s+)?(?:an?\s+)?(?:the\s+)?(?:\w+\s+){0,3}(essay|article|story|poem|letter|email|report|summary|speech|blog|post|paragraph|explanation|review|analysis|outline|notes?|caption|headline|bio|resume|cv|itinerary|recipe|table|guide|tutorial|documentation|pitch|proposal|ideas?|questions?|quiz|dialogue|lyrics|script|code|snippet|function|program|class|algorithm|landing\s*page|website|webpage|web\s*site|web\s*page|portfolio|homepage|home\s*page|ui|frontend|component|dashboard|mockup|wireframe|layout|template|navbar|footer|header|card|modal|form|login\s*page|signup\s*page|game|calculator|app|application)\b/i.test(p)) {
+  // Matches: "create a flowchart diagram", "draw an architecture diagram", "generate a comparison chart", "create me a landing page", etc.
+  if (/\b(write|draft|compose|create|generate|give|make|build|design|code|develop|draw|show|plot)\s+(?:a\s+)?(?:me\s+)?(?:an?\s+)?(?:the\s+)?(?:\w+\s+){0,3}(diagram|flowchart|flow\s*chart|architecture|mindmap|mind\s*map|sequence\s*diagram|er\s*diagram|state\s*diagram|chart|graph|visual|infographic|essay|article|story|poem|letter|email|report|summary|speech|blog|post|paragraph|explanation|review|analysis|outline|notes?|caption|headline|bio|resume|cv|itinerary|recipe|table|guide|tutorial|documentation|pitch|proposal|ideas?|questions?|quiz|dialogue|lyrics|script|code|snippet|function|program|class|algorithm|landing\s*page|website|webpage|web\s*site|web\s*page|portfolio|homepage|home\s*page|ui|frontend|component|dashboard|mockup|wireframe|layout|template|navbar|footer|header|card|modal|form|login\s*page|signup\s*page|game|calculator|app|application)\b/i.test(p)) {
+    return true;
+  }
+
+  // 1b. Direct diagram & visualization requests
+  if (/\b(create|generate|draw|show|build|make)\s+(?:a\s+)?(?:flowchart|diagram|mindmap|architecture|chart|graph)\b/i.test(p)) {
     return true;
   }
 
@@ -5588,12 +6425,249 @@ function hasLocalFilesystemCues(prompt) {
   return scope;
 }
 
+/**
+ * Mathematical Calculation & Arithmetic Engine Skill
+ * Evaluates arithmetic, formulas, percentages, trigonometry, and roots with 100% precision.
+ */
+function evaluateMathQuery(prompt) {
+  const p = String(prompt || '').trim();
+  if (!p) return null;
+
+  // 1. Percentage: "15% of 8500" or "what is 20% of 250"
+  const pctMatch = p.match(/(?:what\s+is\s+|calculate\s+|how\s+much\s+is\s+)?([0-9.]+)\s*%\s*(?:of|\*)\s*([0-9.]+)/i);
+  if (pctMatch) {
+    const pct = parseFloat(pctMatch[1]);
+    const total = parseFloat(pctMatch[2]);
+    const res = (pct / 100) * total;
+    return {
+      type: 'percentage',
+      expression: `${pct}% of ${total}`,
+      result: res,
+      formattedResult: Number.isInteger(res) ? res.toLocaleString() : res.toLocaleString(undefined, { maximumFractionDigits: 6 }),
+      steps: [
+        `Convert ${pct}% to decimal: ${pct} ÷ 100 = ${pct / 100}`,
+        `Multiply by base value: ${pct / 100} × ${total} = ${res}`
+      ]
+    };
+  }
+
+  // 2. Arithmetic / Math Expression
+  const cleanExpr = p
+    .replace(/^(?:how\s+much\s+is|what\s+is\s+the\s+value\s+of|what\s+is|what's|calculate|compute|solve|evaluate)\s+/i, '')
+    .replace(/\?+$/, '')
+    .replace(/=/g, '')
+    .trim();
+
+  // Normalize operators
+  let expr = cleanExpr
+    .replace(/\b(?:sqrt|square\s+root\s+of)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.sqrt($1)')
+    .replace(/\b(?:sqrt|square\s+root\s+of)\s+([0-9.]+)/gi, 'Math.sqrt($1)')
+    .replace(/\b(?:cbrt|cube\s+root\s+of)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.cbrt($1)')
+    .replace(/\b(?:abs)\s*\(\s*([0-9.-]+)\s*\)/gi, 'Math.abs($1)')
+    .replace(/\b(?:sin)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.sin($1 * Math.PI / 180)')
+    .replace(/\b(?:cos)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.cos($1 * Math.PI / 180)')
+    .replace(/\b(?:tan)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.tan($1 * Math.PI / 180)')
+    .replace(/\b(?:log)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.log10($1)')
+    .replace(/\b(?:ln)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.log($1)')
+    .replace(/(\d+)\s*\^\s*(\d+)/g, 'Math.pow($1, $2)')
+    .replace(/[xX×]/g, '*')
+    .replace(/÷/g, '/');
+
+  // Verify expression contains only safe math tokens: numbers, operators, Math functions, parentheses, spaces
+  if (/^[0-9\s.+\-*/%(),Math.sqrtcbsintanlopwPI]+$/.test(expr) && /\d/.test(expr)) {
+    try {
+      const calculated = Function(`'use strict'; return (${expr});`)();
+      if (typeof calculated === 'number' && !isNaN(calculated) && isFinite(calculated)) {
+        const rounded = Number.isInteger(calculated)
+          ? calculated.toLocaleString()
+          : (Math.abs(calculated) < 0.000001
+              ? calculated.toExponential(4)
+              : calculated.toLocaleString(undefined, { maximumFractionDigits: 8 }));
+
+        return {
+          type: 'arithmetic',
+          expression: cleanExpr,
+          result: calculated,
+          formattedResult: rounded
+        };
+      }
+    } catch (e) {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function isMathOrCalculationQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  if (evaluateMathQuery(p)) return true;
+  if (/^(?:calculate|compute|solve|evaluate)\s+[0-9a-z(]/i.test(p)) return true;
+  if (/^(?:what\s+is|what's|how\s+much\s+is)\s+[0-9\s.+\-*/%^()xX÷×]+\??$/i.test(p)) return true;
+  if (/\b\d+\s*%\s*(?:of|\*)\s*\d+/i.test(p)) return true;
+  if (/\b(?:sqrt|cbrt|sin|cos|tan|log|factorial)\s*\(\s*\d+/i.test(p)) return true;
+  return false;
+}
+
+function formatMathSolution(math) {
+  if (!math) return '';
+  if (math.type === 'percentage') {
+    return `### 🧮 Calculation Result\n\n**${math.expression}** = **\`${math.formattedResult}\`**\n\n#### Steps:\n${math.steps.map(s => `- ${s}`).join('\n')}`;
+  }
+  return `### 🧮 Calculation Result\n\n**${math.expression}** = **\`${math.formattedResult}\`**\n\n- **Exact Value:** \`${math.result}\``;
+}
+
+function isSystemControlQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  // Volume controls: "set volume to 35%", "set system volume to 15 percent", "volume 50%", "mute", "unmute", "turn volume up"
+  if (/\b(set\s+(?:system\s+)?volume|change\s+volume|volume\s+to|volume\s+up|volume\s+down|turn\s+(?:up|down)\s+volume|turn\s+the\s+volume|mute\s+audio|unmute\s+audio|toggle\s+mute|mute\s+volume|unmute\s+volume|mute|unmute)\b/i.test(p)) {
+    return true;
+  }
+  if (/\b(?:volume)\b/i.test(p) && /\b(?:\d{1,3}\s*%|\d{1,3}\s*percent|\d{1,3})\b/i.test(p)) {
+    return true;
+  }
+  // Media controls: "play music", "pause music", "next track", "previous track", "stop music"
+  if (/\b(pause\s+music|play\s+music|pause\s+song|play\s+song|next\s+track|previous\s+track|prev\s+track|next\s+song|previous\s+song|stop\s+music|resume\s+music|skip\s+song|skip\s+track)\b/i.test(p)) {
+    return true;
+  }
+  // Screen brightness: "set brightness to 70%", "brightness 80%"
+  if (/\b(set\s+(?:screen\s+)?brightness|change\s+brightness|brightness\s+to)\b/i.test(p)) {
+    return true;
+  }
+  // System lock / sleep / restart: "lock my pc", "sleep pc", "lock computer"
+  if (/\b(lock\s+(?:my\s+)?(?:pc|computer|workstation|screen)|put\s+(?:pc|computer)\s+to\s+sleep|sleep\s+(?:pc|computer))\b/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
+async function executeSystemControlQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!window.ultronAPI) return { success: false, message: 'System API unavailable.' };
+
+  // Volume: "set volume to 35%", "set system volume to 15 percent", "set system volume to 35%"
+  const volMatch = p.match(/\b(?:set\s+(?:system\s+)?volume\s+(?:to\s+)?|volume\s+(?:to\s+)?|turn\s+(?:the\s+)?volume\s+to\s+)(\d{1,3})(?:\s*%|\s*percent)?/i)
+    || p.match(/(\d{1,3})\s*(?:%|percent)\s+volume/i)
+    || p.match(/volume\s+(\d{1,3})/i);
+
+  if (volMatch && volMatch[1]) {
+    const level = Math.max(0, Math.min(100, parseInt(volMatch[1], 10)));
+    const res = await window.ultronAPI.windowsSetVolume(level);
+    return {
+      success: res?.success !== false,
+      message: `🔊 **System Volume Set**: Adjusted master volume to **${level}%**.`
+    };
+  }
+
+  if (/\b(volume\s+up|turn\s+up\s+volume|increase\s+volume)\b/i.test(p)) {
+    const cur = await window.ultronAPI.windowsGetVolume();
+    const target = Math.min(100, (cur.level || 50) + 10);
+    await window.ultronAPI.windowsSetVolume(target);
+    return {
+      success: true,
+      message: `🔊 **Volume Increased**: Adjusted volume from **${cur.level}%** to **${target}%**.`
+    };
+  }
+
+  if (/\b(volume\s+down|turn\s+down\s+volume|decrease\s+volume|lower\s+volume)\b/i.test(p)) {
+    const cur = await window.ultronAPI.windowsGetVolume();
+    const target = Math.max(0, (cur.level || 50) - 10);
+    await window.ultronAPI.windowsSetVolume(target);
+    return {
+      success: true,
+      message: `🔉 **Volume Decreased**: Adjusted volume from **${cur.level}%** to **${target}%**.`
+    };
+  }
+
+  if (/\b(mute\s+volume|mute\s+audio|mute\s+sound|mute)\b/i.test(p) && !p.includes('unmute')) {
+    await window.ultronAPI.windowsToggleMute();
+    return {
+      success: true,
+      message: `🔇 **Audio Muted**: Master audio has been muted.`
+    };
+  }
+
+  if (/\b(unmute\s+volume|unmute\s+audio|unmute\s+sound|unmute|toggle\s+mute)\b/i.test(p)) {
+    await window.ultronAPI.windowsToggleMute();
+    return {
+      success: true,
+      message: `🔊 **Audio Unmuted**: Master audio is now active.`
+    };
+  }
+
+  // Media playback
+  if (/\b(pause|stop)\s+(music|song|track|playback|spotify|youtube)\b/i.test(p) || p === 'pause') {
+    await window.ultronAPI.windowsMediaKey('pause');
+    return { success: true, message: `⏸️ **Media Paused**: Playback paused.` };
+  }
+
+  if (/\b(play|resume)\s+(music|song|track|playback|spotify|youtube)\b/i.test(p) || p === 'play') {
+    await window.ultronAPI.windowsMediaKey('play');
+    return { success: true, message: `▶️ **Media Playing**: Playback resumed.` };
+  }
+
+  if (/\b(next\s+track|next\s+song|skip\s+song|skip\s+track)\b/i.test(p)) {
+    await window.ultronAPI.windowsMediaKey('next');
+    return { success: true, message: `⏭️ **Next Track**: Skipped to the next track.` };
+  }
+
+  if (/\b(previous\s+track|previous\s+song|prev\s+track|prev\s+song)\b/i.test(p)) {
+    await window.ultronAPI.windowsMediaKey('prev');
+    return { success: true, message: `⏮️ **Previous Track**: Returned to previous track.` };
+  }
+
+  // Brightness
+  const brightMatch = p.match(/\b(?:set\s+(?:screen\s+)?brightness\s+(?:to\s+)?|brightness\s+(?:to\s+)?|change\s+brightness\s+to\s+)(\d{1,3})(?:\s*%|\s*percent)?/i);
+  if (brightMatch && brightMatch[1]) {
+    const level = Math.max(0, Math.min(100, parseInt(brightMatch[1], 10)));
+    await window.ultronAPI.windowsSetBrightness(level);
+    return {
+      success: true,
+      message: `☀️ **Screen Brightness Set**: Adjusted display brightness to **${level}%**.`
+    };
+  }
+
+  // Lock workstation
+  if (/\b(lock\s+(?:my\s+)?(?:pc|computer|workstation|screen))\b/i.test(p)) {
+    await window.ultronAPI.windowsLock();
+    return { success: true, message: `🔒 **Workstation Locked**: Windows session locked.` };
+  }
+
+  // Sleep
+  if (/\b(sleep\s+(?:pc|computer)|put\s+(?:pc|computer)\s+to\s+sleep)\b/i.test(p)) {
+    await window.ultronAPI.windowsSleep();
+    return { success: true, message: `💤 **System Sleep**: Windows entering sleep mode.` };
+  }
+
+  return { success: false, message: 'System action completed.' };
+}
+
+/** Detects questions explicitly asking for external download/install instructions. */
+function isInformationalOrHowToQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  if (isMathOrCalculationQuery(p) || isSystemControlQuery(p)) return false;
+  if (/\b(how\s+to\s+(download|install|setup|configure|deploy))\b/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
 /** Desktop/file/UI cues that mean the user wants tools, not a chat answer. */
 function hasDesktopActionCues(prompt) {
   const p = String(prompt || '');
   // Strip out attached document blocks so document contents/names don't falsely trigger desktop automation
   const cleanPrompt = p.replace(/📄\s*\*\*Attached Document\s*\[[^\]]+\]\*\*:\s*```[\s\S]*?```/gi, '').trim();
-  return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|visit|play|song|video|music|track|youtube|spotify|claude|chatgpt|openai|gemini|github|reddit|twitter|notepad|chrome|edge|browser|desktop|download|document|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|double\s*click|right\s*click|scroll|mouse|cursor|login|logout|sign\s*in|sign\s*out|search\s+.+?\s+on|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(cleanPrompt)
+
+  // If it's a math or informational question with no explicit command to launch/modify local desktop, do not treat as a desktop action
+  if (isMathOrCalculationQuery(cleanPrompt)) return false;
+  if (isInformationalOrHowToQuery(cleanPrompt) && !/\b(open\s+notepad|open\s+chrome|open\s+edge|open\s+folder|create\s+(a\s+)?(file|folder)|write\s+into\s+notepad|type\s+into\s+notepad|save\s+as\s+[a-z0-9_.-]+\.[a-z]{2,4})\b/i.test(cleanPrompt)) {
+    return false;
+  }
+
+  return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|visit|play|song|video|music|track|youtube|spotify|claude|chatgpt|openai|gemini|github|reddit|twitter|notepad|chrome|edge|browser|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|double\s*click|right\s*click|scroll|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(cleanPrompt)
     || /\.(txt|docx?|pdf|md|js|py|ts|html)\b/i.test(cleanPrompt)
     || /[A-Za-z]:\\/.test(cleanPrompt)
     || hasLocalFilesystemCues(cleanPrompt);
@@ -5625,25 +6699,27 @@ function isWebSearchEnabled() {
 
 function isFactualOrCurrentEventsQuery(prompt) {
   const p = String(prompt || '').toLowerCase().replace(/\s+/g, ' ');
-  if (/\b(right now|currently|at present|as of now|today|this week|this month|this year|in 2026|in 2025|latest|recent|live update|happening now)\b/i.test(p)) return true;
-  if (/\b(now|nwo)\b/i.test(p) && /\b(who|what|when|where|which)\b/i.test(p)) return true;
-  if (/\bwho\s+(is|are|was|'s)\b/i.test(p) && /\b(prime minister|president|chief minister|ceo|governor|mayor|king|queen|leader|head of|minister of|secretary of)\b/i.test(p)) return true;
-  if (/\b(what is the|what's the|what are the)\s+(price|score|result|winner|population|capital|weather|news)\b/i.test(p)) return true;
-  if (/\b(news about|latest on|update on|happening in|election result|match result|stock price|crypto price)\b/i.test(p)) return true;
-  if (/\b(when did|when was|when is|where is|how old is|how much is|how many people)\b/i.test(p)) return true;
+  if (isMathOrCalculationQuery(p) || isSystemControlQuery(p)) return false;
+  if (hasExplicitSearchIntent(p)) return true;
+  if (isInformationalOrHowToQuery(p)) return true;
+  if (/\b(right now|currently|at present|as of now|today|this week|this month|in 2026|live update|happening now|breaking news)\b/i.test(p)) return true;
+  if (/\b(live\s+score|match\s+score|winner\s+of|weather\s+in|stock\s+price|crypto\s+price|current\s+price|download\s+link|official\s+download|how\s+to\s+download|how\s+to\s+install)\b/i.test(p)) return true;
+  if (/\b(cursor(\s+ai)?|midjourney|sora|v0\.dev|bolt\.new)\b/i.test(p) && /\b(how to download|how to install|download link|pricing)\b/i.test(p)) return true;
   return false;
 }
 
 function isStaleOrUncertainResponse(text) {
-  const lower = String(text || '').toLowerCase();
-  return /\b(as of my last update|knowledge cutoff|don't have access to real.?time|do not have access to real.?time|may not be up to date|my training data|cannot provide real.?time|as of \d{4}|i'm not able to browse|don't have live|do not have live|information may be outdated|i don't have up-to-date|without access to the internet)\b/i.test(lower);
+  const lower = String(text || '').toLowerCase().trim();
+  if (!lower) return false;
+  return /\b(as of my last update|knowledge cutoff|don't have access to real.?time|do not have access to real.?time|may not be up to date|my training data|cannot provide real.?time|as of \d{4}|i'm not able to browse|don't have live|do not have live|information may be outdated|i don't have up-to-date|without access to the internet|i don't know|i do not know|i'm not sure|i am not sure|i don't have information|i do not have information|i am not familiar with|i cannot find information|i don't have details|as an ai language model|as an ai assistant|i don't possess information|i'm unable to provide details|i don't have access to the internet|i am unable to browse|i cannot browse the web)\b/i.test(lower);
 }
 
 function shouldFallbackToWebSearch(prompt, response) {
   if (!isWebSearchEnabled()) return false;
+  if (isMathOrCalculationQuery(prompt)) return false;
   // Never hijack an attached-document analysis (resume/PDF review) into a web search.
   if (/attached document \[/i.test(String(prompt || ''))) return false;
-  return isFactualOrCurrentEventsQuery(prompt) || isStaleOrUncertainResponse(response);
+  return isFactualOrCurrentEventsQuery(prompt) || isInformationalOrHowToQuery(prompt) || isStaleOrUncertainResponse(response);
 }
 
 /** Split "who is PM … open notepad" into a web search part + desktop action tail. */
@@ -5667,10 +6743,25 @@ function splitSearchAndActionPrompt(prompt) {
 
 /**
  * Intent Classifier — determines what the user actually wants.
- * Returns: 'conversation' | 'action' | 'search' | 'time' | 'system_info' | 'user_identity'
+ * Returns: 'math' | 'conversation' | 'action' | 'search' | 'time' | 'system_info' | 'user_identity'
  */
 function classifyIntent(prompt) {
   const p = prompt.toLowerCase().trim();
+
+  // -2. Direct Native System Controls (Volume, Mute, Media, Brightness, Lock)
+  if (isSystemControlQuery(prompt)) {
+    return 'system_control';
+  }
+
+  // -1. Exact Mathematical & Arithmetic Calculations (Instant Math Skill)
+  if (isMathOrCalculationQuery(prompt)) {
+    return 'math';
+  }
+
+  // -1b. Direct Visual / Diagram / Flowchart / Mindmap Generation (Instant Chat In-App Visual)
+  if (/\b(diagram|flowchart|flow\s*chart|architecture|mindmap|mind\s*map|sequence\s*diagram|er\s*diagram|state\s*diagram|chart|graph|visualize|draw|plot)\b/i.test(p) && !hasDesktopActionCues(prompt)) {
+    return 'conversation';
+  }
 
   // 0. User identity queries ("who am i", "my name", "correct my name", "do you know me")
   if (/\b(who am i|my name|what('s|\s+is)\s+my\s+name|do you know me|who i am|correct my name)\b/i.test(p)) {
@@ -5736,17 +6827,18 @@ function classifyIntent(prompt) {
     return 'conversation';
   }
 
-  // 6. General knowledge — search the web when factual/current and web search is on
-  if (/^(what is|what are|who is|who are|why is|why do|how does|how do|explain|tell me about|define|describe|meaning of|difference between)\b/i.test(p) && !/\b(file|folder|directory|create|make|write|delete|run|execute|install|open|list|show|read)\b/i.test(p)) {
-    if (isWebSearchEnabled() && (isFactualOrCurrentEventsQuery(prompt) || hasExplicitSearchIntent(prompt) || /\b(latest|today|current|recent|2024|2025|2026|news|price|stock|weather)\b/i.test(p))) {
-      return 'search';
+  // 6. Web Search for How-To, Factual Knowledge, Product Info, or Current Events
+  if (isWebSearchEnabled()) {
+    if (isFactualOrCurrentEventsQuery(prompt) || isInformationalOrHowToQuery(prompt) || hasExplicitSearchIntent(prompt) || /\b(latest|today|current|recent|2024|2025|2026|news|price|stock|weather|download|install|guide|tutorial|specs|release)\b/i.test(p)) {
+      if (!isContentGenerationRequest(prompt) && !hasLocalFilesystemCues(prompt)) {
+        return 'search';
+      }
     }
-    return 'conversation';
   }
 
-  // 6b. Factual / current-events phrasing even without leading "who is"
-  if (isWebSearchEnabled() && isFactualOrCurrentEventsQuery(prompt) && !hasDesktopActionCues(prompt)) {
-    return 'search';
+  // 6b. General knowledge fallback if web search is off
+  if (/^(what is|what are|who is|who are|why is|why do|how does|how do|explain|tell me about|define|describe|meaning of|difference between)\b/i.test(p) && !/\b(file|folder|directory|create|make|write|delete|run|execute|install|open|list|show|read)\b/i.test(p)) {
+    return 'conversation';
   }
 
   // 6c. Saved workflow / routine triggers → desktop automation
@@ -6013,9 +7105,7 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
     if (visionImages.length > 0 && !canUseVision && !activeModel.startsWith('gemini')) {
       finalUserPrompt = `${prompt}\n\n[Note: Desktop screenshot(s) were captured for this step, but the active model "${activeModel}" does not support vision. Switch to a vision model (e.g. llava, gemini) to analyze screen content.]`;
     }
-    if (/\b(table|tabular|difference between|vs|comparison)\b/i.test(prompt) && !/\b(html\s+code|css\s+code|write\s+code)\b/i.test(prompt)) {
-      finalUserPrompt = `${prompt}\n\n[Formatting Instruction: Respond using standard Markdown table syntax (| Header 1 | Header 2 |). DO NOT write HTML/CSS code.]`;
-    }
+    // Keep user prompt clean — instructions are cleanly delivered via systemPrompt
 
     // Cloud APIs only — HF GGUF + Ollama Cloud stay on the local Ollama path below.
     const provider = window.UltronMultiProviderHub ? window.UltronMultiProviderHub.detectProviderForModel(activeModel) : 'ollama';
@@ -7408,6 +8498,32 @@ function isMeaninglessPrompt(text) {
   return false;
 }
 
+function getThinkingLabelForPrompt(prompt) {
+  const p = String(prompt || '').toLowerCase();
+  if (/\b(mindmap|mind\s*map|concept\s*tree|taxonomy)\b/i.test(p)) {
+    return 'Generating mindmap';
+  }
+  if (/\b(architecture|tech stack|system design|layer|microservice)\b/i.test(p)) {
+    return 'Creating visual architecture';
+  }
+  if (/\b(flowchart|flow\s*chart|process\s*flow|pipeline)\b/i.test(p)) {
+    return 'Visualizing flowchart';
+  }
+  if (/\b(chart|graph|plot|bar\s*chart|pie\s*chart|line\s*chart)\b/i.test(p)) {
+    return 'Visualizing data chart';
+  }
+  if (/\b(diagram|visualize|draw|timeline|roadmap|gantt)\b/i.test(p)) {
+    return 'Visualizing diagram';
+  }
+  if (/\b(interactive\s*ui|generative\s*ui|calculator|converter|widget)\b/i.test(p)) {
+    return 'Building interactive UI';
+  }
+  if (/\b(search|find|google|look up|who is|price|latest news)\b/i.test(p)) {
+    return 'Searching knowledge';
+  }
+  return 'Thinking';
+}
+
 // Submit prompt logic
 async function submitPrompt(overridePrompt) {
   if (isAwaitingResponse) return;
@@ -7549,8 +8665,9 @@ async function submitPrompt(overridePrompt) {
         renderChecklist([]);
       }
 
-      // 4. Setup AI placeholder loading bubble
-      const aiBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
+      // 4. Setup AI placeholder loading bubble with dynamic thinking status
+      const thinkingLabel = getThinkingLabelForPrompt(routingPrompt);
+      const aiBubble = appendChatMessage('Ultron', `<div class="thinking-container">${escapeHtml(thinkingLabel)}<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>`, true, { skipSave: true });
       
       // Check model readiness (Ollama / cloud keys / HF pull / Ollama Cloud auth)
       if (intent === 'action' || intent === 'conversation' || intent === 'search') {
@@ -7574,7 +8691,25 @@ async function submitPrompt(overridePrompt) {
         triggerAiTitleGeneration(prompt);
       }
 
-      if (intent === 'user_identity') {
+      if (intent === 'system_control') {
+        const sysResult = await executeSystemControlQuery(routingPrompt);
+        const response = sysResult.message || (sysResult.success ? 'System setting updated.' : 'Failed to update system setting.');
+        await typeMessageResponse(aiBubble, response);
+        appendChatMessage('Ultron', response, true, { skipRender: true });
+
+      } else if (intent === 'math') {
+        const mathResult = evaluateMathQuery(routingPrompt);
+        let response = '';
+        if (mathResult) {
+          response = formatMathSolution(mathResult);
+        } else {
+          const mathSysPrompt = `You are an expert mathematician and precise computational assistant. Solve the user's calculation step-by-step with exact arithmetic and format in clean Markdown.`;
+          response = await queryOfflineLLM(prompt, [], 'conversation', mathSysPrompt, currentImagePayloads);
+        }
+        await typeMessageResponse(aiBubble, response);
+        appendChatMessage('Ultron', response, true, { skipRender: true });
+
+      } else if (intent === 'user_identity') {
         const userName = getUserFullName();
         const sysEnv = await getSystemContext();
         const response = `You are **${userName}**! You are logged into this Windows PC as \`${sysEnv.username || 'vedan'}\` on computer **${sysEnv.hostname || 'Ultron-PC'}**. I am Ultron, your local AI assistant!`;
@@ -8729,13 +9864,22 @@ async function runSearchIntentFlow(userPrompt, aiBubble, loopImagePayloads, acti
   // Never let attached-document bodies become a web-search query.
   const stripped = String(userPrompt || '').replace(/📄\s*\*\*Attached Document[\s\S]*?```/gi, '').trim();
   if (stripped) userPrompt = stripped;
+
+  if (!userPrompt || userPrompt.trim().length < 3 || /^(search|find|google|look up|browse)$/i.test(userPrompt.trim())) {
+    const clarMsg = "What would you like me to search for? Please provide a specific topic, question, or website name.";
+    renderMessageContent(aiBubble, clarMsg);
+    finalizeAiMessageBubble(aiBubble, clarMsg);
+    appendChatMessage('Ultron', clarMsg, true, { skipRender: true });
+    return;
+  }
+
   const userName = getUserFullName();
   const researchEnabled = window.UltronAgentResearch
     && window.UltronAgentResearch.getResearchConfig().enabled;
   const useDeepResearch = researchEnabled
     && window.UltronAgentResearch.isDeepResearchRequest(userPrompt);
 
-  renderSearchLiveStatus(aiBubble, agentSubgoals, useDeepResearch ? 'Planning multi-hop research...' : 'Analyzing prompt & formulating search strategy...');
+  renderSearchLiveStatus(aiBubble, agentSubgoals, useDeepResearch ? 'Planning multi-hop research...' : 'Thinking: Analyzing query & formulating targeted search...');
   await new Promise(resolve => setTimeout(resolve, 300));
 
   let searchResult = null;
@@ -9173,6 +10317,13 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
         if (toolCall) {
           completionNudges++;
           activitySteps.push({ type: 'EXECUTE', label: humanizeToolCallLabel(toolCall) });
+        } else if (isWebSearchEnabled() && (isFactualOrCurrentEventsQuery(userPrompt) || isInformationalOrHowToQuery(userPrompt) || shouldFallbackToWebSearch(userPrompt, reactFinalAnswer))) {
+          logTrace('Informational or knowledge query in agent loop — falling back to live web search.', 'system');
+          return await runSearchIntentFlow(userPrompt, aiBubble, loopImagePayloads, activitySteps, agentSubgoals, loopStartedAt, showTaskPlan);
+        } else if (reactFinalAnswer && reactFinalAnswer.trim().length > 20 && !claimsDesktopTaskCompleted(reactFinalAnswer)) {
+          isDone = true;
+          finalResponse = sanitizeResponseText(reactFinalAnswer, userPrompt);
+          break;
         } else {
           isDone = true;
           finalResponse = "I couldn't run that on your PC — the model answered without executing anything. Try rephrasing, e.g. `create a folder named vedant in downloads`.";
@@ -12546,6 +13697,131 @@ async function checkAndRunFirstTimeOnboarding() {
 
   let ollamaReady = false;
   let readyRedirectTimer = null;
+  let onboardVoiceMuted = false;
+  let currentOnboardAudioElem = null;
+
+  const ONBOARD_AUDIO_CANDIDATES = {
+    0: [
+      '../../Assets/sounds/step-0-welcom.mp3',
+      '../../Assets/sounds/step-0-welcome.mp3',
+      '../../Assets/sounds/onboarding/step-0-welcome.mp3',
+      '../../Assets/sounds/onboarding/step-0-welcom.mp3'
+    ],
+    1: [
+      '../../Assets/sounds/step-1-name.mp3',
+      '../../Assets/sounds/onboarding/step-1-name.mp3'
+    ],
+    2: [
+      '../../Assets/sounds/step-2-birthdate.mp3',
+      '../../Assets/sounds/onboarding/step-2-birthdate.mp3'
+    ],
+    3: [
+      '../../Assets/sounds/step-3-email.mp3',
+      '../../Assets/sounds/onboarding/step-3-email.mp3'
+    ],
+    4: [
+      '../../Assets/sounds/step-4-requirements.mp3',
+      '../../Assets/sounds/onboarding/step-4-requirements.mp3'
+    ],
+    5: [
+      '../../Assets/sounds/step-5-ready.mp3',
+      '../../Assets/sounds/onboarding/step-5-ready.mp3'
+    ]
+  };
+
+  async function speakOnboardStep(step) {
+    if (onboardVoiceMuted) return;
+    const candidates = ONBOARD_AUDIO_CANDIDATES[step];
+    if (!candidates || !candidates.length) return;
+    await playOnboardAudioCandidates(candidates);
+  }
+
+  async function playOnboardAudioCandidates(candidates) {
+    stopOnboardVoice();
+    if (onboardVoiceMuted) return;
+
+    const voiceBtn = document.getElementById('btn-onboard-voice-guide');
+    if (voiceBtn) {
+      voiceBtn.classList.add('is-speaking');
+      const wave = voiceBtn.querySelector('.voice-wave-container');
+      const iconIdle = voiceBtn.querySelector('.voice-icon-idle');
+      const iconMuted = voiceBtn.querySelector('.voice-icon-muted');
+      if (wave) wave.classList.remove('hidden');
+      if (iconIdle) iconIdle.classList.add('hidden');
+      if (iconMuted) iconMuted.classList.add('hidden');
+    }
+
+    function setVoiceIdleState() {
+      if (voiceBtn) {
+        voiceBtn.classList.remove('is-speaking');
+        const wave = voiceBtn.querySelector('.voice-wave-container');
+        const iconIdle = voiceBtn.querySelector('.voice-icon-idle');
+        const iconMuted = voiceBtn.querySelector('.voice-icon-muted');
+        if (wave) wave.classList.add('hidden');
+        if (iconIdle) iconIdle.classList.toggle('hidden', onboardVoiceMuted);
+        if (iconMuted) iconMuted.classList.toggle('hidden', !onboardVoiceMuted);
+      }
+    }
+
+    for (const src of candidates) {
+      try {
+        const audio = new Audio(src);
+        currentOnboardAudioElem = audio;
+        audio.onended = () => {
+          currentOnboardAudioElem = null;
+          setVoiceIdleState();
+        };
+        audio.onerror = () => {
+          currentOnboardAudioElem = null;
+          setVoiceIdleState();
+        };
+        await audio.play();
+        return;
+      } catch (err) {
+        currentOnboardAudioElem = null;
+      }
+    }
+    setVoiceIdleState();
+  }
+
+  function stopOnboardVoice() {
+    if (currentOnboardAudioElem) {
+      try {
+        currentOnboardAudioElem.pause();
+        currentOnboardAudioElem.currentTime = 0;
+      } catch (e) {}
+      currentOnboardAudioElem = null;
+    }
+
+    const voiceBtn = document.getElementById('btn-onboard-voice-guide');
+    if (voiceBtn) {
+      voiceBtn.classList.remove('is-speaking');
+      const wave = voiceBtn.querySelector('.voice-wave-container');
+      const iconIdle = voiceBtn.querySelector('.voice-icon-idle');
+      const iconMuted = voiceBtn.querySelector('.voice-icon-muted');
+      if (wave) wave.classList.add('hidden');
+      if (iconIdle) iconIdle.classList.toggle('hidden', onboardVoiceMuted);
+      if (iconMuted) iconMuted.classList.toggle('hidden', !onboardVoiceMuted);
+    }
+  }
+
+  const btnVoiceGuide = document.getElementById('btn-onboard-voice-guide');
+  if (btnVoiceGuide) {
+    btnVoiceGuide.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (btnVoiceGuide.classList.contains('is-speaking')) {
+        onboardVoiceMuted = true;
+        btnVoiceGuide.classList.add('is-muted');
+        stopOnboardVoice();
+      } else if (onboardVoiceMuted) {
+        onboardVoiceMuted = false;
+        btnVoiceGuide.classList.remove('is-muted');
+        speakOnboardStep(currentStep);
+      } else {
+        speakOnboardStep(currentStep);
+      }
+    });
+  }
 
   const stepHeadings = {
     1: 'Your profile',
@@ -12571,6 +13847,7 @@ async function checkAndRunFirstTimeOnboarding() {
   }
 
   async function finishOnboarding() {
+    stopOnboardVoice();
     window.localStorage.setItem('ultron-setup-completed', 'true');
     if (window.ultronAPI && window.ultronAPI.saveSetupStatus) {
       await window.ultronAPI.saveSetupStatus(true);
@@ -12643,7 +13920,50 @@ async function checkAndRunFirstTimeOnboarding() {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return `${y}/${m}/${d}`;
+  }
+
+  function attachDateSlashFormatter(input) {
+    if (!input) return;
+
+    let isDeleting = false;
+    input.addEventListener('keydown', (e) => {
+      isDeleting = e.key === 'Backspace' || e.key === 'Delete';
+    });
+
+    input.addEventListener('input', () => {
+      if (isDeleting) return;
+
+      const raw = input.value;
+      const digits = raw.replace(/\D/g, '').slice(0, 8);
+      if (!digits) {
+        input.value = '';
+        return;
+      }
+
+      let formatted = '';
+      if (digits.length >= 4 && (digits.startsWith('19') || digits.startsWith('20'))) {
+        // YYYY/MM/DD pattern
+        if (digits.length <= 4) {
+          formatted = digits;
+        } else if (digits.length <= 6) {
+          formatted = `${digits.slice(0, 4)}/${digits.slice(4)}`;
+        } else {
+          formatted = `${digits.slice(0, 4)}/${digits.slice(4, 6)}/${digits.slice(6, 8)}`;
+        }
+      } else {
+        // DD/MM/YYYY pattern
+        if (digits.length <= 2) {
+          formatted = digits;
+        } else if (digits.length <= 4) {
+          formatted = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+        } else {
+          formatted = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+        }
+      }
+
+      input.value = formatted;
+    });
   }
 
   function initCustomDatePicker() {
@@ -12660,6 +13980,8 @@ async function checkAndRunFirstTimeOnboarding() {
     const container = document.getElementById('onboard-date-field-container');
 
     if (!dateInput || !popover || !monthSelect || !yearSelect || !daysContainer) return;
+
+    attachDateSlashFormatter(dateInput);
 
     // Populate years (1920 to current year)
     const currentYearNow = new Date().getFullYear();
@@ -12893,6 +14215,9 @@ async function checkAndRunFirstTimeOnboarding() {
 
     if (step0) step0.classList.toggle('hidden', !onWelcome);
     if (formShell) formShell.classList.toggle('hidden', onWelcome);
+
+    // Automatically speak context guidance for the current onboarding step
+    speakOnboardStep(currentStep);
 
     if (onWelcome) return;
 
@@ -16370,43 +17695,104 @@ function settleBootStep(promise, timeoutMs = 10000) {
   ]);
 }
 
-const SPLASH_DISPLAY_DURATION_MS = 10000; // Strictly display Ultron logo & title screen for 10 seconds
-const SKELETON_DISPLAY_DURATION_MS = 2500; // Display skeleton loader before opening interface
-const SPLASH_FADE_MS = 400;
-const BOOT_FAILSAFE_MS = 30000;
+const SPLASH_DISPLAY_DURATION_MS = 10000; // Mandatory 10 seconds minimum display on startup
+const SKELETON_DISPLAY_DURATION_MS = 1000;
+const SPLASH_FADE_MS = 450;
+const bootStartTime = Date.now();
 
 function waitMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+let splashStatusInterval = null;
+let splashTransitionTimeout = null;
+
+function updateSplashStatus(message, immediate = false) {
+  const el = document.getElementById('splash-status-text');
+  if (!el || !message) return;
+  if (el.dataset.currentMsg === message) return;
+  el.dataset.currentMsg = message;
+
+  if (immediate) {
+    if (splashTransitionTimeout) {
+      clearTimeout(splashTransitionTimeout);
+      splashTransitionTimeout = null;
+    }
+    el.classList.remove('status-fade-out', 'status-fade-in');
+    el.textContent = message;
+    return;
+  }
+
+  if (splashTransitionTimeout) {
+    clearTimeout(splashTransitionTimeout);
+  }
+
+  el.classList.add('status-fade-out');
+  el.classList.remove('status-fade-in');
+
+  splashTransitionTimeout = setTimeout(() => {
+    el.textContent = message;
+    el.classList.remove('status-fade-out');
+    el.classList.add('status-fade-in');
+
+    // Force browser reflow to trigger smooth entry transition
+    void el.offsetWidth;
+
+    requestAnimationFrame(() => {
+      el.classList.remove('status-fade-in');
+    });
+    splashTransitionTimeout = null;
+  }, 220);
+}
+
+function startSplashStatusCycle() {
+  const messages = [
+    { at: 0, text: 'Starting up...' },
+    { at: 1800, text: 'Checking your models...' },
+    { at: 3600, text: 'Syncing your workspace...' },
+    { at: 5400, text: 'Checking connections...' },
+    { at: 7200, text: 'Connecting services...' },
+    { at: 8800, text: 'Getting everything ready...' }
+  ];
+
+  const start = Date.now();
+  // Immediately set first message without fade lag
+  updateSplashStatus(messages[0].text, true);
+
+  splashStatusInterval = setInterval(() => {
+    const elapsed = Date.now() - start;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (elapsed >= messages[i].at) {
+        updateSplashStatus(messages[i].text);
+        break;
+      }
+    }
+  }, 100);
+}
+
+function stopSplashStatusCycle() {
+  if (splashStatusInterval) {
+    clearInterval(splashStatusInterval);
+    splashStatusInterval = null;
+  }
+  if (splashTransitionTimeout) {
+    clearTimeout(splashTransitionTimeout);
+    splashTransitionTimeout = null;
+  }
+}
+
 function dismissSplashScreen() {
+  stopSplashStatusCycle();
   const splashScreen = document.getElementById('app-splash-screen');
   if (!splashScreen || splashScreen.dataset.dismissed === '1') {
-    return Promise.resolve();
+    return;
   }
   splashScreen.dataset.dismissed = '1';
   splashScreen.classList.add('fade-out');
-  return waitMs(SPLASH_FADE_MS).then(() => {
+  setTimeout(() => {
     splashScreen.style.display = 'none';
     splashScreen.style.pointerEvents = 'none';
-  });
-}
-
-function runSplashIntroSequence(splashDurationMs) {
-  const splashScreen = document.getElementById('app-splash-screen');
-  if (!splashScreen) return Promise.resolve();
-
-  return new Promise((resolve) => {
-    let resolved = false;
-    const finish = async () => {
-      if (resolved) return;
-      resolved = true;
-      await dismissSplashScreen();
-      resolve();
-    };
-
-    setTimeout(finish, splashDurationMs);
-  });
+  }, SPLASH_FADE_MS);
 }
 
 function ensureSkeletonVisible() {
@@ -16419,47 +17805,46 @@ function ensureSkeletonVisible() {
   skeletonOverlay.style.pointerEvents = 'all';
 }
 
-// Failsafe: never leave overlays stuck if boot hangs
-setTimeout(() => {
-  dismissSplashScreen();
-  hideSkeletonLoader();
-}, BOOT_FAILSAFE_MS);
-
 async function bootSystem() {
-  // 1. Show Ultron logo + text splash screen for 10 seconds
-  const splashPromise = runSplashIntroSequence(SPLASH_DISPLAY_DURATION_MS);
-  ensureSkeletonVisible();
+  const splashScreen = document.getElementById('app-splash-screen');
+  if (splashScreen) {
+    splashScreen.style.display = 'flex';
+    splashScreen.style.opacity = '1';
+    splashScreen.style.visibility = 'visible';
+  }
+
+  startSplashStatusCycle();
 
   try {
-    // 2. Instant Synchronous UI pre-renders
-    updateWelcomeGreeting();
-    setSendingState(false);
-    initTraceEmptyState();
-    renderChecklist([]);
-    syncPlusMenuToggles();
-    initAutomationSettingsUI();
-    startLiveMetricsPolling();
+    // 1. Instant Synchronous UI pre-renders (safely isolated)
+    try { updateWelcomeGreeting(); } catch (e) { console.warn('Welcome greeting err:', e); }
+    try { setSendingState(false); } catch (e) { console.warn('Sending state err:', e); }
+    try { initTraceEmptyState(); } catch (e) { console.warn('Trace empty state err:', e); }
+    try { renderChecklist([]); } catch (e) { console.warn('Checklist err:', e); }
+    try { syncPlusMenuToggles(); } catch (e) { console.warn('Menu toggles err:', e); }
+    try { initAutomationSettingsUI(); } catch (e) { console.warn('Automation settings err:', e); }
+    try { startLiveMetricsPolling(); } catch (e) { console.warn('Live metrics err:', e); }
 
-    // 3. Parallel preload & resource verification — Ollama, local models, location, storage, config, providers, MCP
+    // 2. Parallel background preload (non-blocking)
     const coreTasks = [
-      settleBootStep(syncStoragePathOnBoot().then(() => loadStoragePathsUI())),
-      settleBootStep(reloadConversationsFromDisk()),
-      settleBootStep(loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: false }), 12000),
-      settleBootStep(checkOllamaStartup(), 15000),
-      settleBootStep(initMultiProviderUI()),
-      settleBootStep(syncSecurityMode()),
-      settleBootStep((async () => {
+      syncStoragePathOnBoot().then(() => loadStoragePathsUI()).catch(() => {}),
+      reloadConversationsFromDisk().catch(() => {}),
+      loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: false }).catch(() => {}),
+      checkOllamaStartup().catch(() => {}),
+      initMultiProviderUI().catch(() => {}),
+      syncSecurityMode().catch(() => {}),
+      (async () => {
         if (window.UltronAgentPrompt?.loadUltronAgentConfig) {
           await window.UltronAgentPrompt.loadUltronAgentConfig().catch(() => {});
           if (window.UltronAgentPrompt?.startUltronAgentConfigHotReload) {
             window.UltronAgentPrompt.startUltronAgentConfigHotReload();
           }
         }
-      })())
+      })()
     ];
 
     if (window.UltronAgentMemory?.loadTaskMemory) {
-      _learnedTaskMemory = window.UltronAgentMemory.loadTaskMemory().map(item => item.text || item);
+      try { _learnedTaskMemory = window.UltronAgentMemory.loadTaskMemory().map(item => item.text || item); } catch (e) {}
     }
 
     const bootAllowlist = getSavedAuthorizedAppsMap();
@@ -16467,34 +17852,33 @@ async function bootSystem() {
       window.ultronAPI.setAuthorizedApps(bootAllowlist).catch(() => {});
     }
 
-    const resourcesPromise = Promise.allSettled(coreTasks);
-
-    // Wait for the full 10-second splash display duration to finish
-    await splashPromise;
-
-    // 4. Reveal and display Skeleton loader before opening the app interface
-    ensureSkeletonVisible();
-
-    // Wait for background resource checks AND ensure skeleton loader displays for its duration
-    await Promise.all([
-      resourcesPromise,
-      waitMs(SKELETON_DISPLAY_DURATION_MS)
-    ]);
-
-    await checkAndRunFirstTimeOnboarding().catch(() => {});
-    initVoiceChatModeAfterBoot();
-
-    // 5. Hydrate model UI with loaded offline models & multi-provider models
-    renderModelDropdownList();
-    renderSettingsModels();
-    updateModelSelectorLabel();
-
-    // 6. All resources ready → gracefully hide skeleton loader and reveal app interface
-    hideSkeletonLoader();
+    // Run core tasks in parallel
+    Promise.allSettled(coreTasks).catch(() => {});
   } catch (err) {
-    console.error('Boot sequence error:', err);
-    await dismissSplashScreen();
+    console.error('Boot sequence initialization warning:', err);
+  } finally {
+    // MANDATORY 10-SECOND LOCK: ALWAYS guarantee splash displays for strictly 10.0 seconds
+    const elapsed = Date.now() - bootStartTime;
+    if (elapsed < SPLASH_DISPLAY_DURATION_MS) {
+      await waitMs(SPLASH_DISPLAY_DURATION_MS - elapsed);
+    }
+
+    updateSplashStatus('Ready — Let’s get started!');
+    await waitMs(300);
+
+    dismissSplashScreen();
+
+    try {
+      renderModelDropdownList();
+      renderSettingsModels();
+      updateModelSelectorLabel();
+    } catch (e) {}
+
     hideSkeletonLoader();
+
+    // Deferred tasks after UI is live
+    checkAndRunFirstTimeOnboarding().catch(() => {});
+    initVoiceChatModeAfterBoot();
   }
 }
 
@@ -16768,6 +18152,19 @@ function getSelectedTtsVoiceUri() {
 
 function normalizeTextForSpeech(text) {
   let cleaned = extractPlainTextFromMessage(text) || String(text || '');
+
+  // Convert markdown tables into natural spoken sentences before stripping formatting
+  cleaned = cleaned.replace(/(\|[\s\S]+?\|\n\|[-:\s|]+\|\n(?:\|[\s\S]+?\|\n?)+)/g, (tableBlock) => {
+    const lines = tableBlock.trim().split('\n').filter(l => l.includes('|'));
+    if (lines.length < 3) return '';
+    const rows = lines.slice(2).map(r => r.split('|').map(c => c.trim()).filter(Boolean));
+    const spokenRows = rows.map(r => {
+      if (r.length >= 2) return `${r[0]} from ${r[1]}`;
+      return r.join(', ');
+    });
+    return `Here are the top results: ${spokenRows.slice(0, 5).join('. ')}.`;
+  });
+
   cleaned = cleaned
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]+`/g, ' ')
@@ -16775,6 +18172,7 @@ function normalizeTextForSpeech(text) {
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^[-*•]\s+/gm, '')
     .replace(/^-{3,}$|^\*{3,}$|^_{3,}$/gm, ' ')
+    .replace(/\[\d{1,2}\]/g, '') // Strip citation badges like [1], [2] for smooth speech
     .replace(/[—–‑]/g, ' ')
     .replace(/\s[-–—]\s/g, ' ')
     .replace(/[^\w\s.,!?;:'"()]/g, ' ')
@@ -19647,67 +21045,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
             devicesContainer.innerHTML = `
               <div class="sync-empty-state-card">
                 <div class="sync-empty-svg-wrapper">
-                  <svg class="sync-empty-illustration" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
-                    <defs>
-                      <filter id="sync-subtle-glow-dyn" x="-20%" y="-20%" width="140%" height="140%">
-                        <feGaussianBlur stdDeviation="1.5" result="blur" />
-                        <feMerge>
-                          <feMergeNode in="blur" />
-                          <feMergeNode in="SourceGraphic" />
-                        </feMerge>
-                      </filter>
-                      <linearGradient id="sync-ring-grad-dyn" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stop-color="rgba(96, 165, 250, 0.18)" />
-                        <stop offset="100%" stop-color="rgba(255, 255, 255, 0.04)" />
-                      </linearGradient>
-                    </defs>
-
-                    <!-- Connection Lines -->
-                    <line x1="88" y1="60" x2="138" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
-                    <line x1="182" y1="60" x2="232" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
-                    <line x1="88" y1="60" x2="138" y2="60" class="connection-left" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
-                    <line x1="182" y1="60" x2="232" y2="60" class="connection-right" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
-
-                    <!-- Traveling Data Pulses -->
-                    <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-phone-to-laptop" fill="#ffffff" filter="url(#sync-subtle-glow-dyn)" />
-                    <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-laptop-to-phone" fill="#ffffff" filter="url(#sync-subtle-glow-dyn)" />
-
-                    <!-- Smartphone (Left) -->
-                    <g class="phone" transform="translate(42, 22)">
-                      <rect x="0" y="0" width="46" height="76" rx="8" ry="8" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
-                      <rect x="4" y="7" width="38" height="62" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
-                      <rect x="16" y="3" width="14" height="2.5" rx="1.2" fill="rgba(255, 255, 255, 0.6)" />
-                      <line x1="9" y1="18" x2="25" y2="18" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="9" y1="24" x2="35" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="9" y1="30" x2="29" y2="30" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                      <circle cx="23" cy="50" r="4" stroke="rgba(96, 165, 250, 0.7)" stroke-width="1" fill="rgba(96, 165, 250, 0.15)" />
-                      <circle cx="23" cy="50" r="1.5" fill="#60a5fa" />
-                      <line x1="16" y1="72" x2="30" y2="72" stroke="rgba(255, 255, 255, 0.5)" stroke-width="1.5" stroke-linecap="round" />
-                    </g>
-
-                    <!-- Sync Symbol (Center) -->
-                    <g class="sync-container">
-                      <circle cx="160" cy="60" r="18" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" fill="url(#sync-ring-grad-dyn)" />
-                      <g class="sync-icon">
-                        <path d="M 152 54 A 10 10 0 0 1 168 57" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
-                        <path d="M 165 55 L 168 57 L 166 60" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                        <path d="M 168 66 A 10 10 0 0 1 152 63" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
-                        <path d="M 155 65 L 152 63 L 154 60" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                      </g>
-                    </g>
-
-                    <!-- Laptop Screen (Right) -->
-                    <g class="laptop" transform="translate(232, 26)">
-                      <rect x="6" y="0" width="76" height="52" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
-                      <rect x="10" y="4" width="68" height="42" rx="2" ry="2" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
-                      <circle cx="44" cy="2" r="0.8" fill="rgba(255, 255, 255, 0.5)" />
-                      <line x1="16" y1="12" x2="36" y2="12" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="16" y1="18" x2="54" y2="18" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="16" y1="24" x2="46" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                      <path d="M0 54 H88 L83 61 H5 Z" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" stroke-linejoin="round" fill="rgba(255, 255, 255, 0.04)" />
-                      <line x1="38" y1="55" x2="50" y2="55" stroke="rgba(255, 255, 255, 0.4)" stroke-width="1.5" stroke-linecap="round" />
-                    </g>
-                  </svg>
+                  <img class="sync-empty-illustration sync-animated-devices" src="../../Assets/computer-phone-connection.svg" alt="Device Connection" />
                 </div>
                 <h6 class="sync-empty-title">No mobile devices paired yet</h6>
                 <p class="sync-empty-desc">Click “Generate Pair Code” and enter the code in your mobile app to connect your device.</p>

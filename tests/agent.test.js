@@ -114,7 +114,10 @@ Action Input: Notepad`);
   const isContentGenerationRequest = (prompt) => {
     const p = String(prompt || '');
     if (isCodeOnlyGenerationRequest(p)) return true;
-    if (/\b(write|draft|compose|create|generate|give|make|build|design|code|develop)\s+(?:a\s+)?(?:me\s+)?(?:an?\s+)?(?:the\s+)?(?:\w+\s+){0,3}(essay|article|story|poem|letter|email|report|summary|speech|blog|post|paragraph|explanation|review|analysis|outline|notes?|caption|headline|bio|resume|cv|itinerary|recipe|table|guide|tutorial|documentation|pitch|proposal|ideas?|questions?|quiz|dialogue|lyrics|script|code|snippet|function|program|class|algorithm|landing\s*page|website|webpage|web\s*site|web\s*page|portfolio|homepage|home\s*page|ui|frontend|component|dashboard|mockup|wireframe|layout|template|navbar|footer|header|card|modal|form|login\s*page|signup\s*page|game|calculator|app|application)\b/i.test(p)) {
+    if (/\b(write|draft|compose|create|generate|give|make|build|design|code|develop|draw|show|plot)\s+(?:a\s+)?(?:me\s+)?(?:an?\s+)?(?:the\s+)?(?:\w+\s+){0,3}(diagram|flowchart|flow\s*chart|architecture|mindmap|mind\s*map|sequence\s*diagram|er\s*diagram|state\s*diagram|chart|graph|visual|infographic|essay|article|story|poem|letter|email|report|summary|speech|blog|post|paragraph|explanation|review|analysis|outline|notes?|caption|headline|bio|resume|cv|itinerary|recipe|table|guide|tutorial|documentation|pitch|proposal|ideas?|questions?|quiz|dialogue|lyrics|script|code|snippet|function|program|class|algorithm|landing\s*page|website|webpage|web\s*site|web\s*page|portfolio|homepage|home\s*page|ui|frontend|component|dashboard|mockup|wireframe|layout|template|navbar|footer|header|card|modal|form|login\s*page|signup\s*page|game|calculator|app|application)\b/i.test(p)) {
+      return true;
+    }
+    if (/\b(create|generate|draw|show|build|make)\s+(?:a\s+)?(?:flowchart|diagram|mindmap|architecture|chart|graph)\b/i.test(p)) {
       return true;
     }
     if (/\b(landing\s*page|website|webpage|web\s*site|web\s*page|portfolio|homepage)\s+(?:for|of|named|about|with)\b/i.test(p)) {
@@ -135,10 +138,25 @@ Action Input: Notepad`);
     return false;
   };
 
+  const isInformationalOrHowToQuery = (prompt) => {
+    const p = String(prompt || '').toLowerCase().trim();
+    if (!p) return false;
+    if (/^(how\s+(to|do\s+i|can\s+i|does|would|to\s+get|should\s+i)|what\s+(is|are|does|was|features)|who\s+(is|are|was)|where\s+(to|can\s+i|is)|guide\s+(to|on|for)|tutorial\s+(on|for)|steps\s+to|explain\s+(how|what|why|the)|tell\s+me\s+(how|about|what)|can\s+you\s+(explain|tell|show\s+how)|difference\s+between|why\s+is|why\s+do|benefits\s+of|features\s+of|pros\s+and\s+cons|review\s+of)\b/i.test(p)) {
+      return true;
+    }
+    if (/\b(how\s+to\s+(download|install|use|setup|configure|build|deploy|learn|get|start|connect|run|fix)|what\s+is\s+[a-z0-9]|explain\s+how\s+to|guide\s+for|documentation\s+for|best\s+way\s+to)\b/i.test(p)) {
+      return true;
+    }
+    return false;
+  };
+
   const hasDesktopActionCues = (prompt) => {
     const p = String(prompt || '');
     const cleanPrompt = p.replace(/📄\s*\*\*Attached Document\s*\[[^\]]+\]\*\*:\s*```[\s\S]*?```/gi, '').trim();
-    return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|notepad|chrome|edge|browser|desktop|download|document|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(cleanPrompt)
+    if (isInformationalOrHowToQuery(cleanPrompt) && !/\b(open\s+notepad|open\s+chrome|open\s+edge|open\s+folder|create\s+(a\s+)?(file|folder)|write\s+into\s+notepad|type\s+into\s+notepad|save\s+as\s+[a-z0-9_.-]+\.[a-z]{2,4})\b/i.test(cleanPrompt)) {
+      return false;
+    }
+    return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|notepad|chrome|edge|browser|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(cleanPrompt)
       || /\.(txt|docx?|pdf|md|js|py|ts|html)\b/i.test(cleanPrompt)
       || /[A-Za-z]:\\/.test(cleanPrompt);
   };
@@ -166,6 +184,11 @@ Action Input: Notepad`);
   // Test 3: Actual desktop action prompts
   assert.strictEqual(hasDesktopActionCues("open Notepad and write hello"), true);
   assert.strictEqual(hasDesktopActionCues("create a folder named test on desktop"), true);
+
+  // Test 4: How-to and Knowledge search queries
+  const cursorHowToPrompt = "how to donwlaod and use the cursor ai";
+  assert.strictEqual(isInformationalOrHowToQuery(cursorHowToPrompt), true);
+  assert.strictEqual(hasDesktopActionCues(cursorHowToPrompt), false);
 
   // Test 5: Meaningless prompt check does not flag normal questions or documents
   const isMeaninglessPrompt = (text) => {
@@ -196,9 +219,72 @@ Action Input: Notepad`);
   assert.strictEqual(isMeaninglessPrompt("sdfghjklmnbvcxz"), true);
   assert.strictEqual(isMeaninglessPrompt("Can you summarize this attached research paper?"), false);
 
-  // Test 6: Document analysis classification
+  // Math query evaluation & intent test
+  const evaluateMathQuery = (prompt) => {
+    const p = String(prompt || '').trim();
+    if (!p) return null;
+    const pctMatch = p.match(/(?:what\s+is\s+|calculate\s+|how\s+much\s+is\s+)?([0-9.]+)\s*%\s*(?:of|\*)\s*([0-9.]+)/i);
+    if (pctMatch) {
+      const pct = parseFloat(pctMatch[1]);
+      const total = parseFloat(pctMatch[2]);
+      const res = (pct / 100) * total;
+      return { type: 'percentage', expression: `${pct}% of ${total}`, result: res };
+    }
+    const cleanExpr = p
+      .replace(/^(?:how\s+much\s+is|what\s+is\s+the\s+value\s+of|what\s+is|what's|calculate|compute|solve|evaluate)\s+/i, '')
+      .replace(/\?+$/, '')
+      .replace(/=/g, '')
+      .trim();
+    let expr = cleanExpr.replace(/[xX×]/g, '*').replace(/÷/g, '/').replace(/(\d+)\s*\^\s*(\d+)/g, 'Math.pow($1, $2)');
+    if (/^[0-9\s.+\-*/%(),Math.pow]+$/.test(expr) && /\d/.test(expr)) {
+      try {
+        const calculated = Function(`'use strict'; return (${expr});`)();
+        if (typeof calculated === 'number' && !isNaN(calculated) && isFinite(calculated)) {
+          return { type: 'arithmetic', expression: cleanExpr, result: calculated };
+        }
+      } catch (e) { return null; }
+    }
+    return null;
+  };
+
+  const isMathOrCalculationQuery = (prompt) => {
+    const p = String(prompt || '').toLowerCase().trim();
+    if (!p) return false;
+    if (evaluateMathQuery(p)) return true;
+    if (/^(?:calculate|compute|solve|evaluate)\s+[0-9a-z(]/i.test(p)) return true;
+    if (/^(?:what\s+is|what's|how\s+much\s+is)\s+[0-9\s.+\-*/%^()xX÷×]+\??$/i.test(p)) return true;
+    return false;
+  };
+
+  // Test Math calculations: User's exact prompt from issue
+  const userMathPrompt = "how much is 100000 + 10000 -1902939 / 10";
+  const mathEval = evaluateMathQuery(userMathPrompt);
+  assert.notStrictEqual(mathEval, null);
+  assert.strictEqual(mathEval.result, -80293.9);
+  assert.strictEqual(isMathOrCalculationQuery(userMathPrompt), true);
+
+  // Test other math variations
+  assert.strictEqual(evaluateMathQuery("what is 45 * 20").result, 900);
+  assert.strictEqual(evaluateMathQuery("calculate 15% of 8500").result, 1275);
+
+  // Test intent routing: Math queries must route to 'math' not 'search'
+  const isSystemControlQuery = (prompt) => {
+    const p = String(prompt || '').toLowerCase().trim();
+    if (!p) return false;
+    if (/\b(set\s+(?:system\s+)?volume|change\s+volume|volume\s+to|volume\s+up|volume\s+down|turn\s+(?:up|down)\s+volume|mute\s+audio|unmute\s+audio|toggle\s+mute|mute\s+volume|unmute\s+volume|mute|unmute)\b/i.test(p)) return true;
+    if (/\b(?:volume)\b/i.test(p) && /\b(?:\d{1,3}\s*%|\d{1,3}\s*percent|\d{1,3})\b/i.test(p)) return true;
+    if (/\b(pause\s+music|play\s+music|pause\s+song|play\s+song|next\s+track|previous\s+track|prev\s+track|next\s+song|previous\s+song|stop\s+music)\b/i.test(p)) return true;
+    if (/\b(set\s+(?:screen\s+)?brightness|change\s+brightness|brightness\s+to)\b/i.test(p)) return true;
+    if (/\b(lock\s+(?:my\s+)?(?:pc|computer|workstation|screen)|put\s+(?:pc|computer)\s+to\s+sleep|sleep\s+(?:pc|computer))\b/i.test(p)) return true;
+    return false;
+  };
+
+  // Test intent routing: Math queries must route to 'math' not 'search'
   const classifyIntent = (prompt) => {
     const p = prompt.toLowerCase().trim();
+    if (isSystemControlQuery(prompt)) return 'system_control';
+    if (isMathOrCalculationQuery(prompt)) return 'math';
+    if (isInformationalOrHowToQuery(prompt) && !hasDesktopActionCues(prompt)) return 'search';
     if (isContentGenerationRequest(prompt) && !hasDesktopActionCues(prompt)) return 'conversation';
     if ((p.includes('attached document') || /\b(analyze|analyse|summarize|summary of|review|explain|read|extract|what is in|tell me about)\b/i.test(p)) && /\b(resume|cv|pdf|document|paper|file|report|attachment)\b/i.test(p) && !hasDesktopActionCues(prompt)) {
       return 'conversation';
@@ -206,7 +292,14 @@ Action Input: Notepad`);
     return 'action';
   };
 
+  assert.strictEqual(classifyIntent("Create a flowchart diagram showing how user authentication with OAuth2 and JWT refresh tokens works."), 'conversation');
+  assert.strictEqual(classifyIntent("Set system volume to 35%"), 'system_control');
+  assert.strictEqual(classifyIntent("set volume to 15 percent"), 'system_control');
+  assert.strictEqual(classifyIntent("mute audio"), 'system_control');
+  assert.strictEqual(classifyIntent("play next track"), 'system_control');
+  assert.strictEqual(classifyIntent("how much is 100000 + 10000 -1902939 / 10"), 'math');
   assert.strictEqual(classifyIntent("analyze the resume for me"), 'conversation');
+  assert.strictEqual(classifyIntent("how to donwlaod and use the cursor ai"), 'search');
   assert.strictEqual(classifyIntent("📄 **Attached Document [resume.pdf]**:\n```pdf\nSkills: JavaScript, Node.js\n```\n\nAnalyze this resume for me"), 'conversation');
 
   console.log('✓ Content generation and intent classification tests passed.');
@@ -261,6 +354,54 @@ Action Input: Notepad`);
   assert.ok(catalog.some(m => m.key === 'kokoro-michael'), 'Catalog should have Kokoro Michael');
   assert.ok(catalog.some(m => m.key === 'gemini-live-kore'), 'Catalog should keep cloud TTS voice Kore');
   console.log('✓ TTS Catalog and Gemini Live models test passed.');
+
+  // Test Agent Skills Catalog Matching
+  const { findSkillsForPrompt, listBuiltinSkills } = require('../src/agent/agent-skills');
+  const allSkills = listBuiltinSkills();
+  assert.ok(allSkills.length >= 12, 'Skills catalog should contain all built-in specialized skills');
+
+  // Verify specific skill activations
+  const uiaMatches = findSkillsForPrompt('inspect window and click button in photoshop');
+  assert.ok(uiaMatches.some(s => s.id === 'active-window-vision-controller'), 'Should match active-window-vision-controller');
+
+  const mediaMatches = findSkillsForPrompt('set volume to 40% and play next track on spotify');
+  assert.ok(mediaMatches.some(s => s.id === 'system-media-and-audio-control'), 'Should match system-media-and-audio-control');
+
+  const csvMatches = findSkillsForPrompt('analyze this excel spreadsheet and sum column B');
+  assert.ok(csvMatches.some(s => s.id === 'spreadsheet-and-csv-analyzer'), 'Should match spreadsheet-and-csv-analyzer');
+
+  const pdfMatches = findSkillsForPrompt('summarize this multi-page contract pdf');
+  assert.ok(pdfMatches.some(s => s.id === 'pdf-document-intelligence'), 'Should match pdf-document-intelligence');
+
+  const organizeMatches = findSkillsForPrompt('organize files and sort downloads folder');
+  assert.ok(organizeMatches.some(s => s.id === 'bulk-file-organizer-and-renamer'), 'Should match bulk-file-organizer-and-renamer');
+
+  const browserMatches = findSkillsForPrompt('automate browser and fill web form to scrape web');
+  assert.ok(browserMatches.some(s => s.id === 'headless-browser-automation'), 'Should match headless-browser-automation');
+
+  const memoryMatches = findSkillsForPrompt('remember that my favorite tech stack is React');
+  assert.ok(memoryMatches.some(s => s.id === 'long-term-memory-and-preference-vault'), 'Should match long-term-memory-and-preference-vault');
+
+  const safetyMatches = findSkillsForPrompt('risk check before you format or delete directory');
+  assert.ok(safetyMatches.some(s => s.id === 'destructive-command-interceptor-and-sandbox'), 'Should match destructive-command-interceptor-and-sandbox');
+
+  const visualMatches = findSkillsForPrompt('create a flowchart diagram for the authentication pipeline');
+  assert.ok(visualMatches.some(s => s.id === 'visual-diagram-chart-creator'), 'Should match visual-diagram-chart-creator');
+
+  console.log('✓ Specialized Agent Skills catalog tests passed.');
+
+  // Test Long-Term Memory Vault and Preferences
+  const agentMemory = require('../src/agent/agent-memory');
+  const prefs = agentMemory.loadUserPreferences();
+  assert.ok(prefs, 'Should load default user preferences');
+  agentMemory.saveUserPreference('preferredLanguage', 'Python & TypeScript');
+  const updatedPrefs = agentMemory.loadUserPreferences();
+  assert.strictEqual(updatedPrefs.preferredLanguage, 'Python & TypeScript', 'Should update preferred language');
+  agentMemory.appendPreferenceNote('Always format responses with rich markdown callouts');
+  const formattedPrompt = agentMemory.getFormattedPreferencesPrompt();
+  assert.ok(formattedPrompt.includes('Python & TypeScript'), 'Formatted prompt should include updated preference');
+  assert.ok(formattedPrompt.includes('rich markdown callouts'), 'Formatted prompt should include appended user note');
+  console.log('✓ Long-Term Memory Vault & Preference tests passed.');
 }
 
 async function runAsyncAgentTests() {

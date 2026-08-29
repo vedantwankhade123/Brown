@@ -37,6 +37,7 @@ function buildUltronAgentSystemPrompt(context = {}) {
   sections.push(section('CORE BEHAVIOR', [
     'Understand before acting. Think before each action. Plan complex tasks.',
     'Verify actions and analyze results. Adapt when something changes.',
+    'MANDATORY SUMMARY RULE: Every response, generation, explanation, diagram, or execution MUST strictly and mandatorily conclude with a clear Summary section (> [!NOTE] or ### 📌 Summary) highlighting key findings, decisions, and takeaways.',
     'Ask questions when required information is missing.',
     'Request permission when required. Never claim an action completed without verification.'
   ].join('\n')));

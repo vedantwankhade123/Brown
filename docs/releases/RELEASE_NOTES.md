@@ -29,7 +29,7 @@ We are thrilled to announce **Ultron AI BETA v1.0.0**, our milestone release del
 - **P2P Sync Server**: Local WebSocket synchronization with PIN pairing to transfer chats and synchronize sovereign agent memory between PC and smartphone.
 
 ### 🌐 Official Feedback & Community
-- **Instagram**: Follow [@ultron_offline](https://www.instagram.com/ultron_offline) for product updates and feature previews.
+- **Instagram**: Follow [@usebrown.online](https://www.instagram.com/usebrown.online) for product updates and feature previews.
 - **Developer Email**: Contact `contact@usebrown.online` for direct inquiries and feedback.
 
 ---

@@ -618,6 +618,135 @@
         });
       }
 
+      if (toolCall.type === 'PARSE_PDF' || toolCall.type === 'READ_PDF' || toolCall.type === 'EXTRACT_PDF') {
+        const target = toolCall.target || toolCall.path || toolCall.targetPath;
+        if (!target) return schema.normalizeToolResult({ success: false, message: 'PDF file path required.', errorCode: 'MISSING_PATH' });
+        const pdfRes = await withTimeout(window.ultronAPI.extractPdfText({ filePath: target }));
+        if (pdfRes && pdfRes.success) {
+          const text = pdfRes.text || '';
+          const preview = text.length > 3000 ? text.slice(0, 3000) + '\n\n...[content truncated for analysis]...' : text;
+          return schema.normalizeToolResult({
+            success: true,
+            message: `Extracted ${pdfRes.numpages || 1} page(s) from PDF: ${target}`,
+            evidence: preview,
+            raw: pdfRes
+          });
+        }
+        return schema.normalizeToolResult({ success: false, message: pdfRes?.error || 'Failed to extract PDF text.', errorCode: 'PDF_PARSE_FAILED' });
+      }
+
+      if (toolCall.type === 'ANALYZE_CSV' || toolCall.type === 'ANALYZE_SPREADSHEET') {
+        const target = toolCall.target || toolCall.path || toolCall.targetPath;
+        let rawContent = toolCall.content;
+        if (!rawContent && target && window.ultronAPI.readFile) {
+          const readRes = await withTimeout(window.ultronAPI.readFile(target));
+          if (readRes.success) rawContent = readRes.content;
+        }
+        if (!rawContent) {
+          return schema.normalizeToolResult({ success: false, message: 'No CSV/spreadsheet data provided or found.', errorCode: 'NO_DATA' });
+        }
+
+        const lines = String(rawContent).split(/\r?\n/).filter(l => l.trim().length > 0);
+        const delimiter = (lines[0].match(/\t/g) || []).length > (lines[0].match(/,/g) || []).length ? '\t' : (lines[0].match(/;/g) || []).length > (lines[0].match(/,/g) || []).length ? ';' : ',';
+        const headers = lines[0].split(delimiter).map(h => h.trim().replace(/^["']|["']$/g, ''));
+        const rows = lines.slice(1).map(line => line.split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, '')));
+
+        const stats = headers.map((header, colIdx) => {
+          const vals = rows.map(r => r[colIdx]).filter(v => v !== undefined && v !== '');
+          const nums = vals.map(v => parseFloat(v.replace(/[^0-9.-]/g, ''))).filter(n => !isNaN(n));
+          const isNum = nums.length >= Math.max(1, Math.floor(vals.length * 0.6));
+          if (isNum && nums.length > 0) {
+            const sum = nums.reduce((a, b) => a + b, 0);
+            return {
+              header,
+              type: 'number',
+              count: nums.length,
+              sum: Math.round(sum * 100) / 100,
+              avg: Math.round((sum / nums.length) * 100) / 100,
+              min: Math.min(...nums),
+              max: Math.max(...nums)
+            };
+          }
+          return { header, type: 'text', count: vals.length, unique: new Set(vals).size };
+        });
+
+        const md = [
+          `| Column | Type | Records | Sum | Average | Min | Max |`,
+          `| :--- | :--- | :--- | :--- | :--- | :--- | :--- |`,
+          ...stats.map(s => s.type === 'number'
+            ? `| **${s.header}** | Number | ${s.count} | **${s.sum.toLocaleString()}** | ${s.avg.toLocaleString()} | ${s.min.toLocaleString()} | ${s.max.toLocaleString()} |`
+            : `| **${s.header}** | Text | ${s.count} (${s.unique} unique) | - | - | - | - |`
+          )
+        ].join('\n');
+
+        return schema.normalizeToolResult({
+          success: true,
+          message: `Analyzed ${rows.length} rows and ${headers.length} columns in ${target || 'Spreadsheet'}`,
+          evidence: md,
+          raw: { totalRows: rows.length, totalColumns: headers.length, headers, stats }
+        });
+      }
+
+      if (toolCall.type === 'ORGANIZE_DIRECTORY' || toolCall.type === 'SORT_FOLDER') {
+        const targetDir = toolCall.targetDir || toolCall.target || toolCall.path;
+        if (!targetDir) return schema.normalizeToolResult({ success: false, message: 'Directory path required.', errorCode: 'MISSING_PATH' });
+        
+        const listRes = await withTimeout(window.ultronAPI.listDir(targetDir));
+        if (!listRes.success) return schema.normalizeToolResult({ success: false, message: listRes.error || 'Failed to read directory.', errorCode: 'LIST_FAILED' });
+
+        const files = (listRes.files || []).filter(f => !f.isDirectory);
+        if (!files.length) return schema.normalizeToolResult({ success: true, message: `Directory ${targetDir} has no loose files to organize.` });
+
+        // Safe categorize and move script
+        const psScript = `
+$target = "${targetDir.replace(/\\/g, '\\\\')}"
+$categories = @{
+  "Images" = @(".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico")
+  "Documents" = @(".pdf", ".docx", ".doc", ".xlsx", ".csv", ".pptx", ".txt", ".rtf", ".epub", ".md")
+  "Code_and_Dev" = @(".js", ".jsx", ".ts", ".tsx", ".py", ".html", ".css", ".json", ".java", ".cpp", ".rs", ".sql")
+  "Audio_and_Video" = @(".mp3", ".wav", ".mp4", ".mkv", ".mov", ".avi", ".flac")
+  "Archives" = @(".zip", ".rar", ".7z", ".tar", ".gz", ".iso")
+  "Installers" = @(".exe", ".msi", ".bat", ".ps1", ".cmd")
+}
+$movedCount = 0
+Get-ChildItem -Path $target -File | ForEach-Object {
+  $ext = $_.Extension.ToLower()
+  foreach ($cat in $categories.Keys) {
+    if ($categories[$cat] -contains $ext) {
+      $destDir = Join-Path $target $cat
+      if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
+      Move-Item -Path $_.FullName -Destination $destDir -Force
+      $movedCount++
+      break
+    }
+  }
+}
+Write-Output "Successfully organized $movedCount files into categorized folders."
+`;
+        const execRes = await withTimeout(window.ultronAPI.executeAction({ command: psScript }));
+        return schema.normalizeToolResult({
+          success: execRes.success,
+          message: execRes.stdout || `Organized files in ${targetDir}`,
+          evidence: execRes.stdout
+        });
+      }
+
+      if (toolCall.type === 'SAVE_PREFERENCE' || toolCall.type === 'REMEMBER_PREFERENCE') {
+        const key = toolCall.key || toolCall.target;
+        const value = toolCall.value || toolCall.content;
+        const memory = window.UltronAgentMemory;
+        if (memory) {
+          if (key && value) memory.saveUserPreference(key, value);
+          else if (toolCall.note) memory.appendPreferenceNote(toolCall.note);
+          else if (toolCall.target) memory.appendPreferenceNote(toolCall.target);
+          return schema.normalizeToolResult({
+            success: true,
+            message: `Preference saved to Long-Term Memory Vault: "${key || toolCall.note || toolCall.target}"`
+          });
+        }
+        return schema.normalizeToolResult({ success: true, message: 'Preference noted in active session.' });
+      }
+
       return schema.normalizeToolResult({ success: false, message: `Unsupported tool: ${toolCall.type}`, errorCode: 'UNSUPPORTED' });
     } catch (err) {
       return schema.normalizeToolResult({ success: false, message: err.message, errorCode: 'EXCEPTION' });
