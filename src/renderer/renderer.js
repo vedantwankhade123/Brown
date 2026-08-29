@@ -13671,6 +13671,9 @@ async function syncDesktopAppTelemetry() {
     const userEmail = (window.localStorage.getItem('ultron-user-email') || '').trim();
     const userName = (window.localStorage.getItem('ultron-user-name') || '').trim();
     const deviceId = getOrCreateDesktopDeviceId();
+    const privacyAccepted = window.localStorage.getItem('ultron-privacy-accepted') === 'true';
+    const privacyAcceptedAt = window.localStorage.getItem('ultron-privacy-accepted-at') || (privacyAccepted ? new Date().toISOString() : '');
+    const privacyVersion = window.localStorage.getItem('ultron-privacy-version') || '1.0';
 
     if (!userEmail || userEmail === 'user@example.com' || !userEmail.includes('@')) {
       return;
@@ -13685,6 +13688,9 @@ async function syncDesktopAppTelemetry() {
         platform: { stringValue: 'Windows 11 / 10 x64' },
         appVersion: { stringValue: 'v1.0.14' },
         onboarded: { booleanValue: true },
+        privacyAccepted: { booleanValue: privacyAccepted },
+        privacyAcceptedAt: { stringValue: privacyAcceptedAt },
+        privacyVersion: { stringValue: privacyVersion },
         lastOnlineAt: { timestampValue: new Date().toISOString() }
       }
     };
@@ -13912,6 +13918,18 @@ async function checkAndRunFirstTimeOnboarding() {
   }
 
   async function finishOnboarding() {
+    const privacyCheckbox = document.getElementById('onboard-privacy-checkbox');
+    const privacyError = document.getElementById('onboard-privacy-error');
+    if (privacyCheckbox && !privacyCheckbox.checked) {
+      if (privacyError) privacyError.classList.remove('hidden');
+      return;
+    }
+    if (privacyError) privacyError.classList.add('hidden');
+
+    window.localStorage.setItem('ultron-privacy-accepted', 'true');
+    window.localStorage.setItem('ultron-privacy-accepted-at', new Date().toISOString());
+    window.localStorage.setItem('ultron-privacy-version', '1.0');
+
     stopOnboardVoice();
     window.localStorage.setItem('ultron-setup-completed', 'true');
     if (window.ultronAPI && window.ultronAPI.saveSetupStatus) {
@@ -13921,7 +13939,7 @@ async function checkAndRunFirstTimeOnboarding() {
 
     await loadAccountDetails();
     updateWelcomeGreeting();
-    logTrace('First-time setup completed successfully! Welcome to Ultron.', 'system');
+    logTrace('First-time setup completed successfully! Welcome to Brown AI.', 'system');
   }
 
   // Pre-fill existing user info if available
