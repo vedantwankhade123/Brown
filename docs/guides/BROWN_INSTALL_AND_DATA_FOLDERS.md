@@ -95,3 +95,23 @@ Keys (prefix `ultron-`): `ultron-device-id`, `ultron-user-email`, `ultron-user-n
 | `brown-local\` | Dev unified data root (§3). |
 | `brown-website\` | Website source (separate repo `Brown-Website`). |
 | `dist\` | Build output: `Brown.AI.Setup.vX.exe`, `Brown.AI.vX.exe` (portable), `latest.yml`. |
+| `mobile\` | Android companion app (separate repo `Brown-Mobile`, Expo/React Native). |
+
+### Local development servers & caches
+
+| What | Where / command |
+|---|---|
+| Desktop app (dev) | `npm start` at repo root (Electron). Dev `userData` = `%LOCALAPPDATA%\UltronDataDev\`. |
+| Website dev server | `cd brown-website && npm run dev` → `http://127.0.0.1:5173`. |
+| Website preview (built) | `cd brown-website && npm run preview` → `http://127.0.0.1:4173` (serves `brown-website\dist\`). |
+| Website build output | `brown-website\dist\` (Vite) — deployed to Vercel (`usebrown.online`). |
+| Website deps / cache | `brown-website\node_modules\`, `brown-website\node_modules\.vite`. |
+| Whisper STT cache (dev) | `brown-local\models\tts-cache\stt-whisper\`. |
+| Live-speech helper (dev) | `%TEMP%\ultron-stt-live\`. |
+
+### Admin panel & routing
+
+- Production admin URL: `https://usebrown.online/#admin` (hash) — or `https://usebrown.online/admin`
+  now that `brown-website\vercel.json` rewrites `/admin` → `/index.html`.
+- Requires Google sign-in with an account in the Firestore admins list.
+- `vercel.json` rewrites live in `brown-website\vercel.json`; Vercel redeploys on push to `Brown-Website` `main`.
