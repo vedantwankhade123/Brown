@@ -4963,7 +4963,7 @@ function sanitizeResponseText(text, userPrompt = '', options = {}) {
   // 5. Replace template tags
   const userNameEl = document.querySelector('.profile-detail-name');
   const currentUserName = userNameEl ? userNameEl.textContent.trim() : 'User';
-  cleaned = cleaned.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
+  cleaned = cleaned.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Brown");
   cleaned = cleaned.replace(/\[user_name\]|\[User Name\]|<user name>/gi, currentUserName);
 
   // 6. Strip invented or unverified hyperlinks from web summaries
@@ -8815,7 +8815,7 @@ async function submitPrompt(overridePrompt) {
         } else if (/Connection Error|Provider Error|API Key Required|Memory Limit Exceeded|Model request failed/i.test(response)) {
           notifyModelIssue(classifyModelFailure(response, activeModel));
         }
-        response = String(response || '').replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, 'Ultron');
+        response = String(response || '').replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, 'Brown');
         if (response && (shouldFallbackToWebSearch(routingPrompt, response) || (isGenericAssistantGreeting(response) && isProductOrShoppingQuery(routingPrompt)))) {
           logTrace('Factual or time-sensitive question — searching the web for a current answer.', 'system');
           await runSearchIntentFlow(routingPrompt, aiBubble, currentImagePayloads, [], [], Date.now(), false);
@@ -10261,7 +10261,7 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
       }
     }
 
-    rawResponse = rawResponse.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
+    rawResponse = rawResponse.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Brown");
 
     if (!toolCall) {
     const reactFinalAnswer = extractReactFinalAnswer(rawResponse);

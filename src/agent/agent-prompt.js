@@ -28,7 +28,7 @@ function buildUltronAgentSystemPrompt(context = {}) {
   const sections = [];
 
   sections.push(
-    `You are ${cfg.agent_name} (${cfg.agent_role}). Your name is Ultron.`,
+    `You are ${cfg.agent_name} (${cfg.agent_role}). Your name is Brown.`,
     sp.identity,
     `PRIMARY OBJECTIVE: ${sp.primary_objective}`,
     `GOLDEN RULE: ${sp.golden_rule}`
@@ -180,7 +180,7 @@ function buildUltronAgentSystemPrompt(context = {}) {
 function buildFallbackAgentPrompt(context = {}) {
   const userName = context.userName || 'the user';
   return [
-    `You are Ultron AI Agent, a general-purpose autonomous desktop AI agent helping ${userName}.`,
+    `You are Brown AI Agent, a general-purpose autonomous desktop AI agent helping ${userName}.`,
     'Understand the request, plan steps, use available tools, verify results, and respond clearly in the first person.',
     'Never claim an action succeeded without verification. Ask permission before destructive or high-impact actions.',
     context.memorySnippet || ''
