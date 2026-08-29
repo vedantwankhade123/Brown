@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 
 const VOICE_ENGINE_KEY = 'voice-native';
-const VOICE_ENGINE_LABEL = 'Ultron Speech (Windows)';
+const VOICE_ENGINE_LABEL = 'Brown Speech (Windows)';
 const DEFAULT_CULTURE = 'en-US';
 
 const PS_TRANSCRIBE_SCRIPT = String.raw`
@@ -25,63 +25,11 @@ if ((Get-Item -LiteralPath $WavPath).Length -le 44) {
   exit 0
 }
 
-$absPath = (Resolve-Path -LiteralPath $WavPath).ProviderPath
-
-# 1) Modern Windows Speech engine (WinRT SpeechRecognizer - powers Win+H dictation).
-$winRtInitialized = $false
-try {
-  Add-Type -AssemblyName System.Runtime.WindowsRuntime
-
-  $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
-    $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.IsGenericMethod
-  } | Select-Object -First 1)
-
-  function Await($winRtOp, $resultType) {
-    $netTask = $asTaskGeneric.MakeGenericMethod($resultType).Invoke($null, @($winRtOp))
-    $netTask.Wait(-1) | Out-Null
-    return $netTask.Result
-  }
-
-  [Windows.Media.SpeechRecognition.SpeechRecognizer, Windows.Foundation, ContentType = WindowsRuntime] | Out-Null
-  [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime] | Out-Null
-  [Windows.Globalization.Language, Windows.Globalization, ContentType = WindowsRuntime] | Out-Null
-
-  $recognizer = $null
-  try {
-    $language = [Windows.Globalization.Language]::new($Culture)
-    $recognizer = [Windows.Media.SpeechRecognition.SpeechRecognizer]::new($language)
-  } catch {
-    $recognizer = [Windows.Media.SpeechRecognition.SpeechRecognizer]::new()
-  }
-  $winRtInitialized = $true
-
-  $file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($absPath)) ([Windows.Storage.StorageFile])
-  $stream = Await ($file.OpenReadAsync()) ([Windows.Storage.Streams.IRandomAccessStreamWithContentType])
-  $result = Await ($recognizer.RecognizeFromStreamAsync($stream)) ([Windows.Media.SpeechRecognition.SpeechRecognitionResult])
-  try { $stream.Dispose() } catch { }
-  try { $recognizer.Dispose() } catch { }
-
-  if ($result -and "$($result.Status)" -eq 'Success' -and "$($result.Confidence)" -ne 'Rejected') {
-    $modernText = [string]$result.Text
-    if ($modernText.Trim().Length -gt 0) {
-      Write-Output $modernText.Trim()
-      exit 0
-    }
-  }
-
-  # Modern engine ran but found no confident match. Never fall through to
-  # legacy System.Speech here - it hallucinates wrong text on noisy audio.
-  Write-Output ""
-  exit 0
-} catch {
-  if ($winRtInitialized) {
-    Write-Output ""
-    exit 0
-  }
-  # Modern engine unavailable - fall through to legacy System.Speech.
-}
-
-# 2) Legacy System.Speech dictation fallback
+# Built-in Windows dictation (System.Speech). Only reached as a fallback when
+# the local Whisper engine is unavailable. WinRT file-based recognition is
+# deliberately NOT attempted here: RecognizeFromStreamAsync belongs to the
+# Windows Desktop Extension contract and cannot be called from a plain
+# desktop PowerShell process (it throws "does not contain a method").
 try {
   Add-Type -AssemblyName System.Speech
 
