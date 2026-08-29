@@ -16893,15 +16893,10 @@ async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcm
     }
   }
 
-  // Live Windows Speech transcript (accumulated in real time while the user
-  // spoke). Prefer it over re-decoding the recorded buffer; fall through to
-  // the recorded-audio engines only when the live engine produced nothing.
-  const liveWindowsText = String(finalVoiceTranscript || '').trim();
-  if (liveWindowsText) {
-    logTrace('Speech transcription complete (live Windows engine).', 'system');
-    return liveWindowsText;
-  }
-
+  // Local Whisper on the recorded buffer is the most accurate on-device engine
+  // (and multilingual), so it runs first. The live Windows dictation transcript
+  // is only used as a fallback below — it frequently mishears names and short
+  // phrases and must not override a good Whisper result.
   const samples = await prepareSttSamples({ audioBlob, pcmSamples, pcmSampleRate, strictVoiceGate: false });
   if (samples && samples.length > 800 && window.ultronAPI?.transcribeAudio) {
     setVoiceTranscribingUi(true);
@@ -16918,6 +16913,14 @@ async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcm
       if (result?.text) {
         logTrace('Speech transcription complete.', 'system');
         return result.text.trim();
+      }
+
+      // Whisper found nothing — fall back to the live Windows dictation
+      // transcript accumulated while the user spoke, if any.
+      const liveWindowsText = String(finalVoiceTranscript || '').trim();
+      if (liveWindowsText) {
+        logTrace('Speech transcription complete (live Windows engine).', 'system');
+        return liveWindowsText;
       }
 
       if (audioBlob && audioBlob.size > 0) {

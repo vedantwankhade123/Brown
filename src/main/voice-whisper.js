@@ -3,7 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 
-const WHISPER_MODEL_ID = 'Xenova/whisper-tiny.en';
+const WHISPER_MODEL_ID = 'Xenova/whisper-base';
 const WHISPER_ENGINE_KEY = 'whisper-local';
 
 let whisperPipelinePromise = null;
@@ -253,12 +253,8 @@ async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000) {
     samples16k = normalizeAudioPeak(samples16k);
 
     const transcriber = await getWhisperTranscriber();
-    const isEnglishOnly = WHISPER_MODEL_ID.endsWith('.en');
-    const options = { return_timestamps: false, chunk_length_s: 30, stride_length_s: 5 };
-    if (!isEnglishOnly) {
-      options.language = 'english';
-      options.task = 'transcribe';
-    }
+    // Multilingual model: auto-detect the spoken language and transcribe it.
+    const options = { return_timestamps: false, chunk_length_s: 30, stride_length_s: 5, task: 'transcribe' };
     const result = await transcriber(samples16k, options);
 
     const text = cleanWhisperText(result?.text);
