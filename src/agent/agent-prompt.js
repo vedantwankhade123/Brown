@@ -387,8 +387,11 @@ async function loadUltronAgentConfig(force = false) {
 
   try {
     const suffix = force ? `?reload=${Date.now()}` : '';
-    const response = await fetch(`../agent/ultron-agent-config.json${suffix}`, { cache: 'no-store' });
-    if (response.ok) {
+    let response = await fetch(`../agent/brown-agent-config.json${suffix}`, { cache: 'no-store' }).catch(() => null);
+    if (!response || !response.ok) {
+      response = await fetch(`../agent/ultron-agent-config.json${suffix}`, { cache: 'no-store' });
+    }
+    if (response && response.ok) {
       const nextConfig = await response.json();
       const serialized = JSON.stringify(nextConfig);
       const changed = Boolean(_ultronAgentConfigSerialized && serialized !== _ultronAgentConfigSerialized);
@@ -402,7 +405,7 @@ async function loadUltronAgentConfig(force = false) {
       return _ultronAgentConfig;
     }
   } catch (err) {
-    console.warn('Failed to load ultron-agent-config.json:', err);
+    console.warn('Failed to load brown-agent-config.json:', err);
   }
 
   _ultronAgentConfig = null;

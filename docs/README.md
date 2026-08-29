@@ -19,7 +19,7 @@ Welcome to the central documentation index for the **Brown AI Ecosystem** (Windo
 ### 3. 🎯 [Product & Roadmap](product/)
 - **[Roadmap & PRD](product/ROADMAP_AND_PRD.md)**: Product Requirements Document, multi-phase milestone plan (Phase 1 Mobile, Phase 2 Windows Enhancements, Phase 3 Cross-Platform).
 - **[Progress Tracking](product/progress-file.md)**: Feature checklist, active backlog, and sprint tracking log.
-- **[Website Design Prompt](product/ULTRON_WEBSITE_PROMPT.md)**: UI/UX prompt and design system specifications for the web landing page.
+- **[Website Design Prompt](product/BROWN_WEBSITE_PROMPT.md)**: UI/UX prompt and design system specifications for the web landing page.
 
 ### 4. 🚀 [Releases & Changelogs](releases/)
 - **[Release Notes](releases/RELEASE_NOTES.md)**: Full changelog across major and minor releases.
