@@ -16775,39 +16775,6 @@ async function blobToBase64Data(blob) {
   });
 }
 
-async function transcribeAudioWithGemini(audioBlob) {
-  const apiKey = localStorage.getItem('ultron-gemini-api-key') || '';
-  if (!apiKey || !audioBlob || !audioBlob.size) return '';
-
-  try {
-    const base64Audio = await blobToBase64Data(audioBlob);
-    const speechModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name;
-    if (!speechModel) return '';
-
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${speechModel}:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: 'Transcribe the following spoken voice audio recording into plain text verbatim. Return ONLY the spoken words with zero quotes, headers, or commentary.' },
-            { inlineData: { mimeType: audioBlob.type || 'audio/webm', data: base64Audio } }
-          ]
-        }],
-        generationConfig: { temperature: 0 }
-      })
-    });
-
-    if (!res.ok) return '';
-    const jsonRes = await res.json();
-    return jsonRes.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-  } catch (e) {
-    console.warn('Gemini audio transcribe error:', e);
-    return '';
-  }
-}
-
 async function prepareSttSamples({ audioBlob = null, pcmSamples = null, pcmSampleRate = 48000, strictVoiceGate = false } = {}) {
   let blobSamples = null;
   let pcmResampled = null;
@@ -16877,22 +16844,6 @@ async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcm
   const inVoiceMode = isVoiceChatModeEnabled();
   lastVoiceTranscriptionError = '';
 
-  // Cloud-grade transcription first when a Gemini key is configured - it is
-  // dramatically more accurate than any on-device engine for both chat and
-  // voice mode. Falls through to the native Windows engine when offline.
-  const geminiKeyForStt = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
-  if (geminiKeyForStt && audioBlob && audioBlob.size > 0) {
-    try {
-      const cloudText = await transcribeAudioWithGemini(audioBlob);
-      if (cloudText) {
-        logTrace('Cloud speech transcription complete.', 'system');
-        return cloudText.trim();
-      }
-    } catch (cloudErr) {
-      console.warn('Cloud transcription notice:', cloudErr.message);
-    }
-  }
-
   // Local Whisper on the recorded buffer is the most accurate on-device engine
   // (and multilingual), so it runs first. The live Windows dictation transcript
   // is only used as a fallback below — it frequently mishears names and short
@@ -16923,35 +16874,17 @@ async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcm
         return liveWindowsText;
       }
 
-      if (audioBlob && audioBlob.size > 0) {
-        const geminiText = await transcribeAudioWithGemini(audioBlob);
-        if (geminiText) {
-          logTrace('Cloud speech transcription complete.', 'system');
-          return geminiText.trim();
-        }
-      }
-
       const message = result?.error || 'Did not detect clear speech.';
       lastVoiceTranscriptionError = message;
       logTrace(message, 'system');
       if (!inVoiceMode) updateVoiceLiveTranscript(message, { processing: false });
     } catch (e) {
       console.warn('Speech transcription error:', e);
-      if (audioBlob && audioBlob.size > 0) {
-        try {
-          const geminiText = await transcribeAudioWithGemini(audioBlob);
-          if (geminiText) return geminiText.trim();
-        } catch (gErr) { /* ignore */ }
-      }
       logTrace('Voice transcription notice: ' + e.message, 'system');
     }
   } else if ((pcmSamples && pcmSamples.length > 0) || (audioBlob && audioBlob.size > 0)) {
-    if (audioBlob && audioBlob.size > 0) {
-      try {
-        const geminiText = await transcribeAudioWithGemini(audioBlob);
-        if (geminiText) return geminiText.trim();
-      } catch (gErr) { /* ignore */ }
-    }
+    const liveWindowsText = String(finalVoiceTranscript || '').trim();
+    if (liveWindowsText) return liveWindowsText;
     lastVoiceTranscriptionError = samples
       ? 'Recording was too short for Windows Speech.'
       : 'No usable microphone audio was captured.';
@@ -17184,37 +17117,11 @@ async function startVoiceRecording(options = {}) {
       speechRecognition.start();
     }
 
-    // Modern Windows Speech engine (live). Streams recognition from the mic
-    // while the user speaks - dramatically more accurate than decoding the
-    // recorded buffer afterwards. Runs alongside the recorder so we always
-    // keep the raw audio for cloud/Whisper fallbacks.
-    if (!SpeechRec && window.ultronAPI?.startLiveSpeech) {
-      try {
-        const liveResult = await window.ultronAPI.startLiveSpeech(getVoiceSttCulture());
-        if (liveResult?.success) {
-          liveWindowsSttActive = true;
-          liveWindowsSttFailed = false;
-          if (liveWindowsSttUnsubscribe) { try { liveWindowsSttUnsubscribe(); } catch (e) {} }
-          liveWindowsSttUnsubscribe = window.ultronAPI.onLiveSpeechPartial
-            ? window.ultronAPI.onLiveSpeechPartial(handleLiveWindowsSttPartial)
-            : null;
-        } else {
-          liveWindowsSttActive = false;
-          liveWindowsSttFailed = true;
-          if (liveResult?.code === 'privacy') {
-            logTrace(liveResult.error || 'Turn on Online speech recognition in Windows Settings \u2192 Privacy & security \u2192 Speech for the most accurate mic input.', 'system');
-            if (!liveSttPrivacyWarned) {
-              liveSttPrivacyWarned = true;
-              alert('For accurate voice input, turn on "Online speech recognition":\nWindows Settings \u2192 Privacy & security \u2192 Speech.\n\nUntil then, Brown falls back to a less accurate offline engine.');
-            }
-          }
-        }
-      } catch (liveErr) {
-        liveWindowsSttActive = false;
-        liveWindowsSttFailed = true;
-        console.warn('Live Windows speech notice:', liveErr?.message || liveErr);
-      }
-    }
+    // Offline-first: do NOT start the WinRT live dictation engine — it depends on
+    // the OS "online speech recognition" service. Local Whisper (primary) plus
+    // the offline System.Speech fallback handle transcription without any network.
+    liveWindowsSttActive = false;
+    liveWindowsSttFailed = false;
   } catch (err) {
     console.error('Microphone access error:', err);
     voiceCaptureActive = false;
