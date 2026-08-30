@@ -669,6 +669,28 @@
             </div>
           </div>
           <div class="input-actions-right">
+            <!-- Compact recording capsule (appears in place of the mic button). -->
+            <div id="voice-recording-pill" class="voice-recording-pill hidden">
+              <button id="voice-btn-done" class="voice-pill-btn voice-btn-circle voice-btn-stop" title="Stop & convert audio to text">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13" aria-hidden="true">
+                  <rect x="7" y="6" width="3.6" height="12" rx="1.6"></rect>
+                  <rect x="13.4" y="6" width="3.6" height="12" rx="1.6"></rect>
+                </svg>
+              </button>
+              <div class="voice-visualizer-wrapper">
+                <canvas id="voice-waveform-canvas" class="voice-waveform-canvas" width="300" height="28"></canvas>
+                <span id="voice-live-transcript" class="voice-live-transcript" aria-live="polite"></span>
+              </div>
+              <div class="voice-pill-right">
+                <span id="voice-recording-timer" class="voice-timer">0:00</span>
+                <button id="voice-btn-cancel" class="voice-pill-btn voice-btn-icon" title="Cancel recording">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+            </div>
             <button id="btn-mic" class="input-action-btn" title="Voice input (free — uses your microphone, no API key)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -688,35 +710,6 @@
             </button>
           </div>
         </div>
-
-      <!-- Voice Recording Capsule Pill (nested inside the input pill so the main
-           input field stays open and the mic transforms into this UI in-place) -->
-      <div id="voice-recording-pill" class="voice-recording-pill hidden">
-        <!-- Left circular stop button (pause-style, like the reference image) -->
-        <button id="voice-btn-done" class="voice-pill-btn voice-btn-circle voice-btn-stop" title="Stop & convert audio to text">
-          <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">
-            <rect x="7" y="6" width="3.6" height="12" rx="1.6"></rect>
-            <rect x="13.4" y="6" width="3.6" height="12" rx="1.6"></rect>
-          </svg>
-        </button>
-
-        <!-- Center Audio Waveform + live transcript -->
-        <div class="voice-visualizer-wrapper">
-          <canvas id="voice-waveform-canvas" class="voice-waveform-canvas" width="600" height="32"></canvas>
-          <span id="voice-live-transcript" class="voice-live-transcript" aria-live="polite"></span>
-        </div>
-
-        <!-- Right: timer + subtle cancel -->
-        <div class="voice-pill-right">
-          <span id="voice-recording-timer" class="voice-timer">0:00</span>
-          <button id="voice-btn-cancel" class="voice-pill-btn voice-btn-icon" title="Cancel recording">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </div>
-      </div>
       </div>
     </div>
     </div>

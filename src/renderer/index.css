@@ -7599,17 +7599,37 @@ body.platform-win32 .chat-header-actions {
   box-sizing: border-box;
 }
 
-/* In-input recording mode: the input pill stays open (not closed); its field and
-   action row are swapped for the recording capsule, which sits inside the box. */
-#main-input-pill.is-recording > .chat-input-field,
-#main-input-pill.is-recording > .input-pill-actions {
-  display: none !important;
+/* Recording mode: keep the input field and all buttons (plus / model / send)
+   visible; the mic button swaps into a compact recording capsule in-place. */
+#main-input-pill #btn-mic {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+#main-input-pill.is-recording #btn-mic {
+  display: none;
 }
 #main-input-pill .voice-recording-pill {
-  width: 100%;
-  max-width: 480px;
-  align-self: flex-start;
-  margin: 2px 0 2px 2px;
+  width: 236px;
+  max-width: 236px;
+  height: 38px;
+  padding: 4px 10px 4px 4px;
+  margin: 0;
+  align-self: center;
+  flex: 0 0 auto;
+}
+#main-input-pill.is-recording .voice-recording-pill {
+  display: flex;
+  animation: voicePillIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes voicePillIn {
+  from { opacity: 0; transform: scaleX(0.6); }
+  to   { opacity: 1; transform: scaleX(1); }
+}
+#main-input-pill .voice-recording-pill .voice-visualizer-wrapper {
+  height: 26px;
+}
+#main-input-pill .voice-recording-pill .voice-btn-circle {
+  width: 30px;
+  height: 30px;
 }
 
 .btn-primary-sm.hidden,
