@@ -18025,6 +18025,136 @@ if (window.matchMedia) {
   if (mq.addEventListener) mq.addEventListener('change', onOsThemeChange); else if (mq.addListener) mq.addListener(onOsThemeChange);
 }
 
+// ===== Topbar: chat toggle + prev/next + models/apps/sync dropdowns =====
+const SETTINGS_TAB_ORDER = ['account','models','knowledge','sync','desktop','sounds','performance','storage','permissions','apps','updates','appearance','about'];
+function currentSettingsTab() { return document.querySelector('.settings-tab-btn.active')?.getAttribute('data-tab') || 'account'; }
+function gotoSettingsTab(tab) { const b = document.querySelector(`.settings-tab-btn[data-tab="${tab}"]`); if (b) b.click(); }
+
+const chatToggleBtn = document.getElementById('titlebar-btn-chat');
+if (chatToggleBtn) {
+  chatToggleBtn.addEventListener('click', () => {
+    if (typeof closeSettingsPanel === 'function') closeSettingsPanel();
+    if (leftSidebar) { leftSidebar.classList.remove('hidden-full'); leftSidebar.classList.remove('collapsed'); }
+    chatToggleBtn.disabled = true;
+  });
+}
+document.getElementById('titlebar-btn-prev')?.addEventListener('click', () => {
+  if (typeof openSettingsPanel !== 'function') return;
+  if (!settingsPanelOpen) { openSettingsPanel('account'); return; }
+  const idx = SETTINGS_TAB_ORDER.indexOf(currentSettingsTab());
+  gotoSettingsTab(SETTINGS_TAB_ORDER[(idx - 1 + SETTINGS_TAB_ORDER.length) % SETTINGS_TAB_ORDER.length]);
+});
+document.getElementById('titlebar-btn-next')?.addEventListener('click', () => {
+  if (typeof openSettingsPanel !== 'function') return;
+  if (!settingsPanelOpen) { openSettingsPanel('account'); return; }
+  const idx = SETTINGS_TAB_ORDER.indexOf(currentSettingsTab());
+  gotoSettingsTab(SETTINGS_TAB_ORDER[(idx + 1) % SETTINGS_TAB_ORDER.length]);
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.titlebar-settings-wrap')) {
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => d.classList.add('hidden'));
+  }
+});
+
+// Models dropdown
+const modelsBtn = document.getElementById('titlebar-btn-models');
+const modelsDD = document.getElementById('titlebar-models-dropdown');
+async function populateModelsDropdown() {
+  const list = document.getElementById('tmd-installed'); if (!list) return;
+  list.innerHTML = '';
+  let models = [];
+  try { if (window.ultronAPI?.getInstalledOllamaModels) models = (await window.ultronAPI.getInstalledOllamaModels()) || []; } catch (e) {}
+  if (!Array.isArray(models) || models.length === 0) {
+    const empty = document.createElement('div'); empty.className = 'tsd-theme'; empty.textContent = 'No local models installed'; list.appendChild(empty);
+  } else {
+    models.slice(0, 8).forEach(m => { const b = document.createElement('button'); b.className = 'tsd-theme'; b.textContent = (m.name || m); list.appendChild(b); });
+  }
+}
+if (modelsBtn && modelsDD) modelsBtn.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== modelsDD) d.classList.add('hidden'); });
+  modelsDD.classList.toggle('hidden');
+  if (!modelsDD.classList.contains('hidden')) populateModelsDropdown();
+});
+document.getElementById('tmd-go-settings')?.addEventListener('click', () => { modelsDD?.classList.add('hidden'); if (typeof openSettingsPanel === 'function') openSettingsPanel('models'); });
+
+// Apps dropdown
+const appsBtn = document.getElementById('titlebar-btn-apps');
+const appsDD = document.getElementById('titlebar-apps-dropdown');
+async function populateAppsDropdown() {
+  const list = document.getElementById('tad-apps'); if (!list) return;
+  list.innerHTML = '';
+  let apps = [];
+  try { if (window.ultronAPI?.getAuthorizedApps) apps = (await window.ultronAPI.getAuthorizedApps()) || []; } catch (e) {}
+  if (!Array.isArray(apps) || apps.length === 0) {
+    const empty = document.createElement('div'); empty.className = 'tsd-theme'; empty.textContent = 'No apps detected'; list.appendChild(empty);
+  } else {
+    apps.slice(0, 10).forEach(a => { const b = document.createElement('div'); b.className = 'tsd-theme'; b.textContent = (a.name || a); list.appendChild(b); });
+  }
+}
+if (appsBtn && appsDD) appsBtn.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== appsDD) d.classList.add('hidden'); });
+  appsDD.classList.toggle('hidden');
+  if (!appsDD.classList.contains('hidden')) populateAppsDropdown();
+});
+document.getElementById('tad-go-settings')?.addEventListener('click', () => { appsDD?.classList.add('hidden'); if (typeof openSettingsPanel === 'function') openSettingsPanel('apps'); });
+
+// Sync dropdown (device info + 30s pair code + QR + regenerate)
+const syncBtn = document.getElementById('titlebar-btn-sync');
+const syncDD = document.getElementById('titlebar-sync-dropdown');
+let _syncExpiryTimer = null;
+function drawPseudoQR(canvas, payload) {
+  if (!canvas || !canvas.getContext) return;
+  const ctx = canvas.getContext('2d'); const N = 21; const size = canvas.width; const cell = size / (N + 2);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#000000';
+  let seed = 0; for (const ch of String(payload)) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { if (rand() > 0.5) ctx.fillRect((x + 1) * cell, (y + 1) * cell, cell, cell); }
+  const finder = (fx, fy) => { ctx.fillStyle='#000'; ctx.fillRect((fx+1)*cell,(fy+1)*cell,7*cell,7*cell); ctx.fillStyle='#fff'; ctx.fillRect((fx+2)*cell,(fy+2)*cell,5*cell,5*cell); ctx.fillStyle='#000'; ctx.fillRect((fx+3)*cell,(fy+3)*cell,3*cell,3*cell); };
+  finder(0,0); finder(N-7,0); finder(0,N-7);
+}
+async function refreshSyncInfo() {
+  try {
+    const info = await window.ultronAPI?.getDesktopSyncInfo?.();
+    if (info) {
+      const nameEl = document.getElementById('tsd-device-name'); if (nameEl) nameEl.textContent = info.syncId || 'This PC';
+      const ipEl = document.getElementById('tsd-lan-ip'); if (ipEl) ipEl.textContent = `LAN IP: ${(info.addresses||[]).join(', ')||'127.0.0.1'} : ${info.port||49200}`;
+    }
+  } catch (e) {}
+}
+function startSyncExpiry(seconds) {
+  const expEl = document.getElementById('tsd-sync-expiry');
+  let remaining = seconds;
+  if (expEl) expEl.textContent = `Code expires in ${remaining}s`;
+  if (_syncExpiryTimer) clearInterval(_syncExpiryTimer);
+  _syncExpiryTimer = setInterval(() => {
+    remaining -= 1;
+    if (expEl) expEl.textContent = remaining > 0 ? `Code expires in ${remaining}s` : 'Code expired — regenerate';
+    if (remaining <= 0) clearInterval(_syncExpiryTimer);
+  }, 1000);
+}
+async function generateSyncPair() {
+  const res = await window.ultronAPI?.createMobilePairCode?.();
+  const codeEl = document.getElementById('tsd-pair-code');
+  if (res && res.success && res.code) {
+    if (codeEl) { codeEl.textContent = res.code; codeEl.classList.remove('hidden'); }
+    drawPseudoQR(document.getElementById('tsd-qr'), res.code);
+    startSyncExpiry(res.expiresIn || 30);
+  }
+}
+if (syncBtn && syncDD) syncBtn.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== syncDD) d.classList.add('hidden'); });
+  syncDD.classList.toggle('hidden');
+  if (!syncDD.classList.contains('hidden')) { refreshSyncInfo(); generateSyncPair(); }
+});
+document.getElementById('tsd-sync-refresh')?.addEventListener('click', (e) => { e.stopPropagation(); refreshSyncInfo(); });
+document.getElementById('tsd-generate-pair')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
+document.getElementById('tsd-regen-qr')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
+
 // Bind right sidebar collapsible sections (collapse state persisted per section)
 const rightSections = document.querySelectorAll('.right-section.collapsible');
 rightSections.forEach((section) => {
@@ -19725,11 +19855,12 @@ async function openSettingsPanel(tabName = 'account') {
   chatMain.classList.add('settings-open');
   btnSettings?.classList.add('active');
 
-  // Auto-collapse the recent-conversations sidebar while settings is open.
+  // Fully hide the recent-conversations sidebar while settings is open.
   if (leftSidebar) {
-    leftSidebar.classList.add('collapsed');
-    try { localStorage.setItem('ultron-left-sidebar-collapsed', 'true'); } catch (e) {}
+    leftSidebar.classList.add('hidden-full');
   }
+  const chatToggleBtn = document.getElementById('titlebar-btn-chat');
+  if (chatToggleBtn) chatToggleBtn.disabled = false;
 
   if (activeChatTitle) activeChatTitle.textContent = 'Settings';
   btnBackFromSettings?.classList.remove('hidden');
@@ -19753,9 +19884,12 @@ function closeSettingsPanel() {
 
   // Restore the recent-conversations sidebar when settings closes.
   if (leftSidebar) {
+    leftSidebar.classList.remove('hidden-full');
     leftSidebar.classList.remove('collapsed');
     try { localStorage.setItem('ultron-left-sidebar-collapsed', 'false'); } catch (e) {}
   }
+  const chatToggleBtn2 = document.getElementById('titlebar-btn-chat');
+  if (chatToggleBtn2) chatToggleBtn2.disabled = true; // sidebar visible -> toggle disabled
 
   if (activeChatTitle) {
     activeChatTitle.textContent = chatTitleBeforeSettings || 'New chat';

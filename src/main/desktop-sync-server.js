@@ -10,7 +10,7 @@ const path = require('path');
 const { app } = require('electron');
 
 const SYNC_PORT = 49200;
-const PAIR_TTL_MS = 60 * 1000;
+const PAIR_TTL_MS = 30 * 1000;
 
 let server = null;
 let syncId = '';
@@ -289,7 +289,7 @@ function requestChatConsent({ direction, title, detail, sessionCount, messageCou
       detail,
       sessionCount: sessionCount || 0,
       messageCount: messageCount || 0,
-      expiresIn: 60,
+      expiresIn: 30,
     }, { focus: true });
   });
 }
@@ -351,9 +351,9 @@ async function handleRequest(req, res) {
       requestId,
       code,
       deviceName: pendingPair.deviceName,
-      expiresIn: 60,
+      expiresIn: 30,
     }, { focus: true });
-    json(res, 200, { ok: true, requestId, expiresIn: 60, syncId, deviceName: pendingPair.deviceName });
+    json(res, 200, { ok: true, requestId, expiresIn: 30, syncId, deviceName: pendingPair.deviceName });
     return;
   }
 
@@ -722,13 +722,13 @@ function createDesktopPairCode() {
     requestId,
     code,
     deviceName: pendingPair.deviceName,
-    expiresIn: 60,
+    expiresIn: 30,
   });
   return {
     success: true,
     code,
     requestId,
-    expiresIn: 60,
+    expiresIn: 30,
     syncId,
     port: SYNC_PORT,
     addresses: getLanAddresses(),
