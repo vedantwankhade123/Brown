@@ -5349,7 +5349,7 @@ body.platform-win32 .chat-header-actions {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
-  padding: 8px;
+  padding: 6px;
   z-index: 1200;
   animation: plusMenuRise 0.18s ease;
 }
@@ -5368,7 +5368,7 @@ body.platform-win32 .chat-header-actions {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 10px;
+  padding: 6px 8px;
   border: none;
   background: transparent;
   color: var(--text-primary);
@@ -5406,7 +5406,7 @@ body.platform-win32 .chat-header-actions {
 .plus-menu-divider {
   height: 1px;
   background: rgba(255, 255, 255, 0.08);
-  margin: 6px 4px;
+  margin: 4px 4px;
 }
 
 .plus-menu-section-label {
@@ -5415,12 +5415,12 @@ body.platform-win32 .chat-header-actions {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: rgba(255, 255, 255, 0.4);
-  padding: 4px 10px 6px;
+  padding: 4px 8px 4px;
 }
 
 .plus-menu-option-icon {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border-radius: 8px;
   display: inline-flex;
   align-items: center;
