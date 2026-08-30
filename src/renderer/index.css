@@ -14817,9 +14817,17 @@ button {
   padding: 28px 56px !important;
   box-sizing: border-box;
 }
+/* Uniform width for every settings section. */
 .settings-tab-content .tab-pane {
+  width: 100%;
   max-width: 920px;
   margin: 0 auto;
+  align-self: center;
+  box-sizing: border-box;
+}
+.settings-tab-content .tab-pane > * {
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Light mode: render white logos as black. */
