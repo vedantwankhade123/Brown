@@ -17958,30 +17958,14 @@ function handleTopBarSettingsShortcut(tabName) {
   }
 }
 
-document.getElementById('titlebar-btn-models')?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  handleTopBarSettingsShortcut('models');
-});
-document.getElementById('titlebar-btn-knowledge')?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  handleTopBarSettingsShortcut('knowledge');
-});
-document.getElementById('titlebar-btn-automation')?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  handleTopBarSettingsShortcut('desktop');
-});
-document.getElementById('titlebar-btn-apps')?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  handleTopBarSettingsShortcut('apps');
-});
-document.getElementById('titlebar-btn-sync')?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  handleTopBarSettingsShortcut('sync');
-});
+// (models / knowledge / automation / apps / sync now open dropdowns only — see topbar dropdown wiring below)
 document.getElementById('titlebar-btn-settings')?.addEventListener('click', (e) => {
   e.stopPropagation();
   const dd = document.getElementById('titlebar-settings-dropdown');
-  if (dd) dd.classList.toggle('hidden');
+  if (dd) {
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== dd) hideDDAnimated(d); });
+    toggleDD(dd);
+  }
 });
 
 // ===== Theme engine (dark / light / system) =====
@@ -18053,9 +18037,34 @@ document.getElementById('titlebar-btn-next')?.addEventListener('click', () => {
 
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.titlebar-settings-wrap')) {
-    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => d.classList.add('hidden'));
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => hideDDAnimated(d));
   }
 });
+function hideDDAnimated(dd) {
+  if (!dd || dd.classList.contains('hidden')) return;
+  dd.classList.add('closing');
+  setTimeout(() => { dd.classList.add('hidden'); dd.classList.remove('closing'); }, 140);
+}
+function toggleDD(dd) {
+  if (!dd) return;
+  if (dd.classList.contains('hidden')) { dd.classList.remove('closing'); dd.classList.remove('hidden'); }
+  else hideDDAnimated(dd);
+}
+
+// Knowledge + Automation dropdowns
+const knowledgeBtn = document.getElementById('titlebar-btn-knowledge');
+const knowledgeDD = document.getElementById('titlebar-knowledge-dropdown');
+if (knowledgeBtn && knowledgeDD) knowledgeBtn.addEventListener('click', (e) => { e.stopPropagation(); document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== knowledgeDD) hideDDAnimated(d); }); toggleDD(knowledgeDD); });
+document.getElementById('tkd-go-settings')?.addEventListener('click', () => { hideDDAnimated(knowledgeDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('knowledge'); });
+document.getElementById('tkd-add-folder')?.addEventListener('click', () => { hideDDAnimated(knowledgeDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('knowledge'); });
+document.getElementById('tkd-reindex')?.addEventListener('click', () => { hideDDAnimated(knowledgeDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('knowledge'); });
+
+const automationBtn = document.getElementById('titlebar-btn-automation');
+const automationDD = document.getElementById('titlebar-automation-dropdown');
+if (automationBtn && automationDD) automationBtn.addEventListener('click', (e) => { e.stopPropagation(); document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== automationDD) hideDDAnimated(d); }); toggleDD(automationDD); });
+document.getElementById('tad2-go-settings')?.addEventListener('click', () => { hideDDAnimated(automationDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('desktop'); });
+document.getElementById('tad2-uia')?.addEventListener('click', () => { hideDDAnimated(automationDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('desktop'); });
+document.getElementById('tad2-screen')?.addEventListener('click', () => { hideDDAnimated(automationDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('permissions'); });
 
 // Models dropdown
 const modelsBtn = document.getElementById('titlebar-btn-models');
@@ -18073,9 +18082,10 @@ async function populateModelsDropdown() {
 }
 if (modelsBtn && modelsDD) modelsBtn.addEventListener('click', async (e) => {
   e.stopPropagation();
-  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== modelsDD) d.classList.add('hidden'); });
-  modelsDD.classList.toggle('hidden');
-  if (!modelsDD.classList.contains('hidden')) populateModelsDropdown();
+  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== modelsDD) hideDDAnimated(d); });
+  const willOpen = modelsDD.classList.contains('hidden');
+  toggleDD(modelsDD);
+  if (willOpen) populateModelsDropdown();
 });
 document.getElementById('tmd-go-settings')?.addEventListener('click', () => { modelsDD?.classList.add('hidden'); if (typeof openSettingsPanel === 'function') openSettingsPanel('models'); });
 
@@ -18095,9 +18105,10 @@ async function populateAppsDropdown() {
 }
 if (appsBtn && appsDD) appsBtn.addEventListener('click', async (e) => {
   e.stopPropagation();
-  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== appsDD) d.classList.add('hidden'); });
-  appsDD.classList.toggle('hidden');
-  if (!appsDD.classList.contains('hidden')) populateAppsDropdown();
+  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== appsDD) hideDDAnimated(d); });
+  const willOpen = appsDD.classList.contains('hidden');
+  toggleDD(appsDD);
+  if (willOpen) populateAppsDropdown();
 });
 document.getElementById('tad-go-settings')?.addEventListener('click', () => { appsDD?.classList.add('hidden'); if (typeof openSettingsPanel === 'function') openSettingsPanel('apps'); });
 
@@ -18147,9 +18158,10 @@ async function generateSyncPair() {
 }
 if (syncBtn && syncDD) syncBtn.addEventListener('click', async (e) => {
   e.stopPropagation();
-  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== syncDD) d.classList.add('hidden'); });
-  syncDD.classList.toggle('hidden');
-  if (!syncDD.classList.contains('hidden')) { refreshSyncInfo(); generateSyncPair(); }
+  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== syncDD) hideDDAnimated(d); });
+  const willOpen = syncDD.classList.contains('hidden');
+  toggleDD(syncDD);
+  if (willOpen) { refreshSyncInfo(); generateSyncPair(); }
 });
 document.getElementById('tsd-sync-refresh')?.addEventListener('click', (e) => { e.stopPropagation(); refreshSyncInfo(); });
 document.getElementById('tsd-generate-pair')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
