@@ -4295,6 +4295,26 @@ body.platform-win32 .chat-header-actions {
   filter: drop-shadow(0 8px 28px rgba(129, 140, 248, 0.45));
 }
 
+/* Two-image device connection art (desktop + mobile PNGs). */
+.sync-connect-images {
+  gap: 20px;
+}
+.sync-connect-img {
+  height: 100%;
+  max-height: 165px;
+  width: auto;
+  object-fit: contain;
+  pointer-events: none;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  filter: drop-shadow(0 4px 20px rgba(99, 102, 241, 0.25));
+  transition: transform 0.25s ease, filter 0.25s ease;
+}
+.sync-empty-state-card:hover .sync-connect-img {
+  transform: scale(1.02);
+  filter: drop-shadow(0 8px 28px rgba(129, 140, 248, 0.45));
+}
+
 .sync-empty-title {
   font-size: 14px;
   font-weight: 600;
