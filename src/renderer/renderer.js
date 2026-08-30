@@ -1549,7 +1549,15 @@ function buildMarkdownFormattingRules() {
 - Use ### subheadings to organize distinct parts or steps.
 - Use **bold** for key terms, file names, or commands, and \`inline code\` for technical identifiers.
 - Include practical tips or takeaways using > [!TIP] or > [!IMPORTANT] callouts.
-- Keep paragraphs concise (1–3 sentences).`;
+- Keep paragraphs concise (1–3 sentences).
+
+REASONING & METHOD (for any task or question, not simple greetings):
+1. ANALYZE: first restate the goal in one line and identify constraints/inputs.
+2. PLAN: outline a short numbered plan (2–4 steps) before doing the work.
+3. EXECUTE: carry the plan out fully and correctly.
+4. REFLECT: self-check the result against the request; fix gaps before finishing.
+- For follow-up messages, reuse the conversation's earlier context, decisions, and prior answers instead of starting over.
+- For multi-part or continuous tasks, keep a running mental task list and address every part.`;
 }
 
 function structureReadableMarkdown(text) {

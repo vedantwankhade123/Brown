@@ -65,18 +65,20 @@
           startOnLoad: false,
           suppressErrorRendering: true,
           errorLevel: 'fatal',
+          securityLevel: 'loose',
           theme: 'dark',
+          flowchart: { curve: 'basis', htmlLabels: true, useMaxWidth: true, nodeSpacing: 40, rankSpacing: 45 },
           themeVariables: {
           darkMode: true,
           background: 'transparent',
-          primaryColor: '#111113',
-          primaryTextColor: '#ededed',
-          primaryBorderColor: 'rgba(255, 255, 255, 0.15)',
-          lineColor: '#71717a',
+          primaryColor: '#10131a',
+          primaryTextColor: '#f5f5f5',
+          primaryBorderColor: 'rgba(96, 165, 250, 0.4)',
+          lineColor: '#60a5fa',
           secondaryColor: '#0a0a0a',
           tertiaryColor: '#18181b',
           fontFamily: "'Outfit', 'Inter', -apple-system, sans-serif",
-            fontSize: '11px'
+            fontSize: '13px'
           }
         });
         if (typeof m.parseError === 'function') {
