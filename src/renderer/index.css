@@ -14595,5 +14595,205 @@ button {
   border-radius: 12px !important;
 }
 
+/* ==========================================
+   LIGHT THEME (data-theme="light" on <html>)
+   First-pass light mode: overrides core variables + primary surfaces.
+   ========================================== */
+[data-theme="light"] {
+  --bg-obsidian: #f7f7f8;
+  --bg-sidebar: #ffffff;
+  --bg-charcoal: #ffffff;
+  --border-color: #e5e7eb;
+  --text-primary: #111827;
+  --text-muted: #6b7280;
+  --accent-white: #111827;
+  --bg-hover: #f3f4f6;
+  --bg-active: #e5e7eb;
+}
+
+[data-theme="light"] body,
+[data-theme="light"] .chat-main,
+[data-theme="light"] .sidebar,
+[data-theme="light"] .settings-panel,
+[data-theme="light"] .settings-sidebar,
+[data-theme="light"] .right-sidebar,
+[data-theme="light"] .chat-header,
+[data-theme="light"] .titlebar {
+  background: var(--bg-obsidian);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .sidebar,
+[data-theme="light"] .settings-sidebar {
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+}
+
+[data-theme="light"] .input-pill,
+[data-theme="light"] .chat-input-field,
+[data-theme="light"] .model-dropdown,
+[data-theme="light"] .plus-menu-dropdown,
+[data-theme="light"] .perm-mode-dropdown,
+[data-theme="light"] .settings-tab-btn,
+[data-theme="light"] .nav-item,
+[data-theme="light"] .session-item,
+[data-theme="light"] .tab-pane,
+[data-theme="light"] .settings-feedback-card {
+  background: #ffffff;
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+[data-theme="light"] .chat-input-field::placeholder {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .nav-item:hover,
+[data-theme="light"] .session-item:hover,
+[data-theme="light"] .settings-tab-btn:hover,
+[data-theme="light"] .model-dropdown-item:hover,
+[data-theme="light"] .plus-menu-item:hover {
+  background: var(--bg-hover);
+}
+
+[data-theme="light"] .nav-item.active,
+[data-theme="light"] .settings-tab-btn.active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .nav-text,
+[data-theme="light"] .section-title,
+[data-theme="light"] .settings-sidebar-title,
+[data-theme="light"] .chat-title,
+[data-theme="light"] h1, [data-theme="light"] h2, [data-theme="light"] h3,
+[data-theme="light"] h4, [data-theme="light"] h5, [data-theme="light"] h6 {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .text-muted,
+[data-theme="light"] .session-time,
+[data-theme="light"] .nav-item .icon {
+  color: var(--text-muted);
+}
+
+/* Message bubbles: user stays blue, assistant becomes white card. */
+[data-theme="light"] .message.assistant,
+[data-theme="light"] .assistant-message,
+[data-theme="light"] .msg-assistant {
+  background: #ffffff;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+/* Buttons keep blue accent; faint/ghost buttons get light hover. */
+[data-theme="light"] .btn-faint,
+[data-theme="light"] .input-action-btn,
+[data-theme="light"] .quick-opt-btn {
+  color: var(--text-primary);
+}
+[data-theme="light"] .btn-faint:hover,
+[data-theme="light"] .input-action-btn:hover,
+[data-theme="light"] .quick-opt-btn:hover {
+  background: var(--bg-hover);
+}
+
+/* Code blocks stay dark for readability in light mode. */
+[data-theme="light"] pre,
+[data-theme="light"] code {
+  background: #0f1012;
+  color: #e5e7eb;
+}
+
+/* Appearance theme cards */
+.appearance-cards {
+  display: flex;
+  gap: 14px;
+  margin: 14px 0;
+  flex-wrap: wrap;
+}
+.theme-card {
+  width: 150px;
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  overflow: hidden;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+  font-family: inherit;
+}
+.theme-card:hover { transform: translateY(-1px); }
+.theme-card.active { border-color: var(--accent-blue); }
+.theme-card-preview {
+  height: 84px;
+  display: block;
+}
+.theme-card-preview.system { background: linear-gradient(90deg, #e5e7eb 50%, #3f3f46 50%); }
+.theme-card-preview.light { background: #f3f4f6; }
+.theme-card-preview.dark { background: #3f3f46; }
+.theme-card-label {
+  display: block;
+  padding: 8px 0;
+  text-align: center;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-sidebar);
+}
+
+/* Titlebar settings dropdown */
+.titlebar-settings-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  padding: 6px;
+  z-index: 1300;
+}
+.titlebar-settings-dropdown.hidden,
+.tsd-sub.hidden { display: none; }
+.tsd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.tsd-item:hover { background: var(--bg-hover); }
+.tsd-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 4px 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border-color);
+}
+.tsd-theme {
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  font-family: inherit;
+}
+.tsd-theme:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tsd-theme.active { color: var(--accent-blue); font-weight: 600; }
+
 
 

@@ -17980,14 +17980,50 @@ document.getElementById('titlebar-btn-sync')?.addEventListener('click', (e) => {
 });
 document.getElementById('titlebar-btn-settings')?.addEventListener('click', (e) => {
   e.stopPropagation();
-  if (typeof settingsPanelOpen !== 'undefined' && settingsPanelOpen) {
-    if (typeof closeSettingsPanel === 'function') closeSettingsPanel();
-  } else if (typeof openSettingsPanel === 'function') {
-    openSettingsPanel('account');
-  } else {
-    document.getElementById('btn-settings')?.click();
-  }
+  const dd = document.getElementById('titlebar-settings-dropdown');
+  if (dd) dd.classList.toggle('hidden');
 });
+
+// ===== Theme engine (dark / light / system) =====
+function resolveThemeMode(mode) {
+  if (mode === 'system' && window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+  return mode === 'light' ? 'light' : 'dark';
+}
+function applyAppTheme(mode) {
+  const resolved = resolveThemeMode(mode);
+  document.documentElement.setAttribute('data-theme', resolved);
+  try { localStorage.setItem('ultron-theme', mode); } catch (e) {}
+  document.querySelectorAll('.theme-card').forEach(c => c.classList.toggle('active', c.getAttribute('data-theme-choice') === mode));
+  document.querySelectorAll('.tsd-theme').forEach(b => b.classList.toggle('active', b.getAttribute('data-theme-choice') === mode));
+}
+window.applyAppTheme = applyAppTheme;
+
+const titlebarSettingsDropdown = document.getElementById('titlebar-settings-dropdown');
+const tsdAppearanceToggle = document.getElementById('tsd-appearance-toggle');
+const tsdAppearanceSub = document.getElementById('tsd-appearance-sub');
+const tsdAbout = document.getElementById('tsd-about');
+if (titlebarSettingsDropdown) {
+  document.addEventListener('click', (e) => {
+    if (!titlebarSettingsDropdown.classList.contains('hidden') && !e.target.closest('.titlebar-settings-wrap')) {
+      titlebarSettingsDropdown.classList.add('hidden');
+    }
+  });
+}
+if (tsdAppearanceToggle && tsdAppearanceSub) tsdAppearanceToggle.addEventListener('click', () => tsdAppearanceSub.classList.toggle('hidden'));
+if (tsdAbout) tsdAbout.addEventListener('click', () => { if (titlebarSettingsDropdown) titlebarSettingsDropdown.classList.add('hidden'); if (typeof openSettingsPanel === 'function') openSettingsPanel('about'); });
+
+document.querySelectorAll('[data-theme-choice]').forEach(el => {
+  el.addEventListener('click', () => applyAppTheme(el.getAttribute('data-theme-choice')));
+});
+
+applyAppTheme(localStorage.getItem('ultron-theme') || 'dark');
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: light)');
+  const onOsThemeChange = () => { if ((localStorage.getItem('ultron-theme') || 'dark') === 'system') applyAppTheme('system'); };
+  if (mq.addEventListener) mq.addEventListener('change', onOsThemeChange); else if (mq.addListener) mq.addListener(onOsThemeChange);
+}
 
 // Bind right sidebar collapsible sections (collapse state persisted per section)
 const rightSections = document.querySelectorAll('.right-section.collapsible');

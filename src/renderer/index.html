@@ -47,7 +47,21 @@
       <button id="titlebar-btn-apps" class="titlebar-opt-btn" title="Apps & MCP Integrations" aria-label="Apps & MCP Integrations">Apps</button>
       <div class="titlebar-divider"></div>
       <button id="titlebar-btn-sync" class="titlebar-opt-btn" title="Mobile Sync & Devices" aria-label="Mobile Sync & Devices">Sync</button>
-      <button id="titlebar-btn-settings" class="titlebar-opt-btn" title="Settings" aria-label="Settings">Settings</button>
+      <div class="titlebar-settings-wrap" style="position: relative;">
+        <button id="titlebar-btn-settings" class="titlebar-opt-btn" title="Settings" aria-label="Settings">Settings</button>
+        <div id="titlebar-settings-dropdown" class="titlebar-settings-dropdown hidden">
+          <div class="tsd-item" id="tsd-appearance-toggle">
+            <span>Appearance</span>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div id="tsd-appearance-sub" class="tsd-sub hidden">
+            <button type="button" class="tsd-theme" data-theme-choice="system">System Default</button>
+            <button type="button" class="tsd-theme" data-theme-choice="light">Light</button>
+            <button type="button" class="tsd-theme" data-theme-choice="dark">Dark</button>
+          </div>
+          <div class="tsd-item" id="tsd-about">About Brown</div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -920,6 +934,10 @@
           <div class="settings-tab-btn" data-tab="updates">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
             Software Updates
+          </div>
+          <div class="settings-tab-btn" data-tab="appearance">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
+            Appearance
           </div>
           <div class="settings-tab-btn" data-tab="about">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -2233,6 +2251,28 @@
             </div>
           </div>
 
+          <!-- Appearance Tab -->
+          <div id="tab-appearance" class="tab-pane hidden">
+            <div class="developer-settings-card about-settings-card">
+              <h4 style="margin: 0 0 4px 0;">Appearance</h4>
+              <p class="text-xs text-muted" style="margin: 0 0 8px 0;">Choose how Brown looks. “System” follows your OS color scheme.</p>
+              <div class="appearance-cards">
+                <button type="button" class="theme-card" data-theme-choice="system">
+                  <span class="theme-card-preview system"></span>
+                  <span class="theme-card-label">System</span>
+                </button>
+                <button type="button" class="theme-card" data-theme-choice="light">
+                  <span class="theme-card-preview light"></span>
+                  <span class="theme-card-label">Light</span>
+                </button>
+                <button type="button" class="theme-card" data-theme-choice="dark">
+                  <span class="theme-card-preview dark"></span>
+                  <span class="theme-card-label">Dark</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- About Tab -->
           <div id="tab-about" class="tab-pane hidden">
             <div class="developer-settings-card about-settings-card">
@@ -2267,13 +2307,13 @@
                 <div class="settings-feedback-card" style="margin-top: 20px; padding: 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);">
                   <h5 style="margin: 0 0 6px 0; font-size: 13px; color: #fff;">Feedback &amp; Community</h5>
                   <p style="margin: 0 0 12px 0; font-size: 12px; color: #9ca3af;">Have a suggestion, bug report, or feature request? We'd love to connect with you!</p>
-                  <div style="display: flex; gap: 18px; align-items: center; flex-wrap: wrap;">
-                    <a href="https://www.instagram.com/usebrown.online" id="btn-settings-instagram" class="btn-instagram-feedback" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #e11d48; text-decoration: none; font-size: 12.5px; font-weight: 600;">
+                  <div style="display: flex; gap: 18px; align-items: center; justify-content: center; flex-wrap: wrap;">
+                    <a href="https://www.instagram.com/usebrown.online" id="btn-settings-instagram" class="btn-instagram-feedback" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: rgba(255,255,255,0.85); text-decoration: none; font-size: 12.5px; font-weight: 600;">
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
                       <span>Instagram (@usebrown.online)</span>
                     </a>
-                    <a href="mailto:contact@usebrown.online" id="btn-settings-email" class="btn-email-feedback" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #94a3b8; text-decoration: none; font-size: 12.5px; font-weight: 500;">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                    <a href="mailto:contact@usebrown.online" id="btn-settings-email" class="btn-email-feedback" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: rgba(255,255,255,0.85); text-decoration: none; font-size: 12.5px; font-weight: 500;">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
                       <span>contact@usebrown.online</span>
                     </a>
                   </div>
@@ -2281,11 +2321,12 @@
 
                 <div class="developer-links-container" style="margin-top: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
                   <button type="button" id="btn-open-release-notes" class="btn-faint" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.25); color: #60a5fa; font-size: 12px; font-weight: 600; cursor: pointer;">
-                    📋 View BETA v1 Release Notes
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                    View BETA v1 Release Notes
                   </button>
-                  <a href="https://usebrown.online/#download" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 26px; background: #ffffff; border: none; border-radius: 9999px; color: #0a0a0a; text-decoration: none; font-size: 13px; font-weight: 700; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s;">
+                  <a href="https://usebrown.online/#download" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 26px; background: #ffffff; border: none; border-radius: 9999px; color: #000000; text-decoration: none; font-size: 13px; font-weight: 700; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s;">
                     <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 16px; height: 16px; object-fit: contain;" />
-                    <span>Download For Android</span>
+                    <span style="color: #000000;">Download For Android</span>
                   </a>
                   <a href="https://github.com/vedantwankhade123/Brown-Releases/releases" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #a1a1aa; text-decoration: none; font-size: 12px; transition: color 0.15s;">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
