@@ -14838,6 +14838,48 @@ button {
   filter: invert(1) hue-rotate(180deg);
 }
 
+/* Light mode: settings screens — dark text + white surfaces. */
+[data-theme="light"] .settings-tab-content { color: var(--text-primary); }
+[data-theme="light"] .settings-tab-content h1,
+[data-theme="light"] .settings-tab-content h2,
+[data-theme="light"] .settings-tab-content h3,
+[data-theme="light"] .settings-tab-content h4,
+[data-theme="light"] .settings-tab-content h5,
+[data-theme="light"] .settings-tab-content h6,
+[data-theme="light"] .connector-name,
+[data-theme="light"] .account-section-label,
+[data-theme="light"] .perm-item-title,
+[data-theme="light"] .app-name { color: var(--text-primary); }
+[data-theme="light"] .settings-tab-content p,
+[data-theme="light"] .connector-desc,
+[data-theme="light"] .perm-item-desc,
+[data-theme="light"] .account-field-label,
+[data-theme="light"] .text-muted { color: var(--text-muted); }
+/* Flip inline white text to dark in light mode. */
+[data-theme="light"] .settings-tab-content [style*="#ffffff"],
+[data-theme="light"] .settings-tab-content [style*="color: #fff"] { color: var(--text-primary) !important; }
+/* White card surfaces. */
+[data-theme="light"] .developer-settings-card,
+[data-theme="light"] .account-profile-card,
+[data-theme="light"] .account-location-card,
+[data-theme="light"] .apps-list-container,
+[data-theme="light"] .confirm-action-card,
+[data-theme="light"] .settings-tab-content [style*="background: rgba(255, 255, 255, 0.0"] {
+  background: #ffffff !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-primary);
+}
+/* Light inputs / selects / badges. */
+[data-theme="light"] .settings-tab-content input,
+[data-theme="light"] .settings-tab-content select,
+[data-theme="light"] .perm-selector-btn {
+  background: #ffffff !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+/* Theme cards: rounded rectangles, not pills. */
+[data-theme="light"] .theme-card, .theme-card { border-radius: 12px !important; }
+
 /* Sync dropdown */
 .tsd-sync-head {
   display: flex;
