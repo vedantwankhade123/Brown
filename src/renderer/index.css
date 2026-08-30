@@ -14795,5 +14795,70 @@ button {
 .tsd-theme:hover { background: var(--bg-hover); color: var(--text-primary); }
 .tsd-theme.active { color: var(--accent-blue); font-weight: 600; }
 
+/* Settings content: constrained width, balanced padding (double left/right). */
+.settings-tab-content {
+  padding: 28px 56px !important;
+  box-sizing: border-box;
+}
+.settings-tab-content .tab-pane {
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+/* Light mode: render white logos as black. */
+[data-theme="light"] .sidebar .brand-logo,
+[data-theme="light"] .splash-logo-img,
+[data-theme="light"] .about-app-brand img,
+[data-theme="light"] .chat-header .brand-logo {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Sync dropdown */
+.tsd-sync-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 6px 8px 6px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 8px;
+}
+.tsd-sync-device { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.tsd-sync-ip { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.tsd-sync-refresh {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 8px; border: none;
+  background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.tsd-sync-refresh:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tsd-sync-code {
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 26px; font-weight: 800; letter-spacing: 8px;
+  color: var(--accent-blue);
+  margin: 6px 0;
+}
+.tsd-sync-code.hidden { display: none; }
+.tsd-sync-qr {
+  display: block;
+  margin: 8px auto;
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 6px;
+  box-sizing: content-box;
+}
+.tsd-sync-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
+.tsd-sync-btn {
+  border: none; border-radius: 999px; cursor: pointer;
+  background: var(--accent-blue); color: #fff;
+  font-size: 12px; font-weight: 600; padding: 7px 14px; font-family: inherit;
+}
+.tsd-sync-btn-ghost { background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); }
+.tsd-sync-expiry { text-align: center; font-size: 10.5px; color: var(--text-muted); margin-top: 6px; }
+
+/* Fully hide the chat sidebar while settings is open. */
+.sidebar.hidden-full { display: none !important; }
+.titlebar-opt-btn[disabled] { opacity: 0.4; pointer-events: none; }
+
 
 
