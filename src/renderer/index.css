@@ -14544,5 +14544,16 @@ body > .mermaid[id^="d"],
   overflow-x: auto;
 }
 
+/* Fully-rounded (pill) corners for all app buttons.
+   List/menu cards keep their softer rectangle radius. */
+button {
+  border-radius: 999px !important;
+}
+.perm-popover-item,
+.plus-menu-item,
+.model-dropdown-item {
+  border-radius: 12px !important;
+}
+
 
 
