@@ -18153,6 +18153,7 @@ async function generateSyncPair() {
   if (res && res.success && res.code) {
     if (codeEl) { codeEl.textContent = res.code; codeEl.classList.remove('hidden'); }
     drawPseudoQR(document.getElementById('tsd-qr'), res.code);
+    document.getElementById('tsd-qr-refresh')?.classList.add('hidden');
     startSyncExpiry(res.expiresIn || 30);
   }
 }
@@ -18163,12 +18164,15 @@ if (syncBtn && syncDD) syncBtn.addEventListener('click', async (e) => {
   toggleDD(syncDD);
   if (willOpen) {
     refreshSyncInfo();
-    // Do NOT auto-generate; wait for the user to tap Generate / Regenerate.
+    // Show a dummy QR placeholder with a refresh overlay until the user generates.
     document.getElementById('tsd-pair-code')?.classList.add('hidden');
-    const qr = document.getElementById('tsd-qr'); if (qr && qr.getContext) { const c = qr.getContext('2d'); c.clearRect(0,0,qr.width,qr.height); }
-    const exp = document.getElementById('tsd-sync-expiry'); if (exp) exp.textContent = 'Tap “Generate Pair Code” to start';
+    const qr = document.getElementById('tsd-qr');
+    if (qr) drawPseudoQR(qr, 'BROWN-SYNC-PLACEHOLDER');
+    document.getElementById('tsd-qr-refresh')?.classList.remove('hidden');
+    const exp = document.getElementById('tsd-sync-expiry'); if (exp) exp.textContent = 'Tap the refresh icon or “Generate Pair Code”';
   }
 });
+document.getElementById('tsd-qr-refresh')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
 document.getElementById('tsd-sync-refresh')?.addEventListener('click', (e) => { e.stopPropagation(); refreshSyncInfo(); });
 document.getElementById('tsd-generate-pair')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
 document.getElementById('tsd-regen-qr')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
