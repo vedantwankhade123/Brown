@@ -18161,7 +18161,13 @@ if (syncBtn && syncDD) syncBtn.addEventListener('click', async (e) => {
   document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== syncDD) hideDDAnimated(d); });
   const willOpen = syncDD.classList.contains('hidden');
   toggleDD(syncDD);
-  if (willOpen) { refreshSyncInfo(); generateSyncPair(); }
+  if (willOpen) {
+    refreshSyncInfo();
+    // Do NOT auto-generate; wait for the user to tap Generate / Regenerate.
+    document.getElementById('tsd-pair-code')?.classList.add('hidden');
+    const qr = document.getElementById('tsd-qr'); if (qr && qr.getContext) { const c = qr.getContext('2d'); c.clearRect(0,0,qr.width,qr.height); }
+    const exp = document.getElementById('tsd-sync-expiry'); if (exp) exp.textContent = 'Tap “Generate Pair Code” to start';
+  }
 });
 document.getElementById('tsd-sync-refresh')?.addEventListener('click', (e) => { e.stopPropagation(); refreshSyncInfo(); });
 document.getElementById('tsd-generate-pair')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });

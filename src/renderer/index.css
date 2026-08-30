@@ -14864,11 +14864,13 @@ button {
   padding: 6px;
   box-sizing: content-box;
 }
-.tsd-sync-actions { display: flex; gap: 8px; justify-content: center; margin-top: 8px; }
+.tsd-sync-actions { display: flex; gap: 8px; justify-content: stretch; margin-top: 8px; }
 .tsd-sync-btn {
+  flex: 1 1 0;
   border: none; border-radius: 999px; cursor: pointer;
   background: var(--accent-blue); color: #fff;
-  font-size: 12px; font-weight: 600; padding: 7px 14px; font-family: inherit;
+  font-size: 12px; font-weight: 600; padding: 8px 10px; font-family: inherit;
+  white-space: nowrap;
 }
 .tsd-sync-btn-ghost { background: transparent; color: var(--text-primary); border: 1px solid var(--border-color); }
 .tsd-sync-expiry { text-align: center; font-size: 10.5px; color: var(--text-muted); margin-top: 6px; }
