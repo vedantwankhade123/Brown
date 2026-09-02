@@ -12,6 +12,9 @@ marked.setOptions({
 const apiMethods = {
   // Markdown parser
   parseMarkdown: (text) => marked.parse(text),
+  // Theme change notify (titlebar overlay retint)
+  setAppTheme: (theme, user) => ipcRenderer.send('set-app-theme', { theme, user: !!user }),
+  splashDone: () => ipcRenderer.send('splash-done'),
   // Profiling & setup queries
   profileSystem: () => ipcRenderer.invoke('profile-system'),
   getSystemEnvironment: () => ipcRenderer.invoke('system-environment'),

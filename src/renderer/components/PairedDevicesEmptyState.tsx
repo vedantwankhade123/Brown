@@ -38,21 +38,42 @@ export const PairedDevicesEmptyState: React.FC<PairedDevicesEmptyStateProps> = (
       }}
     >
       <div
-        className="sync-empty-svg-wrapper"
+        className="sync-empty-svg-wrapper sync-connect-images"
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           width: '100%',
-          maxWidth: '360px',
-          height: '140px',
-          marginBottom: '14px'
+          maxWidth: '480px',
+          height: '150px',
+          marginBottom: '16px',
+          gap: '20px'
         }}
       >
         <img
-          className="sync-empty-illustration sync-animated-devices"
-          src="../../Assets/computer-phone-connection.svg"
-          alt="Device Connection"
+          className="sync-connect-img"
+          src="../../Assets/computer-connect.png"
+          alt="Brown on desktop"
+        />
+        <div className="sync-connection-bridge">
+          <div className="sync-bridge-track">
+            <div className="sync-pulse-particle sync-particle-left"></div>
+            <div className="sync-pulse-particle sync-particle-right-rev"></div>
+          </div>
+          <div className="sync-bridge-node" title="Local Connection Bridge">
+            <svg className="sync-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+            </svg>
+          </div>
+          <div className="sync-bridge-track">
+            <div className="sync-pulse-particle sync-particle-left"></div>
+            <div className="sync-pulse-particle sync-particle-right-rev"></div>
+          </div>
+        </div>
+        <img
+          className="sync-connect-img sync-connect-mobile"
+          src="../../Assets/connect-mobile.png"
+          alt="Brown on mobile"
         />
       </div>
       <h6

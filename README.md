@@ -27,7 +27,7 @@ This monorepo houses all core projects and shared services:
 d:/Ultron/
 ├── src/                          # 🖥️ Project 1: Windows Desktop Electron Application
 ├── mobile/                       # 📱 Project 2: Mobile Application (React Native / Expo)
-├── Ultron Website/               # 🌐 Project 3: Official Web Portal (React / Vite / Firebase)
+├── brown-website/                # 🌐 Project 3: Official Web Portal (React / Vite / Firebase)
 ├── python/                       # 🐍 Local Python Microservice (Inference & Scraping)
 ├── Assets/                       # 🎨 Shared Brand Assets, Logos, Sounds & Installer Graphics
 ├── docs/                         # 📚 Central Documentation Library

@@ -26,17 +26,15 @@ module.exports = { getDefaultDataDirectory: () => require('./paths').getDefaultA
 
 const WINDOW_BG = '#000000';
 const TITLE_BAR_COLOR = '#131314';
+const themeState = require('./theme-state');
 
 let mainWindow = null;
 
 function applyWinTitleBarOverlay(win) {
   if (process.platform !== 'win32' || !win || win.isDestroyed()) return;
   try {
-    win.setTitleBarOverlay({
-      color: TITLE_BAR_COLOR,
-      symbolColor: '#ffffff',
-      height: 36
-    });
+    const { color, symbolColor } = themeState.overlayColors();
+    win.setTitleBarOverlay({ color, symbolColor, height: 36 });
   } catch (err) {
     console.warn('[window] setTitleBarOverlay failed:', err.message);
   }
@@ -92,12 +90,49 @@ function createWindow() {
     mainWindow.on('enter-full-screen', () => applyWinTitleBarOverlay(mainWindow));
     mainWindow.on('leave-full-screen', () => applyWinTitleBarOverlay(mainWindow));
     mainWindow.webContents.on('did-finish-load', () => {
+      themeState.state.splashDone = false;
       applyWinTitleBarOverlay(mainWindow);
+      startSplashWatch();
       mainWindow.webContents.executeJavaScript(
         "document.body.classList.add('platform-win32')",
         true
       ).catch(() => {});
+      mainWindow.webContents
+        .executeJavaScript("localStorage.getItem('ultron-theme')", true)
+        .then((mode) => {
+          themeState.state.light = mode === 'light';
+          applyWinTitleBarOverlay(mainWindow);
+        })
+        .catch(() => {});
     });
+
+    // Fallback in case the renderer never reports the splash as dismissed.
+    // Polls actual splash visibility instead of using a fixed timer — slow
+    // boots can outlast any timer and would flip the overlay white mid-splash.
+    let splashWatch = null;
+    function startSplashWatch() {
+      if (splashWatch) clearInterval(splashWatch);
+      splashWatch = setInterval(() => {
+        if (!mainWindow || mainWindow.isDestroyed()) { clearInterval(splashWatch); splashWatch = null; return; }
+        if (themeState.state.splashDone) { clearInterval(splashWatch); splashWatch = null; return; }
+        mainWindow.webContents.executeJavaScript(
+          "(() => { const s = document.getElementById('app-splash-screen'); return !s || getComputedStyle(s).display === 'none'; })()",
+          true
+        ).then((gone) => {
+          if (gone) {
+            clearInterval(splashWatch);
+            splashWatch = null;
+            themeState.state.splashDone = true;
+            applyWinTitleBarOverlay(mainWindow);
+          }
+        }).catch(() => {
+          clearInterval(splashWatch);
+          splashWatch = null;
+          themeState.state.splashDone = true;
+          applyWinTitleBarOverlay(mainWindow);
+        });
+      }, 2000);
+    }
   }
 
   mainWindow.webContents.on('will-navigate', (event, url) => {

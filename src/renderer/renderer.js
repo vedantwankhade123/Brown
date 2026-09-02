@@ -2760,7 +2760,9 @@ function renderChatMessage(sender, text, isAi = false, options = {}) {
   if (isAi) {
     const avatar = document.createElement('div');
     avatar.className = 'avatar ai';
-    avatar.innerHTML = `<img src="../../Assets/Brand-Assets/brown-logo.png" alt="Brown" />`;
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const aiLogoSrc = isLight ? '../../Assets/brown-b-black-logo.png' : '../../Assets/brown-b-white-logo.png';
+    avatar.innerHTML = `<img src="${aiLogoSrc}" alt="Brown" onerror="this.src='${aiLogoSrc}'" />`;
     messageDiv.appendChild(avatar);
     
     const wrapper = document.createElement('div');
@@ -2941,7 +2943,6 @@ function buildSessionHistoryItemMarkup(id, session) {
   return `
     <span class="session-row-text">
       <span class="nav-text text-truncate">${escapeHtml(title)}</span>
-      <span class="session-timestamp">${formatSidebarTimestamp(session.updatedAt || session.createdAt)}</span>
     </span>
     <button type="button" class="session-delete-btn" data-session-id="${escapeHtml(id)}" title="Delete chat" aria-label="Delete chat">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
@@ -7823,6 +7824,91 @@ function getBrandAssetLogo(provider) {
   }
 }
 
+const modelDetailsFlyout = document.getElementById('model-details-flyout');
+const flyoutValModel = document.getElementById('flyout-val-model');
+const flyoutValProvider = document.getElementById('flyout-val-provider');
+const flyoutValInputs = document.getElementById('flyout-val-inputs');
+const flyoutValReasoning = document.getElementById('flyout-val-reasoning');
+const flyoutValContext = document.getElementById('flyout-val-context');
+const modelDropdownSearchInput = document.getElementById('model-dropdown-search-input');
+
+function getModelMetadata(modelName, providerId) {
+  const nameLower = (modelName || '').toLowerCase();
+  let provider = 'Ollama Local';
+  let inputs = 'text, image, pdf';
+  let reasoning = 'Allows reasoning';
+  let context = '128,000';
+
+  if (providerId === 'gemini' || nameLower.includes('gemini')) {
+    provider = 'Google Gemini';
+    inputs = 'text, image, pdf, audio';
+    context = nameLower.includes('pro') ? '2,000,000' : '1,000,000';
+    reasoning = nameLower.includes('thinking') ? 'Allows reasoning' : 'Fast multimodal';
+  } else if (providerId === 'openai' || nameLower.includes('gpt') || nameLower.includes('o1') || nameLower.includes('o3') || nameLower.includes('o4')) {
+    provider = 'OpenAI';
+    inputs = nameLower.includes('4o') ? 'text, image, audio' : 'text, image, pdf';
+    context = '128,000';
+    reasoning = (nameLower.includes('o1') || nameLower.includes('o3') || nameLower.includes('o4') || nameLower.includes('reason')) ? 'Allows reasoning' : 'High precision';
+  } else if (providerId === 'anthropic' || nameLower.includes('claude')) {
+    provider = 'OpenRouter';
+    inputs = 'text, image, pdf';
+    context = '1,000,000';
+    reasoning = 'Allows reasoning';
+  } else if (providerId === 'deepseek' || nameLower.includes('deepseek')) {
+    provider = 'DeepSeek API';
+    inputs = 'text, code';
+    context = '64,000';
+    reasoning = 'Allows reasoning';
+  } else if (providerId === 'groq' || nameLower.includes('groq')) {
+    provider = 'Groq Cloud';
+    inputs = 'text, code';
+    context = '128,000';
+    reasoning = 'Ultra-fast LPU inference';
+  } else if (nameLower.includes('nemotron') || nameLower.includes('mimo')) {
+    provider = 'OpenCode Zen';
+    inputs = 'text, code';
+    context = '128,000';
+    reasoning = 'Allows reasoning';
+  } else if (nameLower.includes('llama') || nameLower.includes('mistral') || nameLower.includes('phi')) {
+    provider = providerId === 'cloud' ? 'Ollama Cloud' : 'Ollama Local';
+    inputs = (nameLower.includes('vision') || nameLower.includes('llava')) ? 'text, image' : 'text, code';
+    context = nameLower.includes('llama3') ? '128,000' : '32,768';
+    reasoning = 'Local execution';
+  }
+
+  return {
+    model: modelName,
+    provider: provider,
+    inputs: inputs,
+    reasoning: reasoning,
+    context: context
+  };
+}
+
+function attachModelItemHoverDetails(item, modelName, providerId) {
+  item.addEventListener('mouseenter', () => {
+    if (!modelDetailsFlyout || !flyoutValModel) return;
+    const meta = getModelMetadata(modelName, providerId);
+    flyoutValModel.textContent = meta.model;
+    flyoutValProvider.textContent = meta.provider;
+    flyoutValInputs.textContent = meta.inputs;
+    flyoutValReasoning.textContent = meta.reasoning;
+    flyoutValContext.textContent = meta.context;
+
+    const itemRect = item.getBoundingClientRect();
+    const dropdownRect = modelDropdown ? modelDropdown.getBoundingClientRect() : { top: 0, height: 300 };
+    const topOffset = Math.max(8, Math.min(itemRect.top - dropdownRect.top - 8, 260));
+    modelDetailsFlyout.style.top = `${topOffset}px`;
+    modelDetailsFlyout.classList.remove('hidden');
+  });
+
+  item.addEventListener('mouseleave', (e) => {
+    if (modelDetailsFlyout && (!e.relatedTarget || !e.relatedTarget.closest('.model-dropdown-item'))) {
+      modelDetailsFlyout.classList.add('hidden');
+    }
+  });
+}
+
 function renderModelDropdownList() {
   if (!modelDropdownList) return;
   modelDropdownList.innerHTML = '';
@@ -7834,7 +7920,6 @@ function renderModelDropdownList() {
   if (hasGeminiKey && geminiConnectionState === 'connected' && ONLINE_GEMINI_MODELS.length > 0) {
     const onlineHeader = document.createElement('div');
     onlineHeader.className = 'model-dropdown-section-title';
-    onlineHeader.style.cssText = 'padding: 8px 12px 4px 12px; font-size: 11px; font-weight: 600; color: #60a5fa; letter-spacing: 0.02em; text-transform: none;';
     onlineHeader.textContent = 'Google Gemini';
     modelDropdownList.appendChild(onlineHeader);
 
@@ -7844,11 +7929,12 @@ function renderModelDropdownList() {
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       item.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="../../Assets/Brand-Assets/gemini-logo.png" alt="Gemini" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
-          <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
+          <img src="../../Assets/Brand-Assets/gemini-logo.png" alt="Gemini" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
+          <span class="model-name-text">${model.name}</span>
         </div>
-        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.5); flex-shrink: 0; text-align: right; margin-left: 8px;">${model.tag}</span>
+        <span class="model-badge">${model.tag || 'Cloud'}</span>
       `;
+      attachModelItemHoverDetails(item, model.name, 'gemini');
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept('');
         activeModel = model.name;
@@ -7856,6 +7942,7 @@ function renderModelDropdownList() {
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
         if (modelDropdown) modelDropdown.classList.add('hidden');
+        if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
         if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
         logTrace(`Chat context model shifted to Online Model: "${activeModel}"`, 'local');
       });
@@ -7867,8 +7954,8 @@ function renderModelDropdownList() {
   if (window.UltronMultiProviderHub && typeof window.UltronMultiProviderHub.getAvailableModels === 'function') {
     const hubModels = window.UltronMultiProviderHub.getAvailableModels(true);
     const providers = [
+      { id: 'anthropic', label: 'Anthropic Claude', color: '#60a5fa' },
       { id: 'openai', label: 'OpenAI', color: '#10a37f' },
-      { id: 'anthropic', label: 'Anthropic Claude', color: '#3b82f6' },
       { id: 'deepseek', label: 'DeepSeek API', color: '#3b82f6' },
       { id: 'groq', label: 'Groq Cloud', color: '#60a5fa' },
       { id: 'custom', label: 'Custom Models', color: '#8b5cf6' }
@@ -7879,7 +7966,6 @@ function renderModelDropdownList() {
       if (pModels.length > 0) {
         const pHeader = document.createElement('div');
         pHeader.className = 'model-dropdown-section-title';
-        pHeader.style.cssText = `padding: 10px 12px 4px 12px; font-size: 11px; font-weight: 600; color: ${p.color}; letter-spacing: 0.02em; text-transform: none; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;`;
         pHeader.textContent = p.label;
         modelDropdownList.appendChild(pHeader);
 
@@ -7889,14 +7975,15 @@ function renderModelDropdownList() {
           hasAnyRenderedModel = true;
           const item = document.createElement('div');
           item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
-          const badgeTag = model.tag || (p.id === 'custom' ? 'CUSTOM' : p.id.toUpperCase());
+          const badgeTag = model.tag || (p.id === 'custom' ? 'CUSTOM' : 'API');
           item.innerHTML = `
             <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-              <img src="${pLogo}" alt="${p.label}" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
-              <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.displayName || model.name}</span>
+              <img src="${pLogo}" alt="${p.label}" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
+              <span class="model-name-text">${model.displayName || model.name}</span>
             </div>
-            <span class="model-badge" style="font-size: 10px; font-weight: 600; color: ${p.color}; flex-shrink: 0; text-align: right; margin-left: 8px;">${badgeTag}</span>
+            <span class="model-badge">${badgeTag}</span>
           `;
+          attachModelItemHoverDetails(item, model.displayName || model.name, p.id);
           item.addEventListener('click', async () => {
             await unloadOllamaModelsExcept('');
             activeModel = model.name;
@@ -7904,6 +7991,7 @@ function renderModelDropdownList() {
             modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
             item.classList.add('active');
             if (modelDropdown) modelDropdown.classList.add('hidden');
+            if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
             if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
             logTrace(`Chat context model shifted to ${p.label}: "${activeModel}"`, 'system');
           });
@@ -7917,7 +8005,6 @@ function renderModelDropdownList() {
   if (cloudModels.length > 0) {
     const cloudHeader = document.createElement('div');
     cloudHeader.className = 'model-dropdown-section-title';
-    cloudHeader.style.cssText = 'padding: 10px 12px 4px 12px; font-size: 11px; font-weight: 600; color: #34d399; letter-spacing: 0.02em; text-transform: none; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;';
     cloudHeader.textContent = 'Ollama Cloud';
     modelDropdownList.appendChild(cloudHeader);
 
@@ -7927,11 +8014,12 @@ function renderModelDropdownList() {
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       item.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama Cloud" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
-          <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
+          <img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama Cloud" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
+          <span class="model-name-text">${model.name}</span>
         </div>
-        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: #34d399; flex-shrink: 0; text-align: right; margin-left: 8px;">CLOUD</span>
+        <span class="model-badge">Cloud</span>
       `;
+      attachModelItemHoverDetails(item, model.name, 'cloud');
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept(model.name);
         activeModel = model.name;
@@ -7939,6 +8027,7 @@ function renderModelDropdownList() {
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
         if (modelDropdown) modelDropdown.classList.add('hidden');
+        if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
         if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
         logTrace(`Chat context model shifted to Ollama Cloud: "${activeModel}"`, 'local');
       });
@@ -7949,7 +8038,6 @@ function renderModelDropdownList() {
   // Render Local Ollama Models section
   const localHeader = document.createElement('div');
   localHeader.className = 'model-dropdown-section-title';
-  localHeader.style.cssText = 'padding: 10px 12px 4px 12px; font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.02em; text-transform: none; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;';
   localHeader.textContent = 'Offline Models';
   modelDropdownList.appendChild(localHeader);
 
@@ -7973,18 +8061,20 @@ function renderModelDropdownList() {
       const modelLogo = isHf
         ? '../../Assets/Brand-Assets/hf-logo.png'
         : '../../Assets/Brand-Assets/ollama-white-logo.png';
-      let badgeText = isHf ? 'HF GGUF' : 'LOCAL';
+      let badgeText = isHf ? 'HF GGUF' : 'Free';
       if (model.name.includes(':')) {
         badgeText = model.name.split(':')[1].toUpperCase();
       }
+      const badgeHtml = badgeText === 'LATEST' ? '' : `<span class="model-badge">${badgeText}</span>`;
 
       item.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="${modelLogo}" alt="${isHf ? 'Hugging Face' : 'Ollama'}" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
-          <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
+          <img src="${modelLogo}" alt="${isHf ? 'Hugging Face' : 'Ollama'}" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
+          <span class="model-name-text">${model.name}</span>
         </div>
-        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: ${isHf ? '#fde047' : 'rgba(255,255,255,0.5)'}; flex-shrink: 0; text-align: right; margin-left: 8px;">${badgeText}</span>
+        ${badgeHtml}
       `;
+      attachModelItemHoverDetails(item, model.name, 'local');
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept(model.name);
         activeModel = model.name;
@@ -7992,6 +8082,7 @@ function renderModelDropdownList() {
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
         if (modelDropdown) modelDropdown.classList.add('hidden');
+        if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
         if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
         logTrace(`Chat context model shifted to Local Model: "${activeModel}"`, 'local');
       });
@@ -8012,22 +8103,10 @@ function renderModelDropdownList() {
         </svg>
         <span>No Models Available</span>
       </div>
-      <p style="margin: 0 0 10px 0; color: #a1a1aa; font-size: 11px; line-height: 1.4;">
+      <p style="margin: 0; color: #a1a1aa; font-size: 11px; line-height: 1.4;">
         Download local models from the Models tab or configure cloud providers in Settings.
       </p>
-      <button id="btn-dropdown-go-models" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #ffffff; padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; cursor: pointer;">
-        Browse Models Catalog
-      </button>
     `;
-    const btnGo = emptyState.querySelector('#btn-dropdown-go-models');
-    if (btnGo) {
-      btnGo.addEventListener('click', () => {
-        if (modelDropdown) modelDropdown.classList.add('hidden');
-        if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
-        const navModels = document.querySelector('[data-view="models"]');
-        if (navModels) navModels.click();
-      });
-    }
     modelDropdownList.appendChild(emptyState);
   }
 
@@ -8207,6 +8286,7 @@ if (modelSelectorBtn) {
     const isOpen = !modelDropdown.classList.contains('hidden');
     if (isOpen) {
       modelDropdown.classList.add('hidden');
+      if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
       if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
     } else {
       // Close plus menu if open
@@ -8214,6 +8294,13 @@ if (modelSelectorBtn) {
       if (plusDropdown) plusDropdown.classList.add('hidden');
       const plusWrapper = document.getElementById('plus-menu-wrapper');
       if (plusWrapper) plusWrapper.classList.remove('open');
+
+      if (modelDropdownSearchInput) {
+        modelDropdownSearchInput.value = '';
+      }
+      if (modelDetailsFlyout) {
+        modelDetailsFlyout.classList.add('hidden');
+      }
 
       // Open instantly with rendered model list
       try {
@@ -8223,6 +8310,10 @@ if (modelSelectorBtn) {
       }
       modelDropdown.classList.remove('hidden');
       if (modelSelectorWrapper) modelSelectorWrapper.classList.add('open');
+
+      if (modelDropdownSearchInput) {
+        setTimeout(() => modelDropdownSearchInput.focus(), 50);
+      }
 
       // Proactively refresh Ollama models from tags API & IPC
       refreshInstalledModelsFromOllama().then(() => {
@@ -8241,11 +8332,49 @@ if (modelSelectorBtn) {
   });
 }
 
+if (modelDropdown) {
+  modelDropdown.addEventListener('mouseleave', () => {
+    if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
+  });
+}
+
+if (modelDropdownSearchInput) {
+  modelDropdownSearchInput.addEventListener('input', (e) => {
+    const query = (e.target.value || '').toLowerCase().trim();
+    if (!modelDropdownList) return;
+    const items = modelDropdownList.querySelectorAll('.model-dropdown-item');
+    const titles = modelDropdownList.querySelectorAll('.model-dropdown-section-title');
+
+    items.forEach(item => {
+      const text = (item.textContent || '').toLowerCase();
+      if (!query || text.includes(query)) {
+        item.style.display = 'flex';
+      } else {
+        item.style.display = 'none';
+      }
+    });
+
+    titles.forEach(title => {
+      let next = title.nextElementSibling;
+      let hasVisible = false;
+      while (next && !next.classList.contains('model-dropdown-section-title')) {
+        if (next.classList.contains('model-dropdown-item') && next.style.display !== 'none') {
+          hasVisible = true;
+          break;
+        }
+        next = next.nextElementSibling;
+      }
+      title.style.display = hasVisible ? 'block' : 'none';
+    });
+  });
+}
+
 const btnDropdownDownloadModels = document.getElementById('btn-dropdown-download-models');
 if (btnDropdownDownloadModels) {
   btnDropdownDownloadModels.addEventListener('click', (e) => {
     e.stopPropagation();
     if (modelDropdown) modelDropdown.classList.add('hidden');
+    if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
     if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
     if (typeof openSettingsPanel === 'function') {
       openSettingsPanel('models');
@@ -8255,7 +8384,8 @@ if (btnDropdownDownloadModels) {
 
 document.addEventListener('click', (e) => {
   if (modelSelectorWrapper && !modelSelectorWrapper.contains(e.target)) {
-    modelDropdown.classList.add('hidden');
+    if (modelDropdown) modelDropdown.classList.add('hidden');
+    if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
     modelSelectorWrapper.classList.remove('open');
   }
   if (voiceModeModelsWrap && !voiceModeModelsWrap.contains(e.target)) {
@@ -13781,32 +13911,12 @@ async function checkAndRunFirstTimeOnboarding() {
   let currentOnboardAudioElem = null;
 
   const ONBOARD_AUDIO_CANDIDATES = {
-    0: [
-      '../../Assets/sounds/step-0-welcom.mp3',
-      '../../Assets/sounds/step-0-welcome.mp3',
-      '../../Assets/sounds/onboarding/step-0-welcome.mp3',
-      '../../Assets/sounds/onboarding/step-0-welcom.mp3'
-    ],
-    1: [
-      '../../Assets/sounds/step-1-name.mp3',
-      '../../Assets/sounds/onboarding/step-1-name.mp3'
-    ],
-    2: [
-      '../../Assets/sounds/step-2-birthdate.mp3',
-      '../../Assets/sounds/onboarding/step-2-birthdate.mp3'
-    ],
-    3: [
-      '../../Assets/sounds/step-3-email.mp3',
-      '../../Assets/sounds/onboarding/step-3-email.mp3'
-    ],
-    4: [
-      '../../Assets/sounds/step-4-requirements.mp3',
-      '../../Assets/sounds/onboarding/step-4-requirements.mp3'
-    ],
-    5: [
-      '../../Assets/sounds/step-5-ready.mp3',
-      '../../Assets/sounds/onboarding/step-5-ready.mp3'
-    ]
+    0: ['../../Assets/sounds/step-0-welcome.mp3'],
+    1: ['../../Assets/sounds/step-1-name.mp3'],
+    2: ['../../Assets/sounds/step-2-birthdate.mp3'],
+    3: ['../../Assets/sounds/step-3-email.mp3'],
+    4: ['../../Assets/sounds/step-4-requirements.mp3'],
+    5: ['../../Assets/sounds/step-5-ready.mp3']
   };
 
   async function speakOnboardStep(step) {
@@ -13904,9 +14014,9 @@ async function checkAndRunFirstTimeOnboarding() {
   }
 
   const stepHeadings = {
-    1: 'Your profile',
-    2: 'Date of birth',
-    3: 'Email',
+    1: 'Your Name',
+    2: 'Your Date of Birth',
+    3: 'Your Email',
     4: 'Requirements & Components',
   };
 
@@ -16189,7 +16299,6 @@ function getVoiceSttCulture() {
   return 'en-US';
 }
 
-const settingPerformanceProfile = document.getElementById('setting-performance-profile');
 const settingPerformanceProfileNote = document.getElementById('setting-performance-profile-note');
 const settingVoiceInputDevice = document.getElementById('setting-voice-input-device');
 const settingVoiceSensitivity = document.getElementById('setting-voice-sensitivity');
@@ -16204,7 +16313,6 @@ function getPerformanceProfile() {
 
 function applyPerformanceProfile(profile = getPerformanceProfile()) {
   document.body.dataset.performanceProfile = profile;
-  if (settingPerformanceProfile) settingPerformanceProfile.value = profile;
   if (settingPerformanceProfileNote) {
     settingPerformanceProfileNote.textContent = profile === 'battery'
       ? 'Reduced animation, polling, and background startup work'
@@ -16212,7 +16320,59 @@ function applyPerformanceProfile(profile = getPerformanceProfile()) {
         ? 'Fast refreshes and full visual effects'
         : 'Balanced daily use';
   }
+  syncPerformanceProfileUI(profile);
 }
+
+let perfProfileOptions = [];
+let perfProfileLabel = null;
+
+function syncPerformanceProfileUI(profile = getPerformanceProfile()) {
+  if (!perfProfileLabel || perfProfileOptions.length === 0) return;
+  const active = perfProfileOptions.find(o => o.dataset.value === profile) || perfProfileOptions[1];
+  perfProfileLabel.textContent = active.textContent;
+  perfProfileOptions.forEach(o => {
+    o.classList.toggle('selected', o === active);
+    o.setAttribute('aria-selected', String(o === active));
+  });
+}
+
+function setupPerformanceProfileDropdown() {
+  const wrap = document.getElementById('perf-profile-select');
+  const btn = document.getElementById('perf-profile-btn');
+  const menu = document.getElementById('perf-profile-menu');
+  perfProfileLabel = document.getElementById('perf-profile-label');
+  if (!wrap || !btn || !menu || !perfProfileLabel) return;
+
+  perfProfileOptions = Array.from(menu.querySelectorAll('.custom-select-option'));
+
+  const close = () => {
+    menu.classList.add('hidden');
+    btn.setAttribute('aria-expanded', 'false');
+  };
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = menu.classList.toggle('hidden') === false;
+    btn.setAttribute('aria-expanded', String(open));
+  });
+
+  perfProfileOptions.forEach(opt => {
+    opt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      localStorage.setItem('ultron-performance-profile', opt.dataset.value);
+      applyPerformanceProfile(opt.dataset.value);
+      close();
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target)) close();
+  });
+
+  syncPerformanceProfileUI();
+}
+
+setupPerformanceProfileDropdown();
 
 function getSelectedVoiceInputDeviceId() {
   return localStorage.getItem('ultron-voice-input-device') || '';
@@ -16251,10 +16411,6 @@ function initRuntimePreferencesUI() {
   applyPerformanceProfile();
   refreshVoiceInputDevices();
 
-  settingPerformanceProfile?.addEventListener('change', () => {
-    localStorage.setItem('ultron-performance-profile', settingPerformanceProfile.value);
-    applyPerformanceProfile(settingPerformanceProfile.value);
-  });
   settingVoiceInputDevice?.addEventListener('change', () => {
     localStorage.setItem('ultron-voice-input-device', settingVoiceInputDevice.value || '');
   });
@@ -17834,6 +17990,7 @@ function dismissSplashScreen() {
   setTimeout(() => {
     splashScreen.style.display = 'none';
     splashScreen.style.pointerEvents = 'none';
+    if (window.ultronAPI?.splashDone) window.ultronAPI.splashDone();
   }, SPLASH_FADE_MS);
 }
 
@@ -17958,48 +18115,62 @@ function handleTopBarSettingsShortcut(tabName) {
   }
 }
 
-// (models / knowledge / automation / apps / sync now open dropdowns only — see topbar dropdown wiring below)
-document.getElementById('titlebar-btn-settings')?.addEventListener('click', (e) => {
-  e.stopPropagation();
-  const dd = document.getElementById('titlebar-settings-dropdown');
-  if (dd) {
-    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== dd) hideDDAnimated(d); });
-    toggleDD(dd);
-  }
-});
+// (models / knowledge / automation / apps / sync / settings open dropdowns — see topbar dropdown wiring below)
 
 // ===== Theme engine (dark / light / system) =====
+function updateLogoSources(resolvedTheme) {
+  const isLight = resolvedTheme === 'light';
+  const logoSrc = isLight ? '../../Assets/brown-black-logo.png' : '../../Assets/brown-white-logo.png';
+  const logoAltSrc = isLight ? '../Assets/brown-black-logo.png' : '../Assets/brown-white-logo.png';
+  const bLogoSrc = isLight ? '../../Assets/brown-b-black-logo.png' : '../../Assets/brown-b-white-logo.png';
+  const bLogoAltSrc = isLight ? '../Assets/brown-b-black-logo.png' : '../Assets/brown-b-white-logo.png';
+
+  document.querySelectorAll('.brand-logo, .welcome-logo, .voice-mode-logo, .onboarding-logo-img, .release-notes-brand-logo').forEach(img => {
+    if (img && img.tagName === 'IMG') {
+      img.src = logoSrc;
+      img.onerror = () => { img.src = logoSrc; };
+    }
+  });
+
+  document.querySelectorAll('.about-app-logo, .avatar.ai img').forEach(img => {
+    if (img && img.tagName === 'IMG') {
+      img.src = bLogoSrc;
+      img.onerror = () => { img.src = bLogoSrc; };
+    }
+  });
+
+  const miniPill = document.querySelector('.mini-pill-logo');
+  if (miniPill) {
+    miniPill.src = bLogoAltSrc;
+    miniPill.onerror = () => { miniPill.src = bLogoAltSrc; };
+  }
+}
+
 function resolveThemeMode(mode) {
   if (mode === 'system' && window.matchMedia) {
     return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   }
   return mode === 'light' ? 'light' : 'dark';
 }
-function applyAppTheme(mode) {
+function applyAppTheme(mode, userInitiated) {
   const resolved = resolveThemeMode(mode);
   document.documentElement.setAttribute('data-theme', resolved);
   try { localStorage.setItem('ultron-theme', mode); } catch (e) {}
   document.querySelectorAll('.theme-card').forEach(c => c.classList.toggle('active', c.getAttribute('data-theme-choice') === mode));
   document.querySelectorAll('.tsd-theme').forEach(b => b.classList.toggle('active', b.getAttribute('data-theme-choice') === mode));
+  updateLogoSources(resolved);
+  if (window.ultronAPI?.setAppTheme) window.ultronAPI.setAppTheme(resolved, !!userInitiated);
 }
 window.applyAppTheme = applyAppTheme;
+window.updateLogoSources = updateLogoSources;
 
-const titlebarSettingsDropdown = document.getElementById('titlebar-settings-dropdown');
-const tsdAppearanceToggle = document.getElementById('tsd-appearance-toggle');
-const tsdAppearanceSub = document.getElementById('tsd-appearance-sub');
-const tsdAbout = document.getElementById('tsd-about');
-if (titlebarSettingsDropdown) {
-  document.addEventListener('click', (e) => {
-    if (!titlebarSettingsDropdown.classList.contains('hidden') && !e.target.closest('.titlebar-settings-wrap')) {
-      titlebarSettingsDropdown.classList.add('hidden');
-    }
-  });
-}
-if (tsdAppearanceToggle && tsdAppearanceSub) tsdAppearanceToggle.addEventListener('click', () => tsdAppearanceSub.classList.toggle('hidden'));
-if (tsdAbout) tsdAbout.addEventListener('click', () => { if (titlebarSettingsDropdown) titlebarSettingsDropdown.classList.add('hidden'); if (typeof openSettingsPanel === 'function') openSettingsPanel('about'); });
-
-document.querySelectorAll('[data-theme-choice]').forEach(el => {
-  el.addEventListener('click', () => applyAppTheme(el.getAttribute('data-theme-choice')));
+// Global theme choice delegated listener so clicking theme in topbar or settings always works
+document.addEventListener('click', (e) => {
+  const themeBtn = e.target.closest('[data-theme-choice]');
+  if (themeBtn) {
+    const choice = themeBtn.getAttribute('data-theme-choice');
+    if (choice) applyAppTheme(choice, true);
+  }
 });
 
 applyAppTheme(localStorage.getItem('ultron-theme') || 'dark');
@@ -18009,7 +18180,26 @@ if (window.matchMedia) {
   if (mq.addEventListener) mq.addEventListener('change', onOsThemeChange); else if (mq.addListener) mq.addListener(onOsThemeChange);
 }
 
-// ===== Topbar: chat toggle + prev/next + models/apps/sync dropdowns =====
+// ===== Topbar Dropdown Helpers & Animations =====
+function hideDDAnimated(dd) {
+  if (!dd || dd.classList.contains('hidden')) return;
+  dd.classList.add('closing');
+  setTimeout(() => { dd.classList.add('hidden'); dd.classList.remove('closing'); }, 140);
+}
+function toggleDD(dd) {
+  if (!dd) return;
+  if (dd.classList.contains('hidden')) { dd.classList.remove('closing'); dd.classList.remove('hidden'); }
+  else hideDDAnimated(dd);
+}
+
+// Close any open topbar dropdown on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.titlebar-settings-wrap')) {
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => hideDDAnimated(d));
+  }
+});
+
+// ===== Topbar: chat toggle + prev/next navigation =====
 const SETTINGS_TAB_ORDER = ['account','models','knowledge','sync','desktop','sounds','performance','storage','permissions','apps','updates','appearance','about'];
 function currentSettingsTab() { return document.querySelector('.settings-tab-btn.active')?.getAttribute('data-tab') || 'account'; }
 function gotoSettingsTab(tab) { const b = document.querySelector(`.settings-tab-btn[data-tab="${tab}"]`); if (b) b.click(); }
@@ -18019,7 +18209,8 @@ if (chatToggleBtn) {
   chatToggleBtn.addEventListener('click', () => {
     if (typeof closeSettingsPanel === 'function') closeSettingsPanel();
     if (leftSidebar) { leftSidebar.classList.remove('hidden-full'); leftSidebar.classList.remove('collapsed'); }
-    chatToggleBtn.disabled = true;
+    const promptInput = document.getElementById('prompt-input');
+    if (promptInput) promptInput.focus();
   });
 }
 document.getElementById('titlebar-btn-prev')?.addEventListener('click', () => {
@@ -18035,82 +18226,418 @@ document.getElementById('titlebar-btn-next')?.addEventListener('click', () => {
   gotoSettingsTab(SETTINGS_TAB_ORDER[(idx + 1) % SETTINGS_TAB_ORDER.length]);
 });
 
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('.titlebar-settings-wrap')) {
-    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => hideDDAnimated(d));
+// ===== Topbar: Settings Dropdown Wiring =====
+const titlebarSettingsDropdown = document.getElementById('titlebar-settings-dropdown');
+const tsdAppearanceToggle = document.getElementById('tsd-appearance-toggle');
+const tsdAppearanceSub = document.getElementById('tsd-appearance-sub');
+
+document.getElementById('titlebar-btn-settings')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (titlebarSettingsDropdown) {
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== titlebarSettingsDropdown) hideDDAnimated(d); });
+    const willOpen = titlebarSettingsDropdown.classList.contains('hidden');
+    if (willOpen && tsdAppearanceSub) {
+      tsdAppearanceSub.classList.remove('hidden');
+      tsdAppearanceToggle?.classList.add('open');
+    }
+    toggleDD(titlebarSettingsDropdown);
   }
 });
-function hideDDAnimated(dd) {
-  if (!dd || dd.classList.contains('hidden')) return;
-  dd.classList.add('closing');
-  setTimeout(() => { dd.classList.add('hidden'); dd.classList.remove('closing'); }, 140);
-}
-function toggleDD(dd) {
-  if (!dd) return;
-  if (dd.classList.contains('hidden')) { dd.classList.remove('closing'); dd.classList.remove('hidden'); }
-  else hideDDAnimated(dd);
+
+if (tsdAppearanceToggle && tsdAppearanceSub) {
+  tsdAppearanceToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Clicking "Appearance" expands/collapses the inline theme options
+    const isHidden = tsdAppearanceSub.classList.toggle('hidden');
+    tsdAppearanceToggle.classList.toggle('open', !isHidden);
+  });
 }
 
-// Knowledge + Automation dropdowns
+// Quick navigation shortcuts in Settings dropdown
+const bindTsdNav = (btnId, tabName) => {
+  document.getElementById(btnId)?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    hideDDAnimated(titlebarSettingsDropdown);
+    if (typeof openSettingsPanel === 'function') openSettingsPanel(tabName);
+  });
+};
+bindTsdNav('tsd-go-account', 'account');
+bindTsdNav('tsd-go-models', 'models');
+bindTsdNav('tsd-go-knowledge', 'knowledge');
+bindTsdNav('tsd-go-automation', 'desktop');
+bindTsdNav('tsd-go-apps', 'apps');
+bindTsdNav('tsd-go-all-settings', 'account');
+bindTsdNav('tsd-about', 'about');
+
+// ===== Topbar: Help Dropdown Wiring =====
+const helpBtn = document.getElementById('titlebar-btn-help');
+const helpDD = document.getElementById('titlebar-help-dropdown');
+if (helpBtn && helpDD) {
+  helpBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== helpDD) hideDDAnimated(d); });
+    toggleDD(helpDD);
+  });
+}
+
+document.getElementById('thd-contact')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (helpDD) hideDDAnimated(helpDD);
+  if (window.ultronAPI?.openExternal) {
+    window.ultronAPI.openExternal('https://usebrown.online/#contact');
+  }
+});
+
+document.getElementById('thd-docs')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (helpDD) hideDDAnimated(helpDD);
+  if (window.ultronAPI?.openExternal) {
+    window.ultronAPI.openExternal('https://usebrown.online/#docs');
+  }
+});
+
+document.getElementById('thd-blogs')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (helpDD) hideDDAnimated(helpDD);
+  if (window.ultronAPI?.openExternal) {
+    window.ultronAPI.openExternal('https://usebrown.online/#blog');
+  }
+});
+
+document.getElementById('thd-release-notes')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (helpDD) hideDDAnimated(helpDD);
+  const rnModal = document.getElementById('release-notes-modal');
+  if (rnModal) {
+    rnModal.classList.remove('hidden');
+  } else if (window.ultronAPI?.openExternal) {
+    window.ultronAPI.openExternal('https://github.com/vedantwankhade123/Brown-Releases/releases');
+  }
+});
+
+document.getElementById('thd-website')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (helpDD) hideDDAnimated(helpDD);
+  if (window.ultronAPI?.openExternal) {
+    window.ultronAPI.openExternal('https://usebrown.online');
+  }
+});
+
+// ===== Topbar: Knowledge & Automation Dropdowns =====
 const knowledgeBtn = document.getElementById('titlebar-btn-knowledge');
 const knowledgeDD = document.getElementById('titlebar-knowledge-dropdown');
-if (knowledgeBtn && knowledgeDD) knowledgeBtn.addEventListener('click', (e) => { e.stopPropagation(); document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== knowledgeDD) hideDDAnimated(d); }); toggleDD(knowledgeDD); });
+if (knowledgeBtn && knowledgeDD) {
+  knowledgeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== knowledgeDD) hideDDAnimated(d); });
+    toggleDD(knowledgeDD);
+  });
+}
 document.getElementById('tkd-go-settings')?.addEventListener('click', () => { hideDDAnimated(knowledgeDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('knowledge'); });
 document.getElementById('tkd-add-folder')?.addEventListener('click', () => { hideDDAnimated(knowledgeDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('knowledge'); });
 document.getElementById('tkd-reindex')?.addEventListener('click', () => { hideDDAnimated(knowledgeDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('knowledge'); });
 
 const automationBtn = document.getElementById('titlebar-btn-automation');
 const automationDD = document.getElementById('titlebar-automation-dropdown');
-if (automationBtn && automationDD) automationBtn.addEventListener('click', (e) => { e.stopPropagation(); document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== automationDD) hideDDAnimated(d); }); toggleDD(automationDD); });
+if (automationBtn && automationDD) {
+  automationBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== automationDD) hideDDAnimated(d); });
+    toggleDD(automationDD);
+  });
+}
 document.getElementById('tad2-go-settings')?.addEventListener('click', () => { hideDDAnimated(automationDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('desktop'); });
 document.getElementById('tad2-uia')?.addEventListener('click', () => { hideDDAnimated(automationDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('desktop'); });
 document.getElementById('tad2-screen')?.addEventListener('click', () => { hideDDAnimated(automationDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('permissions'); });
 
-// Models dropdown
+// ===== Topbar: Models Dropdown (Full Connectors & Installed Models) =====
 const modelsBtn = document.getElementById('titlebar-btn-models');
 const modelsDD = document.getElementById('titlebar-models-dropdown');
+
 async function populateModelsDropdown() {
-  const list = document.getElementById('tmd-installed'); if (!list) return;
-  list.innerHTML = '';
-  let models = [];
-  try { if (window.ultronAPI?.getInstalledOllamaModels) models = (await window.ultronAPI.getInstalledOllamaModels()) || []; } catch (e) {}
-  if (!Array.isArray(models) || models.length === 0) {
-    const empty = document.createElement('div'); empty.className = 'tsd-theme'; empty.textContent = 'No local models installed'; list.appendChild(empty);
+  const connectorsList = document.getElementById('tmd-connectors-list');
+  const installedList = document.getElementById('tmd-installed');
+  if (!connectorsList || !installedList) return;
+
+  // 1. Check live status for each connector
+  const geminiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
+  const hasGemini = Boolean(geminiKey || (Array.isArray(ONLINE_GEMINI_MODELS) && ONLINE_GEMINI_MODELS.length > 0));
+  
+  const openaiKey = (window.UltronMultiProviderHub?.getStoredApiKey('openai') || '').trim();
+  const claudeKey = (window.UltronMultiProviderHub?.getStoredApiKey('anthropic') || '').trim();
+  const deepseekKey = (window.UltronMultiProviderHub?.getStoredApiKey('deepseek') || '').trim();
+  const groqKey = (window.UltronMultiProviderHub?.getStoredApiKey('groq') || '').trim();
+  const customUrl = (window.UltronMultiProviderHub?.getCustomEndpointUrl() || localStorage.getItem('ultron-custom-endpoint-url') || '').trim();
+  const ollamaCloudKey = (window.UltronMultiProviderHub?.getStoredApiKey('ollama_cloud') || localStorage.getItem('ultron-ollama-cloud-token') || '').trim();
+  
+  let isLocalOllamaActive = (Array.isArray(installedModelsList) && installedModelsList.length > 0);
+  try {
+    if (!isLocalOllamaActive && window.ultronAPI?.getInstalledOllamaModels) {
+      const localModels = await window.ultronAPI.getInstalledOllamaModels();
+      if (Array.isArray(localModels) && localModels.length > 0) isLocalOllamaActive = true;
+    }
+  } catch (e) {}
+
+  const connectors = [
+    { id: 'gemini', name: 'Google Gemini', icon: '../../Assets/Brand-Assets/gemini-logo.png', connected: hasGemini },
+    { id: 'openai', name: 'OpenAI', icon: '../../Assets/Brand-Assets/openai-black-logo.png', connected: Boolean(openaiKey) },
+    { id: 'anthropic', name: 'Anthropic Claude', icon: '../../Assets/Brand-Assets/claude-logo.png', connected: Boolean(claudeKey) },
+    { id: 'deepseek', name: 'DeepSeek', icon: '../../Assets/Brand-Assets/deepseek-blue-logo.png', connected: Boolean(deepseekKey) },
+    { id: 'groq', name: 'Groq Cloud', icon: '../../Assets/Brand-Assets/groq-black-logo.png', connected: Boolean(groqKey) },
+    { id: 'custom', name: 'Custom (LM Studio/vLLM)', icon: '../../Assets/Brand-Assets/lm-studio.png', connected: Boolean(customUrl) },
+    { id: 'hf', name: 'Hugging Face Hub', icon: '../../Assets/Brand-Assets/hf-logo.png', connected: true, statusText: 'Active' },
+    { id: 'ollama_cloud', name: 'Ollama Cloud', icon: '../../Assets/Brand-Assets/ollama-logo.png', connected: Boolean(ollamaCloudKey) },
+    { id: 'ollama', name: 'Local Ollama', icon: '../../Assets/Brand-Assets/ollama-logo.png', connected: isLocalOllamaActive, statusText: isLocalOllamaActive ? 'Active' : 'Offline' }
+  ];
+
+  connectorsList.innerHTML = '';
+  connectors.forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'tmd-connector-card';
+    card.title = `Configure ${c.name} in Models Settings`;
+    const isConn = c.connected;
+    const badgeText = c.statusText || (isConn ? 'Active' : 'Not configured');
+    card.innerHTML = `
+      <div class="tmd-connector-left">
+        <img src="${c.icon}" alt="${c.name}" class="tmd-connector-icon" onerror="this.src='../../Assets/brown-logo.png'">
+        <span class="tmd-connector-name">${escapeHtml(c.name)}</span>
+      </div>
+      <span class="tmd-connector-badge ${isConn ? 'connected' : 'disconnected'}">${badgeText}</span>
+    `;
+    card.addEventListener('click', () => {
+      hideDDAnimated(modelsDD);
+      if (typeof openSettingsPanel === 'function') openSettingsPanel('models');
+    });
+    connectorsList.appendChild(card);
+  });
+
+  // 2. Populate installed / configured models with 1-click model switching
+  installedList.innerHTML = '';
+  let allAvailable = [];
+
+  // Local Ollama models
+  (installedModelsList || []).forEach(m => {
+    const name = typeof m === 'string' ? m : (m.name || '');
+    if (name) allAvailable.push({ name, type: 'Local', size: m.size ? `${(m.size / (1024*1024*1024)).toFixed(1)} GB` : '' });
+  });
+
+  // Gemini models
+  (ONLINE_GEMINI_MODELS || []).forEach(m => {
+    const name = typeof m === 'string' ? m : (m.name || '');
+    if (name && !allAvailable.some(x => x.name.toLowerCase() === name.toLowerCase())) {
+      allAvailable.push({ name, type: 'Gemini Cloud', size: 'Cloud' });
+    }
+  });
+
+  // Hub / Provider models
+  if (window.UltronMultiProviderHub?.getAvailableModels) {
+    const hubModels = window.UltronMultiProviderHub.getAvailableModels(true);
+    (hubModels || []).forEach(m => {
+      const name = typeof m === 'string' ? m : (m.name || '');
+      if (name && !allAvailable.some(x => x.name.toLowerCase() === name.toLowerCase())) {
+        allAvailable.push({ name, type: m.provider || 'Cloud', size: 'API' });
+      }
+    });
+  }
+
+  if (allAvailable.length === 0) {
+    installedList.innerHTML = `<div style="padding: 10px; font-size: 12px; color: var(--text-muted); text-align: center; background: rgba(255, 255, 255, 0.02); border-radius: 8px;">No installed or connected models found. Connect an API or download a local model.</div>`;
   } else {
-    models.slice(0, 8).forEach(m => { const b = document.createElement('button'); b.className = 'tsd-theme'; b.textContent = (m.name || m); list.appendChild(b); });
+    allAvailable.slice(0, 12).forEach(m => {
+      const isCurActive = Boolean(activeModel && (
+        activeModel.toLowerCase() === m.name.toLowerCase() ||
+        activeModel.toLowerCase() === (m.name.split(':')[0]).toLowerCase()
+      ));
+
+      const row = document.createElement('div');
+      row.className = `tmd-model-row${isCurActive ? ' active' : ''}`;
+      row.title = isCurActive ? 'Currently active model' : `Click to switch to ${m.name}`;
+      const checkIcon = `
+        <span class="tmd-model-check-icon">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </span>
+      `;
+      const defaultIcon = `
+        <span class="tmd-model-default-icon">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          </svg>
+        </span>
+      `;
+
+      row.innerHTML = `
+        <div class="tmd-model-left">
+          ${isCurActive ? checkIcon : defaultIcon}
+          <span class="tmd-model-title">${escapeHtml(m.name)}</span>
+        </div>
+        <span class="tmd-model-meta">${escapeHtml(m.type)}${m.size ? ` • ${m.size}` : ''}</span>
+      `;
+      row.addEventListener('click', () => {
+        activeModel = m.name;
+        if (typeof updateModelSelectorLabel === 'function') updateModelSelectorLabel();
+        if (typeof syncModelAttachmentCapabilities === 'function') syncModelAttachmentCapabilities();
+        hideDDAnimated(modelsDD);
+        logTrace(`Switched active chat model to ${m.name}`, 'system');
+        populateModelsDropdown();
+      });
+      installedList.appendChild(row);
+    });
   }
 }
-if (modelsBtn && modelsDD) modelsBtn.addEventListener('click', async (e) => {
-  e.stopPropagation();
-  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== modelsDD) hideDDAnimated(d); });
-  const willOpen = modelsDD.classList.contains('hidden');
-  toggleDD(modelsDD);
-  if (willOpen) populateModelsDropdown();
-});
-document.getElementById('tmd-go-settings')?.addEventListener('click', () => { modelsDD?.classList.add('hidden'); if (typeof openSettingsPanel === 'function') openSettingsPanel('models'); });
 
-// Apps dropdown
+if (modelsBtn && modelsDD) {
+  modelsBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== modelsDD) hideDDAnimated(d); });
+    const willOpen = modelsDD.classList.contains('hidden');
+    toggleDD(modelsDD);
+    if (willOpen) populateModelsDropdown();
+  });
+}
+
+document.getElementById('tmd-go-settings')?.addEventListener('click', () => {
+  hideDDAnimated(modelsDD);
+  if (typeof openSettingsPanel === 'function') openSettingsPanel('models');
+});
+document.getElementById('tmd-go-download')?.addEventListener('click', () => {
+  hideDDAnimated(modelsDD);
+  if (typeof openSettingsPanel === 'function') {
+    openSettingsPanel('models').then(() => {
+      document.getElementById('tab-btn-download-models')?.click();
+    });
+  }
+});
+
+// ===== Topbar: Apps Dropdown (Interactive Authorization & Search) =====
 const appsBtn = document.getElementById('titlebar-btn-apps');
 const appsDD = document.getElementById('titlebar-apps-dropdown');
+let cachedTopbarApps = [];
+
 async function populateAppsDropdown() {
-  const list = document.getElementById('tad-apps'); if (!list) return;
-  list.innerHTML = '';
-  let apps = [];
-  try { if (window.ultronAPI?.getAuthorizedApps) apps = (await window.ultronAPI.getAuthorizedApps()) || []; } catch (e) {}
-  if (!Array.isArray(apps) || apps.length === 0) {
-    const empty = document.createElement('div'); empty.className = 'tsd-theme'; empty.textContent = 'No apps detected'; list.appendChild(empty);
-  } else {
-    apps.slice(0, 10).forEach(a => { const b = document.createElement('div'); b.className = 'tsd-theme'; b.textContent = (a.name || a); list.appendChild(b); });
+  const list = document.getElementById('tad-apps-list');
+  const badge = document.getElementById('tad-apps-count-badge');
+  const chkMarkAll = document.getElementById('tad-chk-mark-all');
+  if (!list) return;
+
+  list.innerHTML = `<div style="padding:12px; text-align:center; font-size:12px; color:var(--text-muted);">Loading applications…</div>`;
+
+  let apps = cachedSettingsApps && cachedSettingsApps.length > 0 ? cachedSettingsApps : [];
+  if (!apps.length) {
+    try {
+      if (window.ultronAPI?.getInstalledApps) {
+        const res = await window.ultronAPI.getInstalledApps();
+        if (res && res.success && Array.isArray(res.apps)) apps = res.apps;
+      }
+    } catch (e) {}
   }
+  cachedTopbarApps = apps.slice().sort((a, b) => a.name.localeCompare(b.name));
+
+  const authMap = getSavedAuthorizedAppsMap() || {};
+  cachedTopbarApps.forEach(a => {
+    if (authMap[a.name] === undefined) authMap[a.name] = true;
+  });
+
+  renderTopbarAppsList();
 }
-if (appsBtn && appsDD) appsBtn.addEventListener('click', async (e) => {
-  e.stopPropagation();
-  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== appsDD) hideDDAnimated(d); });
-  const willOpen = appsDD.classList.contains('hidden');
-  toggleDD(appsDD);
-  if (willOpen) populateAppsDropdown();
+
+function renderTopbarAppsList() {
+  const list = document.getElementById('tad-apps-list');
+  const badge = document.getElementById('tad-apps-count-badge');
+  const chkMarkAll = document.getElementById('tad-chk-mark-all');
+  const searchInput = document.getElementById('tad-apps-search');
+  if (!list) return;
+
+  const query = (searchInput?.value || '').toLowerCase().trim();
+  const authMap = getSavedAuthorizedAppsMap() || {};
+
+  const filtered = cachedTopbarApps.filter(a => {
+    if (!query) return true;
+    return `${a.name} ${a.publisher || ''}`.toLowerCase().includes(query);
+  });
+
+  const totalAuthorized = cachedTopbarApps.filter(a => authMap[a.name] !== false).length;
+  if (badge) badge.textContent = `${totalAuthorized} / ${cachedTopbarApps.length} active`;
+  if (chkMarkAll) chkMarkAll.checked = (cachedTopbarApps.length > 0 && totalAuthorized === cachedTopbarApps.length);
+
+  list.innerHTML = '';
+  if (filtered.length === 0) {
+    list.innerHTML = `<div style="padding:14px; text-align:center; font-size:12px; color:var(--text-muted);">No matching applications found.</div>`;
+    return;
+  }
+
+  filtered.forEach(app => {
+    const isAuth = authMap[app.name] !== false;
+    const row = document.createElement('div');
+    row.className = `tad-app-row${isAuth ? '' : ' is-restricted'}`;
+    row.innerHTML = `
+      <div class="tad-app-left">
+        ${getAppIconMarkup(app)}
+        <span class="tad-app-name" title="${escapeHtml(app.name)}">${escapeHtml(app.name)}</span>
+      </div>
+      <button type="button" class="tad-app-toggle ${isAuth ? 'active' : ''}" aria-label="Toggle ${escapeHtml(app.name)}" title="${isAuth ? 'Authorized' : 'Restricted'}">
+        <span class="tad-app-toggle-knob"></span>
+      </button>
+    `;
+
+    const toggleBtn = row.querySelector('.tad-app-toggle');
+    toggleBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nextState = !isAuth;
+      authMap[app.name] = nextState;
+      saveAuthorizedAppsMap(authMap);
+      row.classList.toggle('is-restricted', !nextState);
+      toggleBtn.classList.toggle('active', nextState);
+      toggleBtn.title = nextState ? 'Authorized' : 'Restricted';
+      
+      // Sync main settings view if open
+      if (typeof settingsAppsList !== 'undefined' && settingsAppsList) {
+        const matchingCard = settingsAppsList.querySelector(`[data-app-name="${CSS.escape(app.name)}"]`);
+        if (matchingCard && typeof syncAppCardAuthorization === 'function') {
+          syncAppCardAuthorization(matchingCard, nextState);
+        }
+      }
+      
+      const newTotal = cachedTopbarApps.filter(a => authMap[a.name] !== false).length;
+      if (badge) badge.textContent = `${newTotal} / ${cachedTopbarApps.length} active`;
+      if (chkMarkAll) chkMarkAll.checked = (newTotal === cachedTopbarApps.length);
+    });
+
+    list.appendChild(row);
+  });
+}
+
+// Search and Mark All in Apps dropdown
+document.getElementById('tad-apps-search')?.addEventListener('input', () => {
+  renderTopbarAppsList();
 });
-document.getElementById('tad-go-settings')?.addEventListener('click', () => { appsDD?.classList.add('hidden'); if (typeof openSettingsPanel === 'function') openSettingsPanel('apps'); });
+
+document.getElementById('tad-chk-mark-all')?.addEventListener('change', (e) => {
+  const isChecked = e.target.checked;
+  const authMap = getSavedAuthorizedAppsMap() || {};
+  cachedTopbarApps.forEach(a => { authMap[a.name] = isChecked; });
+  saveAuthorizedAppsMap(authMap);
+  renderTopbarAppsList();
+  if (typeof renderSettingsAppsList === 'function' && typeof getFilteredSettingsApps === 'function') {
+    renderSettingsAppsList(getFilteredSettingsApps(), authMap);
+  }
+});
+
+if (appsBtn && appsDD) {
+  appsBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== appsDD) hideDDAnimated(d); });
+    const willOpen = appsDD.classList.contains('hidden');
+    toggleDD(appsDD);
+    if (willOpen) populateAppsDropdown();
+  });
+}
+
+document.getElementById('tad-go-settings')?.addEventListener('click', () => {
+  hideDDAnimated(appsDD);
+  if (typeof openSettingsPanel === 'function') openSettingsPanel('apps');
+});
 
 // Sync dropdown (device info + 30s pair code + QR + regenerate)
 const syncBtn = document.getElementById('titlebar-btn-sync');
@@ -18132,7 +18659,13 @@ async function refreshSyncInfo() {
     const info = await window.ultronAPI?.getDesktopSyncInfo?.();
     if (info) {
       const nameEl = document.getElementById('tsd-device-name'); if (nameEl) nameEl.textContent = info.syncId || 'This PC';
-      const ipEl = document.getElementById('tsd-lan-ip'); if (ipEl) ipEl.textContent = `LAN IP: ${(info.addresses||[]).join(', ')||'127.0.0.1'} : ${info.port||49200}`;
+      const ipEl = document.getElementById('tsd-lan-ip');
+      if (ipEl) {
+        const addrs = (info.addresses || []).filter(Boolean);
+        const primaryIp = addrs.length > 0 ? addrs[0] : '127.0.0.1';
+        ipEl.textContent = `LAN IP: ${primaryIp}${info.port ? ` : ${info.port}` : ''}`;
+        ipEl.title = addrs.length > 1 ? `All IPs: ${addrs.join(', ')} (Port ${info.port || 49200})` : ipEl.textContent;
+      }
     }
   } catch (e) {}
 }
@@ -18150,10 +18683,13 @@ function startSyncExpiry(seconds) {
 async function generateSyncPair() {
   const res = await window.ultronAPI?.createMobilePairCode?.();
   const codeEl = document.getElementById('tsd-pair-code');
+  const regenBtn = document.getElementById('tsd-regen-qr');
   if (res && res.success && res.code) {
     if (codeEl) { codeEl.textContent = res.code; codeEl.classList.remove('hidden'); }
     drawPseudoQR(document.getElementById('tsd-qr'), res.code);
+    document.getElementById('tsd-qr-veil')?.classList.add('hidden');
     document.getElementById('tsd-qr-refresh')?.classList.add('hidden');
+    if (regenBtn) regenBtn.textContent = 'Regenerate QR';
     startSyncExpiry(res.expiresIn || 30);
   }
 }
@@ -18164,16 +18700,18 @@ if (syncBtn && syncDD) syncBtn.addEventListener('click', async (e) => {
   toggleDD(syncDD);
   if (willOpen) {
     refreshSyncInfo();
-    // Show a dummy QR placeholder with a refresh overlay until the user generates.
+    // Show a dummy QR placeholder with a white fade veil and prominent refresh button until the user generates.
     document.getElementById('tsd-pair-code')?.classList.add('hidden');
     const qr = document.getElementById('tsd-qr');
     if (qr) drawPseudoQR(qr, 'BROWN-SYNC-PLACEHOLDER');
+    document.getElementById('tsd-qr-veil')?.classList.remove('hidden');
     document.getElementById('tsd-qr-refresh')?.classList.remove('hidden');
+    const regenBtn = document.getElementById('tsd-regen-qr');
+    if (regenBtn) regenBtn.textContent = 'Generate QR';
     const exp = document.getElementById('tsd-sync-expiry'); if (exp) exp.textContent = 'Tap the refresh icon or “Generate Pair Code”';
   }
 });
 document.getElementById('tsd-qr-refresh')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
-document.getElementById('tsd-sync-refresh')?.addEventListener('click', (e) => { e.stopPropagation(); refreshSyncInfo(); });
 document.getElementById('tsd-generate-pair')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
 document.getElementById('tsd-regen-qr')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
 
@@ -19937,6 +20475,10 @@ if (btnBackFromSettings) {
   });
 }
 
+document.getElementById('btn-settings-back-to-chat')?.addEventListener('click', () => {
+  closeSettingsPanel();
+});
+
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && settingsPanelOpen) {
     closeSettingsPanel();
@@ -20557,62 +21099,182 @@ function setupAutoUpdaterUI() {
   const subtitle = document.getElementById('update-status-subtitle');
   const progressLabel = document.getElementById('update-progress-label');
 
-  // Top-left Chat Header update buttons
-  const topBtnCheck = document.getElementById('top-btn-check-update');
-  const topBtnDownload = document.getElementById('top-btn-download-update');
-  const topBtnRestart = document.getElementById('top-btn-restart-install');
-  const topDownloadText = document.getElementById('top-download-text');
+  // Topbar: single stateful update button + details dropdown
+  const topWrap = document.getElementById('top-update-wrap');
+  const topBtn = document.getElementById('top-btn-update');
+  const topLabel = document.getElementById('top-update-label');
+  const topIconSpin = document.getElementById('top-update-icon-spin');
+  const topIconDownload = document.getElementById('top-update-icon-download');
+  const topIconRestart = document.getElementById('top-update-icon-restart');
+  const topRing = document.getElementById('top-update-ring-fill');
+  const topDropdown = document.getElementById('top-update-dropdown');
+  const tudTitle = document.getElementById('tud-title');
+  const tudSubtitle = document.getElementById('tud-subtitle');
+  const tudNotes = document.getElementById('tud-notes');
+  const tudProgress = document.getElementById('tud-progress');
+  const tudRing = document.getElementById('tud-ring-fill');
+  const tudPct = document.getElementById('tud-progress-pct');
+  const tudSize = document.getElementById('tud-stat-size');
+  const tudSpeed = document.getElementById('tud-stat-speed');
+  const tudEta = document.getElementById('tud-stat-eta');
+  const tudFinished = document.getElementById('tud-finished');
+  const tudBtnUpdate = document.getElementById('tud-btn-update');
+  const tudBtnRestart = document.getElementById('tud-btn-restart');
+  const tudBtnLater = document.getElementById('tud-btn-later');
 
   if (!window.ultronAPI || !window.ultronAPI.onUpdateStatus) return;
+
+  const RING_BTN_C = 2 * Math.PI * 15;
+  const RING_DD_C = 2 * Math.PI * 31;
+  let updateState = 'checking'; // checking | none | available | downloading | downloaded
+  let updateInfo = null;
+  let updateProgress = { percent: 0, bytesPerSecond: 0, transferred: 0, total: 0 };
+  let dropdownOpen = false;
+
+  function fmtBytes(n) {
+    if (!Number.isFinite(n) || n <= 0) return '0 MB';
+    const mb = n / (1024 * 1024);
+    return mb >= 100 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
+  }
+  function fmtSpeed(bps) {
+    if (!Number.isFinite(bps) || bps <= 0) return '--';
+    return `${fmtBytes(bps)}/s`;
+  }
+  function fmtEta(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '--';
+    const s = Math.round(seconds);
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m ${s % 60}s`;
+  }
+  function setRing(circle, circumference, pct) {
+    if (!circle) return;
+    const clamped = Math.min(100, Math.max(0, pct));
+    circle.style.strokeDasharray = `${circumference}`;
+    circle.style.strokeDashoffset = `${circumference * (1 - clamped / 100)}`;
+  }
+
+  function renderTopButton() {
+    if (!topBtn) return;
+    topBtn.classList.remove('state-checking', 'state-none', 'state-available', 'state-downloading', 'state-downloaded', 'ring-visible');
+    topIconSpin?.classList.add('hidden');
+    topIconDownload?.classList.add('hidden');
+    topIconRestart?.classList.add('hidden');
+    if (updateState === 'checking') {
+      topBtn.classList.add('state-checking');
+      topIconSpin?.classList.remove('hidden');
+      if (topLabel) topLabel.textContent = 'Checking for updates';
+    } else if (updateState === 'none') {
+      topBtn.classList.add('state-none');
+      topIconDownload?.classList.remove('hidden');
+      if (topLabel) topLabel.textContent = 'No Updates';
+    } else if (updateState === 'available') {
+      topBtn.classList.add('state-available');
+      topIconDownload?.classList.remove('hidden');
+      if (topLabel) topLabel.textContent = 'Update';
+    } else if (updateState === 'downloading') {
+      topBtn.classList.add('state-downloading', 'ring-visible');
+      topIconDownload?.classList.remove('hidden');
+      if (topLabel) topLabel.textContent = `Updating ${Math.round(updateProgress.percent || 0)}%`;
+    } else {
+      topBtn.classList.add('state-downloaded');
+      topIconRestart?.classList.remove('hidden');
+      if (topLabel) topLabel.textContent = 'Restart';
+    }
+  }
+
+  function renderDropdown() {
+    if (!topDropdown) return;
+    const ver = updateInfo?.version ? `v${updateInfo.version}` : '';
+    if (updateState === 'available') {
+      if (tudTitle) tudTitle.textContent = 'New Update Available';
+      if (tudSubtitle) {
+        const date = updateInfo?.releaseDate ? new Date(updateInfo.releaseDate).toLocaleDateString() : '';
+        tudSubtitle.textContent = [ver, date].filter(Boolean).join(' · ');
+      }
+      if (tudNotes) {
+        tudNotes.textContent = updateInfo?.releaseNotes || 'Bug fixes, speed improvements, and new capabilities.';
+        tudNotes.classList.remove('hidden');
+      }
+      tudProgress?.classList.add('hidden');
+      tudFinished?.classList.add('hidden');
+      tudBtnUpdate?.classList.remove('hidden');
+      tudBtnRestart?.classList.add('hidden');
+      tudBtnLater?.classList.add('hidden');
+    } else if (updateState === 'downloading') {
+      if (tudTitle) tudTitle.textContent = `Downloading Update ${ver}`.trim();
+      if (tudSubtitle) tudSubtitle.textContent = 'Keep the app open until the download finishes.';
+      tudNotes?.classList.add('hidden');
+      tudProgress?.classList.remove('hidden');
+      tudFinished?.classList.add('hidden');
+      tudBtnUpdate?.classList.add('hidden');
+      tudBtnRestart?.classList.add('hidden');
+      tudBtnLater?.classList.add('hidden');
+    } else if (updateState === 'downloaded') {
+      if (tudTitle) tudTitle.textContent = `Update ${ver} Ready`.trim();
+      if (tudSubtitle) tudSubtitle.textContent = 'Restart to install — the app will close, install, and reopen.';
+      tudNotes?.classList.add('hidden');
+      tudProgress?.classList.add('hidden');
+      tudFinished?.classList.remove('hidden');
+      tudBtnUpdate?.classList.add('hidden');
+      tudBtnRestart?.classList.remove('hidden');
+      tudBtnLater?.classList.remove('hidden');
+    }
+  }
+
+  function renderProgress(p) {
+    updateProgress = {
+      percent: p.percent || 0,
+      bytesPerSecond: p.bytesPerSecond || 0,
+      transferred: p.transferred || 0,
+      total: p.total || 0
+    };
+    const pct = Math.round(updateProgress.percent);
+    setRing(topRing, RING_BTN_C, pct);
+    setRing(tudRing, RING_DD_C, pct);
+    if (tudPct) tudPct.textContent = `${pct}%`;
+    if (tudSize) tudSize.textContent = `${fmtBytes(updateProgress.transferred)} / ${fmtBytes(updateProgress.total)}`;
+    if (tudSpeed) tudSpeed.textContent = fmtSpeed(updateProgress.bytesPerSecond);
+    if (tudEta) {
+      tudEta.textContent = updateProgress.bytesPerSecond > 0
+        ? fmtEta((updateProgress.total - updateProgress.transferred) / updateProgress.bytesPerSecond)
+        : '--';
+    }
+  }
+
+  function setDropdownOpen(open) {
+    dropdownOpen = open;
+    topDropdown?.classList.toggle('hidden', !open);
+    topBtn?.setAttribute('aria-expanded', String(open));
+    if (open) renderDropdown();
+  }
 
   function applyUpdateStatus(data) {
     if (!data) return;
 
+    // Settings panel (Updates tab)
     if (btnCheck) {
       btnCheck.disabled = false;
       btnCheck.style.opacity = '1';
     }
-    if (topBtnCheck) {
-      topBtnCheck.disabled = false;
-      topBtnCheck.style.opacity = '1';
-      topBtnCheck.querySelector('span').textContent = 'Check for Updates';
-    }
 
     if (data.status === 'checking') {
       if (title) title.textContent = 'Checking GitHub Releases...';
-      if (topBtnCheck) {
-        topBtnCheck.disabled = true;
-        topBtnCheck.style.opacity = '0.6';
-        topBtnCheck.querySelector('span').textContent = 'Checking...';
-      }
       if (btnCheck) {
         btnCheck.disabled = true;
         btnCheck.style.opacity = '0.6';
       }
-    } else if (data.status === 'dev-mode') {
-      if (title) title.textContent = 'Development Mode';
-      if (subtitle) subtitle.textContent = 'Auto-updates connect to GitHub Releases when packaged.';
-      if (topBtnCheck) {
-        topBtnCheck.querySelector('span').textContent = 'Dev Mode';
-        setTimeout(() => {
-          if (topBtnCheck) topBtnCheck.querySelector('span').textContent = 'Check for Updates';
-        }, 3000);
-      }
+      updateState = 'checking';
     } else if (data.status === 'available') {
+      updateInfo = { version: data.version, releaseDate: data.releaseDate, releaseNotes: data.releaseNotes };
       if (title) title.textContent = `New Update Available: v${data.version}!`;
       if (subtitle) subtitle.textContent = `Release notes: ${data.releaseNotes || 'Bug fixes, speed improvements, and new capabilities.'}`;
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'inline-flex';
-
-      if (topBtnDownload) {
-        topBtnDownload.classList.remove('hidden');
-        if (topDownloadText) topDownloadText.textContent = `Download v${data.version}`;
-      }
-
+      updateState = 'available';
       if (typeof showToast === 'function') {
         showToast(
           `New Update Available: v${data.version}`,
-          `Release notes: ${data.releaseNotes ? data.releaseNotes.slice(0, 100) + '...' : 'Enhancements and fixes ready.'}`,
+          'Open the Update button in the top bar to see details and install.',
           'info'
         );
       }
@@ -20620,18 +21282,14 @@ function setupAutoUpdaterUI() {
       if (title) title.textContent = 'Brown AI is Up to Date ✓';
       if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.15'}).`;
       if (actionContainer) actionContainer.style.display = 'none';
-      if (topBtnDownload) topBtnDownload.classList.add('hidden');
-      if (topBtnRestart) topBtnRestart.classList.add('hidden');
+      updateInfo = null;
+      updateState = 'none';
     } else if (data.status === 'downloading') {
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';
-      const pct = data.percent !== undefined ? `${data.percent}%` : '';
-      if (progressLabel) progressLabel.textContent = `Downloading update... ${pct}`;
-
-      if (topBtnDownload) {
-        topBtnDownload.classList.remove('hidden');
-        if (topDownloadText) topDownloadText.textContent = `Downloading... ${pct}`;
-      }
+      if (progressLabel) progressLabel.textContent = `Downloading update... ${data.percent !== undefined ? `${data.percent}%` : ''}`;
+      updateState = 'downloading';
+      renderProgress(data);
     } else if (data.status === 'downloaded') {
       if (title) title.textContent = `Update v${data.version || '1.0.15'} Ready to Install!`;
       if (subtitle) subtitle.textContent = 'Update downloaded successfully. Click restart to apply changes.';
@@ -20639,14 +21297,11 @@ function setupAutoUpdaterUI() {
       if (btnDownload) btnDownload.style.display = 'none';
       if (btnRestart) btnRestart.style.display = 'inline-flex';
       if (progressLabel) progressLabel.textContent = 'Download Complete 100%';
-
-      if (topBtnDownload) topBtnDownload.classList.add('hidden');
-      if (topBtnRestart) topBtnRestart.classList.remove('hidden');
-
+      updateState = 'downloaded';
       if (typeof showToast === 'function') {
         showToast(
           `Update Ready: v${data.version || '1.0.14'}`,
-          'Download finished. Click Restart & Install to complete update.',
+          'Download finished. Restart now to install, or do it later.',
           'success'
         );
       }
@@ -20659,7 +21314,11 @@ function setupAutoUpdaterUI() {
         if (title) title.textContent = 'Update Check Status';
         if (subtitle) subtitle.textContent = data.error || 'Brown is up to date or network check was completed.';
       }
+      updateState = 'none';
     }
+
+    renderTopButton();
+    renderDropdown();
   }
 
   const handleCheckForUpdates = async () => {
@@ -20676,9 +21335,10 @@ function setupAutoUpdaterUI() {
 
   const handleDownloadUpdate = async () => {
     if (btnDownload) btnDownload.style.display = 'none';
-    if (topBtnDownload) topBtnDownload.classList.add('hidden');
     if (progressLabel) progressLabel.textContent = 'Starting download...';
-    if (topDownloadText) topDownloadText.textContent = 'Starting download...';
+    updateState = 'downloading';
+    renderTopButton();
+    renderDropdown();
     await window.ultronAPI.downloadUpdate();
   };
 
@@ -20687,11 +21347,38 @@ function setupAutoUpdaterUI() {
   };
 
   if (btnCheck) btnCheck.addEventListener('click', handleCheckForUpdates);
-  if (topBtnCheck) topBtnCheck.addEventListener('click', handleCheckForUpdates);
   if (btnDownload) btnDownload.addEventListener('click', handleDownloadUpdate);
-  if (topBtnDownload) topBtnDownload.addEventListener('click', handleDownloadUpdate);
   if (btnRestart) btnRestart.addEventListener('click', handleRestartAndInstall);
-  if (topBtnRestart) topBtnRestart.addEventListener('click', handleRestartAndInstall);
+
+  if (topBtn) {
+    topBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (updateState === 'checking') return;
+      if (updateState === 'none') {
+        handleCheckForUpdates();
+        return;
+      }
+      setDropdownOpen(!dropdownOpen);
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!dropdownOpen) return;
+    if (topWrap && !topWrap.contains(e.target)) setDropdownOpen(false);
+  });
+
+  tudBtnUpdate?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handleDownloadUpdate();
+  });
+  tudBtnRestart?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handleRestartAndInstall();
+  });
+  tudBtnLater?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setDropdownOpen(false);
+  });
 
   window.ultronAPI.onUpdateStatus((data) => {
     applyUpdateStatus(data);
@@ -21352,8 +22039,24 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
           if (activeDevices.length === 0) {
             devicesContainer.innerHTML = `
               <div class="sync-empty-state-card">
-                <div class="sync-empty-svg-wrapper">
-                  <img class="sync-empty-illustration sync-animated-devices" src="../../Assets/computer-phone-connection.svg" alt="Device Connection" />
+                <div class="sync-empty-svg-wrapper sync-connect-images">
+                  <img class="sync-connect-img" src="../../Assets/computer-connect.png" alt="Brown on desktop" />
+                  <div class="sync-connection-bridge">
+                    <div class="sync-bridge-track">
+                      <div class="sync-pulse-particle sync-particle-left"></div>
+                      <div class="sync-pulse-particle sync-particle-right-rev"></div>
+                    </div>
+                    <div class="sync-bridge-node" title="Local Connection Bridge">
+                      <svg class="sync-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                      </svg>
+                    </div>
+                    <div class="sync-bridge-track">
+                      <div class="sync-pulse-particle sync-particle-left"></div>
+                      <div class="sync-pulse-particle sync-particle-right-rev"></div>
+                    </div>
+                  </div>
+                  <img class="sync-connect-img sync-connect-mobile" src="../../Assets/connect-mobile.png" alt="Brown on mobile" />
                 </div>
                 <h6 class="sync-empty-title">No mobile devices paired yet</h6>
                 <p class="sync-empty-desc">Click “Generate Pair Code” and enter the code in your mobile app to connect your device.</p>

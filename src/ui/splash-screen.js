@@ -26,7 +26,7 @@
           <!-- Brown Logo -->
           <div class="ultron-logo-container">
             <div class="ultron-logo-circle" style="background: transparent; border: none; box-shadow: none;">
-              <img src="../../Assets/Brand-Assets/brown-logo.png" alt="Brown" class="ultron-logo-img" style="max-width: 180px; height: auto; object-fit: contain; filter: drop-shadow(0 0 18px rgba(99,102,241,0.6));" onerror="this.src='../../Assets/brown-logo.png'" />
+              <img src="../../Assets/brown-white-logo.png" alt="Brown" class="ultron-logo-img" style="max-width: 180px; height: auto; object-fit: contain; filter: drop-shadow(0 0 18px rgba(99,102,241,0.6));" onerror="this.src='../../Assets/brown-white-logo.png'" />
             </div>
           </div>
           </div>
