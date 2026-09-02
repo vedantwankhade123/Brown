@@ -1,4 +1,4 @@
-const { ipcMain, exec, app, shell, dialog, clipboard, desktopCapturer, screen } = require('electron');
+const { ipcMain, exec, app, shell, dialog, clipboard, desktopCapturer, screen, BrowserWindow } = require('electron');
 const { exec: cpExec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -987,6 +987,30 @@ function registerAudioIpcHandlers() {
     }
   });
 
+
+  ipcMain.on('set-app-theme', (event, payload) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win) return;
+      const p = (payload && typeof payload === 'object') ? payload : { theme: payload };
+      const ts = require('./theme-state');
+      ts.state.light = String(p.theme) === 'light';
+      if (p.user) ts.state.splashDone = true;
+      const { color, symbolColor } = ts.overlayColors();
+      win.setTitleBarOverlay({ color, symbolColor, height: 36 });
+    } catch (e) {}
+  });
+
+  ipcMain.on('splash-done', (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const ts = require('./theme-state');
+      ts.state.splashDone = true;
+      if (!win) return;
+      const { color, symbolColor } = ts.overlayColors();
+      win.setTitleBarOverlay({ color, symbolColor, height: 36 });
+    } catch (e) {}
+  });
 
   ipcMain.handle('transcribe-audio', async (_event, payload = {}) => {
     try {

@@ -447,7 +447,6 @@ html, body {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 1px solid var(--border-solid);
   margin-bottom: 4px;
 }
 
@@ -468,22 +467,22 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
-  background: transparent;
-  border: 1px solid transparent;
+  background: transparent !important;
+  border: 1px solid transparent !important;
   transition: all 0.15s ease;
   min-height: 36px;
   box-sizing: border-box;
 }
 
 .model-dropdown-item:hover {
-  background: var(--bg-solid-hover);
+  background: var(--bg-solid-hover) !important;
 }
 
 .model-dropdown-item.active {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.3);
+  background: transparent !important;
+  border-color: transparent !important;
 }
 
 .model-dropdown-item-left {
@@ -518,7 +517,6 @@ html, body {
 .model-dropdown-download-item {
   padding: 10px 10px 6px 10px;
   margin-top: 4px;
-  border-top: 1px solid var(--border-solid);
   color: var(--text-main);
   cursor: pointer;
   display: flex;

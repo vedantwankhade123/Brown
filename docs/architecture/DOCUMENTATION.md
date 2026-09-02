@@ -31,10 +31,15 @@ This documentation covers system architecture, technology stack, local model sel
 * **Dynamic Hardware Profiler:** Scans host CPU threads, total system RAM, and active GPU vRAM on boot to automatically allocate the optimal model footprint (e.g. `phi4`, `llama3.2`, `qwen2.5`).
 * **Human-in-the-Loop (HITL) Security Boundary:** A security validation system that prompts explicit user authorization dialogs before executing any terminal, PowerShell, or file-modifying subprocesses.
 * **Spotlight Command Overlay (`Ctrl+K`):** A full-screen (`100vw x 100vh`) blur-backdrop search overlay supporting debounced natural language indexing over session history and system shortcuts.
+* **Floating Quick-Action Bar:** An ultra-lightweight floating input bar for instant math, app launching, clipboard transforms, and 1-line agent actions without opening the main window.
 * **Windows Start Menu Program Parser:** Automatically indexes user and system shortcut paths (`.lnk`), resolves absolute target `.exe` binaries, and renders authentic brand logos (Chrome, VS Code, Brave, AnyDesk, etc.).
 * **Dynamic Chat Session Summarizer:** Asynchronously generates 2–3 word topic headers in real-time for session sidebar feeds using lightweight local inference calls.
 * **Draggable Splitter Layout:** Allows real-time mouse-dragging to resize middle chat frames and collapse system metrics panels.
-* **Hybrid Cloud Connector:** Optional fallback to Google Gemini 1.5 Pro / Flash APIs for complex online tasks when enabled by the user.
+* **Hybrid Cloud Connector:** Optional fallback to cloud APIs (Gemini, OpenAI, Anthropic, DeepSeek, OpenRouter, Groq) for complex online tasks when enabled by the user with their own keys.
+* **Fully Offline Voice Pipeline:** Local Whisper STT (multilingual `whisper-base`, warmed at startup) plus Kokoro neural TTS — speech recognition and synthesis never touch the cloud. The mic transforms into an in-input recording capsule while the composer stays visible.
+* **Light / Dark / System Theming:** A full light theme alongside dark, with automatic logo/contrast switching across cards, inputs, dropdowns, and the title bar.
+* **Topbar Command Dropdowns:** Models, Apps, Sync, Knowledge, and Automation open as in-place animated dropdowns from the topbar instead of jumping to Settings.
+* **Device Sync with Pair Code + QR:** Local P2P WebSocket sync with a 30-second pairing code and QR generated straight from the Sync dropdown.
 
 ---
 
@@ -198,17 +203,26 @@ Ultron provides extensive customization options accessible via the **Settings Pa
 
 ### ⚙️ Settings Manual Breakdown
 
-* **Model & Provider Connector:**
+Settings opens as a centered modal with a uniform 920px content width across all sections. The sidebar auto-collapses while Settings is open.
+
+* **Models & Provider Connector:**
   * **Inference Mode:** Toggle between `Local Ollama` and `Cloud API`.
   * **Ollama Endpoint:** Default is `http://127.0.0.1:11434`. Can be pointed to a remote Ollama server on local network.
-  * **Selected Model:** Dropdown list auto-populated from currently pulled Ollama models.
+  * **Selected Model:** Dropdown list auto-populated from currently pulled Ollama models (also quickly switchable from the topbar Models dropdown).
+* **Appearance:**
+  * **Theme:** `Dark`, `Light`, or `System`. Light mode restyles cards, inputs, dropdowns, and switches the brand logo to the black variant. The native title bar follows via `theme-state.js`.
+* **Advanced Options (Performance Engine):**
+  * **GPU Priority / CPU Only / Auto Adaptive:** Hardware acceleration mode switcher (re-homed from the topbar), with live GPU/VRAM telemetry.
 * **Security & Authorization Boundary:**
   * **Human-in-the-Loop Mode:** Enforce dialog confirmation for system execution commands (`Strict`, `Moderate`, or `Disabled`).
   * **Allowed Command Whitelist:** Pre-approve trusted PowerShell / CMD scripts for seamless execution.
+* **Sync:**
+  * **Device Pairing:** Generate a 30-second pair code + QR from the topbar Sync dropdown; manage and clear previously paired devices.
 * **Interface & Customization:**
   * **Spotlight Hotkey:** Customize the global overlay shortcut (default: `Ctrl+K`).
-  * **UI Theme Accent:** Toggle Gemini Dark accenting, opacity glassmorphism intensity, and font scaling.
   * **Metrics Panel Display:** Choose whether host hardware CPU/RAM meters are visible in the right sidebar.
+* **About:**
+  * Version info, brand identity, and quick links.
 
 ---
 
@@ -218,23 +232,34 @@ Ultron provides extensive customization options accessible via the **Settings Pa
 ```
 Ultron/
 ├── Assets/                        # Branding images, icons, logo SVGs
+│   └── Brand-Assets/              # Provider logos, device mockups, theme variants
 ├── src/
 │   ├── main/                      # Electron Main Process
 │   │   ├── index.js               # App entry point & window lifecycle
 │   │   ├── ipc.js                 # IPC handlers, Start Menu scanner, system APIs
 │   │   ├── hardware.js            # Hardware profiler (CPU/RAM/GPU)
 │   │   ├── sandbox.js             # Terminal command execution sandbox
-│   │   └── security.js            # Security rules & HITL dialog manager
+│   │   ├── security.js            # Security rules & HITL dialog manager
+│   │   ├── theme-state.js         # Light/dark theme state for native overlays (title bar, splash)
+│   │   ├── voice-whisper.js       # Offline Whisper STT engine (warmup + transcription)
+│   │   └── desktop-sync-server.js # P2P WebSocket sync server (pair codes, QR, chat consent)
 │   ├── preload/
 │   │   └── preload.js             # Preload ContextBridge security bridge
+│   ├── ui/                        # Reusable window chrome
+│   │   ├── splash-screen.js       # Branded splash screen
+│   │   └── performance-toggle.js  # GPU/CPU/Auto performance engine control
 │   └── renderer/                  # Frontend UI Layer
-│       ├── index.html             # Main DOM layout & Spotlight modal
-│       ├── index.css              # Custom CSS design system (Dark mode)
-│       └── renderer.js            # Chat stream controller & UI logic
+│       ├── index.html             # Main DOM layout, topbar dropdowns, Settings modal
+│       ├── index.css              # Custom CSS design system (dark + light themes)
+│       ├── renderer.js            # Chat stream controller, theming & UI logic
+│       ├── floating-bar.html/.js/.css  # Floating quick-action bar window
+│       └── components/            # Renderer components (e.g. PairedDevicesEmptyState)
 ├── python/                        # Python Sidecar Services
 │   ├── server.py                  # WebSocket / REST sidecar server
 │   ├── inference.py               # Python AI agent logic & tools
 │   └── scraper.py                 # RAG web search scraping module
+├── mobile/                        # React Native / Expo mobile companion
+├── brown-website/                 # Official web portal (React / Vite / Firebase)
 ├── dist/                          # Compiled executable outputs
 └── package.json                   # Dependencies & build configuration
 ```

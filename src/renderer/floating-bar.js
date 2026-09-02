@@ -256,6 +256,7 @@
       } else if (name.includes(':')) {
         badgeText = name.split(':')[1].toUpperCase();
       }
+      const badgeHtml = badgeText === 'LATEST' ? '' : `<span class="model-dropdown-badge">${badgeText}</span>`;
 
       const item = document.createElement('div');
       item.className = `model-dropdown-item ${isSelected ? 'active' : ''}`;
@@ -264,7 +265,7 @@
           <img src="${iconSrc}" alt="${provider}" class="model-ollama-icon" onerror="this.src='../../Assets/Brand-Assets/ollama-white-logo.png'" />
           <span class="model-dropdown-name">${escapeHtml(name)}</span>
         </div>
-        <span class="model-dropdown-badge">${badgeText}</span>
+        ${badgeHtml}
       `;
 
       item.addEventListener('click', () => {
