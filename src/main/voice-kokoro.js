@@ -122,6 +122,53 @@ function findKokoroModelOnnxPath() {
   return allOnnx.find((fp) => isValidOnnxModelFile(fp, 20 * 1024 * 1024)) || null;
 }
 
+/**
+ * Older builds downloaded into transformers' default .cache or the Whisper
+ * STT cache. Copy a complete model into the Kokoro cache if we find one.
+ */
+function migrateStrayKokoroModel() {
+  if (hasCompleteKokoroModel()) return false;
+
+  const searchRoots = [];
+  try {
+    const transformersPkg = require.resolve('@huggingface/transformers/package.json');
+    searchRoots.push(path.join(path.dirname(transformersPkg), '.cache'));
+  } catch (e) { /* ignore */ }
+  try {
+    const { getOllamaModelsDir } = require('./paths');
+    searchRoots.push(path.join(getOllamaModelsDir(), 'tts-cache', 'stt-whisper'));
+  } catch (e) { /* ignore */ }
+
+  const destRoot = getKokoroCacheDir();
+  for (const root of searchRoots) {
+    if (!root || !fs.existsSync(root)) continue;
+    const matches = walkDir(root, (fp) =>
+      /Kokoro/i.test(fp) && /model_quantized\.onnx$|model_q8\.onnx$|model\.onnx$/i.test(fp)
+    );
+    const source = matches.find((fp) => isValidOnnxModelFile(fp, KOKORO_MIN_MODEL_BYTES));
+    if (!source) continue;
+
+    try {
+      // HF layout: .../<model-id>/onnx/model_quantized.onnx
+      const onnxDir = path.dirname(source);
+      const modelRoot = path.dirname(onnxDir);
+      const destModelRoot = path.join(destRoot, 'models', path.basename(modelRoot));
+      for (const filePath of walkDir(modelRoot, () => true)) {
+        const relPath = path.relative(modelRoot, filePath);
+        const outPath = path.join(destModelRoot, relPath);
+        if (fs.existsSync(outPath)) continue;
+        fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        try { fs.copyFileSync(filePath, outPath); } catch (e) { /* ignore locked */ }
+      }
+      console.log('[voice-kokoro] migrated stray Kokoro cache from', modelRoot, 'to', destModelRoot);
+      return hasCompleteKokoroModel();
+    } catch (err) {
+      console.warn('[voice-kokoro] stray model migrate failed:', err.message);
+    }
+  }
+  return false;
+}
+
 function getKokoroCacheBytes() {
   const cacheDir = getKokoroCacheDir();
   if (!fs.existsSync(cacheDir)) return 0;
@@ -194,14 +241,26 @@ function isKokoroDownloading() {
 }
 
 async function configureTransformersEnv() {
-  if (transformersEnvConfigured) return;
   const cacheDir = getKokoroCacheDir();
   fs.mkdirSync(cacheDir, { recursive: true });
+  // Transformers.js v3 does not honor TRANSFORMERS_CACHE / HF_HOME alone —
+  // env.cacheDir must be set explicitly (same pattern as Whisper STT).
+  // Always re-apply: Whisper (or another caller) may have overwritten the global.
   process.env.TRANSFORMERS_CACHE = cacheDir;
   process.env.HF_HOME = cacheDir;
 
-  primeOnnxRuntimeNode();
-  transformersEnvConfigured = true;
+  const transformers = await import('@huggingface/transformers');
+  transformers.env.cacheDir = cacheDir;
+  transformers.env.useFSCache = true;
+  transformers.env.allowLocalModels = true;
+  if ('useBrowserCache' in transformers.env) {
+    transformers.env.useBrowserCache = false;
+  }
+
+  if (!transformersEnvConfigured) {
+    primeOnnxRuntimeNode();
+    transformersEnvConfigured = true;
+  }
 }
 
 /**
@@ -356,6 +415,11 @@ async function downloadKokoroEngine(sendProgress) {
 
     const modelPath = findKokoroModelOnnxPath();
     if (!modelPath || !isValidOnnxModelFile(modelPath, KOKORO_MIN_MODEL_BYTES)) {
+      // Recover from older builds that wrote into the wrong transformers cache.
+      migrateStrayKokoroModel();
+    }
+    const verifiedPath = findKokoroModelOnnxPath();
+    if (!verifiedPath || !isValidOnnxModelFile(verifiedPath, KOKORO_MIN_MODEL_BYTES)) {
       removeIncompleteKokoroCache();
       const diag = getKokoroDiagnostics();
       console.error('[voice-kokoro] incomplete ONNX after download:', diag);
