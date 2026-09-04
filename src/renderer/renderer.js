@@ -14483,7 +14483,7 @@ async function syncDesktopAppTelemetry() {
         email: { stringValue: userEmail.toLowerCase() },
         name: { stringValue: userName || userEmail.split('@')[0] },
         platform: { stringValue: 'Windows 11 / 10 x64' },
-        appVersion: { stringValue: 'v1.0.16' },
+        appVersion: { stringValue: 'v1.0' },
         onboarded: { booleanValue: true },
         privacyAccepted: { booleanValue: privacyAccepted },
         privacyAcceptedAt: { stringValue: privacyAcceptedAt },
@@ -21939,7 +21939,7 @@ function setupAutoUpdaterUI() {
       }
     } else if (data.status === 'not-available') {
       if (title) title.textContent = 'Brown AI is Up to Date ✓';
-      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.16'}).`;
+      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0'}).`;
       if (actionContainer) actionContainer.style.display = 'none';
       updateInfo = null;
       updateState = 'none';
@@ -21950,7 +21950,7 @@ function setupAutoUpdaterUI() {
       updateState = 'downloading';
       renderProgress(data);
     } else if (data.status === 'downloaded') {
-      if (title) title.textContent = `Update v${data.version || '1.0.16'} Ready to Install!`;
+      if (title) title.textContent = `Update v${data.version || '1.0'} Ready to Install!`;
       if (subtitle) subtitle.textContent = 'Update downloaded successfully. Click restart to apply changes.';
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';

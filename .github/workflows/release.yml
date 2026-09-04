@@ -124,16 +124,20 @@ jobs:
             releaseDate = (Get-Date -Format "yyyy-MM-dd")
             setupUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Setup-v$version.exe"
             portableUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-v$version.exe"
-            mobileApkUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Mobile-v1.0.0.apk"
+            mobileApkUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Mobile-v$version.apk"
             setupName = "Brown-AI-Setup-v$version.exe"
             portableName = "Brown-AI-v$version.exe"
-            mobileApkName = "Brown-AI-Mobile-v1.0.0.apk"
+            mobileApkName = "Brown-AI-Mobile-v$version.apk"
           }
           if (Test-Path "Ultron Website") {
             New-Item -ItemType Directory -Force -Path "Ultron Website/public" | Out-Null
             $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/public/release.json" -Encoding UTF8
             $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/release.json" -Encoding UTF8
             Write-Host "Updated website release.json for version $version"
+          } elseif (Test-Path "brown-website") {
+            New-Item -ItemType Directory -Force -Path "brown-website/public" | Out-Null
+            $relJson | ConvertTo-Json -Depth 5 | Set-Content "brown-website/public/release.json" -Encoding UTF8
+            Write-Host "Updated brown-website/public/release.json for version $version"
           } else {
             Write-Host "Website folder not in runner root, skipping release.json update."
           }
@@ -145,4 +149,4 @@ jobs:
           Write-Host "Successfully published Brown AI v$version to GitHub Releases!"
           Write-Host "Installer: Brown-AI-Setup-v$version.exe"
           Write-Host "Portable:  Brown-AI-v$version.exe"
-          Write-Host "Mobile:    Brown-AI-Mobile-v1.0.0.apk (keep attached on the same release)"
+          Write-Host "Mobile:    Brown-AI-Mobile-v$version.apk (attach after desktop publish if needed)"

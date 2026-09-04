@@ -1,6 +1,6 @@
 {
   "name": "brown",
-  "version": "1.0.16",
+  "version": "1.0",
   "description": "Local offline privacy-focused Windows AI Agent framework (Brown)",
   "author": "Vedant Wankhade",
   "license": "Proprietary",
@@ -30,7 +30,7 @@
       "releaseType": "release"
     },
     "releaseInfo": {
-      "releaseName": "Brown AI v${version} (Desktop & Mobile)"
+      "releaseName": "Brown AI v1.0 (Desktop & Mobile)"
     },
     "compression": "store",
     "npmRebuild": false,
@@ -80,7 +80,7 @@
       "cscLink": null
     },
     "portable": {
-      "artifactName": "Brown AI v${version}.${ext}"
+      "artifactName": "Brown AI v1.0.${ext}"
     },
     "appx": {
       "applicationId": "BrownAI",
@@ -106,7 +106,7 @@
       "installerSidebar": "Assets/installerSidebar.bmp",
       "uninstallerSidebar": "Assets/installerSidebar.bmp",
       "installerHeader": "Assets/installerHeader.bmp",
-      "artifactName": "Brown AI Setup v${version}.${ext}",
+      "artifactName": "Brown AI Setup v1.0.${ext}",
       "runAfterFinish": true,
       "differentialPackage": false,
       "include": "build/installer.nsh"

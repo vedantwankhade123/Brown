@@ -1,7 +1,7 @@
 ﻿# Brown AI — Autonomous Local-First Windows AI Agent
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-v1.0.16-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Releases/releases)
+[![Release](https://img.shields.io/badge/Release-v1.0-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Releases/releases)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown-Releases/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
@@ -37,8 +37,9 @@ Official pre-compiled binaries are published in the **[Brown-Releases](https://g
 
 | Build Type | File Name | Platform | Description |
 | :--- | :--- | :--- | :--- |
-| **Setup Installer** | [`Brown AI Setup v1.0.16.exe`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0.16/Brown%20AI%20Setup%20v1.0.16.exe) | Windows 10 / 11 (x64) | Standard guided installer with Start Menu & Desktop shortcuts. |
-| **Portable Binary** | [`Brown AI v1.0.16.exe`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0.16/Brown%20AI%20v1.0.16.exe) | Windows 10 / 11 (x64) | Standalone executable. Runs immediately without installation. |
+| **Setup Installer** | [`Brown-AI-Setup-v1.0.exe`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0/Brown-AI-Setup-v1.0.exe) | Windows 10 / 11 (x64) | Standard guided installer with Start Menu & Desktop shortcuts. |
+| **Portable Binary** | [`Brown-AI-v1.0.exe`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0/Brown-AI-v1.0.exe) | Windows 10 / 11 (x64) | Standalone executable. Runs immediately without installation. |
+| **Android APK** | [`Brown-AI-Mobile-v1.0.apk`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0/Brown-AI-Mobile-v1.0.apk) | Android 11+ | Direct APK install for phones and tablets. |
 
 ---
 
