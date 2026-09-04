@@ -376,8 +376,10 @@ body.platform-win32 .chat-header-actions {
 
 .session-row-text {
   display: flex;
-  flex-direction: row;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
   min-width: 0;
   flex: 1;
 }
@@ -397,7 +399,14 @@ body.platform-win32 .chat-header-actions {
 }
 
 .session-timestamp {
-  display: none !important;
+  display: block !important;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 190px;
 }
 
 .text-truncate {
@@ -2138,14 +2147,17 @@ body.platform-win32 .chat-header-actions {
 }
 
 .btn-send:disabled,
-.btn-send[aria-disabled="true"] {
+.btn-send[aria-disabled="true"],
+.btn-send.disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.45;
   transform: none;
+  pointer-events: none;
 }
 
 .btn-send:disabled:hover,
-.btn-send[aria-disabled="true"]:hover {
+.btn-send[aria-disabled="true"]:hover,
+.btn-send.disabled:hover {
   background-color: var(--accent-white);
   transform: none;
 }
@@ -6561,6 +6573,23 @@ body.platform-win32 .chat-header-actions {
   display: block;
   background: #f1f5f9;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.product-result-icon-fallback {
+  width: 100%;
+  height: 104px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  user-select: none;
+}
+
+[data-theme="dark"] .product-result-icon-fallback {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .product-result-body {

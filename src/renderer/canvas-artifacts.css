@@ -1,5 +1,17 @@
 /* Ultron Interactive Canvas & Artifacts Split-View Styling */
 
+/* ChatGPT-style default: keep the right workspace hidden */
+body:not(.ultron-workspace-enabled) #canvas-artifacts-panel,
+body:not(.ultron-workspace-enabled) #workspace-splitter {
+  display: none !important;
+}
+
+body:not(.ultron-workspace-enabled) .chat-pane-column {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
 .canvas-split-container {
   display: flex;
   flex: 1;

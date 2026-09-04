@@ -108,9 +108,12 @@
     if (c.startsWith('statediagram') || c.includes('\nstatediagram')) return 'State Machine Diagram';
     if (c.startsWith('gantt') || c.includes('\ngantt')) return 'Gantt Timeline';
     if (c.startsWith('pie') || c.includes('\npie')) return 'Pie Chart';
-    if (c.includes('subgraph') || c.includes('architecture')) return 'System Architecture Diagram';
+    if (/\b(architecture|microservice|gateway|load balancer|client layer)\b/i.test(c)) return 'System Architecture Diagram';
+    if (/\bsubgraph\b/i.test(c) && (c.match(/-->/g) || []).length >= 4) return 'System Architecture Diagram';
     return 'Flowchart Diagram';
   }
+
+  const MERMAID_RESERVED = /^(graph|flowchart|subgraph|end|classDef|class|style|linkStyle|click|direction|mindmap|sequencediagram|classdiagram|statediagram|erdiagram|gantt|pie|participant|actor|note|title|dateFormat|section|%%)$/i;
 
   /**
    * Cleans, normalizes, and repairs imperfect Mermaid code before passing to parser
@@ -119,65 +122,143 @@
     if (!code) return '';
     let raw = String(code).trim();
     // Remove markdown code fences if wrapped inside
-    raw = raw.replace(/^```(?:mermaid|flowchart|graph)?\s*\n/i, '').replace(/\n```\s*$/i, '');
-    
-    // Check if it is a mindmap or sequence/er/class diagram
-    if (/^\s*(mindmap|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie)\b/i.test(raw)) {
-      return raw;
+    raw = raw.replace(/^```(?:mermaid|flowchart|graph)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+
+    // Check if it is a mindmap or sequence/er/class diagram — light cleanup only
+    if (/^\s*(mindmap|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|gantt|pie)\b/i.test(raw)) {
+      return raw
+        .split('\n')
+        .map(l => l.replace(/\s+$/, ''))
+        .filter(l => !/^\s*classDef\b/i.test(l) || /classDef\s+\w+\s+fill:/i.test(l))
+        .join('\n')
+        .trim();
     }
 
     const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
     const validLines = [];
     let hasHeader = false;
+    let dropStyling = false;
 
     function repairNodeToken(token) {
       let t = String(token || '').trim();
       if (!t) return '';
-      t = t.replace(/[;:\-]+$/, '').trim();
+      // Drop edge labels accidentally left on tokens (incl. glued forms like "|Yes|CSet Reminder")
+      t = t.replace(/^\|\s*[^|]*\s*\|\s*/, '').replace(/\s*\|\s*[^|]*\s*\|$/, '').trim();
+      // Never keep edge labels inside node brackets: [|Yes| Set Reminder] / ["|Yes| ..."]
+      t = t.replace(/\[\s*"?\|\s*[^|]*\s*\|\s*/g, (m) => (m.includes('"') ? '["' : '['));
+      t = t.replace(/[;]+$/, '').trim();
+      if (MERMAID_RESERVED.test(t.split(/[\s\[\(\{]/)[0] || '')) return '';
 
       // Database [(...)]
-      if (/^[A-Za-z0-9_-]+\s*\[\([^)]+\)\]$/.test(t)) return t;
-      if (/^[A-Za-z0-9_-]+\s*\[\(/.test(t) && !t.endsWith(')]')) return t + ')]';
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\[\([^)]+\)\]$/.test(t)) return t;
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\[\(/.test(t) && !t.endsWith(')]')) return t.replace(/\]?$/, '') + ')]';
 
       // Decision {...}
-      if (/^[A-Za-z0-9_-]+\s*\{[^}]+\}$/.test(t)) return t;
-      if (/^[A-Za-z0-9_-]+\s*\{/.test(t) && !t.endsWith('}')) return t + '}';
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\{[^}]+\}$/.test(t)) return t;
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\{/.test(t) && !t.endsWith('}')) return t + '}';
+
+      // Stadium / circle
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\(\[[^\]]+\]\)$/.test(t)) return t;
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\(\([^)]+\)\)$/.test(t)) return t;
 
       // Process / Terminal [...] or (...)
-      if (/^[A-Za-z0-9_-]+\s*\[[^\]]+\]$/.test(t)) return t;
-      if (/^[A-Za-z0-9_-]+\s*\([^)]+\)$/.test(t)) return t;
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\[[^\]]+\]$/.test(t)) return t;
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\([^)]+\)$/.test(t)) return t;
 
       // Handle unclosed opening bracket e.g. "A[User Interface" -> "A[User Interface]"
-      if (/^[A-Za-z0-9_-]+\s*\[[^\]]+$/.test(t)) return t + ']';
-      if (/^[A-Za-z0-9_-]+\s*\([^)]+$/.test(t)) return t + ')';
-      if (/^[A-Za-z0-9_-]+\s*\{[^}]+$/.test(t)) return t + '}';
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\[[^\]]+$/.test(t)) return t + ']';
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\([^)]+$/.test(t)) return t + ')';
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\{[^}]+$/.test(t)) return t + '}';
 
       // Handle unmatched closing bracket e.g. "Users]" or "Users)"
-      if (/^[A-Za-z0-9_-]+[\]\)\}]+$/.test(t)) {
+      if (/^[A-Za-z][A-Za-z0-9_-]+[\]\)\}]+$/.test(t)) {
         const cleanName = t.replace(/[\[\]\(\)\{\}]+/g, '').trim();
-        return cleanName ? `${cleanName}[${cleanName}]` : '';
+        return cleanName && !MERMAID_RESERVED.test(cleanName) ? `${cleanName}[${cleanName}]` : '';
       }
 
-      // Handle bare word e.g. "Websockets" or "Redis"
-      if (/^[A-Za-z0-9_-]+$/.test(t)) {
+      // Bare word node id
+      if (/^[A-Za-z][A-Za-z0-9_-]*$/.test(t)) {
         return `${t}[${t}]`;
       }
 
-      const safeId = t.replace(/[^A-Za-z0-9_]/g, '_');
-      const cleanLabel = t.replace(/[\[\]\(\)\{\}]+/g, '').trim();
-      return `${safeId}[${cleanLabel || t}]`;
+      // Quoted label already: A["Label"]
+      if (/^[A-Za-z][A-Za-z0-9_-]*\s*\["[^"]+"\]$/.test(t)) return t;
+
+      const safeId = t.replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+|_+$/g, '') || 'N';
+      if (MERMAID_RESERVED.test(safeId)) return '';
+      const cleanLabel = t.replace(/[\[\]\(\)\{\}]+/g, '').replace(/"/g, "'").trim();
+      if (!cleanLabel || cleanLabel.length < 2) return '';
+      if (/^(color|fill|stroke)\s*=/i.test(cleanLabel)) return '';
+      return `${safeId}["${cleanLabel}"]`;
+    }
+
+    function normalizeClassDef(line) {
+      // Invalid CSS-ish: classDef step[color="#2A9DC1"]  → drop (causes Mermaid parse failure)
+      if (/classDef\s+\w+\s*\[/i.test(line)) return null;
+      // Valid: classDef id fill:#xxx,stroke:#yyy,color:#fff
+      if (/^classDef\s+\w+\s+fill:/i.test(line)) return line;
+      // classDef id color:#xxx → convert
+      const m = line.match(/^classDef\s+(\w+)\s+(.+)$/i);
+      if (m) {
+        let props = m[2].replace(/color\s*=\s*"?(#[0-9A-Fa-f]{3,8})"?/gi, 'fill:$1,stroke:$1,color:#fff');
+        props = props.replace(/[\[\]]/g, '').trim();
+        if (!/fill:/i.test(props)) return null;
+        return `classDef ${m[1]} ${props}`;
+      }
+      return null;
+    }
+
+    function normalizeSubgraph(line) {
+      // subgraph Process Steps → subgraph ps[Process Steps]
+      let m = line.match(/^subgraph\s+([A-Za-z][A-Za-z0-9_-]*)\s*\[\s*(.+?)\s*\]\s*$/i);
+      if (m) return `subgraph ${m[1]}[${m[2]}]`;
+      m = line.match(/^subgraph\s+(.+)$/i);
+      if (m) {
+        const title = m[1].replace(/[\[\]]/g, '').trim();
+        if (!title) return null;
+        const id = title.replace(/[^A-Za-z0-9]/g, '').slice(0, 24) || 'sg';
+        return `subgraph ${id}[${title}]`;
+      }
+      return null;
     }
 
     lines.forEach(line => {
       let l = line.replace(/;+\s*$/, '').trim();
-      if (!l) return;
+      if (!l || /^%%/.test(l)) return;
 
       if (/^(graph|flowchart)\s+(TD|TB|BT|LR|RL)\b/i.test(l)) {
         hasHeader = true;
-        validLines.push(l);
+        validLines.push(l.replace(/^graph\b/i, 'flowchart'));
         return;
       }
-      if (/^(subgraph|end|classDef|class|style|linkStyle|click)\b/i.test(l)) {
+
+      if (/^classDef\b/i.test(l)) {
+        const fixed = normalizeClassDef(l);
+        if (fixed) validLines.push(fixed);
+        else dropStyling = true;
+        return;
+      }
+
+      if (/^(class|style|linkStyle|click)\b/i.test(l)) {
+        // Drop if we already dropped broken classDefs — avoids orphan class refs
+        if (!dropStyling && /^class\s+/i.test(l) && !/classDef/i.test(l)) {
+          validLines.push(l);
+        }
+        return;
+      }
+
+      if (/^end\b/i.test(l)) {
+        validLines.push('end');
+        return;
+      }
+
+      if (/^subgraph\b/i.test(l)) {
+        const sg = normalizeSubgraph(l);
+        if (sg) validLines.push(sg);
+        return;
+      }
+
+      if (/^direction\s+(TD|TB|BT|LR|RL)\b/i.test(l)) {
         validLines.push(l);
         return;
       }
@@ -192,38 +273,51 @@
         if (/^(#|\*|-|•|note\b|summary\b|architectural summary\b|the (architecture|data|system)\b|this (diagram|flowchart|architecture)|why this scales)/i.test(l)) {
           return;
         }
-        if (l.length > 40 && l.includes(' ')) {
+        if (l.length > 40 && l.includes(' ') && !/\[[^\]]+\]|\([^)]+\)|\{[^}]+\}/.test(l)) {
           return;
         }
       }
 
-      // Normalize arrows
-      l = l.replace(/\s*-\s*->\s*/g, ' --> ');
-      l = l.replace(/\s*->\s*/g, ' --> ');
-      l = l.replace(/\s*==\s*>\s*/g, ' ==> ');
-      l = l.replace(/\s*-\.\s*->\s*/g, ' -.-> ');
+      // Preserve -->|Label| BEFORE spacing arrows (spacing alone used to glue "|Yes|" into the next node)
+      l = l.replace(/(-->|==>|-\.->|->)\s*\|\s*([^|]+)\s*\|/g, (_, arrow, label) => {
+        const norm = arrow === '->' ? '-->' : arrow;
+        return ` ${norm}|${String(label).trim()}| `;
+      });
+      // Normalize arrows that are NOT already followed by an edge label
+      l = l.replace(/\s*-\s*->\s*(?!\|)/g, ' --> ');
+      l = l.replace(/\s*->\s*(?!\|)/g, ' --> ');
+      l = l.replace(/\s*==\s*>\s*(?!\|)/g, ' ==> ');
+      l = l.replace(/\s*-\.\s*->\s*(?!\|)/g, ' -.-> ');
 
-      // If line contains arrow, repair both sides
-      if (l.includes(' --> ') || l.includes(' ==> ') || l.includes(' -.-> ')) {
-        const arrowMatch = l.match(/\s*(-->|==>|-\.->)(?:\|([^|]+)\|)?\s*/);
-        if (arrowMatch) {
-          const arrowType = arrowMatch[1];
-          const edgeLabel = arrowMatch[2] ? `|${arrowMatch[2]}|` : '';
-          const parts = l.split(arrowMatch[0]);
-          if (parts.length >= 2) {
-            const fromFixed = repairNodeToken(parts[0]);
-            const toFixed = repairNodeToken(parts[1]);
-            if (fromFixed && toFixed) {
-              validLines.push(`  ${fromFixed} ${arrowType}${edgeLabel} ${toFixed}`);
-              return;
+      // If line contains arrow, repair both sides (supports A --> B --> C chains)
+      if (l.includes(' --> ') || l.includes(' ==> ') || l.includes(' -.-> ') || /-->\s*\|/.test(l)) {
+        // Allow optional whitespace between arrow and |edge label|
+        const chainParts = l.split(/\s*(-->|==>|-\.->)\s*(?:\|\s*([^|]+)\s*\|)?\s*/);
+        // split yields: [n0, arrow, label, n1, arrow, label, n2, ...]
+        if (chainParts.length >= 3) {
+          let ok = true;
+          const rebuilt = [];
+          for (let i = 0; i + 3 < chainParts.length; i += 3) {
+            const fromFixed = repairNodeToken(chainParts[i]);
+            const arrowType = chainParts[i + 1];
+            const edgeLabel = chainParts[i + 2] ? `|${String(chainParts[i + 2]).trim()}|` : '';
+            const toFixed = repairNodeToken(chainParts[i + 3]);
+            if (!fromFixed || !toFixed || !arrowType) {
+              ok = false;
+              break;
             }
+            rebuilt.push(`  ${fromFixed} ${arrowType}${edgeLabel} ${toFixed}`);
+          }
+          if (ok && rebuilt.length) {
+            rebuilt.forEach(r => validLines.push(r));
+            return;
           }
         }
       }
 
       // Standalone repaired node
       const repaired = repairNodeToken(l);
-      if (repaired && repaired.includes('[')) {
+      if (repaired && (repaired.includes('[') || repaired.includes('(') || repaired.includes('{'))) {
         validLines.push(`  ${repaired}`);
       }
     });
@@ -232,7 +326,20 @@
       validLines.unshift('flowchart TD');
     }
 
-    return validLines.join('\n');
+    // If subgraph/end imbalance, strip subgraphs for a reliable flat flowchart
+    const sgOpen = validLines.filter(l => /^subgraph\b/i.test(l)).length;
+    const sgEnd = validLines.filter(l => /^end\b/i.test(l)).length;
+    let out = validLines;
+    if (sgOpen !== sgEnd) {
+      out = validLines.filter(l => !/^subgraph\b/i.test(l) && !/^end\b/i.test(l));
+    }
+
+    // Prefer dropping all styling if any classDef was invalid — keeps parse stable
+    if (dropStyling) {
+      out = out.filter(l => !/^(classDef|class|style|linkStyle)\b/i.test(l));
+    }
+
+    return out.join('\n');
   }
 
   /**
@@ -241,62 +348,48 @@
   async function renderMermaidDiagram(code, idPrefix = 'mermaid_') {
     purgeMermaidErrorArtifacts();
     await initMermaid();
-    const cleanCode = sanitizeAndRepairMermaid(code || '');
+    let cleanCode = sanitizeAndRepairMermaid(code || '');
     if (!cleanCode) return '<div class="chart-empty">No diagram content provided</div>';
 
     const diagId = `${idPrefix}${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const tagLabel = getDiagramTypeTag(cleanCode);
     const m = (typeof window !== 'undefined' && (window.mermaid?.default || window.mermaid || (window.__esbuild_esm_mermaid_nm?.mermaid))) || (typeof mermaid !== 'undefined' && (mermaid.default || mermaid));
 
-    if (m && typeof m.render === 'function') {
+    async function tryRender(src) {
+      if (!m || typeof m.render !== 'function') return null;
+      const renderId = `${diagId}_${Math.floor(Math.random() * 1e6)}`;
       try {
-        const res = await m.render(diagId, cleanCode);
+        const res = await m.render(renderId, src);
         purgeMermaidErrorArtifacts();
         const svg = res && res.svg ? res.svg : res;
-        if (svg && !svg.includes('Syntax error') && !svg.includes('error-icon') && !svg.includes('mermaid version')) {
-          return `
-            <div class="mermaid-diagram-card" data-diagram-id="${diagId}">
-              <div class="diagram-toolbar">
-                <div class="diagram-toolbar-left">
-                  <span class="diagram-tag">
-                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect></svg>
-                    ${tagLabel}
-                  </span>
-                </div>
-                <div class="diagram-toolbar-right">
-                  <button class="btn-diagram-tool btn-diagram-expand" title="Expand to Side Split-View with 2D Pan & Zoom">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
-                    <span>Expand</span>
-                  </button>
-                  <button class="btn-diagram-tool btn-diagram-copy" title="Copy Mermaid Code">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                    <span>Copy</span>
-                  </button>
-                  <button class="btn-diagram-tool btn-diagram-toggle" title="Toggle Code / Visual">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-                    <span>Code</span>
-                  </button>
-                </div>
-              </div>
-              <div class="diagram-svg-viewport">${svg}</div>
-              <pre class="diagram-raw-code" style="display:none;"><code>${escapeHtml(cleanCode)}</code></pre>
-            </div>
-          `;
+        if (svg && typeof svg === 'string' && !svg.includes('Syntax error') && !svg.includes('error-icon') && !/mermaid version/i.test(svg)) {
+          return svg;
         }
       } catch (err) {
-        console.warn('Mermaid render error:', err);
+        console.warn('Mermaid render error:', err && err.message ? err.message : err);
         purgeMermaidErrorArtifacts();
+      }
+      return null;
+    }
+
+    let svg = await tryRender(cleanCode);
+
+    // Retry with a flat flowchart (no subgraphs/styling) — common fix for broken model output
+    if (!svg && /^(flowchart|graph)\b/im.test(cleanCode)) {
+      const flat = cleanCode
+        .split('\n')
+        .filter(l => !/^(subgraph|end|classDef|class|style|linkStyle|click)\b/i.test(l.trim()))
+        .join('\n');
+      if (flat !== cleanCode) {
+        cleanCode = flat;
+        svg = await tryRender(flat);
       }
     }
 
-    purgeMermaidErrorArtifacts();
+    const tagLabel = getDiagramTypeTag(cleanCode);
 
-    // High-fidelity native Generative UI SVG generator fallback
-    const isMindmap = cleanCode.toLowerCase().includes('mindmap');
-    const nativeSvg = isMindmap ? renderNativeSvgMindmap(cleanCode) : renderNativeSvgFlowchart(cleanCode);
-
-    return `
-      <div class="mermaid-diagram-card native-svg" data-diagram-id="${diagId}">
+    function wrapCard(innerSvg, isNative) {
+      return `
+      <div class="mermaid-diagram-card${isNative ? ' native-svg' : ''}" data-diagram-id="${diagId}">
         <div class="diagram-toolbar">
           <div class="diagram-toolbar-left">
             <span class="diagram-tag">
@@ -309,7 +402,7 @@
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
               <span>Expand</span>
             </button>
-            <button class="btn-diagram-tool btn-diagram-copy" title="Copy Diagram Syntax">
+            <button class="btn-diagram-tool btn-diagram-copy" title="Copy Mermaid Code">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
               <span>Copy</span>
             </button>
@@ -319,10 +412,21 @@
             </button>
           </div>
         </div>
-        <div class="diagram-svg-viewport">${nativeSvg}</div>
+        <div class="diagram-svg-viewport">${innerSvg}</div>
         <pre class="diagram-raw-code" style="display:none;"><code>${escapeHtml(cleanCode)}</code></pre>
       </div>
     `;
+    }
+
+    if (svg) {
+      return wrapCard(svg, false);
+    }
+
+    purgeMermaidErrorArtifacts();
+
+    const isMindmap = cleanCode.toLowerCase().includes('mindmap');
+    const nativeSvg = isMindmap ? renderNativeSvgMindmap(cleanCode) : renderNativeSvgFlowchart(cleanCode);
+    return wrapCard(nativeSvg, true);
   }
 
   /**
@@ -429,6 +533,8 @@
    */
   function cleanLabelText(str) {
     let s = String(str || '').trim();
+    // Strip accidental edge labels glued into node text ("|Yes| Set Reminder")
+    s = s.replace(/^\|\s*[^|]*\s*\|\s*/, '').trim();
     s = s.replace(/^(?:[A-Za-z0-9_]{1,3}\s*[-:–\.]\s*|Step\s*\d+\s*[:\-]\s*)/i, '').trim();
     s = s.replace(/^[\[\(\{]+/, '').trim();
     s = s.replace(/[\]\)\};:\-]+$/, '').trim();
@@ -441,46 +547,60 @@
   function extractCleanNodeInfo(raw) {
     let text = String(raw || '').trim().replace(/;+\s*$/, '').trim();
     if (!text) return null;
+    // Drop leading edge labels glued onto tokens ("|Yes| C[Set Reminder]")
+    text = text.replace(/^\|\s*[^|]*\s*\|\s*/, '').trim();
+    text = text.replace(/\[\s*"?\|\s*[^|]*\s*\|\s*/g, (m) => (m.includes('"') ? '["' : '['));
+    if (!text) return null;
+
+    // Never treat Mermaid directives / styling as diagram nodes
+    const firstWord = (text.split(/[\s\[\(\{]/)[0] || '');
+    if (MERMAID_RESERVED.test(firstWord)) return null;
+    if (/^(subgraph|classDef|class|style|linkStyle|click|end)\b/i.test(text)) return null;
+    if (/\b(color|fill|stroke)\s*=/i.test(text)) return null;
+    if (/^classDef\b/i.test(text)) return null;
 
     // Database: [(Label)]
-    let m = text.match(/^([A-Za-z0-9_-]+)\s*\[\(\s*(.*?)\s*\)\]$/);
+    let m = text.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*\[\(\s*(.*?)\s*\)\]$/);
     if (m) {
       const lbl = cleanLabelText(m[2] || m[1]);
       return lbl.length >= 2 ? { id: m[1], label: lbl, shape: 'database' } : null;
     }
 
     // Decision: {{Label}} or {Label}
-    m = text.match(/^([A-Za-z0-9_-]+)\s*\{\{\s*(.*?)\s*\}\}$/) || text.match(/^([A-Za-z0-9_-]+)\s*\{\s*(.*?)\s*\}$/);
+    m = text.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*\{\{\s*(.*?)\s*\}\}$/) || text.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*\{\s*(.*?)\s*\}$/);
     if (m) {
       const lbl = cleanLabelText(m[2] || m[1]);
       return lbl.length >= 2 ? { id: m[1], label: lbl, shape: 'decision' } : null;
     }
 
     // Terminal: ([Label]) or ((Label))
-    m = text.match(/^([A-Za-z0-9_-]+)\s*\(\[\s*(.*?)\s*\]\)$/) || text.match(/^([A-Za-z0-9_-]+)\s*\(\(\s*(.*?)\s*\)\)$/) || text.match(/^([A-Za-z0-9_-]+)\s*\(\s*(.*?)\s*\)$/);
+    m = text.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*\(\[\s*(.*?)\s*\]\)$/) || text.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*\(\(\s*(.*?)\s*\)\)$/) || text.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*\(\s*(.*?)\s*\)$/);
     if (m) {
       const lbl = cleanLabelText(m[2] || m[1]);
       return lbl.length >= 2 ? { id: m[1], label: lbl, shape: 'terminal' } : null;
     }
 
-    // Process: [Label]
-    m = text.match(/^([A-Za-z0-9_-]+)\s*\[\s*(.*?)\s*\]$/);
+    // Process: [Label] or ["Label"]
+    m = text.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*\[\s*"?(.*?)"?\s*\]$/);
     if (m) {
       const lbl = cleanLabelText(m[2] || m[1]);
+      if (/^(color|fill|stroke)/i.test(lbl)) return null;
       return lbl.length >= 2 ? { id: m[1], label: lbl, shape: 'process' } : null;
     }
 
     // Match lines like "A - User Interface" or "A: User Interface" or "A. User Interface"
-    m = text.match(/^([A-Za-z0-9_]{1,4})\s*[-:–\.]\s*(.+)$/);
+    m = text.match(/^([A-Za-z][A-Za-z0-9_]{0,3})\s*[-:–\.]\s*(.+)$/);
     if (m && m[2].trim().length >= 2) {
       const lbl = cleanLabelText(m[2].trim());
+      if (/^(color|fill|stroke)/i.test(lbl)) return null;
       return lbl.length >= 2 ? { id: m[1], label: lbl, shape: 'process' } : null;
     }
 
     // If starts with ID[ or ID{ but missing closing bracket:
-    m = text.match(/^([A-Za-z0-9_-]+)\s*[\[\{\(\]]\s*(.*)$/);
+    m = text.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*[\[\{\(]\s*(.*)$/);
     if (m) {
-      const clean = cleanLabelText(m[2].replace(/[\]\}\)]+$/, '').trim());
+      const clean = cleanLabelText(m[2].replace(/[\]\}\)"']+$/, '').trim());
+      if (/^(color|fill|stroke)/i.test(clean)) return null;
       return clean.length >= 2 ? { id: m[1], label: clean || m[1], shape: 'process' } : null;
     }
 
@@ -489,8 +609,15 @@
       return null;
     }
 
+    // Bare multi-word narrative without node id — skip (prevents "subgraph Process Steps" style leaks)
+    if (/\s/.test(text) && !/[\[\(\{]/.test(text)) {
+      return null;
+    }
+
     const cleanId = text.replace(/[^a-zA-Z0-9_]/g, '_');
+    if (!cleanId || MERMAID_RESERVED.test(cleanId)) return null;
     const lbl = cleanLabelText(text);
+    if (/^(color|fill|stroke)/i.test(lbl)) return null;
     return lbl.length >= 2 ? { id: cleanId, label: lbl, shape: 'process' } : null;
   }
 
@@ -525,23 +652,32 @@
     const lines = String(code || '').split('\n').map(l => l.trim()).filter(Boolean);
     const nodes = new Map();
     const edges = [];
+    const markerId = `arrow_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 
     lines.forEach(line => {
-      if (/^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|mindmap|title|dateFormat|activities|durations|ladder|personalization)\b/i.test(line)) return;
+      if (/^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|mindmap|title|dateFormat|activities|durations|ladder|personalization|direction)\b/i.test(line)) return;
+      if (/^(subgraph|end|classDef|class|style|linkStyle|click)\b/i.test(line)) return;
+      if (/\b(color|fill|stroke)\s*=/i.test(line) && !/-->/.test(line)) return;
 
       // Check chained arrows: A -> B -> C or A --> B --> C
       if (line.includes('->') || line.includes('-->') || line.includes('==>')) {
-        const segments = line.split(/-+>|==>|-\.+->/);
+        // Capture -->|Label| then strip labels so segments never start with "|Yes|"
+        const edgeLabels = [];
+        const edgeAware = line.replace(/(-->|==>|-\.->|->)\s*\|\s*([^|]+)\s*\|/g, (_, arrow, label) => {
+          edgeLabels.push(String(label).trim());
+          return arrow;
+        });
+        const segments = edgeAware.split(/\s*(?:-->|==>|-\.->|->)\s*/);
         if (segments.length >= 2) {
           for (let s = 0; s < segments.length - 1; s++) {
-            const rawFrom = segments[s].trim().replace(/^\|[^|]+\|\s*/, '').trim();
-            const rawTo = segments[s + 1].trim().replace(/^\|[^|]+\|\s*/, '').trim();
+            const rawFrom = segments[s].trim().replace(/^\|\s*[^|]*\s*\|\s*/, '').replace(/\s*\|\s*[^|]*\s*\|$/, '').trim();
+            const rawTo = segments[s + 1].trim().replace(/^\|\s*[^|]*\s*\|\s*/, '').replace(/\s*\|\s*[^|]*\s*\|$/, '').trim();
             const nodeFrom = extractCleanNodeInfo(rawFrom);
             const nodeTo = extractCleanNodeInfo(rawTo);
             if (nodeFrom && nodeTo) {
               if (!nodes.has(nodeFrom.id)) nodes.set(nodeFrom.id, nodeFrom);
               if (!nodes.has(nodeTo.id)) nodes.set(nodeTo.id, nodeTo);
-              edges.push({ from: nodeFrom.id, to: nodeTo.id, label: '' });
+              edges.push({ from: nodeFrom.id, to: nodeTo.id, label: edgeLabels[s] || '' });
             }
           }
           return;
@@ -549,14 +685,14 @@
       }
 
       // Match A[Label] --> B[Label] or A[Label] -->|text| B[Label]
-      const edgeRegex = /([A-Za-z0-9_-]+(?:\[[^\]]+\]|\([^\)]+\)|\{[^\}]+\})?)\s*(-+>|==>|-\.+->)(?:\|([^|]+)\|)?\s*([A-Za-z0-9_-]+(?:\[[^\]]+\]|\([^\)]+\)|\{[^\}]+\})?)/g;
+      const edgeRegex = /([A-Za-z][A-Za-z0-9_-]*(?:\[[^\]]*\]|\([^)]*\)|\{[^}]*\})?)\s*(?:-->|==>|-\.->|->)\s*(?:\|\s*([^|]+)\s*\|)?\s*([A-Za-z][A-Za-z0-9_-]*(?:\[[^\]]*\]|\([^)]*\)|\{[^}]*\})?)/g;
       let match;
       let hasEdges = false;
       while ((match = edgeRegex.exec(line)) !== null) {
         hasEdges = true;
         const fromRaw = match[1];
-        const edgeLabel = match[3] || '';
-        const toRaw = match[4];
+        const edgeLabel = match[2] || '';
+        const toRaw = match[3];
         const nodeFrom = extractCleanNodeInfo(fromRaw);
         const nodeTo = extractCleanNodeInfo(toRaw);
 
@@ -576,40 +712,66 @@
           return;
         }
         const nodeInfo = extractCleanNodeInfo(line);
-        if (nodeInfo && nodeInfo.label.length >= 2 && !nodeInfo.label.includes(':')) {
+        if (nodeInfo && nodeInfo.label.length >= 2 && !nodeInfo.label.includes(':') && !/^(color|fill|stroke)/i.test(nodeInfo.label)) {
           if (!nodes.has(nodeInfo.id)) nodes.set(nodeInfo.id, nodeInfo);
         }
       }
     });
 
-    const nodeList = Array.from(nodes.values()).filter(n => n && n.label && n.label.length >= 2);
-    if (nodeList.length === 0) {
-      return `<div class="chart-empty" style="color:#a1a1aa; font-size:12px; padding: 24px; text-align: center;">Diagram rendered successfully</div>`;
+    let nodeList = Array.from(nodes.values()).filter(n => n && n.label && n.label.length >= 2);
+    // Prefer edge-connected nodes when we have edges (drops orphan styling leftovers)
+    if (edges.length > 0) {
+      const connected = new Set();
+      edges.forEach(e => { connected.add(e.from); connected.add(e.to); });
+      const filtered = nodeList.filter(n => connected.has(n.id));
+      if (filtered.length >= 2) nodeList = filtered;
     }
 
-    // Determine layout: Max 2 nodes per row to prevent horizontal cramping
+    if (nodeList.length === 0) {
+      return `<div class="chart-empty" style="color:#a1a1aa; font-size:12px; padding: 24px; text-align: center;">Could not render diagram nodes</div>`;
+    }
+
+    // Linear pipelines (compiler phases, workflows): one column for clarity
+    const isLinearPipeline = edges.length >= nodeList.length - 1 && nodeList.length >= 3;
     const totalWidth = 580;
     const startY = 24;
-    const gapY = 36;
+    const gapY = 28;
     let currentY = startY;
 
-    const nodePositions = new Map(); // id -> { x, y, width, height, textLines, node }
+    const nodePositions = new Map();
 
-    // Split nodes into pairs (max 2 per row)
     const rows = [];
-    for (let i = 0; i < nodeList.length; i += 2) {
-      rows.push(nodeList.slice(i, i + 2));
+    if (isLinearPipeline) {
+      // Order nodes by first appearance in edges (topological-ish)
+      const ordered = [];
+      const seen = new Set();
+      edges.forEach(e => {
+        if (!seen.has(e.from)) {
+          const n = nodeList.find(x => x.id === e.from);
+          if (n) { ordered.push(n); seen.add(e.from); }
+        }
+        if (!seen.has(e.to)) {
+          const n = nodeList.find(x => x.id === e.to);
+          if (n) { ordered.push(n); seen.add(e.to); }
+        }
+      });
+      nodeList.forEach(n => { if (!seen.has(n.id)) ordered.push(n); });
+      ordered.forEach(n => rows.push([n]));
+    } else {
+      for (let i = 0; i < nodeList.length; i += 2) {
+        rows.push(nodeList.slice(i, i + 2));
+      }
     }
 
     rows.forEach(rowNodes => {
       const count = rowNodes.length;
-      const cardWidth = count === 1 ? 400 : 250;
+      const cardWidth = count === 1 ? 420 : 250;
       const gapX = 24;
       const startX = count === 1 ? (totalWidth - cardWidth) / 2 : (totalWidth - (2 * cardWidth + gapX)) / 2;
 
       let rowMaxH = 56;
       const rowLayouts = rowNodes.map((n, idx) => {
-        const textLines = wrapSvgTextLines(n.label, count === 1 ? 38 : 22);
+        const textLines = wrapSvgTextLines(n.label, count === 1 ? 42 : 22);
         const h = textLines.length === 1 ? 56 : (textLines.length === 2 ? 72 : 88);
         if (h > rowMaxH) rowMaxH = h;
         const x = startX + idx * (cardWidth + gapX);
@@ -635,7 +797,7 @@
     let svgContent = `
       <svg class="native-flowchart-svg" viewBox="0 0 ${totalWidth} ${totalHeight}" width="100%" height="${totalHeight}" style="max-width: ${totalWidth}px; width: 100%; height: auto; margin: 0 auto; display: block;" xmlns="http://www.w3.org/2000/svg">
         <defs>
-          <marker id="arrow-solid" viewBox="0 0 10 10" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <marker id="${markerId}" viewBox="0 0 10 10" refX="6" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <polygon points="0 1, 6 4, 0 7" fill="#6366f1" />
           </marker>
         </defs>
@@ -655,7 +817,7 @@
         const midY = (y1 + y2) / 2;
 
         svgContent += `
-          <path d="M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}" fill="none" stroke="#6366f1" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#arrow-solid)" />
+          <path d="M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}" fill="none" stroke="#6366f1" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#${markerId})" />
           ${edge.label ? `
             <rect x="${(x1 + x2) / 2 - 28}" y="${midY - 9}" width="56" height="18" rx="4" fill="#1f2029" stroke="#6366f1" stroke-width="1.2" />
             <text x="${(x1 + x2) / 2}" y="${midY + 3.5}" fill="#e0e7ff" font-size="10" font-weight="700" text-anchor="middle" font-family="'Outfit', -apple-system, sans-serif">${escapeHtml(edge.label)}</text>
@@ -674,7 +836,7 @@
         const y2 = p2.y;
         const midY = (y1 + y2) / 2;
         svgContent += `
-          <path d="M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}" fill="none" stroke="#6366f1" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#arrow-solid)" />
+          <path d="M ${x1} ${y1} C ${x1} ${midY}, ${x2} ${midY}, ${x2} ${y2}" fill="none" stroke="#6366f1" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#${markerId})" />
         `;
       }
     }
@@ -1029,6 +1191,12 @@
       return [];
     }
 
+    // Never suggest diagrams for reminder / timer / alarm asks
+    if (/\b(remind\s+me|set\s+(a\s+)?(reminder|timer|alarm)|timer\s+for|alarm\s+(for|in)|wake\s+me(\s+up)?)\b/i.test(prompt)
+      && !/\b(diagram|flowchart|mermaid|mindmap|visualize)\b/i.test(prompt)) {
+      return [];
+    }
+
     const suggestions = [];
 
     // 1. Process / Workflow / Steps
@@ -1077,8 +1245,8 @@
       });
     }
 
-    // 5. Timelines / Milestones / Roadmaps
-    const hasTimeline = /\b(roadmap|timeline|milestones|phases|phase\s+1|q[1-4]|schedule|release plan)\b/i.test(combined);
+    // 5. Timelines / Milestones / Roadmaps (avoid bare "schedule" matching reminder phrasing)
+    const hasTimeline = /\b(roadmap|timeline|milestones|phases|phase\s+1|q[1-4]|release plan|project schedule)\b/i.test(combined);
     if (hasTimeline && suggestions.length < 3) {
       suggestions.push({
         id: 'timeline',

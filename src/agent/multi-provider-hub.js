@@ -959,11 +959,75 @@
     return results;
   }
 
+  function isLocalProvider(providerId) {
+    if (!providerId) return true;
+    const p = String(providerId).toLowerCase().trim();
+    return p === 'ollama' || p === 'huggingface' || p === 'custom' || p === 'lmstudio' || p === 'local';
+  }
+
+  function getModelCapabilities(provider, modelId) {
+    const prov = (provider || detectProviderForModel(modelId) || 'ollama').toLowerCase();
+    const m = String(modelId || '').toLowerCase();
+    const isLocal = isLocalProvider(prov);
+
+    // 1. Vision support
+    const supportsVision = (
+      m.includes('vision') ||
+      m.includes('llava') ||
+      m.includes('bakllava') ||
+      m.includes('minicpm-v') ||
+      m.includes('qwen-vl') ||
+      m.includes('qwen2-vl') ||
+      m.includes('llama3.2-vision') ||
+      m.startsWith('gpt-4o') ||
+      m.startsWith('gemini') ||
+      m.startsWith('claude-3')
+    );
+
+    // 2. Tool calling support
+    const supportsTools = (
+      m.includes('llama3.1') ||
+      m.includes('llama3.2') ||
+      m.includes('llama3.3') ||
+      m.includes('qwen2.5') ||
+      m.includes('mistral') ||
+      m.includes('command-r') ||
+      m.startsWith('gpt-') ||
+      m.startsWith('gemini') ||
+      m.startsWith('claude-')
+    );
+
+    // 3. Context window estimation
+    let contextWindow = 8192;
+    if (m.includes('tinyllama') || m.includes('phi:2') || m.includes('gemma:2b')) {
+      contextWindow = 2048;
+    } else if (m.includes('phi3:mini') || m.includes('phi-2') || m.includes('stablelm')) {
+      contextWindow = 4096;
+    } else if (m.includes('qwen2.5') || m.includes('llama3.1') || m.includes('llama3.2') || m.includes('llama3.3') || m.includes('phi4') || m.includes('deepseek-r1')) {
+      contextWindow = 32768;
+    } else if (m.startsWith('gemini') || m.startsWith('gpt-4o') || m.startsWith('claude-3')) {
+      contextWindow = 128000;
+    }
+
+    return {
+      provider: prov,
+      model: modelId,
+      isLocal,
+      supportsVision,
+      supportsTools,
+      supportsJson: true,
+      supportsStreaming: true,
+      contextWindow
+    };
+  }
+
   const api = {
     PROVIDERS,
     getProviderCatalog,
     detectProviderForModel,
     isOllamaBackedModel,
+    isLocalProvider,
+    getModelCapabilities,
     isChatCapableModel,
     getStoredApiKey,
     setStoredApiKey,

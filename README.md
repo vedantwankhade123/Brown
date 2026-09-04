@@ -1,8 +1,8 @@
 # Brown AI: Autonomous Local-First AI Ecosystem
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-BETA%20v1.0.15-0078D4?logo=github)](https://github.com/vedantwankhade123/ultron-releases/releases)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20%7C%20Android%20%7C%20Web-0078D4?logo=windows)](https://github.com/vedantwankhade123/ultron-releases/releases)
+[![Release](https://img.shields.io/badge/Release-BETA%20v1.0.16-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Releases/releases)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20%7C%20Android%20%7C%20Web-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown-Releases/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 <p align="center">
@@ -120,12 +120,12 @@ Pre-compiled Windows binaries are available directly from the official website a
   <tbody>
     <tr>
       <td><b>Installer</b></td>
-      <td><a href="https://github.com/vedantwankhade123/ultron-releases/releases/download/v1.0.15/Ultron.AI.Setup.v1.0.15.exe"><code>Ultron.AI.Setup.v1.0.15.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0.16/Brown%20AI%20Setup%20v1.0.16.exe"><code>Brown AI Setup v1.0.16.exe</code></a></td>
       <td>Standard Windows setup wizard with Start Menu and Desktop shortcuts.</td>
     </tr>
     <tr>
       <td><b>Portable</b></td>
-      <td><a href="https://github.com/vedantwankhade123/ultron-releases/releases/download/v1.0.15/Ultron.AI.v1.0.15.exe"><code>Ultron.AI.v1.0.15.exe</code></a></td>
+      <td><a href="https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0.16/Brown%20AI%20v1.0.16.exe"><code>Brown AI v1.0.16.exe</code></a></td>
       <td>Standalone executable. Runs immediately on Windows without installation.</td>
     </tr>
   </tbody>

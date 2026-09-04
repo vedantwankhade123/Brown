@@ -76,6 +76,7 @@ let currentSessionId = null;
 let installedModelsList = [];
 let searchTimeout = null;
 let isAwaitingResponse = false;
+let _isSubmittingPrompt = false;
 let _activeAbortController = null; // AbortController for cancelling in-flight LLM requests
 const btnStop = document.getElementById('btn-stop');
 
@@ -730,14 +731,19 @@ function getOllamaGpuOptions(sysEnv = {}, modelName = activeModel, intent = 'con
   return {};
 }
 
-function buildOllamaRequestOptions({ gpuOptions = {}, intent = 'conversation', canUseVision = false, temperature = 0.7, contentGeneration = false } = {}) {
+function buildOllamaRequestOptions({ gpuOptions = {}, intent = 'conversation', canUseVision = false, temperature = 0.7, contentGeneration = false, shortCreative = false } = {}) {
   const options = {
     num_ctx: canUseVision ? 1536 : 2048,
-    num_predict: contentGeneration ? 2048 : (intent === 'conversation' ? 1536 : 1024),
+    num_predict: shortCreative
+      ? 384
+      : (contentGeneration ? 2048 : (intent === 'conversation' ? 1024 : 1024)),
     temperature
   };
   if (gpuOptions && typeof gpuOptions.num_gpu === 'number') {
     options.num_gpu = gpuOptions.num_gpu;
+  }
+  if (shortCreative) {
+    options.stop = ['\nTitle:', '\n## Title', '\n### Title', '\nExecutive Summary', '\nAbstract:', '\nReferences:'];
   }
   return options;
 }
@@ -1175,6 +1181,13 @@ function attachImagesToChatUserMessage(message, imagePayloads) {
 
 // Local session storage matrix to support natural language keyword scans
 let conversationsStore = {};
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'conversationsStore', {
+    get() { return conversationsStore; },
+    set(v) { conversationsStore = v || {}; },
+    configurable: true
+  });
+}
 
 function saveConversationsToDisk() {
   const memoryEnabled = window.localStorage.getItem('ultron-memory-enabled') !== 'false';
@@ -1376,10 +1389,14 @@ function normalizeConversationStore(store) {
 }
 
 function setSendingState(isSending) {
-  isAwaitingResponse = isSending;
+  isAwaitingResponse = Boolean(isSending);
+  if (!isSending) {
+    _isSubmittingPrompt = false;
+  }
   if (btnSend) {
-    btnSend.disabled = isSending;
-    btnSend.setAttribute('aria-disabled', String(isSending));
+    btnSend.disabled = Boolean(isSending);
+    btnSend.setAttribute('aria-disabled', String(Boolean(isSending)));
+    btnSend.classList.toggle('disabled', Boolean(isSending));
     btnSend.title = isSending ? 'Waiting for Ultron to finish responding' : 'Send message';
     btnSend.style.display = isSending ? 'none' : 'flex';
   }
@@ -1457,6 +1474,10 @@ function renderMessageContent(content, text) {
           </div>
         `;
       }
+    }
+
+    if (!rawText.trim() && !thoughtHtml) {
+      rawText = "I have completed processing your request.";
     }
 
     const structured = structureReadableMarkdown(rawText);
@@ -1539,25 +1560,41 @@ function renderMarkdownCallouts(container) {
   });
 }
 
-function buildMarkdownFormattingRules() {
-  return `FORMATTING (Antigravity-Grade Markdown — strictly mandatory):
-- MANDATORY SUMMARY RULE: Along with everything generated (explanations, diagrams, code, solutions, or actions), you MUST ALWAYS strictly generate a dedicated Summary section (either as a \`> [!NOTE]\` executive callout or as a \`### 📌 Summary\` / \`### Summary\` block) highlighting the core takeaways, architectural decisions, and actionable next steps.
-- When explaining architectures, workflows, processes, hierarchies, or comparisons, ALWAYS include a complete, valid \`\`\`mermaid\n...\n\`\`\` diagram code block in your response. Never use fake image or Google Drive URLs.
-- When comparing options or concepts ("vs", "difference between", metrics), provide a clean Markdown table (| Feature / Dimension | Option A | Option B |) with proper headers.
-- When asked for a data chart or graph comparing metrics, include a valid \`\`\`chart\ntype: bar\n...\n\`\`\` block.
-- Use structured bullet points (- ) with **bold lead-ins** and blank lines between sections — never dense walls of text.
-- Use ### subheadings to organize distinct parts or steps.
-- Use **bold** for key terms, file names, or commands, and \`inline code\` for technical identifiers.
-- Include practical tips or takeaways using > [!TIP] or > [!IMPORTANT] callouts.
-- Keep paragraphs concise (1–3 sentences).
+function buildMarkdownFormattingRules(options = {}) {
+  const { shortCreative = false, allowContextReuse = true, entertainment = false } = options;
+  if (shortCreative) {
+    return `FORMATTING (keep it light for this short creative request):
+- Deliver ONLY the requested creative piece (poem, haiku, short paragraph, etc.).
+- Do NOT add essays, reports, research papers, summaries of other topics, or extra sections after you finish.
+- Do NOT invent follow-up prompts or continue with unrelated titles.
+- Light markdown is fine (line breaks, soft emphasis). Skip mermaid, tables, and mandatory Summary blocks.`;
+  }
 
-REASONING & METHOD (for any task or question, not simple greetings):
-1. ANALYZE: first restate the goal in one line and identify constraints/inputs.
-2. PLAN: outline a short numbered plan (2–4 steps) before doing the work.
-3. EXECUTE: carry the plan out fully and correctly.
-4. REFLECT: self-check the result against the request; fix gaps before finishing.
-- For follow-up messages, reuse the conversation's earlier context, decisions, and prior answers instead of starting over.
-- For multi-part or continuous tasks, keep a running mental task list and address every part.`;
+  if (entertainment) {
+    return `FORMATTING (movie / show recommendations — keep it tight):
+- Lead with a short direct answer, then a clean bullet list of recommendations.
+- For each pick: **Title** — platform (if known) · one line on why it fits.
+- Cap at 6–8 picks. No cast encyclopedias, plot novels, poster/logo captions, mermaid, or broken tables.
+- Never invent cast credits or streaming availability. If unsure, omit that detail.
+- Do NOT invent meta titles about formatting styles or "Markdown Response for …".`;
+  }
+
+  return `FORMATTING (clear, useful Markdown):
+- Answer the user's ask first. Use ### headings and bullet lists when they improve scanability.
+- Add a short Summary only for long technical/complex answers — skip it for simple lists, recommendations, or short Q&A.
+- Include \`\`\`mermaid\`\`\` diagrams only when the user explicitly asks for a diagram, architecture, flowchart, or mindmap. NEVER invent flowcharts/diagrams for reminders, timers, alarms, or "remind me in X seconds/minutes" requests.
+- Use Markdown tables only for real multi-column comparisons with known facts — never incomplete/broken tables.
+- Use **bold** for key terms and \`inline code\` for technical identifiers. Keep paragraphs to 1–3 sentences.
+- Do NOT invent meta titles about formatting styles or "Markdown Response for …".
+
+REASONING (for non-trivial tasks, not greetings or simple lists):
+1. Understand the goal and constraints.
+2. Execute fully and correctly.
+3. Self-check against the request before finishing.
+${allowContextReuse
+    ? '- For follow-up messages that clearly refer to earlier turns, reuse the conversation\'s earlier context, decisions, and prior answers instead of starting over.'
+    : '- Answer ONLY the current user request. Do NOT continue, expand, or remix prior essays/reports from earlier turns unless the user explicitly asks about them.'}
+- For multi-part tasks, address every part.`;
 }
 
 function structureReadableMarkdown(text) {
@@ -1600,23 +1637,16 @@ function structureReadableMarkdown(text) {
   t = t.replace(/\bI am unable to directly execute actions\b[^.!\n]*[.!\n]?/gi, '');
   t = t.replace(/\bwhile I don't have real-time access\b[^.!\n]*[.!\n]?/gi, '');
 
-  // 3. Fix squashed markdown tables on single lines or with || or | | delimiters
+  // 3. Fix squashed markdown tables cleanly without breaking table cells
   // 3a. Separate table start from preceding prose
   t = t.replace(/([^\n|])\s*(\|[ \t]*[A-Za-z0-9_#*][^|\n]*\|)/g, '$1\n\n$2');
 
   // 3b. Normalize double pipe or spaced pipe row delimiters like "| Col A | Col B | | Col C | Col D |"
   t = t.replace(/\|\s*\|\s*/g, '|\n| ');
   t = t.replace(/\s*\|\|\s*/g, '\n| ');
+  t = t.replace(/\|\s*\|(?=-)/g, '|\n|');
 
-  // 3c. Fix repeated or mangled |---| divider tokens on a single line
-  t = t.replace(/(?:\|\s*-{2,}\s*)+\|?/g, (match) => {
-    return '\n' + match.trim() + '\n';
-  });
-
-  // 3d. Ensure table ends cleanly when normal paragraph/heading follows a pipe
-  t = t.replace(/\|\s*([A-Za-z0-9*#][^|\n]{20,})/g, '|\n\n$1');
-
-  // 3e. Ensure table has a proper divider row (|---|---|...) if missing after the first row
+  // 3c. Ensure table has a proper divider row (|---|---|...) if missing after the first row
   const rawTableLines = t.split('\n');
   const repairedTableLines = [];
   for (let i = 0; i < rawTableLines.length; i++) {
@@ -1713,6 +1743,14 @@ function formatCodeBlocks(containerElement) {
     }
 
     if (lang === 'mermaid' && window.UltronVisualEngine) {
+      // Skip incomplete fences (streaming / truncated) to avoid flicker loops
+      const trimmedCode = String(rawCode || '').trim();
+      if (!trimmedCode || trimmedCode.length < 12) return;
+      if (!/\b(flowchart|graph|mindmap|sequenceDiagram|erDiagram|classDiagram|stateDiagram|gantt|pie)\b/i.test(trimmedCode)
+          && !/(-->|==>|-\.->)/.test(trimmedCode)) {
+        return;
+      }
+
       const visualWrapper = document.createElement('div');
       visualWrapper.className = 'visual-diagram-container';
       if (pre.parentNode) {
@@ -1721,6 +1759,8 @@ function formatCodeBlocks(containerElement) {
       }
 
       window.UltronVisualEngine.renderMermaidDiagram(rawCode).then(html => {
+        // Ignore stale async renders if another diagram already replaced this wrapper
+        if (!visualWrapper.isConnected) return;
         visualWrapper.innerHTML = html;
         const btnCopy = visualWrapper.querySelector('.btn-diagram-copy');
         const btnToggle = visualWrapper.querySelector('.btn-diagram-toggle');
@@ -1779,13 +1819,14 @@ function formatCodeBlocks(containerElement) {
       return;
     }
 
-    const isInteractiveHtmlWidget = (lang === 'widget' || lang === 'gen-ui' || lang === 'generative-ui' || lang === 'interactive-ui' || lang === 'html-widget')
-      || ((lang === 'html' || lang === 'htm') && (
-        (rawCode.includes('<script') && (rawCode.includes('<input') || rawCode.includes('<button') || rawCode.includes('<canvas') || rawCode.includes('<select')))
-        || rawCode.includes('<!DOCTYPE html>')
-        || rawCode.includes('<!doctype html>')
-        || (rawCode.includes('<style') && rawCode.includes('<input') && rawCode.includes('<button'))
-      ));
+    // Only explicit gen-ui fence languages become Live Interactive Widgets.
+    // Regular ```html / ```htm code stays as a normal in-chat code block (ChatGPT-style).
+    const isInteractiveHtmlWidget =
+      lang === 'widget'
+      || lang === 'gen-ui'
+      || lang === 'generative-ui'
+      || lang === 'interactive-ui'
+      || lang === 'html-widget';
 
     if (isInteractiveHtmlWidget && window.UltronVisualEngine) {
       const widgetWrapper = document.createElement('div');
@@ -2515,9 +2556,8 @@ async function renderCreatedFileActionButtons(contentElement, fullText) {
   // Suppress project creation prompt for diagrams, visual renderings, and mindmaps
   if (isVisualDiagramResponseOrRequest(fullText, contentElement)) return;
 
-  // IDE-style: when the reply contains code blocks for project files, write
-  // them to disk — creating missing files AND updating existing ones, so
-  // "edit the css" rewrites style.css in place instead of adding a new file.
+  // Chat-only code replies: do NOT show "Create this project on your computer?"
+  // Only offer Open / Show in Folder when files already exist on disk.
   const projectFiles = extractProjectFilesFromResponse(fullText);
   if (projectFiles.length && window.ultronAPI && window.ultronAPI.fileExists) {
     const defaultRoot = `${getDefaultProjectsRoot()}\\${deriveProjectFolderName()}`;
@@ -2555,28 +2595,18 @@ async function renderCreatedFileActionButtons(contentElement, fullText) {
       } catch (err) {
         exists = false;
       }
-      let changed = true;
-      if (exists && window.ultronAPI.readFile) {
-        try {
-          const r = await window.ultronAPI.readFile(guess);
-          if (r && r.success) changed = String(r.data || '') !== String(f.content || '');
-        } catch (err) { changed = true; }
-      }
-      resolved.push({ ...f, path: guess, exists, changed });
+      resolved.push({ ...f, path: guess, exists });
     }
-    const missing = resolved.filter(f => !f.exists);
-    const updated = resolved.filter(f => f.exists && f.changed);
-    if (missing.length || updated.length) {
-      renderProjectCreationCard(contentElement, missing.concat(updated), { updateOnly: missing.length === 0 && updated.length > 0 });
-      return;
-    }
+    const onDisk = resolved.filter(f => f.exists);
+    if (!onDisk.length) return;
+
     const row = document.createElement('div');
     row.className = 'created-file-actions-row';
-    resolved.slice(0, 3).forEach(f => {
+    onDisk.slice(0, 3).forEach(f => {
       row.appendChild(buildOpenFileButton(f.filename, f.path));
       row.appendChild(buildShowFolderButton(f.path));
     });
-    const htmlFile = resolved.find(f => /\.html?$/i.test(f.filename));
+    const htmlFile = onDisk.find(f => /\.html?$/i.test(f.filename));
     if (htmlFile) row.appendChild(buildOpenInBrowserButton(htmlFile.path));
     contentElement.appendChild(row);
     return;
@@ -2626,6 +2656,15 @@ function attachVisualSuggestionChips(contentElement, fullText) {
     }
   } catch (e) {}
 
+  // Skip visualize chips for entertainment / recommendation answers
+  if (typeof isEntertainmentRecommendationQuery === 'function' && isEntertainmentRecommendationQuery(userPrompt)) {
+    return;
+  }
+  // Skip visualize chips for reminder / timer / alarm requests
+  if (typeof isReminderOrTimerRequest === 'function' && isReminderOrTimerRequest(userPrompt)) {
+    return;
+  }
+
   const opportunities = window.UltronVisualEngine.detectVisualOpportunities(fullText, userPrompt);
   if (!opportunities || opportunities.length === 0) return;
 
@@ -2666,7 +2705,15 @@ async function typeMessageResponse(contentElement, fullText, options = {}) {
   // Hide message actions while typing / thinking
   if (actionsDiv) actionsDiv.style.display = 'none';
 
-  if (!fullText || fullText.length < 10 || isThinkingMarkup(fullText) || isRichResultMarkup(fullText) || isAgentWidgetMarkup(fullText) || options.instant) {
+  if (!fullText || !String(fullText).trim()) {
+    fullText = "I have completed your request. Please let me know if you would like more information.";
+  }
+
+  // Diagrams/charts must render once when complete — word typing causes node flicker loops
+  const hasVisualFence = /```(?:mermaid|chart|json-chart|gen-ui|widget)\b/i.test(String(fullText || ''));
+  const forceInstant = options.instant || hasVisualFence;
+
+  if (!fullText || fullText.length < 10 || isThinkingMarkup(fullText) || isRichResultMarkup(fullText) || isAgentWidgetMarkup(fullText) || forceInstant) {
     renderMessageContent(contentElement, fullText);
     formatCodeBlocks(contentElement);
     wrapMarkdownTables(contentElement);
@@ -2940,9 +2987,12 @@ function rebuildSessionHistoryList() {
 
 function buildSessionHistoryItemMarkup(id, session) {
   const title = session?.title || 'New chat';
+  const timestampRaw = session?.updatedAt || session?.createdAt || (session?.messages && session.messages[session.messages.length - 1]?.createdAt);
+  const formattedTime = formatSidebarTimestamp(timestampRaw);
   return `
     <span class="session-row-text">
       <span class="nav-text text-truncate">${escapeHtml(title)}</span>
+      ${formattedTime ? `<span class="session-timestamp font-xsmall">${escapeHtml(formattedTime)}</span>` : ''}
     </span>
     <button type="button" class="session-delete-btn" data-session-id="${escapeHtml(id)}" title="Delete chat" aria-label="Delete chat">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
@@ -4287,7 +4337,10 @@ function buildAgentSkillsSnippet(userPrompt) {
   const runtime = getAgentRuntimeSettings();
   let result = '';
   if (runtime.skillsEnabled && window.UltronAgentSkills) {
-    const skills = window.UltronAgentSkills.findSkillsForPrompt(userPrompt, 3);
+    let skills = window.UltronAgentSkills.findSkillsForPrompt(userPrompt, 3);
+    if (isReminderOrTimerRequest(userPrompt)) {
+      skills = (skills || []).filter(s => s && s.id !== 'visual-diagram-chart-creator' && s.id !== 'generative-ui-builder');
+    }
     result += window.UltronAgentSkills.buildSkillsPromptSection(skills);
   }
   if (window.UltronAgentMemory && typeof window.UltronAgentMemory.getFormattedPreferencesPrompt === 'function') {
@@ -4394,9 +4447,66 @@ function appendChatMessage(sender, text, isAi = false, options = {}) {
     touchSession();
     rebuildSessionHistoryList();
     saveConversationsToDisk();
+
+    // --- Post-message entity extraction and summary trigger ---
+    if (isAi && text && window.UltronEntityTracker) {
+      try {
+        // Detect context type from the response content
+        const contextType = /restaurant|cafe|bar|food|dining/i.test(text) ? 'restaurant'
+          : /laptop|computer|phone|device|product/i.test(text) ? 'product'
+          : /hotel|resort|airbnb|stay/i.test(text) ? 'accommodation'
+          : 'generic';
+        window.UltronEntityTracker.extractEntitiesFromText(currentSessionId, text, contextType);
+      } catch (e) { /* non-fatal */ }
+    }
+    // Trigger rolling summary when conversation grows long enough
+    if (isAi && window.UltronContextEngine && window.UltronContextEngine.needsSummaryUpdate) {
+      try {
+        const msgCount = conversationsStore[currentSessionId].messages.length;
+        if (window.UltronContextEngine.needsSummaryUpdate(currentSessionId, msgCount)) {
+          // Generate summary asynchronously (don't block chat)
+          generateRollingSummaryAsync(currentSessionId).catch(() => {});
+        }
+      } catch (e) { /* non-fatal */ }
+    }
   }
   
   return content;
+}
+
+// Generate a rolling summary of the conversation asynchronously
+async function generateRollingSummaryAsync(sessionId) {
+  if (!sessionId || !conversationsStore[sessionId]) return;
+  if (!window.UltronContextEngine || !window.UltronAgentMemory) return;
+  try {
+    const messages = conversationsStore[sessionId].messages;
+    if (messages.length < 12) return; // Don't summarize short conversations
+
+    const existingSummary = window.UltronAgentMemory.getConversationSummary
+      ? window.UltronAgentMemory.getConversationSummary(sessionId)
+      : null;
+
+    // Get the messages that need summarizing (older ones not yet covered)
+    const turnsCovered = existingSummary ? (existingSummary.turnsCovered || 0) : 0;
+    const msgsToSummarize = messages.slice(turnsCovered, -4); // Keep last 4 unsummarized
+
+    if (msgsToSummarize.length < 4) return;
+
+    const summaryPrompt = window.UltronContextEngine.buildSummaryPrompt(
+      msgsToSummarize,
+      existingSummary ? existingSummary.text : ''
+    );
+
+    const summary = await queryOfflineLLM(summaryPrompt, [], 'conversation',
+      'You are a concise summarizer. Preserve all key facts, names, numbers, decisions, and user preferences. Output only the summary, nothing else.');
+
+    if (summary && summary.length > 20 && summary.length < 3000) {
+      window.UltronAgentMemory.saveConversationSummary(sessionId, summary);
+      logTrace(`Rolling summary updated (${messages.length} turns covered).`, 'system');
+    }
+  } catch (e) {
+    logTrace(`Rolling summary error (non-fatal): ${e.message}`, 'system');
+  }
 }
 
 // Cached system environment context (refreshed periodically)
@@ -4691,6 +4801,8 @@ function isMetaInstructionLeak(text) {
 
 function shouldSkipConversationHistory(prompt) {
   const p = String(prompt || '').trim();
+  if (isShortCreativeRequest(p)) return true;
+  if (isFreshStandaloneRequest(p)) return true;
   if (isContentGenerationRequest(p)) return true;
   if (/^(hi|hello|hey|good\s*(morning|afternoon|evening|night))[\s,!.?]*(\w+)?[\s!.?]*$/i.test(p)) return true;
   return false;
@@ -4723,11 +4835,18 @@ function isIrrelevantModelResponse(text, userPrompt) {
   if (/provide me with some examples/i.test(lower) && !/example/i.test(promptLower)) return true;
   if (/avoid (using |getting tripped up by )/i.test(lower)) return true;
 
-  if (isContentGenerationRequest(userPrompt)) {
-    const wantsPoem = /\bpoem\b/i.test(promptLower);
+  if (isContentGenerationRequest(userPrompt) || isShortCreativeRequest(userPrompt)) {
+    const wantsPoem = /\bpoem|haiku|limerick|sonnet|ode\b/i.test(promptLower);
     const wantsEssay = /\bessay\b/i.test(promptLower);
     if (wantsPoem && wantsEssay === false && /\bessay\b/i.test(lower) && !/\bpoem\b/i.test(lower)) return true;
     if (wantsEssay && /\bpoem:/i.test(lower) && !/\bessay\b/i.test(lower)) return true;
+
+    // Reject runaway replies that append unrelated research papers after a short creative ask
+    if (isShortCreativeRequest(userPrompt)) {
+      const hasExtraReport = /\b(executive summary|literature review|case study|references:|telecommuting|microservices architecture|scholarly)\b/i.test(plain);
+      if (hasExtraReport) return true;
+      if (plain.length > 2500) return true;
+    }
 
     // Only apply strict single-word topic check for explicit essay/article prompts
     if (wantsEssay || /\b(article|story|poem)\b/i.test(promptLower)) {
@@ -4748,23 +4867,56 @@ function isIrrelevantModelResponse(text, userPrompt) {
   return false;
 }
 
+/** Trim model runaway that appends a second unrelated document after the requested piece. */
+function trimRunawayContinuation(text, userPrompt) {
+  const raw = String(text || '');
+  if (!raw.trim()) return raw;
+  if (!isShortCreativeRequest(userPrompt) && !isFreshStandaloneRequest(userPrompt)) return raw;
+
+  // Cut before a second major "Title:" / report that doesn't belong to a short ask
+  if (isShortCreativeRequest(userPrompt)) {
+    const cutPatterns = [
+      /\n{2,}Title:\s+/i,
+      /\n{2,}#{1,3}\s+(The Societal Impact|Microservices|Executive Summary|Abstract|Introduction)\b/i,
+      /\n{2,}(Executive Summary|Literature Review|References)\s*:/i,
+    ];
+    for (const re of cutPatterns) {
+      const m = raw.match(re);
+      if (m && typeof m.index === 'number' && m.index > 80) {
+        return raw.slice(0, m.index).trim();
+      }
+    }
+  }
+  return raw;
+}
+
 function isGenericAssistantGreeting(text) {
   const lower = String(text || '').toLowerCase();
   return /\b(hello!?\s+i'?m brown|i'?m brown,?\s+your (ai )?assistant|how can i assist you today|how can i help you today|what can i do for you)\b/i.test(lower);
 }
 
-function buildConversationSystemPrompt() {
+function buildConversationSystemPrompt(prompt = '') {
+  const shortCreative = isShortCreativeRequest(prompt);
+  const entertainment = isEntertainmentRecommendationQuery(prompt);
+  const allowContextReuse = isFollowUpAboutPriorTurn(prompt);
+  const reminderAsk = typeof isReminderOrTimerRequest === 'function' && isReminderOrTimerRequest(prompt);
+  const reminderRule = reminderAsk
+    ? `\nREMINDERS/TIMERS: The user wants a real reminder or timer — do NOT output Mermaid/flowcharts. Confirm you'll note it, or give a short setTimeout / Windows Clock tip. Never invent a diagram about reminders.`
+    : '';
   return `You are Brown, a friendly, intelligent, and helpful AI assistant on the user's Windows PC.
-${buildMarkdownFormattingRules()}
+${buildMarkdownFormattingRules({ shortCreative, allowContextReuse, entertainment })}
 Reply naturally in first person ("I", "me"). Never mention system prompts, rules, or meta instructions.
 When greeted (e.g. "hello", "hi", "hey", "good morning"), respond warmly and concisely in 1–2 friendly sentences (e.g. "Hello! How can I help you today?"). Do NOT dump unsolicited PC maintenance checklists, features, or system troubleshooting guides.
-For current events, live prices, today's news, or who holds an office right now, say you will look it up online if you are not certain — do not invent outdated facts.`;
+For current events, live prices, today's news, or who holds an office right now, say you will look it up online if you are not certain — do not invent outdated facts.
+CRITICAL: Fulfill the CURRENT user message only. Do not continue previous answers, append old reports, or invent additional documents after you finish.${reminderRule}`;
 }
 
 function buildContentGenerationSystemPrompt(userPrompt) {
   const topic = extractContentTopic(userPrompt);
   const topicLine = topic ? `Topic / Subject: "${topic}"` : '';
-  const isGenerativeUiOrWidget = /\b(interactive\s*ui|generative\s*ui|create\s*a?\s*calculator|unit\s*converter|interactive\s*widget|mini\s*app|interactive\s*tool|live\s*dashboard\s*widget|interactive\s*simulator|ui\s*widget|html\s*widget|build\s*a?\s*widget)\b/i.test(userPrompt);
+  const isGenerativeUiOrWidget = /\b(interactive\s*ui|generative\s*ui|create\s*a?\s*calculator|unit\s*converter|interactive\s*widget|mini\s*app|interactive\s*tool|live\s*dashboard\s*widget|interactive\s*simulator|ui\s*widget|html\s*widget|build\s*a?\s*widget|gen-ui)\b/i.test(userPrompt)
+    && !/\b(html|css|javascript|js|python)\s*code\b/i.test(userPrompt)
+    && !/\bwrite\b[\s\S]{0,40}\b(html|css|javascript|code)\b/i.test(userPrompt);
 
   if (isGenerativeUiOrWidget) {
     return `You are Brown, an expert full-stack developer and Generative UI specialist.
@@ -4778,27 +4930,31 @@ CRITICAL GENERATIVE UI RULES:
 5. Provide a brief 1-2 sentence explanation of how to use the interactive tool.`;
   }
 
-  const isDiagramOrVisual = /\b(diagram|flowchart|flow\s*chart|architecture|mindmap|mind\s*map|sequence\s*diagram|er\s*diagram|state\s*diagram|chart|graph|visual|infographic)\b/i.test(userPrompt);
+  const isDiagramOrVisual = !isReminderOrTimerRequest(userPrompt)
+    && /\b(diagram|flowchart|flow\s*chart|architecture|mindmap|mind\s*map|sequence\s*diagram|er\s*diagram|state\s*diagram|chart|graph|visual|infographic)\b/i.test(userPrompt);
 
   if (isDiagramOrVisual) {
-    return `You are Brown, an expert system architect, data engineer, and visual documentation specialist.
-Create a rich, comprehensive, and accurate Mermaid diagram or chart representing: "${topic || userPrompt}".
+    return `You are Brown, an expert educator and visual documentation specialist.
+Create a clear, accurate Mermaid diagram for: "${topic || userPrompt}".
 
-CRITICAL VISUAL DESIGN RULES:
-1. **Direct In-Chat Visualization**:
-   - ALWAYS output the complete Mermaid diagram inside a \`\`\`mermaid code block so it renders directly as an interactive visual in the chat.
-   - STRICTLY FORBIDDEN: NEVER output HTML/CSS/JS code (e.g. \`<!DOCTYPE html>\`, \`<script>\`, or embedding instructions). Output ONLY the \`\`\`mermaid code block and concise markdown explanations.
-2. **Domain-Specific Depth & Accuracy**:
-   - Use REAL, deeply technical domain concepts, logical algorithm steps, components, protocols, and data flows specific to "${topic || userPrompt}".
-   - STRICTLY FORBIDDEN: NEVER output placeholder names like "Step 1", "Step 2", "Node A", "Node B", "ComponentA", "Sample", or "Item 1".
-3. **Choose the Best Mermaid Syntax**:
-   - **For Concept Mindmaps & Taxonomies**: Use \`mindmap\` with clean hierarchy.
-   - **For Flowcharts, Algorithms & Pipelines**: Use \`flowchart TD\` or \`flowchart LR\` with descriptive node labels and directional arrows (\`-->\`).
-   - **For Workflows & Multi-Party Protocols**: Use \`sequenceDiagram\` with named participants.
-   - **For Data Models**: Use \`erDiagram\` with entities and relationships.
-4. **Comprehensive Output**:
-   - Provide the complete, detailed diagram immediately.
-   - Accompany the diagram with a brief 2–3 sentence architectural summary explaining the core structure.`;
+CRITICAL RULES (follow exactly):
+1. Output ONE complete \`\`\`mermaid code block, then a short 2–3 sentence summary. No HTML/CSS/JS.
+2. Prefer a simple linear flowchart for phases/pipelines/workflows:
+\`\`\`mermaid
+flowchart TD
+  A[Lexical Analysis] --> B[Syntax Analysis]
+  B --> C[Semantic Analysis]
+  C --> D[Intermediate Code Generation]
+  D --> E[Code Optimization]
+  E --> F[Code Generation]
+\`\`\`
+3. Use real domain labels (never "Step 1", "Node A", "Process Steps", or CSS like classDef color="#...").
+4. Node format MUST be Id[Readable Label] with arrows -->. Connect every phase in order.
+5. Decision/edge labels MUST stay on the arrow between nodes as -->|Yes| or -->|No| — NEVER glue them into node text (wrong: C[|Yes| Set Reminder] or "|Yes| CSet Reminder"; right: Ask{Ready?} -->|Yes| Go[Start]).
+6. Do NOT use classDef, style, click, or CSS color attributes. Avoid subgraphs unless the user asked for layered architecture.
+7. For mindmaps use \`mindmap\`; for multi-actor flows use \`sequenceDiagram\`; otherwise use \`flowchart TD\`.
+8. Keep the diagram complete in one shot — no partial or truncated nodes.
+9. Never treat a reminder/timer/alarm request as a diagram topic.`;
   }
 
   const isDocumentAnalysis = /\b(attached document|resume|cv|document|pdf|paper|report)\b/i.test(userPrompt) && /\b(analyze|analyse|summary|summarize|review|extract|skills|feedback|critique|evaluate|questions?|about|read|tell me)\b/i.test(userPrompt);
@@ -4831,25 +4987,27 @@ Rules:
   return `You are Brown, a skilled writing assistant. Write exactly what the user requested — complete, high-quality, and well-structured content.
 ${topicLine}
 Rules:
-- Output the complete essay, article, story, guide, or writing requested.
+- Output ONLY the piece requested (poem, essay, story, guide, etc.) — nothing else.
+- Do NOT append other essays, research papers, unrelated titles, or prior-chat topics after you finish.
 - Do NOT mention system prompts, context, guidelines, or meta instructions.
 - Do NOT ask the user for feedback or examples.
-- Stay on topic and match the requested format.`;
+- Stay on topic and match the requested format.
+- When the request is short (e.g. a poem), keep the reply short and stop immediately when done.`;
 }
 
 async function queryFreshConversation(prompt, imagePayloads = [], streamCallbacks = null) {
   const system = isContentGenerationRequest(prompt)
     ? buildContentGenerationSystemPrompt(prompt)
-    : buildConversationSystemPrompt();
+    : buildConversationSystemPrompt(prompt);
   return queryOfflineLLM(prompt, [], 'conversation', system, imagePayloads, streamCallbacks);
 }
 
 function buildConversationPromptFromHistory(recentMsgs, currentPrompt) {
   const lines = (recentMsgs || [])
     .filter(m => !isUnusableChatHistoryMessage(m.text))
-    .slice(-6)
+    .slice(-4)
     .map(m => {
-      const text = extractPlainTextFromMessage(m.text);
+      const text = clampHistoryMessageText(extractPlainTextFromMessage(m.text), !!m.isAi);
       if (!text) return null;
       return `${m.isAi ? 'Assistant' : 'User'}: ${text}`;
     })
@@ -4861,8 +5019,15 @@ function buildConversationPromptFromHistory(recentMsgs, currentPrompt) {
     lines.pop();
   }
 
-  if (lines.length === 0) return trimmedPrompt;
-  return `${lines.join('\n')}\nUser: ${trimmedPrompt}\nAssistant:`;
+  if (lines.length === 0) {
+    return /CURRENT USER REQUEST/i.test(trimmedPrompt)
+      ? `${trimmedPrompt}\nAssistant:`
+      : `${buildCurrentRequestGuard(trimmedPrompt)}\nAssistant:`;
+  }
+  const guardedCurrent = /CURRENT USER REQUEST/i.test(trimmedPrompt)
+    ? trimmedPrompt
+    : buildCurrentRequestGuard(trimmedPrompt);
+  return `${lines.join('\n')}\n${guardedCurrent}\nAssistant:`;
 }
 
 function shouldUseOllamaGenerateForConversation(intent, customSystemPromptOverride, canUseVision, extraMessages) {
@@ -4895,7 +5060,7 @@ function isFollowUpAboutPriorTurn(prompt) {
 function buildFollowUpConversationSystemPrompt() {
   const ctx = getRecentSessionContextSnippet(4);
   return `You are Brown, the user's local AI assistant on Windows.
-${buildMarkdownFormattingRules()}
+${buildMarkdownFormattingRules({ allowContextReuse: true })}
 The user is asking a FOLLOW-UP about the immediately previous message in this chat.
 ${ctx ? `\n${ctx}\n` : ''}
 Rules:
@@ -4968,6 +5133,27 @@ function sanitizeResponseText(text, userPrompt = '', options = {}) {
   cleaned = cleaned.replace(/(?:\n|^)Model note:[\s\S]*$/gi, '').trim();
   cleaned = cleaned.replace(/^in conclusion, here['’]s an example of how to avoid[\s\S]*?(?=\n\nPoem:|\n\n[A-Z]|$)/gi, '').trim();
   cleaned = cleaned.replace(/^thanks for the feedback\.[\s\S]*?(?=\n\n|$)/gi, '').trim();
+
+  // 4c. Aggressive Prompt Echo & Instruction Leaks Detection (e.g. tiny models echoing rubric rules)
+  const isPromptEcho = /\b(Executive TL;DR|Visual Diagrams?\s*\(Mermai?D\)|Structured Comparis?on Table|Actionable Takeaways?|ALWAYS start with a >\s*\[!NOTE\]|ALWAYS include a complete, valid Mermai?D|Incubate in your own articulate words|NEVER echo raw site title suffixes|CRITICAL ANTIGRAVITY-STYLE|Antigravity[- ]Style)\b/i.test(cleaned);
+  if (isPromptEcho) {
+    cleaned = cleaned
+      .replace(/(?:^|\n)#{0,3}\s*Antigravity[- ]Style[^\n]*/gi, '')
+      .replace(/(?:^|\n)(?:Executive TL;DR:?\s*\d*\.?\s*)+[^\n]*ALWAYS start with[^\n]*/gi, '')
+      .replace(/(?:^|\n)Visual Diagrams?\s*\(Mermai?D\):?[\s\S]*?(?=(?:^|\n)Structured Comparis?on Table|\n\n|$)/gi, '')
+      .replace(/(?:^|\n)Structured Comparis?on Table:?[\s\S]*?(?=(?:^|\n)Actionable Takeaways?|\n\n|$)/gi, '')
+      .replace(/(?:^|\n)Actionable Takeaways?:?[\s\S]*?(?=\n\n|$)/gi, '')
+      .trim();
+
+    if (!cleaned || /\b(ALWAYS start with|ALWAYS include|Incubate in your own|Antigravity[- ]Style)\b/i.test(cleaned) || cleaned.length < 30) {
+      cleaned = '';
+    }
+  }
+
+  // 4d. Strip fake image / poster caption lines small models invent (e.g. "Mirzapur Poster")
+  cleaned = cleaned.replace(/(?:^|\n)\s*#{0,3}\s*[A-Z][\w\s&:'-]{1,48}\s+(?:Poster|Logo|Cast|Banner|Thumbnail)\s*(?=\n|$)/g, '\n');
+  cleaned = cleaned.replace(/(?:^|\n)\s*#{0,3}\s*Antigravity[- ]Style[^\n]*/gi, '\n');
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
 
   // 5. Replace template tags
   const userNameEl = document.querySelector('.profile-detail-name');
@@ -5136,6 +5322,14 @@ async function buildWebSearchQuery(userPrompt) {
     if (isProductOrShoppingQuery(userPrompt)) {
       out = augmentShoppingSearchQuery(userPrompt, out, regional);
     }
+    if (isEntertainmentRecommendationQuery(userPrompt)) {
+      if (!/\b(similar|like|best|recommend)\b/i.test(out)) {
+        out = `${out} similar shows movies recommendations`.trim();
+      }
+      if (!/\b(netflix|prime|hotstar|ott|zee5)\b/i.test(out)) {
+        out = `${out} OTT`.trim();
+      }
+    }
     return out.replace(/\s+/g, ' ').trim();
   };
 
@@ -5292,6 +5486,21 @@ async function runFanOutWebSearch(userPrompt, primaryQuery, activitySteps, onSta
     });
   }
 
+  // Save search results to memory for context engine Layer 7
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.saveSearchResults === 'function') {
+    try {
+      window.UltronAgentMemory.saveSearchResults(currentSessionId, {
+        query: primaryQuery,
+        results: ranked.slice(0, 5).map(r => ({
+          title: r.title || '',
+          url: r.url || '',
+          snippet: r.snippet || ''
+        })),
+        source: 'web'
+      });
+    } catch (e) { /* non-fatal */ }
+  }
+
   return searchResult;
 }
 
@@ -5340,8 +5549,22 @@ function normalizePromptTypos(prompt) {
     .replace(/\bmesage\b/gi, 'message');
 }
 
+function isEntertainmentRecommendationQuery(prompt) {
+  const p = normalizePromptTypos(prompt).toLowerCase();
+  if (!p) return false;
+  const mediaNoun = /\b(movies?|films?|shows?|series|web\s*series|tv\s*shows?|anime|k[- ]?drama|documentar(?:y|ies)|ott|netflix|prime\s*video|hotstar|hulu|disney\+|zee5|sonyliv)\b/i.test(p);
+  const recommendCue = /\b(find|recommend|suggest|similar|like|best|top|watch|must[- ]?watch|something\s+like|shows?\s+for|movies?\s+for|based\s+on)\b/i.test(p);
+  const titleCue = /\b(mirzapur|sacred\s+games|squid\s+game|breaking\s+bad|game\s+of\s+thrones|stranger\s+things|the\s+boys|money\s+heist|panchayat|scam\s+1992)\b/i.test(p);
+  if (mediaNoun && (recommendCue || titleCue)) return true;
+  if (/\b(similar|like|based\s+on)\b/i.test(p) && (mediaNoun || titleCue)) return true;
+  if (/\b(best|top)\s+(movies?|films?|shows?|series|web\s*series)\b/i.test(p)) return true;
+  return false;
+}
+
 function isProductOrShoppingQuery(prompt) {
   const p = normalizePromptTypos(prompt).toLowerCase();
+  // Movie/show recommendation asks are not product shopping
+  if (isEntertainmentRecommendationQuery(prompt)) return false;
   const productNouns = 'course|courses|tutorial|tutorials|certification|certifications|classes|book|books|academy|learning|monitor|laptop|phone|headphone|earbuds|keyboard|mouse|tablet|tv|television|camera|gpu|graphics card|processor|cpu|ssd|hard drive|speaker|watch|smartwatch|fridge|refrigerator|shoe|shoes|sneaker|sneakers|footwear|sandals|boots|bag|backpack|dress|shirt|jacket|clothing|clothes|furniture|sofa|bed|mattress|bike|bicycle|scooter|buy|purchase|deal|deals|price|amazon|flipkart|myntra|ajio|meesho|tool|tools|software|app|apps';
 
   if (/\b(find|show|list|recommend|suggest|pick|get|give|search)\s+(me\s+)?(the\s+)?(some\s+)?/i.test(p)
@@ -5389,6 +5612,7 @@ function hasExplicitSearchIntent(prompt) {
   if (/^(search|google|find|look up|research|browse|web search|open search)$/i.test(p)) {
     return false;
   }
+  if (isEntertainmentRecommendationQuery(prompt)) return true;
   if (isProductOrShoppingQuery(prompt)) return true;
   if (/^search\s+(for|about|online|the web|google|[a-zA-Z0-9]{2,})/i.test(p)) return true;
   if (/\b(research|deep research|investigate|compare .+ vs|which is better|pros and cons)\b/i.test(p)) return true;
@@ -5641,6 +5865,49 @@ function buildProductResultsAnswer(userPrompt, searchPayload, regional = {}) {
   return { text: lines.join('\n').trim(), factCount: picks.length };
 }
 
+function buildEntertainmentResultsAnswer(userPrompt, searchPayload) {
+  const results = dedupeSearchResultsByDomain(searchPayload?.results || []);
+  if (!results.length) return { text: '', count: 0 };
+
+  const lines = [
+    `If you like that vibe, here are solid similar picks from live sources:`,
+    ''
+  ];
+
+  const seen = new Set();
+  let count = 0;
+  for (const item of results) {
+    if (count >= 7) break;
+    const title = plainSearchSnippet(item.title || '')
+      .replace(/\s*[-|–—]\s*(?:IMDb|Rotten Tomatoes|Wikipedia|Netflix|Prime Video|Amazon|Hotstar|Disney\+|Zee5|SonyLIV|YouTube|Reddit|Quora|Times of India|Hindustan Times|Filmfare)[^.]*$/i, '')
+      .replace(/\b(similar|like|best|top|shows?|movies?|series|web series|watch|ott)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const snippet = plainSearchSnippet(item.snippet || item.pageContent || '').slice(0, 140);
+    const key = title.toLowerCase();
+    if (!title || title.length < 3 || seen.has(key)) continue;
+    // Prefer titles that look like show names rather than "10 best shows like…"
+    if (/^\d+\s+best/i.test(title) || /\b(list of|must watch|recommendations?)\b/i.test(title)) {
+      // Still usable as a source tip, but prefer extracting from snippet when possible
+      const fromSnippet = snippet.match(/\b([A-Z][\w'&.:+-]{1,40}(?:\s+[A-Z][\w'&.:+-]{1,30}){0,4})\b/);
+      if (fromSnippet && fromSnippet[1].length > 3 && !seen.has(fromSnippet[1].toLowerCase())) {
+        seen.add(fromSnippet[1].toLowerCase());
+        lines.push(`- **${fromSnippet[1]}** — ${snippet || `see [${count + 1}]`}`);
+        count += 1;
+        continue;
+      }
+    }
+    seen.add(key);
+    lines.push(`- **${title}** — ${snippet || `details in source [${count + 1}]`}`);
+    count += 1;
+  }
+
+  if (!count) return { text: '', count: 0 };
+  lines.push('');
+  lines.push('_Open the sources below for platforms and full lists._');
+  return { text: lines.join('\n').trim(), count };
+}
+
 async function buildSearchFallbackAnswer(userPrompt, searchPayload) {
   const results = dedupeSearchResultsByDomain(searchPayload?.results || []);
   if (!results.length) return '';
@@ -5650,10 +5917,22 @@ async function buildSearchFallbackAnswer(userPrompt, searchPayload) {
     if (weather.text) return weather.text;
   }
 
+  if (isEntertainmentRecommendationQuery(userPrompt)) {
+    const entertainment = buildEntertainmentResultsAnswer(userPrompt, { ...searchPayload, results });
+    if (entertainment.text) return entertainment.text;
+  }
+
   if (isProductOrShoppingQuery(userPrompt)) {
     const sysEnv = await getSystemContext();
     const product = buildProductResultsAnswer(userPrompt, { ...searchPayload, results }, getRegionalShoppingContext(sysEnv));
     if (product.text) return product.text;
+  }
+
+  if (isLocalPlacesIntent(userPrompt) || (window.UltronLocationContext && window.UltronLocationContext.isLocalOrPlacesQuery(userPrompt))) {
+    if (window.UltronEntityExtractor && typeof window.UltronEntityExtractor.buildPlacesResultsAnswer === 'function') {
+      const placesAns = window.UltronEntityExtractor.buildPlacesResultsAnswer(userPrompt, { ...searchPayload, results }, searchPayload?.locationLabel || '');
+      if (placesAns && placesAns.text && placesAns.count > 0) return placesAns.text;
+    }
   }
 
   const cleanTitle = (rawTitle) => {
@@ -5757,25 +6036,25 @@ function formatPointwiseSearchAnswer(text, userPrompt, regional = {}) {
   let t = String(text || '').trim();
   if (!t) return t;
 
-  // Clean prompt artifact leftovers
-  t = t
-    .replace(/\bURL:\s*https?:\/\/\S+/gi, '')
-    .replace(/\bContent:\s*\*/gi, '')
-    .replace(/\bSource \[\d+\]:\s*/gi, '')
-    .replace(/\{"@context"[\s\S]*?\}/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // If already well structured with bullet points, headings, table, or callouts, return
+  // If already well structured with bullet points, headings, table, or callouts, return immediately
+  const hasTable = t.includes('|---') || t.includes('| :---') || (t.includes('|') && /\n\s*\|[^\n]+\|\s*\n/.test(t));
   const bulletCount = (t.match(/^\s*[-*•]\s+/gm) || []).length;
   const headingCount = (t.match(/^#{1,4}\s+/gm) || []).length;
   const numberedListCount = (t.match(/^\d+\.\s+\*\*/gm) || []).length;
-  const hasTable = t.includes('|---') || t.includes('| :---');
   const hasCallout = t.includes('> [!NOTE]') || t.includes('> [!TIP]');
 
   if (bulletCount >= 2 || headingCount >= 1 || numberedListCount >= 1 || hasTable || hasCallout) {
     return t;
   }
+
+  // Clean prompt artifact leftovers without destroying multiline formatting
+  t = t
+    .replace(/\bURL:\s*https?:\/\/\S+/gi, '')
+    .replace(/\bContent:\s*\*/gi, '')
+    .replace(/\bSource \[\d+\]:\s*/gi, '')
+    .replace(/\{"@context"[\s\S]*?\}/gi, '')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
 
   // Model produced a dense multi-line paragraph wall of text -> Auto-structure into clean point-wise breakdown
   const sentences = t
@@ -5863,26 +6142,43 @@ WEATHER FORMAT (mandatory — no paragraphs):
 
 Rules: Max 6 bullet lines. Only facts from live data.` : '';
 
-  const summarySystemPrompt = `You are Brown, an intelligent, articulate AI assistant in a direct conversation with ${userName}.
-Answer using ONLY the live web search data provided.${hopNote}${locationNote}${weatherBlock}
+  const entertainmentBlock = isEntertainmentRecommendationQuery(userPrompt) ? `
 
-CRITICAL ANTIGRAVITY-STYLE MARKDOWN FORMATTING RULES:
-1. **Executive TL;DR**: ALWAYS start with a \`> [!NOTE]\` callout block summarizing the core answer in 1–2 crisp sentences.
-2. **Visual Diagrams (Mermaid)**:
-   - For comparisons, architectures, data flows, relationships, or multi-step processes, ALWAYS include a complete, valid Mermaid diagram code block (\`\`\`mermaid\nflowchart TD\n  ...\n\`\`\`).
-3. **Structured Comparison Tables**:
-   - For comparisons ("difference between X and Y", "X vs Y", "compare"), generate a comprehensive Markdown table (| Dimension / Feature | Entity A | Entity B |) with proper headers (|:---|:---|:---|).
-4. **Structured Subheadings & Bold Bullets**:
-   - Use clear markdown subheadings (###) to separate distinct sections.
-   - Use bullet lists with **bold lead-ins** (e.g. - **Centralized Storage:** ...) and highlight key metrics, tools, and technical terms in \`code\` or **bold**.
-5. **Actionable Takeaways / Decision Tips**:
-   - Include a \`> [!TIP]\` or \`> [!IMPORTANT]\` callout advising when to choose which option or best practices.
-6. **No Raw Snippet Echoing**:
-   - Synthesize in your own articulate words. NEVER echo raw site title suffixes (e.g. "What is a Data Mart? | IBM") or repeat duplicate snippets from multiple sources.
-7. **Citations & Follow-ups**:
-   - Append inline citations [1], [2] directly after key facts.
-   - End with 3 follow-up question chips:
-   <!-- followups: ["Question 1", "Question 2", "Question 3"] -->`;
+ENTERTAINMENT RECOMMENDATIONS (mandatory):
+- Answer directly with shows/movies similar to what the user asked for.
+- Format as a short bullet list. Each item: **Title** — platform (if known from sources) · one-line why it fits.
+- Max 6–8 recommendations. Lead with at most 1–2 sentences of context about the reference title.
+- Do NOT write cast encyclopedias, plot novels, poster/logo captions, mermaid diagrams, or broken tables.
+- Do NOT invent cast roles, directors, or streaming availability. Prefer omitting a detail over guessing.
+- Never title the reply with formatting style names.` : '';
+
+  const isPlaces = locCtx ? locCtx.isLocalOrPlacesQuery(userPrompt) : isLocalPlacesIntent(userPrompt);
+  let extractedPlaces = [];
+  if (isPlaces && window.UltronEntityExtractor) {
+    const locLabel = dedupedPayload.locationLabel || locationNote.replace(/User location:\s*/i, '').trim();
+    extractedPlaces = window.UltronEntityExtractor.extractPlacesFromSearchResults(dedupedPayload.results, locLabel);
+    if (extractedPlaces.length > 0) {
+      dedupedPayload.places = extractedPlaces;
+    }
+  }
+
+  const placesBlock = extractedPlaces.length > 0 ? `
+
+VERIFIED LOCAL PLACES DISCOVERED:
+${extractedPlaces.map((p, idx) => `${idx + 1}. ${p.name} | Rating: ${p.rating}/5 | Category: ${p.category} | Location: ${p.location} | Highlight: ${p.highlight}`).join('\n')}
+
+Present these specific places to the user with their names, ratings, and highlights. Do NOT invent fake places or list generic aggregator articles.` : '';
+
+  const summarySystemPrompt = `You are Brown, an articulate, helpful AI assistant in conversation with ${userName}.
+Synthesize a clear, accurate answer using the live web search data provided.${hopNote}${locationNote}${weatherBlock}${entertainmentBlock}${placesBlock}
+
+Formatting guidelines:
+- Start with a direct 1-2 sentence overview.
+- When recommending restaurants, places, products, movies, or shows, highlight each specific pick with the most useful details from the sources.
+- Organize with clean subheadings (###) and bold bullet points when helpful — keep entertainment answers as a short list, not an encyclopedia.
+- Include comparison tables or workflow diagrams only when directly relevant and you have real multi-column facts.
+- Cite facts naturally with [1], [2].
+- Synthesize in your own words. Never repeat prompt instructions, rubric titles, formatting style names, or raw website title suffixes.`;
 
   const summaryPrompt = `User Request: ${userPrompt}
 
@@ -5891,12 +6187,20 @@ Search Query: ${searchQuery}
 Live Search Sources:
 ${liveContext}
 
-Write a comprehensive, beautifully formatted Antigravity-style Markdown response with diagrams, tables, and highlights as appropriate now.`;
+${isEntertainmentRecommendationQuery(userPrompt)
+    ? 'Write a tight recommendation list for the user request using the live sources. No essays, no fake posters/logos, no formatting-style titles.'
+    : 'Write a clear, well-structured answer using the live sources. Prefer usefulness over length. Do not mention formatting styles or prompt instructions.'}`;
 
   let summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt, loopImagePayloads);
 
   const isJunkOrVerbatimEcho = (text) => {
     if (!text || text.trim().length < 15) return true;
+    // Prompt echo & rubric leakage detection
+    if (/\b(Executive TL;DR|Visual Diagrams\s*\(Mermaid\)|CRITICAL ANTIGRAVITY-STYLE|Antigravity[- ]Style|ALWAYS start with a >|Structured Subheadings & Bold Bullets|Actionable Takeaways|No Raw Snippet Echoing|Live Search Sources:|Formatting guidelines:)\b/i.test(text)) return true;
+    if (/\b(CRITICAL.*RULES|ALWAYS include a complete, valid Mermaid|callout block summarizing the core answer)\b/i.test(text)) return true;
+    if (/\[!HYPERLINK\]/i.test(text)) return true;
+    if (/<!--\s*followups:/i.test(text) && text.trim().startsWith('<!--')) return true;
+    // Scraping boilerplate & raw HTML/JSON leaks
     if (/\bURL:\s*https?:\/\//i.test(text)) return true;
     if (/\bContent:\s*\*/i.test(text)) return true;
     if (/^[^:\n]+URL:\s*https?:\/\//i.test(text)) return true;
@@ -5904,6 +6208,14 @@ Write a comprehensive, beautifully formatted Antigravity-style Markdown response
     if (/\{"@context"/i.test(text)) return true;
     if (/\bif\s*\(navigator\./i.test(text)) return true;
     if (/^https?:\/\//i.test(text)) return true;
+    // Fake image / poster caption encyclopedia dumps (common small-model failure mode)
+    const fakeCaptionHits = (text.match(/(?:^|\n)\s*[A-Z][\w\s&:'-]{1,40}\s+(?:Poster|Logo|Cast|Banner|Thumbnail)\s*(?:\n|$)/g) || []).length;
+    if (fakeCaptionHits >= 2) return true;
+    if (isEntertainmentRecommendationQuery(userPrompt) && /\b(Plot Synopsis|Cast Highlights|Key Information)\b/i.test(text) && fakeCaptionHits >= 1) return true;
+    if (isEntertainmentRecommendationQuery(userPrompt) && /\bIntroduction\b/i.test(text) && /\bConclusion\b/i.test(text) && text.length > 1800) return true;
+    // Tag spam loops
+    if ((text.match(/\[!NOTE\]/gi) || []).length > 4) return true;
+    if ((text.match(/```mermaid/gi) || []).length > 2) return true;
     return false;
   };
 
@@ -5914,10 +6226,15 @@ Write a comprehensive, beautifully formatted Antigravity-style Markdown response
     || summary.includes('offline model loop failed')
     || summary.includes('Search Query Generator')
     || (isWeatherQuery(userPrompt) && summary.split(/\n\n/).some(p => p.length > 320))
+    || (isEntertainmentRecommendationQuery(userPrompt) && summary.split(/\n\n/).some(p => p.length > 900))
     || (isProductOrShoppingQuery(userPrompt) && /\b(don'?t have real-time|do not have real-time|without access to current|historically speaking|while i don'?t have|cannot access current)\b/i.test(summary))
   ) {
-    summary = (await buildSearchFallbackAnswer(userPrompt, dedupedPayload))
-      || `I found ${dedupedPayload.results.length} live result${dedupedPayload.results.length === 1 ? '' : 's'} for "${searchQuery}". Open the sources below for details.`;
+    if (isPlaces && extractedPlaces.length > 0 && window.UltronEntityExtractor) {
+      summary = window.UltronEntityExtractor.formatPlacesMarkdown(extractedPlaces, userPrompt, dedupedPayload.locationLabel || '');
+    } else {
+      summary = (await buildSearchFallbackAnswer(userPrompt, dedupedPayload))
+        || `I found ${dedupedPayload.results.length} live result${dedupedPayload.results.length === 1 ? '' : 's'} for "${searchQuery}". Open the sources below for details.`;
+    }
   }
 
   // Enforce point-wise formatting on output
@@ -6049,12 +6366,22 @@ function renderSearchExperience(answer, searchPayload) {
   const results = dedupeSearchResultsByDomain(Array.isArray(searchPayload.results) ? searchPayload.results.slice(0, 12) : []);
   const videos = Array.isArray(searchPayload.videos) ? searchPayload.videos.slice(0, 4) : [];
   
-  // Extract or build products / match cards list
-  let items = Array.isArray(searchPayload.products) && searchPayload.products.length > 0
-    ? [...searchPayload.products]
-    : [];
+  const locCtx = window.UltronLocationContext;
+  const isPlacesQuery = Boolean(
+    (Array.isArray(searchPayload.places) && searchPayload.places.length > 0)
+    || (locCtx && locCtx.isLocalOrPlacesQuery(searchPayload.query || ''))
+    || isLocalPlacesIntent(searchPayload.query || '')
+  );
 
-  if (items.length === 0 && (isProductOrShoppingQuery(searchPayload.query || '') || results.length > 0)) {
+  // Extract or build products / match cards list
+  let items = [];
+  if (Array.isArray(searchPayload.places) && searchPayload.places.length > 0) {
+    items = [...searchPayload.places];
+  } else if (Array.isArray(searchPayload.products) && searchPayload.products.length > 0) {
+    items = [...searchPayload.products];
+  } else if (isPlacesQuery && window.UltronEntityExtractor) {
+    items = window.UltronEntityExtractor.extractPlacesFromSearchResults(results, searchPayload.locationLabel || '');
+  } else if (isProductOrShoppingQuery(searchPayload.query || '')) {
     items = results.map(r => ({
       title: r.title || getSourceDomain(r),
       url: r.url,
@@ -6062,15 +6389,15 @@ function renderSearchExperience(answer, searchPayload) {
       snippet: r.snippet || (r.pageContent ? r.pageContent.slice(0, 160) : ''),
       price: extractPriceFromText(`${r.title} ${r.snippet}`),
       image: r.image || '',
-      type: r.type || (searchPayload.query?.includes('course') ? 'course' : 'web')
-    }));
+      type: 'product'
+    })).filter(it => it.price);
   }
 
   // Filter valid items and deduplicate URLs
   const seenUrls = new Set();
   items = items.filter(it => {
-    if (!it.title || !it.url) return false;
-    const key = it.url.toLowerCase();
+    if (!it.title && !it.name) return false;
+    const key = (it.url || it.id || it.title || it.name).toLowerCase();
     if (seenUrls.has(key)) return false;
     seenUrls.add(key);
     return true;
@@ -6092,7 +6419,13 @@ function renderSearchExperience(answer, searchPayload) {
   // Fallback follow-ups based on query intent if none generated
   if (!followups.length && searchPayload.query) {
     const q = searchPayload.query.toLowerCase();
-    if (q.includes('course') || q.includes('dsa') || q.includes('tutorial')) {
+    if (isPlacesQuery) {
+      followups = [
+        `What are the popular dishes or menus here?`,
+        `Which of these have outdoor or rooftop seating?`,
+        `What are good dessert or coffee spots nearby?`
+      ];
+    } else if (q.includes('course') || q.includes('dsa') || q.includes('tutorial')) {
       followups = [
         `Compare the top courses for ${searchPayload.query}`,
         `Show me free alternatives and tutorials`,
@@ -6116,7 +6449,6 @@ function renderSearchExperience(answer, searchPayload) {
   const answerHtml = enhanceCitationsWithTooltips(rawAnswerHtml, results);
 
   const initialItems = items.slice(0, 4);
-  const extraItems = items.slice(4, 12);
 
   const renderCard = (item) => {
     let domain = '';
@@ -6124,20 +6456,29 @@ function renderSearchExperience(answer, searchPayload) {
       const urlObj = new URL(item.url);
       domain = urlObj.hostname.replace(/^www\./, '');
     } catch (e) {
-      domain = item.source || 'web';
+      domain = item.source || item.sourceDomain || 'web';
     }
     const faviconUrl = domain && domain !== 'web' 
       ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
       : '';
 
-    const formattedPrice = formatPriceWithLocalEquivalent(item.price);
+    const formattedPrice = item.price ? formatPriceWithLocalEquivalent(item.price) : '';
+    const ratingBadge = item.rating 
+      ? `<span class="product-result-price-badge" style="background: rgba(234,179,8,0.15); color: #eab308; border-color: rgba(234,179,8,0.3);">⭐ ${typeof item.rating === 'number' ? item.rating.toFixed(1) : item.rating}</span>`
+      : '';
+
+    const isPlace = isPlacesQuery || item.type === 'place';
+    const fallbackIcon = isPlace ? '🍽️' : (item.type === 'course' ? '🎓' : '🛍️');
 
     const cardImg = item.image 
-      ? `<img class="product-result-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.title)}" loading="lazy" onerror="this.src='https://images.unsplash.com/photo-1518770660439-4636190af475?w=500&auto=format&fit=crop&q=70'; this.onerror=null;" />`
-      : `<img class="product-result-image" src="https://images.unsplash.com/photo-1518770660439-4636190af475?w=500&auto=format&fit=crop&q=70" alt="${escapeHtml(item.title)}" loading="lazy" />`;
+      ? `<img class="product-result-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name || item.title)}" loading="lazy" onerror="this.outerHTML='<div class=\\'product-result-icon-fallback\\'>${fallbackIcon}</div>';" />`
+      : `<div class="product-result-icon-fallback">${fallbackIcon}</div>`;
+
+    const displayTitle = item.name || item.title || 'Result';
+    const subInfo = item.category || item.location || '';
 
     return `
-      <a class="product-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
+      <a class="product-result-card" href="${escapeHtml(item.url || '#')}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(displayTitle)} on ${escapeHtml(domain)}">
         ${cardImg}
         <div class="product-result-body">
           <div class="product-source-header">
@@ -6146,12 +6487,13 @@ function renderSearchExperience(answer, searchPayload) {
               : `<span class="product-source-icon">🌐</span>`
             }
             <span class="product-source-domain">${escapeHtml(domain || item.source || 'web')}</span>
-            ${formattedPrice ? `<span class="product-result-price-badge">${escapeHtml(formattedPrice)}</span>` : ''}
+            ${ratingBadge || (formattedPrice ? `<span class="product-result-price-badge">${escapeHtml(formattedPrice)}</span>` : '')}
           </div>
-          <div class="product-result-title">${escapeHtml(item.title || 'Result')}</div>
-          ${item.snippet ? `<div class="product-result-snippet">${escapeHtml(item.snippet)}</div>` : ''}
+          <div class="product-result-title">${escapeHtml(displayTitle)}</div>
+          ${subInfo ? `<div class="product-result-snippet" style="font-weight: 500; color: var(--text-secondary, #94a3b8); margin-bottom: 2px;">${escapeHtml(subInfo)}</div>` : ''}
+          ${item.highlight || item.snippet ? `<div class="product-result-snippet">${escapeHtml(item.highlight || item.snippet)}</div>` : ''}
           <div class="product-result-footer">
-            <span class="product-visit-btn">Visit <span class="product-arrow">→</span></span>
+            <span class="product-visit-btn">${isPlace ? 'View Spot' : 'Visit'} <span class="product-arrow">→</span></span>
           </div>
         </div>
       </a>
@@ -6177,11 +6519,14 @@ function renderSearchExperience(answer, searchPayload) {
   };
 
   const totalResultsCount = items.length + videos.length + results.length;
+  const sectionTitle = isPlacesQuery ? 'Top Places & Restaurants' : 'Featured Matches';
+  const sectionCountLabel = isPlacesQuery ? `${items.length} spots recommended` : `${items.length} options found`;
+  const filterPillLabel = isPlacesQuery ? 'Places' : 'Featured';
 
   const filtersBarHtml = `
     <div class="search-filters-bar">
       <button type="button" class="search-filter-pill active" data-filter="all">All (${totalResultsCount})</button>
-      ${initialItems.length > 0 ? `<button type="button" class="search-filter-pill" data-filter="products">Featured (${items.length})</button>` : ''}
+      ${initialItems.length > 0 ? `<button type="button" class="search-filter-pill" data-filter="products">${filterPillLabel} (${items.length})</button>` : ''}
       ${videos.length > 0 ? `<button type="button" class="search-filter-pill" data-filter="videos">Videos (${videos.length})</button>` : ''}
       <button type="button" class="search-filter-pill" data-filter="sources">Sources (${results.length})</button>
     </div>
@@ -6191,8 +6536,8 @@ function renderSearchExperience(answer, searchPayload) {
     <div class="search-section search-products-section">
       <div class="search-section-header">
         <div class="search-section-title-wrap">
-          <span class="search-section-title">Featured Matches</span>
-          <span class="search-section-count">${items.length} options found</span>
+          <span class="search-section-title">${sectionTitle}</span>
+          <span class="search-section-count">${sectionCountLabel}</span>
         </div>
         ${items.length > 2 ? `
         <div class="search-carousel-controls">
@@ -6284,7 +6629,12 @@ document.addEventListener('click', (e) => {
  */
 function isContentGenerationRequest(prompt) {
   const p = String(prompt || '');
+  if (isReminderOrTimerRequest(p)) return false;
   if (isCodeOnlyGenerationRequest(p)) return true;
+
+  // Short creative forms even without "write/create" verbs
+  if (/\b(short\s+)?(poem|haiku|limerick|sonnet|ode|lyrics|rap\s+verse)\b/i.test(p)) return true;
+  if (/\b(short\s+)?(story|fable|fairy\s*tale)\b/i.test(p) && /\b(write|draft|compose|create|generate|give|make|tell)\b/i.test(p)) return true;
 
   // 1. Common creation / generation phrases with optional descriptors
   // Matches: "create a flowchart diagram", "draw an architecture diagram", "generate a comparison chart", "create me a landing page", etc.
@@ -6325,15 +6675,62 @@ function isContentGenerationRequest(prompt) {
   return false;
 }
 
-/** User wants source code only (e.g. "write only html", "html code only"). */
+/** Short creative asks that must not pull prior long essays into context. */
+function isShortCreativeRequest(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p || p.length > 220) return false;
+  if (/\b(research|analysis|report|paper|thesis|comprehensive|in-depth|scholarly|references|case study|microservices|telecommuting)\b/i.test(p)) {
+    return false;
+  }
+  return /\b(short\s+)?(poem|haiku|limerick|sonnet|ode|quatrain|couplet|lyrics|rap\s+verse|joke|riddle|one[\s-]liner)\b/i.test(p)
+    || /\b(write|draft|compose|give|make|create)\s+(me\s+)?(a\s+)?(short\s+)?(poem|haiku|paragraph|blurb|caption|tagline)\b/i.test(p);
+}
+
+function isFreshStandaloneRequest(prompt) {
+  if (isFollowUpAboutPriorTurn(prompt)) return false;
+  if (isShortCreativeRequest(prompt)) return true;
+  if (isContentGenerationRequest(prompt)) return true;
+  const p = String(prompt || '').trim();
+  // New imperative requests shouldn't inherit prior essay topics
+  if (/^(write|draft|compose|create|generate|explain|summarize|analyze|compare|list|build|make|design)\b/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
+const MAX_HISTORY_ASSISTANT_CHARS = 420;
+const MAX_HISTORY_USER_CHARS = 500;
+
+function clampHistoryMessageText(text, isAi) {
+  const plain = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!plain) return '';
+  const limit = isAi ? MAX_HISTORY_ASSISTANT_CHARS : MAX_HISTORY_USER_CHARS;
+  if (plain.length <= limit) return plain;
+  return `${plain.slice(0, limit - 1)}…`;
+}
+
+function buildCurrentRequestGuard(prompt) {
+  const trimmed = String(prompt || '').trim();
+  return `CURRENT USER REQUEST (highest priority — fulfill ONLY this; do not continue prior essays, reports, poems, or unrelated sections from earlier turns):\n${trimmed}`;
+}
+
+/** User wants source code only (e.g. "write only html", "html code only", "write me html code for..."). */
 function isCodeOnlyGenerationRequest(prompt) {
   const p = String(prompt || '').toLowerCase();
+  // Explicit interactive-widget asks should NOT take the code-only path
+  if (/\b(interactive\s*ui|generative\s*ui|interactive\s*widget|live\s*widget|gen-ui|html\s*widget)\b/i.test(p)) {
+    return false;
+  }
   if (/\b(only|just)\s+(html|css|javascript|js|python|typescript|tsx?|jsx?|code|sql|json|xml|svg)\b/.test(p)) return true;
   if (/\b(html|css|javascript|js|python|typescript|tsx?|jsx?|code|sql|json|xml|svg)\s+only\b/.test(p)) return true;
   if (/\bwrite\s+(only\s+)?(html|css|javascript|js|python|code)\b/.test(p)) return true;
   if (/\b(code\s+only|only\s+code)\b/.test(p)) return true;
   if (/\bgive\s+me\s+(only\s+)?(html|css|javascript|js|python|code)\b/.test(p)) return true;
   if (/\b(show|provide|output)\s+(me\s+)?(only\s+)?(html|css|javascript|js|python|code)\b/.test(p)) return true;
+  // "write me a html code for...", "html code for login form", "create javascript for..."
+  if (/\b(write|draft|compose|create|generate|give|make|build|show|provide)\b[\s\S]{0,48}\b(html|css|javascript|js|typescript|python|sql|code)\b/i.test(p)) return true;
+  if (/\b(html|css|javascript|js|typescript|python)\s+code\b/i.test(p)) return true;
+  if (/\bcode\s+(for|to)\b.+\b(form|login|page|website|component|function|script)\b/i.test(p)) return true;
   return false;
 }
 
@@ -6750,10 +7147,145 @@ function splitSearchAndActionPrompt(prompt) {
   return { searchPart, actionPart };
 }
 
+function isLocalPlacesIntent(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  const locCtx = window.UltronLocationContext;
+  if (locCtx && typeof locCtx.isLocalOrPlacesQuery === 'function') {
+    return locCtx.isLocalOrPlacesQuery(p);
+  }
+  return /\b(restaurants?|cafes?|coffee\s+shops?|food|dining|places?\s+to\s+eat|hotels?|baker(?:y|ies)|bars?|pubs?|lounges?|stores?|shops?|supermarkets?|malls?|hospitals?|clinics?|pharmac(?:y|ies)|gyms?|salons?|parks?|tourist\s+spots?|attractions?|places?\s+to\s+visit)\b/i.test(p);
+}
+
+function isGeneralKnowledgeQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  // If explicitly asking to search the web, shop, get live prices/weather, or local discovery, not pure general knowledge
+  if (hasExplicitSearchIntent(p) || isProductOrShoppingQuery(p) || isLocalPlacesIntent(p)) return false;
+  if (/\b(search|google|look\s*up|browse|find\s+out|latest|current|today|tonight|yesterday|tomorrow|this\s+week|this\s+month|news|price|cost|buy|cheap|deal|weather|forecast|score|match|live|stock|crypto|released?|download|install|version|near\s+me|nearby)\b/i.test(p)) {
+    return false;
+  }
+  // Standard educational, conceptual, scientific, historical, linguistic, or theoretical inquiries
+  if (/^(what\s+is|what\s+are|what\s+does|why\s+is|why\s+are|why\s+do|why\s+does|how\s+does|how\s+do|explain|define|describe|meaning\s+of|definition\s+of|concept\s+of|theory\s+of|principles?\s+of|difference\s+between)\b/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Intent Classifier — determines what the user actually wants.
- * Returns: 'math' | 'conversation' | 'action' | 'search' | 'time' | 'system_info' | 'user_identity'
+ * Returns: 'math' | 'conversation' | 'action' | 'search' | 'time' | 'system_info' | 'user_identity' | 'reminder' | 'system_control'
  */
+function isReminderOrTimerRequest(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  // Explicit diagram asks are never reminders
+  if (/\b(diagram|flowchart|flow\s*chart|mermaid|mindmap|visualize|infographic|draw\s+(a\s+)?(diagram|flowchart|chart))\b/i.test(p)) {
+    return false;
+  }
+  if (/\b(remind\s+me|set\s+(a\s+)?(reminder|timer|alarm)|timer\s+for|alarm\s+(for|in)|wake\s+me(\s+up)?)\b/i.test(p)) {
+    return true;
+  }
+  if (/\b(remind|timer|alarm|notify\s+me|ping\s+me)\b/i.test(p) && /\b(in|after|for)\s+\d+/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
+function parseReminderRequest(prompt) {
+  const raw = String(prompt || '').trim();
+  if (!raw) return null;
+  const delayMatch = raw.match(/\b(?:in|after|for)\s+(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\b/i)
+    || raw.match(/\b(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b/i);
+  if (!delayMatch) return null;
+
+  const amount = parseFloat(delayMatch[1]);
+  const unitRaw = String(delayMatch[2] || '').toLowerCase();
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  let delayMs = amount * 1000;
+  if (/^m(in(ute)?s?)?$/.test(unitRaw)) delayMs = amount * 60 * 1000;
+  else if (/^h(r|our)?s?$/.test(unitRaw)) delayMs = amount * 3600 * 1000;
+  else if (/^s(ec(ond)?s?)?$/.test(unitRaw)) delayMs = amount * 1000;
+
+  const maxMs = 24 * 60 * 60 * 1000;
+  if (delayMs > maxMs) delayMs = maxMs;
+
+  let message = raw
+    .replace(/^(hey|hi|hello|yo|please)[,!\s]+/i, '')
+    .replace(/\b(can\s+u|can\s+you|could\s+you|would\s+you|please)\s+/gi, '')
+    .replace(/\bremind\s+me\s+(to\s+)?/i, '')
+    .replace(/\bset\s+(a\s+)?(reminder|timer|alarm)\s*(to\s+|for\s+)?/i, '')
+    .replace(/\bwake\s+me(\s+up)?\s*/i, '')
+    .replace(/\b(notify\s+me|ping\s+me)\s+(to\s+)?/i, '')
+    .replace(/\b(in|after|for)\s+\d+(?:\.\d+)?\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\b/i, '')
+    .replace(/\b\d+(?:\.\d+)?\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b/i, '')
+    .replace(/[?.!,]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!message || message.length < 2 || /^(to|please|me)$/i.test(message)) {
+    message = 'Reminder';
+  } else {
+    message = message.charAt(0).toUpperCase() + message.slice(1);
+  }
+
+  return {
+    message,
+    delayMs,
+    amount,
+    unit: unitRaw,
+    humanDelay: formatReminderDelay(amount, unitRaw)
+  };
+}
+
+function formatReminderDelay(amount, unitRaw) {
+  const u = String(unitRaw || '').toLowerCase();
+  if (/^m(in(ute)?s?)?$/.test(u)) return `${amount} minute${amount === 1 ? '' : 's'}`;
+  if (/^h(r|our)?s?$/.test(u)) return `${amount} hour${amount === 1 ? '' : 's'}`;
+  if (/^s(ec(ond)?s?)?$/.test(u)) return `${amount} second${amount === 1 ? '' : 's'}`;
+  return `${amount} ${unitRaw}`;
+}
+
+function scheduleLocalReminder({ message, delayMs }) {
+  const body = String(message || 'Reminder').trim() || 'Reminder';
+  const ms = Math.max(500, Number(delayMs) || 0);
+
+  try {
+    if (typeof Notification !== 'undefined') {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    }
+  } catch (_) { /* ignore */ }
+
+  const timerId = setTimeout(() => {
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('Ultron Reminder', { body });
+      }
+    } catch (_) { /* ignore */ }
+    try {
+      showToast({ type: 'info', title: 'Reminder', message: body, duration: 14000 });
+    } catch (_) { /* ignore */ }
+    try {
+      showOllamaBanner('success', `Reminder: ${body}`, true, false);
+    } catch (_) { /* ignore */ }
+  }, ms);
+
+  return timerId;
+}
+
+function buildReminderResponse(prompt) {
+  const parsed = parseReminderRequest(prompt);
+  if (parsed) {
+    scheduleLocalReminder(parsed);
+    return `Got it — I'll remind you: **${parsed.message}** in **${parsed.humanDelay}**. You'll get a toast (and a desktop notification if allowed).\n\n_This timer runs while Ultron stays open._`;
+  }
+
+  return `I can set a real in-app timer if you include a delay — e.g. "remind me to drink water in 10 seconds" or "set a timer for 5 minutes".\n\nFor something that survives closing Ultron, use the Windows **Clock** app (Timer / Alarms), or a quick script:\n\n\`\`\`js\nsetTimeout(() => alert('Drink water'), 10_000);\n\`\`\`\n\nI won't invent a flowchart for reminders — tell me the delay and what to say when it fires.`;
+}
+
 function classifyIntent(prompt) {
   const p = prompt.toLowerCase().trim();
 
@@ -6765,6 +7297,11 @@ function classifyIntent(prompt) {
   // -1. Exact Mathematical & Arithmetic Calculations (Instant Math Skill)
   if (isMathOrCalculationQuery(prompt)) {
     return 'math';
+  }
+
+  // -1a. Reminders / timers / alarms — never route to diagram generation
+  if (isReminderOrTimerRequest(prompt)) {
+    return 'reminder';
   }
 
   // -1b. Direct Visual / Diagram / Flowchart / Mindmap Generation (Instant Chat In-App Visual)
@@ -6834,6 +7371,16 @@ function classifyIntent(prompt) {
   // 5b. Document analysis requests (attached files or document QA queries) → conversation/chat
   if ((p.includes('attached document') || /\b(analyze|analyse|summarize|summary of|review|explain|read|extract|what is in|tell me about)\b/i.test(p)) && /\b(resume|cv|pdf|document|paper|file|report|attachment)\b/i.test(p) && !hasDesktopActionCues(prompt)) {
     return 'conversation';
+  }
+
+  // 5c. General knowledge, conceptual explanations, science, history -> direct LLM conversational synthesis
+  if (isGeneralKnowledgeQuery(prompt) && !hasDesktopActionCues(prompt)) {
+    return 'conversation';
+  }
+
+  // 5d. Local places, dining, restaurants, and local services discovery -> search intent
+  if (isLocalPlacesIntent(prompt)) {
+    return 'search';
   }
 
   // 6. Web Search for How-To, Factual Knowledge, Product Info, or Current Events
@@ -7074,21 +7621,65 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
 
     const memorySnippet = getLearnedMemorySnippet() + (await getRagKnowledgeSnippet(prompt));
 
-    const agentPromptContext = buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet, Array.isArray(imagePayloads) && imagePayloads.length > 0);
+    // --- Context Engine Integration ---
+    // Build 8-layer context for enriched system prompt and entity-resolved user prompt
+    let contextEngineBlock = '';
+    let contextAugmentedPrompt = prompt;
+    if (window.UltronContextEngine) {
+      try {
+        const provider = window.UltronMultiProviderHub ? window.UltronMultiProviderHub.detectProviderForModel(activeModel) : 'ollama';
+        const recentMsgs = (currentSessionId && conversationsStore[currentSessionId])
+          ? conversationsStore[currentSessionId].messages
+              .filter(m => !isUnusableChatHistoryMessage(m.text))
+              .slice(-12)
+              .map(m => ({ role: m.isAi ? 'assistant' : 'user', content: extractPlainTextFromMessage(m.text) }))
+          : [];
+        const ctxResult = window.UltronContextEngine.buildContext({
+          userPrompt: prompt,
+          sessionId: currentSessionId,
+          provider,
+          modelId: activeModel,
+          currentMode: intent,
+          recentMessages: recentMsgs,
+          maxRecentMessages: 10
+        });
+        if (ctxResult.systemContextBlock) {
+          contextEngineBlock = '\n\n' + ctxResult.systemContextBlock;
+        }
+        if (ctxResult.userPromptAugmented && ctxResult.resolvedEntities && ctxResult.resolvedEntities.length > 0) {
+          contextAugmentedPrompt = ctxResult.userPromptAugmented;
+          logTrace(`Entity resolution: ${ctxResult.entityExplanations.join('; ')}`, 'system');
+        }
+      } catch (ctxErr) {
+        logTrace(`Context engine error (non-fatal): ${ctxErr.message}`, 'system');
+      }
+    }
+
+    const agentPromptContext = buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet + contextEngineBlock, Array.isArray(imagePayloads) && imagePayloads.length > 0);
     const agentSystemPrompt = intent === 'action' ? resolveAgentSystemPrompt(agentPromptContext) : null;
     const visionImages = Array.isArray(imagePayloads) ? imagePayloads.filter(p => p && p.data) : [];
     const canUseVision = visionImages.length > 0 && modelSupportsVision(activeModel);
 
     const isCodeRequest = intent === 'conversation' && isCodeOnlyGenerationRequest(prompt);
     const isContentRequest = intent === 'conversation' && isContentGenerationRequest(prompt);
+    const isShortCreative = intent === 'conversation' && isShortCreativeRequest(prompt);
     const skipConversationHistory = intent === 'conversation' && shouldSkipConversationHistory(prompt);
     // Temperature for local Ollama (was referenced as undeclared activeTemp — broke all local chats)
-    const activeTemp = isCodeRequest ? 0.15 : (isContentRequest ? 0.75 : (intent === 'conversation' ? 0.7 : 0.2));
+    const activeTemp = isCodeRequest ? 0.15 : (isShortCreative ? 0.8 : (isContentRequest ? 0.75 : (intent === 'conversation' ? 0.7 : 0.2)));
+
+    // Gate memory/RAG for fresh standalone asks so prior topics don't leak into the answer
+    const injectMemory = (memoryEnabled && intent !== 'conversation')
+      || (memoryEnabled && intent === 'conversation' && isFollowUpAboutPriorTurn(prompt) && !isShortCreative);
+    const effectiveMemorySnippet = injectMemory ? memorySnippet : '';
+    const effectiveContextBlock = (intent === 'action'
+      || (intent === 'conversation' && isFollowUpAboutPriorTurn(prompt) && !skipConversationHistory))
+      ? contextEngineBlock
+      : '';
 
     const systemPrompt = customSystemPromptOverride || window.localStorage.getItem('ultron-custom-system-prompt') || agentSystemPrompt || (intent === 'conversation'
       ? (isCodeRequest
         ? buildCodeGenerationSystemPrompt(prompt)
-        : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt()))
+        : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt(prompt)))
       : `You are Brown, a warm, highly intelligent, articulate, and engaging AI assistant in a direct 1-on-1 personal conversation with ${userName}.
 
 CONVERSATIONAL PERSONA & DIRECT VOICE RULES:
@@ -7105,14 +7696,17 @@ REAL-TIME CONTEXT:
 ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
 - Operating System: Windows ${sysEnv.osVersion || '10/11'} (${sysEnv.arch || 'x64'})
 - Home Directory: ${sysEnv.homeDir || 'C:\\Users\\vedan'}
-- Available Drives: ${drivesDesc}` : ''}${memorySnippet}`);
+- Available Drives: ${drivesDesc}` : ''}${effectiveMemorySnippet}${effectiveContextBlock}`);
 
-    let finalUserPrompt = prompt;
+    let finalUserPrompt = contextAugmentedPrompt || prompt;
+    if (intent === 'conversation' && !isFollowUpAboutPriorTurn(prompt)) {
+      finalUserPrompt = buildCurrentRequestGuard(finalUserPrompt);
+    }
     if (isVoiceChatModeEnabled()) {
-      finalUserPrompt = `${prompt}\n\n[Voice Mode Active: Be concise, natural, and direct (1–3 spoken sentences). Do NOT output markdown headers, tables, code blocks, or URLs.]`;
+      finalUserPrompt = `${finalUserPrompt}\n\n[Voice Mode Active: Be concise, natural, and direct (1–3 spoken sentences). Do NOT output markdown headers, tables, code blocks, or URLs.]`;
     }
     if (visionImages.length > 0 && !canUseVision && !activeModel.startsWith('gemini')) {
-      finalUserPrompt = `${prompt}\n\n[Note: Desktop screenshot(s) were captured for this step, but the active model "${activeModel}" does not support vision. Switch to a vision model (e.g. llava, gemini) to analyze screen content.]`;
+      finalUserPrompt = `${finalUserPrompt}\n\n[Note: Desktop screenshot(s) were captured for this step, but the active model "${activeModel}" does not support vision. Switch to a vision model (e.g. llava, gemini) to analyze screen content.]`;
     }
     // Keep user prompt clean — instructions are cleanly delivered via systemPrompt
 
@@ -7130,7 +7724,7 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
           visionImages,
           signal: _activeAbortController ? _activeAbortController.signal : undefined
         });
-        return output;
+        return trimRunawayContinuation(String(output || ''), prompt);
       } catch (err) {
         logTrace(`${provider} API execution error: ${err.message}`, 'system');
         const classified = classifyModelFailure(err, activeModel);
@@ -7150,7 +7744,8 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       intent,
       canUseVision,
       temperature: activeTemp,
-      contentGeneration: isContentRequest || isCodeRequest
+      contentGeneration: (isContentRequest || isCodeRequest) && !isShortCreative,
+      shortCreative: isShortCreative
     });
     if (typeof gpuOptions.num_gpu === 'number') {
       const gpuName = sysEnv.dedicatedGpu?.model || sysEnv.hardware?.dedicatedGpu?.model || 'GPU';
@@ -7166,8 +7761,8 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
     );
 
     if (memoryEnabled && currentSessionId && conversationsStore[currentSessionId] && !useGenerateForConversation && !skipConversationHistory) {
-      // Sliding window memory — shorter window for follow-ups
-      const historyLimit = (customSystemPromptOverride && /follow-up/i.test(customSystemPromptOverride)) ? 4 : 10;
+      // Sliding window memory — shorter window; clamp long assistant essays
+      const historyLimit = (customSystemPromptOverride && /follow-up/i.test(customSystemPromptOverride)) ? 4 : 6;
       const recentMsgs = conversationsStore[currentSessionId].messages
         .filter(m => !isUnusableChatHistoryMessage(m.text))
         .slice(-historyLimit);
@@ -7175,19 +7770,21 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       // Gemma 2 models in Ollama do not support 'system' role in chat messages array
       const chatMessages = isGemma ? [] : [{ role: 'system', content: systemPrompt }];
       
-      // For general conversational intents, include recent history. For action execution loops,
-      // prevent past conversational hallucinations from poisoning the current task's tool calls.
-      if (intent !== 'action') {
-        recentMsgs.forEach(m => {
-          const textContent = extractPlainTextFromMessage(m.text);
-          if (textContent) {
-            chatMessages.push({
-              role: m.isAi ? 'assistant' : 'user',
-              content: textContent
-            });
-          }
-        });
-      }
+      // Include recent history for ALL intents. For action execution loops,
+      // use a shorter window to prevent past conversational hallucinations
+      // from poisoning tool calls, but never drop history entirely —
+      // the user may reference earlier results ("save the code you wrote earlier").
+      const actionWindowLimit = 4;
+      const msgsToInclude = intent === 'action' ? recentMsgs.slice(-actionWindowLimit) : recentMsgs;
+      msgsToInclude.forEach(m => {
+        const textContent = clampHistoryMessageText(extractPlainTextFromMessage(m.text), !!m.isAi);
+        if (textContent) {
+          chatMessages.push({
+            role: m.isAi ? 'assistant' : 'user',
+            content: textContent
+          });
+        }
+      });
       
       // Append extra observation messages from agent loop
       if (Array.isArray(extraMessages) && extraMessages.length > 0) {
@@ -7222,11 +7819,11 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       // Conversation mode: /api/generate avoids small models meta-commenting on chat system roles
       const recentMsgs = conversationsStore[currentSessionId].messages
         .filter(m => !isUnusableChatHistoryMessage(m.text))
-        .slice(-8);
+        .slice(-4);
       const convPrompt = buildConversationPromptFromHistory(recentMsgs, finalUserPrompt);
       const convSystem = isCodeRequest
         ? buildCodeGenerationSystemPrompt(prompt)
-        : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt());
+        : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt(prompt));
 
       bodyData = {
         model: activeModel,
@@ -7307,7 +7904,7 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
           ? buildCodeGenerationSystemPrompt(prompt)
           : (isContentRequest
             ? buildContentGenerationSystemPrompt(prompt)
-            : buildConversationSystemPrompt());
+            : buildConversationSystemPrompt(prompt));
         const retryModel = isTinyLocalModel(activeModel)
           ? (selectBestInstalledLocalModel([activeModel]) || activeModel)
           : activeModel;
@@ -7319,8 +7916,8 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
           keep_alive: '5m',
           options: {
             ...ollamaOptions,
-            temperature: isContentRequest ? 0.75 : 0.7,
-            num_predict: isContentRequest ? 2048 : 512
+            temperature: isShortCreative ? 0.8 : (isContentRequest ? 0.75 : 0.7),
+            num_predict: isShortCreative ? 384 : (isContentRequest ? 2048 : 512)
           }
         };
         try {
@@ -7347,9 +7944,12 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
         }
       }
 
-      const sanitized = isCodeRequest
-        ? sanitizeCodeGenerationResponse(text, prompt)
-        : sanitizeResponseText(text, prompt);
+      const sanitized = trimRunawayContinuation(
+        isCodeRequest
+          ? sanitizeCodeGenerationResponse(text, prompt)
+          : sanitizeResponseText(text, prompt),
+        prompt
+      );
       if (intent === 'conversation' && !isCodeRequest && isIrrelevantModelResponse(sanitized, prompt)) {
         if (/^(hi|hello|hey|good\s*(morning|evening|afternoon|night))[\s!.?]*(\w+)?[\s!.?]*$/i.test(String(prompt || '').trim())) {
           const firstName = getUserFirstName();
@@ -8638,6 +9238,9 @@ function isMeaninglessPrompt(text) {
 
 function getThinkingLabelForPrompt(prompt) {
   const p = String(prompt || '').toLowerCase();
+  if (isReminderOrTimerRequest(prompt)) {
+    return 'Setting reminder';
+  }
   if (/\b(mindmap|mind\s*map|concept\s*tree|taxonomy)\b/i.test(p)) {
     return 'Generating mindmap';
   }
@@ -8664,11 +9267,21 @@ function getThinkingLabelForPrompt(prompt) {
 
 // Submit prompt logic
 async function submitPrompt(overridePrompt) {
-  if (isAwaitingResponse) return;
+  if (isAwaitingResponse || _isSubmittingPrompt) return;
+  _isSubmittingPrompt = true;
 
   let prompt = (typeof overridePrompt === 'string' && overridePrompt.trim())
     ? overridePrompt.trim()
-    : chatInput.value.trim();
+    : (chatInput ? chatInput.value.trim() : '');
+
+  // Synchronously clear input field immediately to prevent race-condition double sends
+  if (typeof overridePrompt !== 'string' && chatInput) {
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+  }
+
+  setSendingState(true);
+
   let currentImagePayloads = [];
   const userAttachedVisuals = [];
   let llmEnrichedPrompt = prompt;
@@ -8717,7 +9330,11 @@ async function submitPrompt(overridePrompt) {
     } catch (_) { /* artifact resolution is best-effort */ }
   }
 
-  if (!prompt && userAttachedVisuals.length === 0) return;
+  if (!prompt && userAttachedVisuals.length === 0) {
+    setSendingState(false);
+    _isSubmittingPrompt = false;
+    return;
+  }
 
   const displayPrompt = prompt;
   prompt = normalizePromptTypos(llmEnrichedPrompt || prompt || 'Please analyze the attached file(s).');
@@ -8725,13 +9342,6 @@ async function submitPrompt(overridePrompt) {
   // Create a new AbortController for this request so the stop button can cancel it
   _activeAbortController = new AbortController();
 
-  setSendingState(true);
-  
-  if (typeof overridePrompt !== 'string') {
-    chatInput.value = '';
-    chatInput.style.height = 'auto';
-  }
-  
   // Toggle off search overlay if open
   chatSearchOverlay.classList.add('hidden');
   
@@ -8832,6 +9442,11 @@ async function submitPrompt(overridePrompt) {
       if (intent === 'system_control') {
         const sysResult = await executeSystemControlQuery(routingPrompt);
         const response = sysResult.message || (sysResult.success ? 'System setting updated.' : 'Failed to update system setting.');
+        await typeMessageResponse(aiBubble, response);
+        appendChatMessage('Ultron', response, true, { skipRender: true });
+
+      } else if (intent === 'reminder') {
+        const response = buildReminderResponse(routingPrompt);
         await typeMessageResponse(aiBubble, response);
         appendChatMessage('Ultron', response, true, { skipRender: true });
 
@@ -10009,6 +10624,23 @@ async function runSearchIntentFlow(userPrompt, aiBubble, loopImagePayloads, acti
     finalizeAiMessageBubble(aiBubble, clarMsg);
     appendChatMessage('Ultron', clarMsg, true, { skipRender: true });
     return;
+  }
+
+  const locCtx = window.UltronLocationContext;
+  const isPlacesQuery = locCtx ? locCtx.isLocalOrPlacesQuery(userPrompt) : isLocalPlacesIntent(userPrompt);
+  const isImplicitLoc = locCtx ? locCtx.isImplicitLocationPhrase(userPrompt) : /\b(near me|around me|my area|my city|nearby|here)\b/i.test(userPrompt);
+
+  if (isPlacesQuery && isImplicitLoc) {
+    const loc = locCtx ? await locCtx.resolveEffectiveLocation(userPrompt, { getSystemContext }) : null;
+    const hasValid = locCtx ? locCtx.hasValidLocation(loc) : Boolean(loc?.label && !/^(unknown|none)$/i.test(loc.label));
+
+    if (!hasValid) {
+      const locAskMsg = `To help you find the best places and restaurants near you, could you please tell me your city or neighborhood? (For example: *"Amravati"* or *"Bandra, Mumbai"*). Once you share your location, I will find top-rated spots for you!`;
+      renderMessageContent(aiBubble, locAskMsg);
+      finalizeAiMessageBubble(aiBubble, locAskMsg);
+      appendChatMessage('Ultron', locAskMsg, true, { skipRender: true });
+      return;
+    }
   }
 
   const userName = getUserFullName();
@@ -11228,37 +11860,64 @@ Write the final answer now.`;
 }
 
 // Load historical conversation session
-function loadSession(id, title) {
+async function loadSession(id, title) {
   if (typeof closeSettingsPanel === 'function') {
     closeSettingsPanel();
   }
   const chatMain = document.querySelector('.chat-main');
 
-  if (activeChatTitle) activeChatTitle.textContent = title;
   setSendingState(false);
   activeSubgoals = [];
 
   try {
-    if (!id || !conversationsStore[id]) {
+    if (!id) {
       if (chatMain) chatMain.classList.add('empty-state');
       chatMessagesContainer.innerHTML = '';
       updateWelcomeGreeting();
       renderChecklist([]);
+      if (activeChatTitle) activeChatTitle.textContent = 'New chat';
       return;
+    }
+
+    // Fallback load from disk if session not currently populated in memory
+    if (!conversationsStore[id] && window.ultronAPI && typeof window.ultronAPI.loadConversations === 'function') {
+      try {
+        const loadRes = await window.ultronAPI.loadConversations();
+        if (loadRes && loadRes.success && loadRes.data) {
+          const loadedStore = JSON.parse(loadRes.data);
+          if (loadedStore && typeof loadedStore === 'object') {
+            Object.assign(conversationsStore, loadedStore);
+          }
+        }
+      } catch (loadErr) {
+        console.warn('Fallback loadConversations error:', loadErr);
+      }
     }
 
     currentSessionId = id;
     chatMessagesContainer.innerHTML = '';
 
     const savedSession = conversationsStore[id];
+    const sessionTitle = title || savedSession?.title || 'Chat';
+    if (activeChatTitle) activeChatTitle.textContent = sessionTitle;
+
     if (savedSession && Array.isArray(savedSession.messages) && savedSession.messages.length > 0) {
       if (chatMain) chatMain.classList.remove('empty-state');
       for (const msg of savedSession.messages) {
+        if (!msg) continue;
         const isAi = msg.isAi != null ? Boolean(msg.isAi) : msg.sender === 'Ultron';
-        const contentEl = renderChatMessage(msg.sender, msg.text, isAi);
-        if (isAi && contentEl) finalizeAiMessageBubble(contentEl, msg.text, { autoSpeak: false });
+        const contentEl = renderChatMessage(msg.sender || (isAi ? 'Ultron' : 'User'), msg.text || '', isAi);
+        if (isAi && contentEl) {
+          try {
+            finalizeAiMessageBubble(contentEl, msg.text || '', { autoSpeak: false });
+          } catch (finErr) {
+            console.warn('finalizeAiMessageBubble non-fatal error:', finErr);
+          }
+        }
       }
-      chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+      setTimeout(() => {
+        chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+      }, 50);
     } else {
       if (chatMain) chatMain.classList.add('empty-state');
       updateWelcomeGreeting();
@@ -13567,7 +14226,7 @@ if (inputDownloadModel) {
 btnSend.addEventListener('click', (e) => {
   e.preventDefault();
   e.stopPropagation();
-  if (isAwaitingResponse) return;
+  if (isAwaitingResponse || _isSubmittingPrompt) return;
   submitPrompt();
 });
 
@@ -13588,7 +14247,7 @@ chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     e.stopPropagation();
-    if (isAwaitingResponse) return;
+    if (isAwaitingResponse || _isSubmittingPrompt) return;
     submitPrompt();
   }
 });
@@ -13824,7 +14483,7 @@ async function syncDesktopAppTelemetry() {
         email: { stringValue: userEmail.toLowerCase() },
         name: { stringValue: userName || userEmail.split('@')[0] },
         platform: { stringValue: 'Windows 11 / 10 x64' },
-        appVersion: { stringValue: 'v1.0.15' },
+        appVersion: { stringValue: 'v1.0.16' },
         onboarded: { booleanValue: true },
         privacyAccepted: { booleanValue: privacyAccepted },
         privacyAcceptedAt: { stringValue: privacyAcceptedAt },
@@ -17893,7 +18552,7 @@ function settleBootStep(promise, timeoutMs = 10000) {
   ]);
 }
 
-const SPLASH_DISPLAY_DURATION_MS = 10000; // Mandatory 10 seconds minimum display on startup
+const SPLASH_DISPLAY_DURATION_MS = 1500; // Smooth 1.5s boot sequence
 const SKELETON_DISPLAY_DURATION_MS = 1000;
 const SPLASH_FADE_MS = 450;
 const bootStartTime = Date.now();
@@ -18030,7 +18689,7 @@ async function bootSystem() {
       reloadConversationsFromDisk().catch(() => {}),
       loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: false }).catch(() => {}),
       checkOllamaStartup().catch(() => {}),
-      initMultiProviderUI().catch(() => {}),
+      (typeof initMultiProviderUI === 'function' ? initMultiProviderUI() : Promise.resolve()).catch(() => {}),
       syncSecurityMode().catch(() => {}),
       (async () => {
         if (window.UltronAgentPrompt?.loadUltronAgentConfig) {
@@ -21280,7 +21939,7 @@ function setupAutoUpdaterUI() {
       }
     } else if (data.status === 'not-available') {
       if (title) title.textContent = 'Brown AI is Up to Date ✓';
-      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.15'}).`;
+      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.16'}).`;
       if (actionContainer) actionContainer.style.display = 'none';
       updateInfo = null;
       updateState = 'none';
@@ -21291,7 +21950,7 @@ function setupAutoUpdaterUI() {
       updateState = 'downloading';
       renderProgress(data);
     } else if (data.status === 'downloaded') {
-      if (title) title.textContent = `Update v${data.version || '1.0.15'} Ready to Install!`;
+      if (title) title.textContent = `Update v${data.version || '1.0.16'} Ready to Install!`;
       if (subtitle) subtitle.textContent = 'Update downloaded successfully. Click restart to apply changes.';
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';
