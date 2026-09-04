@@ -73,15 +73,15 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $tag = "v$version-beta.1"
+          $tag = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v$version" }
           $relJson = @{
             version = $version
             tagName = $tag
             releaseDate = (Get-Date -Format "yyyy-MM-dd")
-            setupUrl = "https://github.com/vedantwankhade123/ultron-releases/releases/download/$tag/Ultron.AI.Setup.v$version.exe"
-            portableUrl = "https://github.com/vedantwankhade123/ultron-releases/releases/download/$tag/Ultron.AI.v$version.exe"
-            setupName = "Ultron.AI.Setup.v$version.exe"
-            portableName = "Ultron.AI.v$version.exe"
+            setupUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown%20AI%20Setup%20v$version.exe"
+            portableUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown%20AI%20v$version.exe"
+            setupName = "Brown AI Setup v$version.exe"
+            portableName = "Brown AI v$version.exe"
           }
           if (Test-Path "Ultron Website") {
             New-Item -ItemType Directory -Force -Path "Ultron Website/public" | Out-Null
@@ -89,13 +89,13 @@ jobs:
             $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/release.json" -Encoding UTF8
             Write-Host "Updated website release.json for version $version"
           } else {
-            Write-Host "Ultron Website folder not in runner root, skipping release.json update."
+            Write-Host "Website folder not in runner root, skipping release.json update."
           }
 
       - name: Summary
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          Write-Host "Successfully published Ultron AI v$version to GitHub Releases!"
-          Write-Host "Installer: Ultron AI Setup v$version.exe"
-          Write-Host "Portable:  Ultron AI v$version.exe"
+          Write-Host "Successfully published Brown AI v$version to GitHub Releases!"
+          Write-Host "Installer: Brown AI Setup v$version.exe"
+          Write-Host "Portable:  Brown AI v$version.exe"

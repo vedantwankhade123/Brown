@@ -42,6 +42,9 @@ yarn-error.log*
 # Local Development Runtimes & Caches (Models, Blobs, Manifests)
 Ultron-local/
 brown-local/
+UltronDataDev-migrated-from-C/
+"Downloadable Files"/
+Downloadable Files/
 .system_generated/
 .gemini/
 .agents/

@@ -39,7 +39,7 @@ function initAutoUpdater(mainWindow) {
     autoUpdater.setFeedURL({
       provider: 'github',
       owner: 'vedantwankhade123',
-      repo: 'ultron-releases',
+      repo: 'Brown-Releases',
       releaseType: 'release'
     });
   } catch (e) {
@@ -97,7 +97,7 @@ function initAutoUpdater(mainWindow) {
     try {
       const https = require('https');
       return await new Promise((resolve) => {
-        const req = https.get('https://api.github.com/repos/vedantwankhade123/ultron-releases/releases/latest', {
+        const req = https.get('https://api.github.com/repos/vedantwankhade123/Brown-Releases/releases/latest', {
           headers: { 'User-Agent': 'Brown-AI-Desktop-App' },
           timeout: 8000
         }, (res) => {

@@ -23,6 +23,14 @@ const TTS_MODEL_CATALOG = [
     description: 'US male · steady, natural conversational voice',
     sizeEstimate: '~92 MB',
     previewText: "Hello, I'm Brown. This is the Michael voice."
+  },
+  {
+    key: 'gemini-live-kore',
+    engine: 'gemini-cloud',
+    label: 'Kore',
+    description: 'Cloud voice · natural expressive tone',
+    sizeEstimate: 'Cloud',
+    previewText: "Hello, I'm Brown. This is the Kore voice."
   }
 ];
 

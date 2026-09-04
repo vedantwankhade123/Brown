@@ -234,7 +234,22 @@
     }
   }
 
+  /** ChatGPT-style agent: keep code in chat; do not open the right workspace pane. */
+  function isChatOnlyAgentMode() {
+    try {
+      const flag = window.localStorage.getItem('ultron-chat-only-agent');
+      if (flag === 'false') return false;
+    } catch (_) { /* ignore */ }
+    return true;
+  }
+
   function openWorkspace(filesPayload = [], options = {}) {
+    if (isChatOnlyAgentMode()) {
+      try {
+        console.info('[Brown] Workspace panel disabled — code stays in chat.');
+      } catch (_) { /* ignore */ }
+      return;
+    }
     if (!_panelEl) init();
     if (!_panelEl) return;
 
@@ -456,6 +471,12 @@
   }
 
   function openVisualInspector(visualOpts = {}) {
+    if (isChatOnlyAgentMode()) {
+      try {
+        console.info('[Brown] Visual inspector disabled — keep content in chat.');
+      } catch (_) { /* ignore */ }
+      return;
+    }
     if (!_panelEl) init();
     if (!_panelEl) return;
 
@@ -926,6 +947,7 @@
   // Scan AI message DOM and attach interactive "Preview & Edit in Code Canvas" pills
   function enhanceMessageCodeBlocks(messageElement, rawText) {
     if (!messageElement) return;
+    if (isChatOnlyAgentMode()) return;
     if (messageElement.querySelector('.user-canvas-preview-pill')) return;
 
     // Prefer the shared project-file parser so pills/tabs get the same correct
@@ -1074,6 +1096,12 @@
 
   /** Upsert several files at once and show the panel, keeping already-open tabs. */
   function mergeFilesIntoWorkspace(filesPayload = [], options = {}) {
+    if (isChatOnlyAgentMode()) {
+      try {
+        console.info('[Brown] Workspace merge skipped — code stays in chat.');
+      } catch (_) { /* ignore */ }
+      return;
+    }
     const { defaultMode = 'preview', focusFirst = true } = options;
     if (!Array.isArray(filesPayload) || filesPayload.length === 0) return;
     let firstId = null;

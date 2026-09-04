@@ -132,10 +132,9 @@ function cosineSimilarity(vecA, vecB) {
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-// Split text into overlapping chunks
+// Structure-aware chunking: splits on markdown headings, code blocks, paragraph boundaries
 function chunkText(text, filePath) {
   if (!text) return [];
-  const chunks = [];
   const fileName = path.basename(filePath);
   const clean = text.replace(/\r\n/g, '\n').trim();
 
@@ -152,13 +151,133 @@ function chunkText(text, filePath) {
     }];
   }
 
-  let start = 0;
+  // Try structure-aware splitting first
+  const ext = path.extname(filePath).toLowerCase();
+  let sections;
+
+  if (['.md', '.markdown'].includes(ext)) {
+    sections = splitByMarkdownHeadings(clean);
+  } else if (['.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.go', '.rs'].includes(ext)) {
+    sections = splitByCodeFunctions(clean);
+  } else {
+    sections = splitByParagraphs(clean);
+  }
+
+  // If structure-aware splitting produced reasonable chunks, use them
+  // Otherwise fall back to fixed-size with overlap
+  const chunks = [];
   let chunkIdx = 0;
+
+  for (const section of sections) {
+    if (section.length <= CHUNK_SIZE) {
+      if (section.trim().length > 20) {
+        const tokens = tokenize(section);
+        chunks.push({
+          id: crypto.createHash('md5').update(`${filePath}:${chunkIdx}`).digest('hex'),
+          filePath,
+          fileName,
+          chunkIndex: chunkIdx,
+          text: section.trim(),
+          charCount: section.trim().length,
+          vector: createTermVector(tokens)
+        });
+        chunkIdx++;
+      }
+    } else {
+      // Section too large, sub-chunk with overlap
+      const subChunks = fixedSizeChunk(section, filePath, fileName, chunkIdx);
+      chunks.push(...subChunks);
+      chunkIdx += subChunks.length;
+    }
+  }
+
+  return chunks.length > 0 ? chunks : fixedSizeChunk(clean, filePath, fileName, 0);
+}
+
+// Split markdown by heading boundaries (# ## ### etc.)
+function splitByMarkdownHeadings(text) {
+  const lines = text.split('\n');
+  const sections = [];
+  let current = [];
+
+  for (const line of lines) {
+    if (/^#{1,4}\s+/.test(line) && current.length > 0) {
+      sections.push(current.join('\n'));
+      current = [line];
+    } else {
+      current.push(line);
+    }
+  }
+  if (current.length > 0) sections.push(current.join('\n'));
+
+  // Merge tiny sections (< 100 chars) with next section
+  const merged = [];
+  for (let i = 0; i < sections.length; i++) {
+    if (sections[i].length < 100 && merged.length > 0) {
+      merged[merged.length - 1] += '\n' + sections[i];
+    } else {
+      merged.push(sections[i]);
+    }
+  }
+  return merged;
+}
+
+// Split code files by function/class/method boundaries
+function splitByCodeFunctions(text) {
+  const lines = text.split('\n');
+  const sections = [];
+  let current = [];
+  let braceDepth = 0;
+
+  // Patterns for function/class/method start
+  const funcStartPattern = /^(?:export\s+)?(?:async\s+)?(?:function|class|const\s+\w+\s*=\s*(?:async\s+)?\(?|def\s+|fn\s+|func\s+|pub\s+fn\s+|public\s+|private\s+|protected\s+)/;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (funcStartPattern.test(trimmed) && braceDepth <= 1 && current.length > 5) {
+      sections.push(current.join('\n'));
+      current = [line];
+    } else {
+      current.push(line);
+    }
+    // Track brace depth (rough heuristic)
+    for (const ch of trimmed) {
+      if (ch === '{') braceDepth++;
+      else if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+    }
+  }
+  if (current.length > 0) sections.push(current.join('\n'));
+  return sections;
+}
+
+// Split plain text by paragraph boundaries (double newlines)
+function splitByParagraphs(text) {
+  const paragraphs = text.split(/\n\s*\n/);
+  const sections = [];
+  let buffer = '';
+
+  for (const para of paragraphs) {
+    if (buffer.length + para.length + 2 > CHUNK_SIZE && buffer.length > 0) {
+      sections.push(buffer);
+      buffer = para;
+    } else {
+      buffer += (buffer ? '\n\n' : '') + para;
+    }
+  }
+  if (buffer) sections.push(buffer);
+  return sections;
+}
+
+// Fallback fixed-size chunking with overlap
+function fixedSizeChunk(text, filePath, fileName, startIdx) {
+  const clean = text.trim();
+  const chunks = [];
+  let start = 0;
+  let chunkIdx = startIdx;
 
   while (start < clean.length) {
     let end = start + CHUNK_SIZE;
     if (end < clean.length) {
-      // Try to break on a newline or period
       const lastNewline = clean.lastIndexOf('\n', end);
       const lastPeriod = clean.lastIndexOf('. ', end);
       if (lastNewline > start + CHUNK_SIZE / 2) {
@@ -519,6 +638,32 @@ async function reindexAll(progressCallback = null) {
 }
 
 // Semantic Vector Cosine Search
+// BM25 scoring parameters
+const BM25_K1 = 1.5;
+const BM25_B = 0.75;
+
+// Compute BM25 score for a query against a chunk
+function bm25Score(queryTerms, chunkText, avgDocLen, totalDocs, docFreqs) {
+  const chunkTokens = tokenize(chunkText);
+  const chunkLen = chunkTokens.length;
+  const termFreqs = {};
+  for (const t of chunkTokens) {
+    termFreqs[t] = (termFreqs[t] || 0) + 1;
+  }
+
+  let score = 0;
+  for (const term of queryTerms) {
+    const tf = termFreqs[term] || 0;
+    if (tf === 0) continue;
+    const df = docFreqs[term] || 1;
+    const idf = Math.log((totalDocs - df + 0.5) / (df + 0.5) + 1);
+    const tfNorm = (tf * (BM25_K1 + 1)) / (tf + BM25_K1 * (1 - BM25_B + BM25_B * (chunkLen / avgDocLen)));
+    score += idf * tfNorm;
+  }
+  return score;
+}
+
+// Hybrid Retrieval: BM25 keyword matching + TF-cosine vector similarity
 async function searchKnowledge(query, options = {}) {
   const topK = typeof options === 'number' ? options : (options?.topK || 5);
   const minScore = typeof options === 'object' && options?.minScore !== undefined ? options.minScore : 0.05;
@@ -529,25 +674,61 @@ async function searchKnowledge(query, options = {}) {
 
   const queryTokens = tokenize(query);
   const queryVector = createTermVector(queryTokens);
+  // Unique query terms for BM25 (no n-grams, just whole words)
+  const queryWords = query.toLowerCase().replace(/[^\w\s-]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+
+  // Pre-compute BM25 corpus stats
+  const totalDocs = indexData.chunks.length;
+  let totalLen = 0;
+  const docFreqs = {};
+  for (const chunk of indexData.chunks) {
+    const words = (chunk.text || '').toLowerCase().replace(/[^\w\s-]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+    totalLen += words.length;
+    const seen = new Set(words);
+    for (const w of seen) {
+      docFreqs[w] = (docFreqs[w] || 0) + 1;
+    }
+  }
+  const avgDocLen = totalLen / Math.max(totalDocs, 1);
 
   const scored = [];
   for (const chunk of indexData.chunks) {
     if (!chunk.vector) continue;
-    const score = cosineSimilarity(queryVector, chunk.vector);
-    if (score >= minScore) {
-      scored.push({
-        score: Math.round(score * 1000) / 1000,
-        filePath: chunk.filePath,
-        fileName: chunk.fileName,
-        chunkIndex: chunk.chunkIndex,
-        text: chunk.text,
-        snippet: chunk.text.slice(0, 300)
-      });
-    }
+
+    // Cosine similarity score (0-1)
+    const cosineScore = cosineSimilarity(queryVector, chunk.vector);
+
+    // BM25 score (unbounded, normalize later)
+    const bm25 = bm25Score(queryWords, chunk.text || '', avgDocLen, totalDocs, docFreqs);
+
+    // Skip if both scores are negligible
+    if (cosineScore < 0.01 && bm25 < 0.1) continue;
+
+    scored.push({
+      cosineScore,
+      bm25Score: bm25,
+      filePath: chunk.filePath,
+      fileName: chunk.fileName,
+      chunkIndex: chunk.chunkIndex,
+      text: chunk.text,
+      snippet: chunk.text.slice(0, 300)
+    });
   }
 
-  scored.sort((a, b) => b.score - a.score);
-  return { success: true, results: scored.slice(0, topK) };
+  if (scored.length === 0) return { success: true, results: [] };
+
+  // Normalize BM25 scores to 0-1 range for fusion
+  const maxBm25 = Math.max(...scored.map(s => s.bm25Score), 0.001);
+  for (const item of scored) {
+    item.bm25Norm = item.bm25Score / maxBm25;
+    // Weighted fusion: 40% BM25 + 60% cosine (cosine handles semantic similarity better with n-grams)
+    item.score = Math.round((0.4 * item.bm25Norm + 0.6 * item.cosineScore) * 1000) / 1000;
+  }
+
+  // Filter by minimum score and sort
+  const filtered = scored.filter(s => s.score >= minScore);
+  filtered.sort((a, b) => b.score - a.score);
+  return { success: true, results: filtered.slice(0, topK) };
 }
 
 // Index in-memory text content directly (e.g. implementation plans, session learnings, task playbooks)

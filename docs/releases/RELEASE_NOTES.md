@@ -1,8 +1,30 @@
-# 🚀 Brown AI — BETA v1.0.15 Release Notes
+# 🚀 Brown AI — Release Notes
 
-We are thrilled to announce **Brown AI BETA v1.0.15**, our milestone release delivering hybrid intelligence, dedicated GPU/CPU/Auto performance controls, zero-lag background metrics, full autonomous execution loops, multi-provider model integration, fully offline neural voice (Kokoro TTS + Whisper STT), light/dark/system theming, topbar command dropdowns, and mobile device synchronization.
+## 🌟 Brown AI v1.0.16 (Latest)
+
+**Brown AI v1.0.16** introduces major stability fixes, conversational history improvements, synchronous double-send locks, entity tracking in multi-turn reasoning, and polished desktop setup packaging.
+
+### ✨ Highlights & Fixes in v1.0.16
+
+- **Double-Send Prevention**: Synchronous submission lock (`_isSubmittingPrompt`) and auto-disabled send state prevent race conditions, accidental double-clicks, and simultaneous model responses.
+- **Reliable Session Loading**: Clicking previous chat sessions in the left sidebar instantly retrieves full conversation history and renders messages with proper context, eliminating blank screens.
+- **Sidebar Timestamps**: Recent chat sessions in the sidebar now display formatted date and time indicators below titles.
+- **Markdown & Table Rendering**: Fixed regular expression edge cases in table structures and newline flattening to prevent table layout corruption in assistant responses.
+- **Advanced Context Engine & Entity Tracker**: Added support for resolving ordinal and anaphoric references ("the second one", "compare it") and hybrid BM25 + vector document retrieval.
+- **Local Dining & Places Gating**: Enhanced SEO listicle filtering and location-aware grounding for dining and place queries.
+- **Mobile Companion Synchronization**: Integrated dynamic thinking status, update detection modals, and responsive layout polish.
+- **Official Setup Installer**: Upgraded release artifact to `Brown AI Setup v1.0.16.exe` (NSIS installer) and `Brown AI v1.0.16.exe` (portable).
+
+### 📦 Downloads
+
+| Asset | Type | Description |
+| :--- | :--- | :--- |
+| **`Brown AI Setup v1.0.16.exe`** | **Installer** | Recommended. Windows NSIS Setup Wizard with Start Menu & Desktop shortcuts. |
+| **`Brown AI v1.0.16.exe`** | **Portable** | Standalone portable executable. Runs directly without installation. |
 
 ---
+
+## 🚀 Brown AI — BETA v1.0.15 Release Notes
 
 ## ✨ Key Features & Highlights in BETA v1
 

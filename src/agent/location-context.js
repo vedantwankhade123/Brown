@@ -107,21 +107,55 @@
     return { label: '', source: 'none', confidence: 'none' };
   }
 
-  function augmentQueryWithLocation(query, locationLabel) {
-    if (!query || !locationLabel) return query;
-    const cityToken = locationLabel.split(',')[0].trim().toLowerCase();
-    if (!cityToken || query.toLowerCase().includes(cityToken)) return query;
-    return `${query} ${locationLabel.split(',')[0].trim()}`.trim();
+  function isLocalOrPlacesQuery(prompt) {
+    const p = String(prompt || '').toLowerCase();
+    const placeTerms = /\b(restaurants?|cafes?|coffee\s+shops?|food|dining|eater(?:y|ies)|places?\s+to\s+eat|hotels?|baker(?:y|ies)|bars?|pubs?|lounges?|stores?|shops?|supermarkets?|malls?|hospitals?|clinics?|pharmac(?:y|ies)|gyms?|salons?|parks?|tourist\s+spots?|attractions?|places?\s+to\s+visit)\b/i;
+    return placeTerms.test(p);
   }
 
-  window.UltronLocationContext = {
+  function hasValidLocation(loc) {
+    if (!loc) return false;
+    const label = typeof loc === 'string' ? loc : (loc.label || '');
+    const trimmed = label.trim();
+    if (!trimmed) return false;
+    if (/^(unknown(\s+location)?|none|undefined|null|n\/a)$/i.test(trimmed)) return false;
+    return true;
+  }
+
+  function augmentQueryWithLocation(query, locationLabel) {
+    if (!query || !locationLabel) return query;
+    const city = locationLabel.split(',')[0].trim();
+    if (!city) return query;
+    const cityLower = city.toLowerCase();
+
+    // Strip implicit location phrases like "near me", "around me", "nearby"
+    let q = String(query)
+      .replace(/\b(near me|around me|my area|my city|my location|where i am|where i live|nearby|here)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (!q) return `best places in ${city}`;
+    if (q.toLowerCase().includes(cityLower)) return q;
+    return `${q} in ${city}`.trim();
+  }
+
+  const exportObj = {
     STORAGE_KEY,
     getSavedLocation,
     setSavedLocation,
     isImplicitLocationPhrase,
     isLocationSensitiveQuery,
+    isLocalOrPlacesQuery,
+    hasValidLocation,
     extractExplicitLocationFromPrompt,
     resolveEffectiveLocation,
     augmentQueryWithLocation
   };
+
+  if (typeof window !== 'undefined') {
+    window.UltronLocationContext = exportObj;
+  }
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = exportObj;
+  }
 })();

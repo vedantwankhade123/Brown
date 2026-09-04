@@ -224,34 +224,41 @@
       name: 'Interactive Visuals, Diagrams & Charts Creator',
       triggers: ['diagram', 'chart', 'graph', 'flowchart', 'architecture', 'mindmap', 'visualize', 'draw', 'plot', 'timeline', 'gantt', 'pie chart', 'bar chart', 'visual', 'create visual', 'show visual', 'show diagram', 'generate flowchart', 'generate diagram'],
       instructions: [
-        'When asked to create any system architecture, workflow, flowchart, or diagram, always output a COMPLETE, fully connected, production-grade Mermaid code block (```mermaid ... ```).',
+        'ONLY activate when the user explicitly asks for a diagram, chart, flowchart, architecture drawing, mindmap, or visualization.',
+        'NEVER use this skill for reminders, timers, alarms, or "remind me in X seconds/minutes" requests — those are real scheduling asks, not diagrams.',
+        'When asked to create any system architecture, workflow, flowchart, or diagram, always output a COMPLETE, fully connected Mermaid code block (```mermaid ... ```).',
         'Rules for diagrams:',
-        '1. Explicit node IDs and complete descriptive labels with brackets, e.g. Client[Web & Mobile Clients] --> Gateway[API Gateway / Load Balancer].',
-        '2. Use subgraphs for logical layers (Client Layer, Service Mesh, Real-Time Streaming, Persistence).',
-        '3. Every node must be connected with arrows (--> or ==>). Never output bare disconnected lines or unfinished sentences inside the mermaid block.',
-        '4. Put all explanatory narrative outside the ```mermaid code block.',
+        '1. Explicit node IDs and complete descriptive labels with brackets, e.g. Lexical[Lexical Analysis] --> Syntax[Syntax Analysis].',
+        '2. For linear phases/pipelines/workflows: use a simple flowchart TD with every step connected in order. Do NOT invent placeholder labels like "Step 1" or "Process Steps".',
+        '3. Every node must be connected with arrows (-->). Never output bare disconnected lines inside the mermaid block.',
+        '4. Decision/edge labels MUST stay on the arrow as -->|Yes| or -->|No| between nodes — NEVER glue them into node text (wrong: C[|Yes| Set Reminder] or "|Yes| CSet Reminder"; right: A{Ask?} -->|Yes| C[Set Reminder]).',
+        '5. Put all explanatory narrative outside the ```mermaid code block.',
+        '6. Do NOT use classDef, style, click, or CSS attributes like color="#...". Avoid subgraphs unless the user asked for layered architecture.',
         '',
-        'Example System Architecture:',
+        'Example — Compiler Phases:',
         '```mermaid',
         'flowchart TD',
-        '  subgraph Clients[Client & Gateway Layer]',
-        '    Web[Web / React App] --> LB[Load Balancer / Nginx]',
-        '    Mobile[Mobile iOS & Android] --> LB',
-        '  end',
-        '  subgraph Core[Real-Time & API Layer]',
-        '    LB --> Auth[Auth & Session Service]',
-        '    LB --> WS[WebSocket Cluster]',
-        '    LB --> API[REST / GraphQL API]',
-        '  end',
-        '  subgraph Events[Streaming & Message Bus]',
-        '    WS --> Redis[(Redis Pub/Sub)]',
-        '    API --> Kafka[(Kafka / RabbitMQ)]',
-        '  end',
-        '  subgraph Storage[Data Persistence]',
-        '    Kafka --> Worker[Async Processing Workers]',
-        '    Worker --> DB[(Primary PostgreSQL DB)]',
-        '    Worker --> S3[(S3 Object Storage)]',
-        '  end',
+        '  Lexical[Lexical Analysis] --> Syntax[Syntax Analysis]',
+        '  Syntax --> Semantic[Semantic Analysis]',
+        '  Semantic --> IR[Intermediate Code Generation]',
+        '  IR --> Opt[Code Optimization]',
+        '  Opt --> CodeGen[Code Generation]',
+        '```',
+        '',
+        'Example with edge labels:',
+        '```mermaid',
+        'flowchart TD',
+        '  Ask{Ready?} -->|Yes| Go[Start Process]',
+        '  Ask -->|No| Wait[Wait and Retry]',
+        '```',
+        '',
+        'Example System Architecture (only when asked for architecture):',
+        '```mermaid',
+        'flowchart TD',
+        '  Web[Web / React App] --> LB[Load Balancer]',
+        '  Mobile[Mobile Clients] --> LB',
+        '  LB --> API[REST / GraphQL API]',
+        '  API --> DB[(Primary Database)]',
         '```',
         'To generate a concept mindmap or taxonomy breakdown:',
         '```mermaid',
@@ -276,13 +283,13 @@
         'Option B: 85',
         'Option C: 210',
         '```',
-        'MANDATORY: Always include a dedicated ### 📌 Summary section below the visual diagram explaining how the components interact, architectural trade-offs, and key takeaways.'
+        'End with a brief ### Summary (2–4 bullets) explaining the flow.'
       ].join('\n')
     },
     {
       id: 'generative-ui-builder',
       name: 'Inline Generative UI & Interactive Widgets',
-      triggers: ['interactive widget', 'calculator', 'converter', 'simulator', 'generative ui', 'interactive ui', 'create widget', 'build widget', 'live dashboard widget', 'custom tool', 'form widget'],
+      triggers: ['interactive widget', 'calculator', 'converter', 'simulator', 'generative ui', 'interactive ui', 'create widget', 'build widget', 'live dashboard widget', 'custom tool'],
       instructions: [
         'To create an interactive live tool, calculator, converter, or mini-dashboard rendered directly in the chat bubble, output a ```gen-ui code block containing HTML, embedded CSS (<style>), and working JavaScript (<script>):',
         '```gen-ui',
@@ -316,10 +323,22 @@
     }
   ];
 
+  function isReminderOrTimerPrompt(prompt) {
+    const p = String(prompt || '').toLowerCase();
+    if (!p.trim()) return false;
+    if (/\b(diagram|flowchart|flow\s*chart|mermaid|mindmap|visualize|infographic)\b/i.test(p)) return false;
+    return /\b(remind\s+me|set\s+(a\s+)?(reminder|timer|alarm)|timer\s+for|alarm\s+(for|in)|wake\s+me(\s+up)?)\b/i.test(p)
+      || (/\b(remind|timer|alarm|notify\s+me|ping\s+me)\b/i.test(p) && /\b(in|after|for)\s+\d+/i.test(p));
+  }
+
   function findSkillsForPrompt(prompt, limit = 3) {
     const p = String(prompt || '').toLowerCase();
     if (!p.trim()) return [];
+    const blockVisuals = isReminderOrTimerPrompt(p);
     const scored = BUILTIN_SKILLS.map(skill => {
+      if (blockVisuals && (skill.id === 'visual-diagram-chart-creator' || skill.id === 'generative-ui-builder')) {
+        return { skill, score: 0 };
+      }
       let score = 0;
       for (const trigger of skill.triggers) {
         if (p.includes(trigger)) score += trigger.length;
