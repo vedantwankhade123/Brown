@@ -12,7 +12,7 @@ const TTS_MODEL_CATALOG = [
     label: 'Heart',
     description: 'US female · premium natural tone (best quality)',
     sizeEstimate: '~92 MB',
-    previewText: "Hello, I'm Ultron. This is the Heart voice."
+    previewText: "Hello, I'm Brown. This is the Heart voice."
   },
   {
     key: 'kokoro-michael',
@@ -22,78 +22,15 @@ const TTS_MODEL_CATALOG = [
     label: 'Michael',
     description: 'US male · steady, natural conversational voice',
     sizeEstimate: '~92 MB',
-    previewText: "Hello, I'm Ultron. This is the Michael voice."
-  },
-  {
-    key: 'gemini-2.5-flash-native-audio',
-    engine: 'gemini-cloud',
-    geminiModel: 'gemini-2.5-flash-preview-tts',
-    voiceName: 'Kore',
-    label: 'Gemini 2.5 Flash Native Audio Dialog',
-    description: 'Live API · Real-time bidirectional audio & dialog',
-    sizeEstimate: 'Live API',
-    cloud: true,
-    // Audio-to-audio live dialog engine — belongs to Voice Mode's engine
-    // toggle, not to the text-to-speech voice picker.
-    liveOnly: true,
-    previewText: "Hello, I'm Ultron powered by Gemini 2.5 Flash Native Audio Dialog."
-  },
-  {
-    key: 'gemini-3-flash-live',
-    engine: 'gemini-cloud',
-    geminiModel: 'gemini-2.0-flash-exp',
-    voiceName: 'Puck',
-    label: 'Gemini 3 Flash Live',
-    description: 'Live API · High-speed live speech, audio & vision',
-    sizeEstimate: 'Live API',
-    cloud: true,
-    liveOnly: true,
-    previewText: "Hello, I'm Ultron with Gemini 3 Flash Live intelligence."
-  },
-  {
-    key: 'gemini-3.5-live-translate',
-    engine: 'gemini-cloud',
-    geminiModel: 'gemini-2.5-flash-preview-tts',
-    voiceName: 'Charon',
-    label: 'Gemini 3.5 Live Translate',
-    description: 'Live API · Real-time multilingual voice translation',
-    sizeEstimate: 'Live API',
-    cloud: true,
-    liveOnly: true,
-    previewText: "Hello, I'm Ultron. I can translate live spoken audio across languages."
+    previewText: "Hello, I'm Brown. This is the Michael voice."
   },
   {
     key: 'gemini-live-kore',
     engine: 'gemini-cloud',
-    geminiModel: 'gemini-2.5-flash-preview-tts',
-    voiceName: 'Kore',
-    label: 'Gemini Live · Kore',
-    description: 'Cloud female · natural live dialog voice',
+    label: 'Kore',
+    description: 'Cloud voice · natural expressive tone',
     sizeEstimate: 'Cloud',
-    cloud: true,
-    previewText: "Hello, I'm Ultron. This is Gemini Live voice Kore."
-  },
-  {
-    key: 'gemini-live-puck',
-    engine: 'gemini-cloud',
-    geminiModel: 'gemini-2.5-flash-preview-tts',
-    voiceName: 'Puck',
-    label: 'Gemini Live · Puck',
-    description: 'Cloud male · upbeat conversational voice',
-    sizeEstimate: 'Cloud',
-    cloud: true,
-    previewText: "Hello, I'm Ultron. This is Gemini Live voice Puck."
-  },
-  {
-    key: 'gemini-live-charon',
-    engine: 'gemini-cloud',
-    geminiModel: 'gemini-2.5-flash-preview-tts',
-    voiceName: 'Charon',
-    label: 'Gemini Live · Charon',
-    description: 'Cloud male · deep informative voice',
-    sizeEstimate: 'Cloud',
-    cloud: true,
-    previewText: "Hello, I'm Ultron. This is Gemini Live voice Charon."
+    previewText: "Hello, I'm Brown. This is the Kore voice."
   }
 ];
 
@@ -114,7 +51,7 @@ function getTtsCacheRoot() {
     const { getOllamaModelsDir } = require('./paths');
     return path.join(getOllamaModelsDir(), 'tts-cache');
   } catch (e) {
-    const fallback = path.join(process.cwd(), 'Ultron-local', 'models', 'tts-cache');
+    const fallback = path.join(process.cwd(), 'brown-local', 'models', 'tts-cache');
     fs.mkdirSync(fallback, { recursive: true });
     return fallback;
   }

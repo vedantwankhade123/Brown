@@ -78,6 +78,8 @@
     if (btnModePreview) btnModePreview.addEventListener('click', () => switchViewMode('preview'));
     if (btnModeTerminal) btnModeTerminal.addEventListener('click', () => switchViewMode('terminal'));
 
+    initVisualInspectorControls();
+
     // Viewport resize buttons
     document.querySelectorAll('.viewport-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -232,7 +234,22 @@
     }
   }
 
+  /** ChatGPT-style agent: keep code in chat; do not open the right workspace pane. */
+  function isChatOnlyAgentMode() {
+    try {
+      const flag = window.localStorage.getItem('ultron-chat-only-agent');
+      if (flag === 'false') return false;
+    } catch (_) { /* ignore */ }
+    return true;
+  }
+
   function openWorkspace(filesPayload = [], options = {}) {
+    if (isChatOnlyAgentMode()) {
+      try {
+        console.info('[Brown] Workspace panel disabled — code stays in chat.');
+      } catch (_) { /* ignore */ }
+      return;
+    }
     if (!_panelEl) init();
     if (!_panelEl) return;
 
@@ -260,7 +277,7 @@
       _files = [{
         id: `file-default`,
         name: 'index.html',
-        content: '<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: sans-serif; padding: 20px; }\n  </style>\n</head>\n<body>\n  <h2>Ultron Live Project Workspace</h2>\n</body>\n</html>',
+        content: '<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: sans-serif; padding: 20px; }\n  </style>\n</head>\n<body>\n  <h2>Brown Live Project Workspace</h2>\n</body>\n</html>',
         language: 'html',
         type: 'html'
       }];
@@ -363,6 +380,151 @@
     }
   }
 
+  let _visualZoom = 1.0;
+  let _isPanningVisual = false;
+  let _panStartX = 0;
+  let _panStartY = 0;
+  let _scrollStartLeft = 0;
+  let _scrollStartTop = 0;
+
+  function initVisualInspectorControls() {
+    const btnZoomIn = document.getElementById('btn-visual-zoom-in');
+    const btnZoomOut = document.getElementById('btn-visual-zoom-out');
+    const btnZoomReset = document.getElementById('btn-visual-zoom-reset');
+    const viewport = document.getElementById('canvas-visual-viewport');
+    const content = document.getElementById('canvas-visual-content');
+    const zoomLabel = document.getElementById('visual-zoom-level');
+
+    function updateZoom(newZoom) {
+      _visualZoom = Math.min(Math.max(newZoom, 0.25), 3.0);
+      if (content) {
+        content.style.transform = `scale(${_visualZoom})`;
+      }
+      if (zoomLabel) {
+        zoomLabel.textContent = `${Math.round(_visualZoom * 100)}%`;
+      }
+    }
+
+    if (btnZoomIn) {
+      btnZoomIn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        updateZoom(_visualZoom + 0.15);
+      });
+    }
+
+    if (btnZoomOut) {
+      btnZoomOut.addEventListener('click', (e) => {
+        e.stopPropagation();
+        updateZoom(_visualZoom - 0.15);
+      });
+    }
+
+    if (btnZoomReset) {
+      btnZoomReset.addEventListener('click', (e) => {
+        e.stopPropagation();
+        updateZoom(1.0);
+        if (viewport) {
+          viewport.scrollTo({ left: 0, top: 0 });
+        }
+      });
+    }
+
+    // 2D Pan & Drag across X and Y
+    if (viewport) {
+      viewport.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button, input, select, textarea, iframe')) return;
+        _isPanningVisual = true;
+        viewport.classList.add('is-panning');
+        _panStartX = e.pageX - viewport.offsetLeft;
+        _panStartY = e.pageY - viewport.offsetTop;
+        _scrollStartLeft = viewport.scrollLeft;
+        _scrollStartTop = viewport.scrollTop;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!_isPanningVisual || !viewport) return;
+        e.preventDefault();
+        const x = e.pageX - viewport.offsetLeft;
+        const y = e.pageY - viewport.offsetTop;
+        const walkX = (x - _panStartX) * 1.2;
+        const walkY = (y - _panStartY) * 1.2;
+        viewport.scrollLeft = _scrollStartLeft - walkX;
+        viewport.scrollTop = _scrollStartTop - walkY;
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (_isPanningVisual && viewport) {
+          _isPanningVisual = false;
+          viewport.classList.remove('is-panning');
+        }
+      });
+
+      // Ctrl + Wheel / Trackpad zoom
+      viewport.addEventListener('wheel', (e) => {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const delta = e.deltaY < 0 ? 0.1 : -0.1;
+          updateZoom(_visualZoom + delta);
+        }
+      }, { passive: false });
+    }
+  }
+
+  function openVisualInspector(visualOpts = {}) {
+    if (isChatOnlyAgentMode()) {
+      try {
+        console.info('[Brown] Visual inspector disabled — keep content in chat.');
+      } catch (_) { /* ignore */ }
+      return;
+    }
+    if (!_panelEl) init();
+    if (!_panelEl) return;
+
+    const { title = 'Visual Diagram', type = 'Diagram', svgContent = '', rawCode = '', isWidget = false, fullHtml = '' } = visualOpts;
+
+    const titleEl = document.getElementById('visual-inspector-title');
+    const badgeEl = document.getElementById('canvas-type-badge');
+    const contentEl = document.getElementById('canvas-visual-content');
+    const viewportEl = document.getElementById('canvas-visual-viewport');
+
+    if (titleEl) titleEl.textContent = title;
+    if (badgeEl) badgeEl.textContent = type.toUpperCase();
+
+    if (contentEl) {
+      if (isWidget && fullHtml) {
+        contentEl.innerHTML = `<iframe class="gen-ui-inspector-iframe" srcdoc="${escapeHtml(fullHtml)}" sandbox="allow-scripts allow-forms allow-modals" style="width: 100%; border: none;"></iframe>`;
+      } else if (svgContent) {
+        contentEl.innerHTML = svgContent;
+      } else {
+        contentEl.innerHTML = `<pre style="padding: 24px; color: #f8fafc; font-family: monospace; font-size: 13px;">${escapeHtml(rawCode)}</pre>`;
+      }
+    }
+
+    _visualZoom = 1.0;
+    if (contentEl) contentEl.style.transform = 'scale(1)';
+    const zoomLabel = document.getElementById('visual-zoom-level');
+    if (zoomLabel) zoomLabel.textContent = '100%';
+
+    const tabsContainer = document.getElementById('canvas-tabs-bar');
+    if (tabsContainer) {
+      tabsContainer.innerHTML = `
+        <div class="canvas-tab active">
+          <span>${escapeHtml(title)}</span>
+        </div>
+      `;
+    }
+
+    _panelEl.classList.remove('hidden');
+    if (_splitterEl) _splitterEl.classList.remove('hidden');
+
+    applySplitRatio();
+    switchViewMode('visual');
+
+    if (viewportEl) {
+      viewportEl.scrollTo({ left: 0, top: 0 });
+    }
+  }
+
   function switchViewMode(mode) {
     _activeMode = mode;
 
@@ -375,13 +537,15 @@
     const iframePane = document.getElementById('canvas-iframe-pane');
     const mdPane = document.getElementById('canvas-markdown-pane');
     const termPane = document.getElementById('canvas-terminal-pane');
+    const visualPane = document.getElementById('canvas-visual-pane');
     const consoleDrawer = document.getElementById('canvas-console-drawer');
 
     if (codePane) codePane.classList.toggle('hidden', mode !== 'code');
     if (iframePane) iframePane.classList.toggle('hidden', mode !== 'preview');
     if (mdPane) mdPane.classList.toggle('hidden', mode !== 'markdown');
     if (termPane) termPane.classList.toggle('hidden', mode !== 'terminal');
-    if (consoleDrawer) consoleDrawer.classList.toggle('hidden', mode === 'terminal');
+    if (visualPane) visualPane.classList.toggle('hidden', mode !== 'visual');
+    if (consoleDrawer) consoleDrawer.classList.toggle('hidden', mode === 'terminal' || mode === 'visual');
 
     if (mode === 'code') {
       renderActiveFileInEditor();
@@ -783,6 +947,7 @@
   // Scan AI message DOM and attach interactive "Preview & Edit in Code Canvas" pills
   function enhanceMessageCodeBlocks(messageElement, rawText) {
     if (!messageElement) return;
+    if (isChatOnlyAgentMode()) return;
     if (messageElement.querySelector('.user-canvas-preview-pill')) return;
 
     // Prefer the shared project-file parser so pills/tabs get the same correct
@@ -931,6 +1096,12 @@
 
   /** Upsert several files at once and show the panel, keeping already-open tabs. */
   function mergeFilesIntoWorkspace(filesPayload = [], options = {}) {
+    if (isChatOnlyAgentMode()) {
+      try {
+        console.info('[Brown] Workspace merge skipped — code stays in chat.');
+      } catch (_) { /* ignore */ }
+      return;
+    }
     const { defaultMode = 'preview', focusFirst = true } = options;
     if (!Array.isArray(filesPayload) || filesPayload.length === 0) return;
     let firstId = null;
@@ -1000,6 +1171,7 @@
     openWorkspace,
     mergeFilesIntoWorkspace,
     openArtifact: (opts) => openWorkspace([opts], { defaultMode: opts.type === 'html' ? 'preview' : 'code' }),
+    openVisualInspector,
     closeCanvas,
     toggleFullscreen,
     switchViewMode,

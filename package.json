@@ -1,7 +1,7 @@
 {
-  "name": "ultron",
-  "version": "1.0.14",
-  "description": "Local offline privacy-focused Windows AI Agent framework",
+  "name": "brown",
+  "version": "1.0.16",
+  "description": "Local offline privacy-focused Windows AI Agent framework (Brown)",
   "author": "Vedant Wankhade",
   "license": "Proprietary",
   "main": "src/main/index.js",
@@ -17,8 +17,8 @@
     "test": "node tests/run.js"
   },
   "build": {
-    "appId": "com.ultron.desktop",
-    "productName": "Ultron AI",
+    "appId": "com.brown.desktop",
+    "productName": "Brown AI",
     "copyright": "Copyright © 2026 Vedant Wankhade",
     "directories": {
       "output": "dist"
@@ -26,8 +26,12 @@
     "publish": {
       "provider": "github",
       "owner": "vedantwankhade123",
-      "repo": "ultron-releases",
+      "repo": "Brown-Releases",
       "releaseType": "release"
+    },
+    "releaseInfo": {
+      "releaseName": "Brown AI v${version}",
+      "releaseNotesFile": ".release-notes-v${version}.md"
     },
     "compression": "store",
     "npmRebuild": false,
@@ -72,19 +76,19 @@
           ]
         }
       ],
-      "icon": "Assets/Brand-Assets/ultron-logo.ico",
+      "icon": "Assets/Brand-Assets/brown-logo.ico",
       "certificateFile": null,
       "cscLink": null
     },
     "portable": {
-      "artifactName": "Ultron.AI.v${version}.${ext}"
+      "artifactName": "Brown AI v${version}.${ext}"
     },
     "appx": {
-      "applicationId": "UltronAI",
+      "applicationId": "BrownAI",
       "identityName": "YOUR_PUBLISHER_IDENTITY_NAME",
       "publisher": "CN=YOUR_PUBLISHER_ID_HERE",
       "publisherDisplayName": "Vedant Wankhade",
-      "displayName": "Ultron AI",
+      "displayName": "Brown AI",
       "languages": [
         "en-US"
       ]
@@ -95,16 +99,15 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Ultron AI",
-      "uninstallDisplayName": "Ultron AI",
-      "deleteAppDataOnUninstall": true,
-      "installerIcon": "Assets/Brand-Assets/ultron-logo.ico",
-      "uninstallerIcon": "Assets/Brand-Assets/ultron-logo.ico",
-      "installerHeaderIcon": "Assets/Brand-Assets/ultron-logo.ico",
+      "shortcutName": "Brown AI",
+      "uninstallDisplayName": "Brown AI",
+      "installerIcon": "Assets/Brand-Assets/brown-logo.ico",
+      "uninstallerIcon": "Assets/Brand-Assets/brown-logo.ico",
+      "installerHeaderIcon": "Assets/Brand-Assets/brown-logo.ico",
       "installerSidebar": "Assets/installerSidebar.bmp",
       "uninstallerSidebar": "Assets/installerSidebar.bmp",
       "installerHeader": "Assets/installerHeader.bmp",
-      "artifactName": "Ultron.AI.Setup.v${version}.${ext}",
+      "artifactName": "Brown AI Setup v${version}.${ext}",
       "runAfterFinish": true,
       "differentialPackage": false,
       "include": "build/installer.nsh"
@@ -113,11 +116,13 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server-filesystem": "^2026.7.10",
+    "@huggingface/transformers": "^3.8.1",
     "@xenova/transformers": "^2.17.2",
     "electron-updater": "^6.3.9",
     "kokoro-js": "^1.2.1",
     "marked": "^18.0.6",
     "mcp-fetch-server": "^1.1.2",
+    "mermaid": "^11.17.2",
     "onnxruntime-common": "1.21.0",
     "onnxruntime-node": "1.21.0",
     "pdf-parse": "^2.4.5",

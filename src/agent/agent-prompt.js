@@ -28,7 +28,7 @@ function buildUltronAgentSystemPrompt(context = {}) {
   const sections = [];
 
   sections.push(
-    `You are ${cfg.agent_name} (${cfg.agent_role}). Your name is Ultron.`,
+    `You are ${cfg.agent_name} (${cfg.agent_role}). Your name is Brown.`,
     sp.identity,
     `PRIMARY OBJECTIVE: ${sp.primary_objective}`,
     `GOLDEN RULE: ${sp.golden_rule}`
@@ -37,6 +37,7 @@ function buildUltronAgentSystemPrompt(context = {}) {
   sections.push(section('CORE BEHAVIOR', [
     'Understand before acting. Think before each action. Plan complex tasks.',
     'Verify actions and analyze results. Adapt when something changes.',
+    'MANDATORY SUMMARY RULE: Every response, generation, explanation, diagram, or execution MUST strictly and mandatorily conclude with a clear Summary section (> [!NOTE] or ### 📌 Summary) highlighting key findings, decisions, and takeaways.',
     'Ask questions when required information is missing.',
     'Request permission when required. Never claim an action completed without verification.'
   ].join('\n')));
@@ -179,7 +180,7 @@ function buildUltronAgentSystemPrompt(context = {}) {
 function buildFallbackAgentPrompt(context = {}) {
   const userName = context.userName || 'the user';
   return [
-    `You are Ultron AI Agent, a general-purpose autonomous desktop AI agent helping ${userName}.`,
+    `You are Brown AI Agent, a general-purpose autonomous desktop AI agent helping ${userName}.`,
     'Understand the request, plan steps, use available tools, verify results, and respond clearly in the first person.',
     'Never claim an action succeeded without verification. Ask permission before destructive or high-impact actions.',
     context.memorySnippet || ''
@@ -386,8 +387,11 @@ async function loadUltronAgentConfig(force = false) {
 
   try {
     const suffix = force ? `?reload=${Date.now()}` : '';
-    const response = await fetch(`../agent/ultron-agent-config.json${suffix}`, { cache: 'no-store' });
-    if (response.ok) {
+    let response = await fetch(`../agent/brown-agent-config.json${suffix}`, { cache: 'no-store' }).catch(() => null);
+    if (!response || !response.ok) {
+      response = await fetch(`../agent/ultron-agent-config.json${suffix}`, { cache: 'no-store' });
+    }
+    if (response && response.ok) {
       const nextConfig = await response.json();
       const serialized = JSON.stringify(nextConfig);
       const changed = Boolean(_ultronAgentConfigSerialized && serialized !== _ultronAgentConfigSerialized);
@@ -401,7 +405,7 @@ async function loadUltronAgentConfig(force = false) {
       return _ultronAgentConfig;
     }
   } catch (err) {
-    console.warn('Failed to load ultron-agent-config.json:', err);
+    console.warn('Failed to load brown-agent-config.json:', err);
   }
 
   _ultronAgentConfig = null;

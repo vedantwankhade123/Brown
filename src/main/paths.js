@@ -6,9 +6,9 @@ const os = require('os');
 const STORAGE_CONFIG_NAME = 'storage-config.json';
 const LEGACY_CONFIG_NAME = 'config.json';
 
-/** Dev: Ultron-local | Production: Ultron-AI */
+/** Dev: brown-local | Production: Ultron-AI */
 function getUltronFolderName() {
-  return app?.isPackaged ? 'Ultron-AI' : 'Ultron-local';
+  return app?.isPackaged ? 'Ultron-AI' : 'brown-local';
 }
 
 /** Electron app binary folder (not user data). */
@@ -43,7 +43,7 @@ function driveRootFrom(anyPath) {
 /**
  * Default unified data root:
  * - Production: %LOCALAPPDATA%\UltronData
- * - Dev: {repo}\Ultron-local
+ * - Dev: {repo}\brown-local
  */
 function getDefaultUltronRoot() {
   const folderName = getUltronFolderName();
@@ -144,12 +144,12 @@ function isLegacyAppDataPath(dirPath) {
   return normalized.includes('\\appdata\\') && (normalized.includes('ultrondatadev') || normalized.includes('ultrondata'));
 }
 
-/** Old generic Ultron folder or other outdated roots — migrate to Ultron-local / Ultron-AI. */
+/** Old generic Ultron folder or other outdated roots — migrate to brown-local / Ultron-AI. */
 function isLegacyStorageRoot(dirPath) {
   if (!dirPath || isLegacyAppDataPath(dirPath)) return isLegacyAppDataPath(dirPath);
   const normalized = dirPath.replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
-  if (/\\ultron-local$/.test(normalized) || /\\ultron-ai$/.test(normalized)) return false;
-  if (/\\ultron$/.test(normalized)) return true;
+  if (/\\brown-local$/.test(normalized) || /\\ultron-ai$/.test(normalized)) return false;
+  if (/\\ultron-local$/.test(normalized) || /\\ultron$/.test(normalized)) return true;
   return false;
 }
 
@@ -213,7 +213,7 @@ function ensureUltronStorageLayout(options = {}) {
     ultronRoot = resolveUltronRoot();
   }
 
-  // Dev always uses Ultron-local even when Ollama lives on another drive
+  // Dev always uses brown-local even when Ollama lives on another drive
   if (!app.isPackaged && !options.respectOllamaDrive) {
     ultronRoot = getDefaultUltronRoot();
   }

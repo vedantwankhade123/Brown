@@ -1,4 +1,4 @@
-const { ipcMain, exec, app, shell, dialog, clipboard, desktopCapturer, screen } = require('electron');
+const { ipcMain, exec, app, shell, dialog, clipboard, desktopCapturer, screen, BrowserWindow } = require('electron');
 const { exec: cpExec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -1042,55 +1042,77 @@ function registerAudioIpcHandlers() {
   if (registerAudioIpcHandlers._done) return;
   registerAudioIpcHandlers._done = true;
 
+  // Warm up the local Whisper model in the background so the first
+  // transcription doesn't pay the model-load cost.
+  setImmediate(() => {
+    try {
+      require('./voice-whisper').warmupWhisper().catch((e) => {
+        console.warn('[ipc] Whisper warmup notice:', e.message);
+      });
+    } catch (e) {
+      console.warn('[ipc] Whisper warmup init notice:', e.message);
+    }
+  });
 
+
+  ipcMain.on('set-app-theme', (event, payload) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win) return;
+      const p = (payload && typeof payload === 'object') ? payload : { theme: payload };
+      const ts = require('./theme-state');
+      ts.state.light = String(p.theme) === 'light';
+      if (p.user) ts.state.splashDone = true;
+      const { color, symbolColor } = ts.overlayColors();
+      win.setTitleBarOverlay({ color, symbolColor, height: 36 });
+    } catch (e) {}
+  });
+
+  ipcMain.on('splash-done', (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const ts = require('./theme-state');
+      ts.state.splashDone = true;
+      if (!win) return;
+      const { color, symbolColor } = ts.overlayColors();
+      win.setTitleBarOverlay({ color, symbolColor, height: 36 });
+    } catch (e) {}
+  });
 
   ipcMain.handle('transcribe-audio', async (_event, payload = {}) => {
     try {
       const culture = String(payload.culture || '').trim() || undefined;
-      const { transcribeWhisperFloat32, transcribeWhisperWavBuffer, isWhisperReady } = require('./voice-whisper');
+      const { transcribeWhisperFloat32, transcribeWhisperWavBuffer } = require('./voice-whisper');
       const { transcribeAudioWavBase64, transcribeAudioFloat32 } = require('./voice-stt');
 
-      let windowsResult = null;
+      const samples = payload.samples || payload.audio || [];
+      const hasSamples = Array.isArray(samples) && samples.length > 800;
+      const sampleRate = Number(payload.sampleRate) || 16000;
 
-      if (payload.wavBase64) {
-        windowsResult = await transcribeAudioWavBase64(payload.wavBase64, culture);
-        if (windowsResult?.success && windowsResult?.text) {
-          return windowsResult;
+      // 1) Local Whisper engine first — the neural model is far more accurate
+      // than the built-in Windows dictation, which mishears short phrases.
+      // Loads on demand (and is warmed up at startup), so it never needs a
+      // readiness gate here.
+      try {
+        if (payload.wavBase64) {
+          const whisperRes = await transcribeWhisperWavBuffer(Buffer.from(payload.wavBase64, 'base64'));
+          if (whisperRes?.success && whisperRes?.text) return whisperRes;
+        } else if (hasSamples) {
+          const whisperRes = await transcribeWhisperFloat32(Float32Array.from(samples), sampleRate);
+          if (whisperRes?.success && whisperRes?.text) return whisperRes;
         }
+      } catch (wErr) {
+        console.warn('[ipc] Whisper transcribe notice:', wErr.message);
       }
 
-      const samples = payload.samples || payload.audio || [];
-      if (Array.isArray(samples) && samples.length > 800) {
-        const sampleRate = Number(payload.sampleRate) || 16000;
-        // Only run the Windows engine over raw samples when the WAV path was
-        // not already attempted (re-running the same engine twice just doubles
-        // latency without new information).
-        if (!windowsResult) {
-          windowsResult = await transcribeAudioFloat32(samples, sampleRate, culture);
-          if (windowsResult?.text) return windowsResult;
-        }
-
-        if (isWhisperReady()) {
-          try {
-            const float32 = Float32Array.from(samples);
-            const whisperRes = await transcribeWhisperFloat32(float32, sampleRate);
-            if (whisperRes?.success && whisperRes?.text) {
-              return whisperRes;
-            }
-          } catch (wErr) {
-            console.warn('[ipc] Whisper Float32 transcribe notice:', wErr.message);
-          }
-        }
-      } else if (payload.wavBase64 && isWhisperReady()) {
-        try {
-          const wavBuf = Buffer.from(payload.wavBase64, 'base64');
-          const whisperRes = await transcribeWhisperWavBuffer(wavBuf);
-          if (whisperRes?.success && whisperRes?.text) {
-            return whisperRes;
-          }
-        } catch (wErr) {
-          console.warn('[ipc] Whisper WAV transcribe notice:', wErr.message);
-        }
+      // 2) Built-in Windows speech engine as fallback.
+      let windowsResult = null;
+      if (payload.wavBase64) {
+        windowsResult = await transcribeAudioWavBase64(payload.wavBase64, culture);
+        if (windowsResult?.success && windowsResult?.text) return windowsResult;
+      } else if (hasSamples) {
+        windowsResult = await transcribeAudioFloat32(samples, sampleRate, culture);
+        if (windowsResult?.text) return windowsResult;
       }
 
       return windowsResult || { success: false, error: 'No speech detected in the recording.' };
@@ -2018,18 +2040,75 @@ function setupIpcHandlers() {
     return match ? match[0].replace(/[),.]+$/, '') : null;
   }
 
+  async function verifyLiveOllamaCloudAuth() {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const response = await fetch('http://127.0.0.1:11434/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gpt-oss:20b-cloud',
+          messages: [{ role: 'user', content: 'ping' }],
+          stream: false
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (response.status === 401) {
+        return { authorized: false, error: 'Unauthorized' };
+      }
+
+      if (response.ok) {
+        return { authorized: true };
+      }
+
+      const text = await response.text().catch(() => '');
+      if (text.toLowerCase().includes('unauthorized') || text.toLowerCase().includes('sign in')) {
+        return { authorized: false, error: 'Unauthorized' };
+      }
+
+      return { authorized: true };
+    } catch (err) {
+      return { authorized: false, error: err.message };
+    }
+  }
+
+  ipcMain.handle('verify-ollama-cloud-auth', async () => {
+    return await verifyLiveOllamaCloudAuth();
+  });
+
   ipcMain.handle('ollama-auth-status', async () => {
     const config = loadUltronConfigFile();
-    const userHome = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\vedan';
-    const keyFile = path.join(userHome, '.ollama', 'id_ed25519');
-    const hasKey = fs.existsSync(keyFile);
-    const signedIn = Boolean(config.ollamaCloudSignedIn || hasKey);
+    let signedIn = Boolean(config.ollamaCloudSignedIn);
+
+    // If marked as signed in, verify with a live probe so stale/false tokens are caught
+    if (signedIn) {
+      const verification = await verifyLiveOllamaCloudAuth();
+      if (!verification.authorized && verification.error === 'Unauthorized') {
+        signedIn = false;
+        saveUltronConfigPatch({
+          ollamaCloudSignedIn: false,
+          ollamaCloudSignedInAt: null
+        });
+      }
+    }
 
     return {
       signedIn,
-      signedInAt: config.ollamaCloudSignedInAt || (hasKey ? 'configured' : null),
+      signedInAt: signedIn ? (config.ollamaCloudSignedInAt || null) : null,
       email: config.ollamaCloudEmail || null
     };
+  });
+
+  ipcMain.handle('set-ollama-auth-status', async (event, signedIn, email = null) => {
+    saveUltronConfigPatch({
+      ollamaCloudSignedIn: Boolean(signedIn),
+      ollamaCloudSignedInAt: signedIn ? new Date().toISOString() : null,
+      ollamaCloudEmail: email || null
+    });
+    return { success: true, signedIn: Boolean(signedIn) };
   });
 
   ipcMain.handle('ollama-signin', async () => {
@@ -2039,58 +2118,75 @@ function setupIpcHandlers() {
 
       return await new Promise((resolve) => {
         let output = '';
-        let openedUrl = false;
+        let resolved = false;
 
-        const fallbackTimer = setTimeout(() => {
-          if (!openedUrl) {
-            openedUrl = true;
-            shell.openExternal('https://ollama.com/signin').catch(() => {});
-          }
-        }, 1500);
-
-        const child = spawn(ollamaExe, ['signin'], {
-          windowsHide: false,
-          env: { ...process.env }
-        });
-
-        const handleChunk = (chunk) => {
-          output += chunk.toString();
-          const url = extractOllamaSigninUrl(output);
-          if (url && !openedUrl) {
-            openedUrl = true;
-            clearTimeout(fallbackTimer);
-            shell.openExternal(url).catch(() => {});
-          }
+        const finish = (result) => {
+          if (resolved) return;
+          resolved = true;
+          resolve(result);
         };
 
-        child.stdout.on('data', handleChunk);
-        child.stderr.on('data', handleChunk);
-        child.on('error', (err) => {
-          clearTimeout(fallbackTimer);
-          resolve({ success: false, error: err.message || 'Could not start ollama signin.' });
-        });
-        child.on('close', (code) => {
-          clearTimeout(fallbackTimer);
-          const text = output.trim();
-          const userHome = process.env.USERPROFILE || process.env.HOME || 'C:\\Users\\vedan';
-          const keyFile = path.join(userHome, '.ollama', 'id_ed25519');
-          const signedIn = code === 0 || fs.existsSync(keyFile) || /signed in|already signed|success/i.test(text);
-          if (signedIn) {
-            saveUltronConfigPatch({
-              ollamaCloudSignedIn: true,
-              ollamaCloudSignedInAt: new Date().toISOString()
-            });
-          }
-          resolve({
-            success: signedIn,
-            output: text,
-            authUrl: extractOllamaSigninUrl(text) || 'https://ollama.com/signin',
-            error: signedIn ? undefined : (text || 'Ollama sign-in did not complete.')
+        try {
+          const child = spawn(ollamaExe, ['signin'], {
+            windowsHide: true,
+            env: { ...process.env }
           });
-        });
+
+          const handleChunk = (chunk) => {
+            output += chunk.toString();
+            const url = extractOllamaSigninUrl(output);
+            if (url) {
+              shell.openExternal(url).catch(() => {});
+              finish({
+                success: true,
+                authUrl: url,
+                message: 'Opened Ollama authorization page in browser.'
+              });
+            }
+          };
+
+          child.stdout.on('data', handleChunk);
+          child.stderr.on('data', handleChunk);
+          child.on('error', () => {
+            shell.openExternal('https://ollama.com/signin').catch(() => {});
+            finish({
+              success: true,
+              authUrl: 'https://ollama.com/signin',
+              message: 'Opened Ollama sign-in page in browser.'
+            });
+          });
+          child.on('close', (code) => {
+            const text = output.trim();
+            const url = extractOllamaSigninUrl(text) || 'https://ollama.com/signin';
+            finish({
+              success: true,
+              authUrl: url,
+              output: text
+            });
+          });
+
+          // Timeout fallback
+          setTimeout(() => {
+            const url = extractOllamaSigninUrl(output) || 'https://ollama.com/signin';
+            shell.openExternal(url).catch(() => {});
+            finish({
+              success: true,
+              authUrl: url,
+              message: 'Opened Ollama sign-in page in browser.'
+            });
+          }, 3000);
+        } catch (spawnErr) {
+          shell.openExternal('https://ollama.com/signin').catch(() => {});
+          finish({
+            success: true,
+            authUrl: 'https://ollama.com/signin',
+            message: 'Opened Ollama sign-in page in browser.'
+          });
+        }
       });
     } catch (err) {
-      return { success: false, error: err.message || 'Ollama sign-in failed.' };
+      shell.openExternal('https://ollama.com/signin').catch(() => {});
+      return { success: true, authUrl: 'https://ollama.com/signin' };
     }
   });
 
@@ -2099,19 +2195,21 @@ function setupIpcHandlers() {
       const { spawn } = require('child_process');
       const ollamaExe = resolveOllamaCliPath();
       await new Promise((resolve) => {
-        const child = spawn(ollamaExe, ['signout'], { windowsHide: true, env: { ...process.env } });
-        child.on('close', () => resolve());
-        child.on('error', () => resolve());
+        try {
+          const child = spawn(ollamaExe, ['signout'], { windowsHide: true, env: { ...process.env } });
+          child.on('close', () => resolve());
+          child.on('error', () => resolve());
+        } catch {
+          resolve();
+        }
       });
-      saveUltronConfigPatch({
-        ollamaCloudSignedIn: false,
-        ollamaCloudSignedInAt: null,
-        ollamaCloudEmail: null
-      });
-      return { success: true };
-    } catch (err) {
-      return { success: false, error: err.message || 'Ollama sign-out failed.' };
-    }
+    } catch {}
+    saveUltronConfigPatch({
+      ollamaCloudSignedIn: false,
+      ollamaCloudSignedInAt: null,
+      ollamaCloudEmail: null
+    });
+    return { success: true };
   });
 
   // Persistent Gemini API Key Storage across app restarts
@@ -2859,12 +2957,10 @@ function getInstallationDefaultDataDir() {
   function isShoppingQuery(query) {
     const q = String(query || '').toLowerCase();
     if (/\b(buy|purchase|shop|shopping|deal|deals|sale|price|cart|checkout|amazon|flipkart|ebay|meesho|myntra)\b/i.test(q)) return true;
-    if (/\b(under|below|less than|within|around)\s+[\d,.]+\b/i.test(q)
-      && /\b(monitor|laptop|phone|headphone|earbuds|keyboard|mouse|tablet|tv|television|gpu|graphics card|processor|cpu|ssd|hard drive|speaker|watch|smartwatch|camera|fridge|refrigerator|shoes|sneakers|bag)\b/i.test(q)) {
+    if (/\b(courses?|tutorials?|certifications?|classes?|books?|learning|academy|institutes?|programs?|laptops?|phones?|monitors?|headphones?|earbuds?|keyboards?|mice|mouse|tablets?|tvs?|gpus?|cpus?|processors?|smartwatches?|cameras?|shoes?|sneakers?|tools?|software|apps?|services?)\b/i.test(q)) {
       return true;
     }
-    if (/\b(best|top|cheap|budget|affordable|recommended)\b/i.test(q)
-      && /\b(monitor|laptop|phone|headphone|earbuds|keyboard|mouse|tablet|tv|gpu|processor|smartwatch|camera|shoes|sneakers|buy|price|deal)\b/i.test(q)) {
+    if (/\b(best|top|cheap|budget|affordable|recommended|find me the best|suggest me|list of)\b/i.test(q)) {
       return true;
     }
     return false;
@@ -2890,7 +2986,7 @@ function getInstallationDefaultDataDir() {
   async function fetchPagePreview(url) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
+      const timeout = setTimeout(() => controller.abort(), 6000);
       const res = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36'
@@ -2905,7 +3001,15 @@ function getInstallationDefaultDataDir() {
       const title = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1]
         || html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
       const description = html.match(/<meta[^>]+(?:name|property)=["'](?:description|og:description)["'][^>]+content=["']([^"']+)["']/i)?.[1];
-      const image = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1] || '';
+      
+      // Extract high-resolution image
+      const image = html.match(/<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i)?.[1]
+        || html.match(/<meta[^>]+name=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i)?.[1]
+        || html.match(/<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["']/i)?.[1]
+        || html.match(/<meta[^>]+itemprop=["']image["'][^>]+content=["']([^"']+)["']/i)?.[1]
+        || html.match(/<img[^>]+(?:class|id)=["'][^"']*(?:product|hero|main|lead|thumb|cover|banner)[^"']*["'][^>]+src=["']([^"']+)["']/i)?.[1]
+        || '';
+
       return {
         title: stripTags(title || ''),
         description: stripTags(description || ''),
@@ -2916,7 +3020,62 @@ function getInstallationDefaultDataDir() {
     }
   }
 
-  // Robust multi-source Web Search handler (DuckDuckGo API + Wiki API + DDG Organic POST)
+  // Search Cache (in-memory + 24-hour TTL)
+  const searchMemoryCache = new Map();
+  const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+  function isVideoOrTutorialQuery(query) {
+    const q = String(query || '').toLowerCase();
+    return /\b(video|videos|youtube|tutorial|tutorials|course|courses|how to|guide|learn|class|classes|lecture|lectures|hindi|explained|crash course)\b/i.test(q);
+  }
+
+  async function fetchYouTubeVideoResults(query) {
+    try {
+      const q = encodeURIComponent(`${query} site:youtube.com`);
+      const res = await fetch(`https://html.duckduckgo.com/html/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        },
+        body: `q=${q}`
+      });
+      if (!res.ok) return [];
+      const html = await res.text();
+      const videos = [];
+      const matches = html.matchAll(/<div class="result[\s\S]*?<\/div>\s*<\/div>/g);
+      for (const match of matches) {
+        const block = match[0];
+        const titleMatch = block.match(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+        const snippetMatch = block.match(/<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i) || block.match(/<div class="result__snippet"[^>]*>([\s\S]*?)<\/div>/i);
+        if (!titleMatch) continue;
+        const rawUrl = normalizeDdgUrl(titleMatch[1]);
+        if (!rawUrl || !rawUrl.includes('youtube.com/watch') && !rawUrl.includes('youtu.be/')) continue;
+        const title = stripTags(titleMatch[2]);
+        const snippet = stripTags(snippetMatch ? snippetMatch[1] : '');
+        let videoId = '';
+        const vMatch = rawUrl.match(/(?:v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+        if (vMatch) videoId = vMatch[1];
+        
+        const thumbnail = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : '';
+        videos.push({
+          title,
+          url: rawUrl,
+          source: 'youtube.com',
+          snippet,
+          thumbnail,
+          isVideo: true,
+          type: 'video'
+        });
+        if (videos.length >= 4) break;
+      }
+      return videos;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // Robust multi-source Web Search handler (DuckDuckGo API + Wiki API + DDG Organic POST + Video + Cache)
   ipcMain.handle('search-web', async (event, query, options = {}) => {
     let cleanQuery = query ? query.replace(/["']/g, '').trim() : '';
     // Strip common prompt prefixes
@@ -2927,13 +3086,22 @@ function getInstallationDefaultDataDir() {
       .replace(/^(tell\s+me|show\s+me|give\s+me)\s+(about\s+)?/i, '')
       .trim();
     if (!cleanQuery) {
-      return { success: false, query: '', results: [], products: [], answerContext: '', needsClarification: true, clarification: 'Please provide a valid web search query.' };
+      return { success: false, query: '', results: [], products: [], videos: [], answerContext: '', needsClarification: true, clarification: 'Please provide a valid web search query.' };
+    }
+
+    const cacheKey = cleanQuery.toLowerCase();
+    if (!options.bypassCache && searchMemoryCache.has(cacheKey)) {
+      const cachedEntry = searchMemoryCache.get(cacheKey);
+      if (Date.now() - cachedEntry.timestamp < SEARCH_CACHE_TTL_MS) {
+        return { ...cachedEntry.data, cached: true };
+      }
     }
 
     const resultBlocks = [];
+    const isVideoQuery = isVideoOrTutorialQuery(cleanQuery);
 
-    // 1+2. DuckDuckGo Instant Answer + Wikipedia in parallel (free, no API key)
-    await Promise.all([
+    // Parallel multi-source fetch: DDG API + Wikipedia + YouTube (if relevant)
+    const parallelTasks = [
       (async () => {
         try {
           const ddgApiUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(cleanQuery)}&format=json&no_html=1&skip_disambig=1`;
@@ -2945,7 +3113,9 @@ function getInstallationDefaultDataDir() {
               title: data.Heading || cleanQuery,
               url: data.AbstractURL,
               snippet: decodeHTMLEntities(data.AbstractText),
-              source: getHostname(data.AbstractURL)
+              source: getHostname(data.AbstractURL),
+              image: data.Image ? normalizeAbsoluteUrl(data.Image, data.AbstractURL) : '',
+              type: 'article'
             });
           } else if (data.RelatedTopics && data.RelatedTopics.length > 0) {
             data.RelatedTopics
@@ -2957,7 +3127,9 @@ function getInstallationDefaultDataDir() {
                   title: topic.Text.split(' - ')[0] || cleanQuery,
                   url: topic.FirstURL,
                   snippet: decodeHTMLEntities(topic.Text),
-                  source: getHostname(topic.FirstURL)
+                  source: getHostname(topic.FirstURL),
+                  image: topic.Icon?.URL ? normalizeAbsoluteUrl(topic.Icon.URL, 'https://duckduckgo.com') : '',
+                  type: 'article'
                 });
               });
           }
@@ -2967,7 +3139,7 @@ function getInstallationDefaultDataDir() {
       })(),
       (async () => {
         try {
-          const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles=${encodeURIComponent(cleanQuery)}&format=json&origin=*`;
+          const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts|pageimages&exintro=1&explaintext=1&pithumbsize=600&titles=${encodeURIComponent(cleanQuery)}&format=json&origin=*`;
           const wikiRes = await fetch(wikiUrl, { signal: AbortSignal.timeout(4500) });
           if (!wikiRes.ok) return;
           const wikiData = await wikiRes.json();
@@ -2977,12 +3149,15 @@ function getInstallationDefaultDataDir() {
           if (pageId !== '-1' && pages[pageId].extract) {
             const wikiText = pages[pageId].extract.substring(0, 450);
             const builtWikiUrl = buildWikipediaUrl(pages[pageId].title);
+            const wikiThumb = pages[pageId].thumbnail?.source || '';
             if (builtWikiUrl) {
               resultBlocks.push({
                 title: `Wikipedia: ${pages[pageId].title}`,
                 url: builtWikiUrl,
                 snippet: `${decodeHTMLEntities(wikiText)}...`,
-                source: 'wikipedia.org'
+                source: 'wikipedia.org',
+                image: wikiThumb,
+                type: 'article'
               });
             }
           }
@@ -2990,9 +3165,18 @@ function getInstallationDefaultDataDir() {
           console.error('Wikipedia API error:', e.message);
         }
       })()
-    ]);
+    ];
 
-    // 3. DuckDuckGo HTML organic results when instant answers are thin
+    let videoResults = [];
+    if (isVideoQuery) {
+      parallelTasks.push((async () => {
+        videoResults = await fetchYouTubeVideoResults(cleanQuery);
+      })());
+    }
+
+    await Promise.all(parallelTasks);
+
+    // DuckDuckGo HTML organic results when instant answers are thin
     if (resultBlocks.length < 6) {
       try {
         const ddgHtmlUrl = `https://html.duckduckgo.com/html/`;
@@ -3017,12 +3201,13 @@ function getInstallationDefaultDataDir() {
             const title = stripTags(titleMatch[2]);
             const snippetText = stripTags(snippetMatch ? snippetMatch[1] : '');
             // Filter out junk/SEO aggregator boilerplates
-            if (title && url && isValidResultUrl(url) && resultBlocks.length < 10 && !snippetText.toLowerCase().includes('stopwatch timer countdown') && !snippetText.toLowerCase().includes('calculator')) {
+            if (title && url && isValidResultUrl(url) && resultBlocks.length < 12 && !snippetText.toLowerCase().includes('stopwatch timer countdown') && !snippetText.toLowerCase().includes('calculator')) {
               resultBlocks.push({
                 title,
                 url,
                 snippet: snippetText,
-                source: getHostname(url)
+                source: getHostname(url),
+                type: url.includes('youtube.com') ? 'video' : 'web'
               });
             }
           }
@@ -3033,12 +3218,13 @@ function getInstallationDefaultDataDir() {
               const url = normalizeDdgUrl(titleMatch[1]);
               const title = stripTags(titleMatch[2]);
               const snippetText = stripTags(snippetMatches[index] ? snippetMatches[index][1] : '');
-              if (title && url && isValidResultUrl(url) && resultBlocks.length < 10) {
+              if (title && url && isValidResultUrl(url) && resultBlocks.length < 12) {
                 resultBlocks.push({
                   title,
                   url,
                   snippet: snippetText,
-                  source: getHostname(url)
+                  source: getHostname(url),
+                  type: url.includes('youtube.com') ? 'video' : 'web'
                 });
               }
             });
@@ -3064,7 +3250,6 @@ function getInstallationDefaultDataDir() {
         });
         return;
       }
-      // Keep unverified results with a warning — strict verify was dropping good DDG/Wikipedia hits
       if (item.url && isValidResultUrl(item.url)) {
         verifiedResults.push({
           ...item,
@@ -3078,19 +3263,20 @@ function getInstallationDefaultDataDir() {
 
     const results = verifiedResults.slice(0, 8);
 
-    const previewTargets = results.slice(0, 2);
+    // Fetch page previews and high-res images for top results in parallel
+    const previewTargets = results.slice(0, 8);
     const previews = await Promise.all(previewTargets.map(item => fetchPagePreview(item.url)));
     previews.forEach((preview, index) => {
       if (!preview) return;
       if (preview.title && preview.title.length > results[index].title.length) results[index].title = preview.title;
       if (preview.description && preview.description.length > results[index].snippet.length) results[index].snippet = preview.description;
-      if (preview.image) results[index].image = preview.image;
+      if (preview.image && !results[index].image) results[index].image = preview.image;
     });
 
-    const fetchCount = Math.min(Math.max(Number(options.fetchCount) || 2, 1), 3);
+    const fetchCount = Math.min(Math.max(Number(options.fetchCount) || 3, 1), 4);
 
     await Promise.all(results.slice(0, fetchCount).map(async (item) => {
-      const page = await fetchWebPage(item.url, { maxChars: 3500, timeoutMs: 8000 });
+      const page = await fetchWebPage(item.url, { maxChars: 4000, timeoutMs: 8000 });
       if (page.success && page.markdown && page.markdown.length > 120) {
         item.pageContent = page.markdown;
         if (page.title && page.title.length > 2) item.title = page.title;
@@ -3104,30 +3290,32 @@ function getInstallationDefaultDataDir() {
     const products = shopping
       ? results
           .filter(item => item.title && item.url)
-          .slice(0, 6)
+          .slice(0, 8)
           .map((item) => ({
             title: item.title,
             url: item.url,
             source: item.source,
             snippet: item.snippet,
-            price: extractPrice(`${item.title} ${item.snippet}`),
-            image: item.image || ''
+            price: extractPrice(`${item.title} ${item.snippet} ${item.pageContent || ''}`),
+            image: item.image || '',
+            type: cleanQuery.includes('course') || cleanQuery.includes('tutorial') ? 'course' : 'product'
           }))
       : [];
 
     const answerContext = results.map((item, index) => {
       const body = item.pageContent
-        ? `Content excerpt:\n${item.pageContent.slice(0, 2500)}`
+        ? `Content excerpt:\n${item.pageContent.slice(0, 3000)}`
         : `Snippet: ${item.snippet || 'No snippet available.'}`;
       return `[${index + 1}] ${item.title}\nURL: ${item.url}\nSource: ${item.source}${item.verified === false ? ' (unverified link)' : ''}\n${body}`;
     }).join('\n\n');
 
-    if (results.length === 0) {
+    if (results.length === 0 && videoResults.length === 0) {
       return {
         success: true,
         query: cleanQuery,
         results: [],
         products: [],
+        videos: [],
         answerContext: '',
         needsClarification: true,
         clarification: `I could not find reliable web results for "${cleanQuery}". Try adding a brand, location, budget, or date range.`
@@ -3136,20 +3324,26 @@ function getInstallationDefaultDataDir() {
 
     const hasRichResult = results.some(item =>
       (item.snippet || '').trim().length > 40 || (item.pageContent || '').trim().length > 80
-    );
+    ) || videoResults.length > 0;
 
-    return {
+    const payload = {
       success: true,
       query: cleanQuery,
       results,
       products,
+      videos: videoResults,
       answerContext,
-      searchProvider: 'duckduckgo',
+      searchProvider: 'duckduckgo+wiki+hybrid',
       needsClarification: results.length === 0 || !hasRichResult,
       clarification: results.length === 0
         ? `I could not find web results for "${cleanQuery}". Try adding a brand, location, budget, or date range.`
         : (!hasRichResult ? `I found links for "${cleanQuery}" but could not extract enough detail. Try a more specific query.` : '')
     };
+
+    // Save into semantic memory cache
+    searchMemoryCache.set(cacheKey, { timestamp: Date.now(), data: payload });
+
+    return payload;
   });
 
   ipcMain.handle('fetch-web-page', async (_event, url) => {
@@ -3166,6 +3360,35 @@ function getInstallationDefaultDataDir() {
   });
 
   ipcMain.handle('get-mcp-status', async () => mcpManager.getMcpStatus());
+
+  ipcMain.handle('get-mcp-registry', async () => mcpManager.getMcpRegistry());
+
+  ipcMain.handle('toggle-mcp-server', async (_event, payload) => {
+    try {
+      const serverId = payload && payload.serverId;
+      const enable = payload && payload.enable !== false;
+      return await mcpManager.toggleMcpServer(serverId, enable);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('save-custom-mcp-server', async (_event, payload) => {
+    try {
+      return await mcpManager.saveCustomMcpServer(payload);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('delete-custom-mcp-server', async (_event, payload) => {
+    try {
+      const serverId = typeof payload === 'string' ? payload : payload?.serverId;
+      return await mcpManager.deleteCustomMcpServer(serverId);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
 
   ipcMain.handle('mcp-call-tool', async (_event, payload) => {
     const serverId = payload && payload.serverId;

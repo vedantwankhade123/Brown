@@ -3,7 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 
-const WHISPER_MODEL_ID = 'Xenova/whisper-tiny.en';
+const WHISPER_MODEL_ID = 'Xenova/whisper-base';
 const WHISPER_ENGINE_KEY = 'whisper-local';
 
 let whisperPipelinePromise = null;
@@ -13,7 +13,7 @@ function getSttCacheDir() {
     const { getOllamaModelsDir } = require('./paths');
     return path.join(getOllamaModelsDir(), 'tts-cache', 'stt-whisper');
   } catch (e) {
-    const fallback = path.join(process.cwd(), 'Ultron-local', 'models', 'tts-cache', 'stt-whisper');
+    const fallback = path.join(process.cwd(), 'brown-local', 'models', 'tts-cache', 'stt-whisper');
     fs.mkdirSync(fallback, { recursive: true });
     return fallback;
   }
@@ -35,12 +35,16 @@ async function getWhisperTranscriber(onProgress) {
       const cacheDir = getSttCacheDir();
       fs.mkdirSync(cacheDir, { recursive: true });
 
+      // onnxruntime-node (N-API, ABI-stable) gives fast native inference in both
+      // Node and the Electron main process; transformers v3 drives it.
       primeOnnxRuntime();
       const transformers = await import('@huggingface/transformers');
       transformers.env.cacheDir = cacheDir;
       transformers.env.useFSCache = true;
       transformers.env.allowLocalModels = true;
-      transformers.env.backends.onnx.wasm.numThreads = 1;
+      if (transformers.env.backends?.onnx?.wasm) {
+        transformers.env.backends.onnx.wasm.numThreads = 1;
+      }
 
       console.log(`[voice-whisper] initializing local Whisper STT (${WHISPER_MODEL_ID})...`);
       const pipeline = await transformers.pipeline('automatic-speech-recognition', WHISPER_MODEL_ID, {
@@ -253,12 +257,8 @@ async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000) {
     samples16k = normalizeAudioPeak(samples16k);
 
     const transcriber = await getWhisperTranscriber();
-    const isEnglishOnly = WHISPER_MODEL_ID.endsWith('.en');
-    const options = { return_timestamps: false, chunk_length_s: 30, stride_length_s: 5 };
-    if (!isEnglishOnly) {
-      options.language = 'english';
-      options.task = 'transcribe';
-    }
+    // Multilingual model: auto-detect the spoken language and transcribe it.
+    const options = { return_timestamps: false, chunk_length_s: 30, stride_length_s: 5, task: 'transcribe' };
     const result = await transcriber(samples16k, options);
 
     const text = cleanWhisperText(result?.text);

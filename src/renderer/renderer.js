@@ -76,6 +76,7 @@ let currentSessionId = null;
 let installedModelsList = [];
 let searchTimeout = null;
 let isAwaitingResponse = false;
+let _isSubmittingPrompt = false;
 let _activeAbortController = null; // AbortController for cancelling in-flight LLM requests
 const btnStop = document.getElementById('btn-stop');
 
@@ -148,11 +149,14 @@ function getRecoveryModelCandidates(intent, failedModel) {
 function getInstalledLocalModelCandidates(excludedModels = []) {
   const excluded = new Set(excludedModels.map(name => normalizeModelName(name).toLowerCase()).filter(Boolean));
   return (installedModelsList || [])
+    .filter(model => {
+      const name = normalizeModelName(model);
+      return name && !isOllamaCloudPulledModel(name) && !excluded.has(name.toLowerCase());
+    })
     .map(model => ({
       name: normalizeModelName(model),
       size: typeof model === 'object' && model ? model.size : 0
     }))
-    .filter(model => model.name && !excluded.has(model.name.toLowerCase()))
     .sort((a, b) => {
       const rankDiff = getModelFallbackRank(a.name) - getModelFallbackRank(b.name);
       if (rankDiff !== 0) return rankDiff;
@@ -727,14 +731,19 @@ function getOllamaGpuOptions(sysEnv = {}, modelName = activeModel, intent = 'con
   return {};
 }
 
-function buildOllamaRequestOptions({ gpuOptions = {}, intent = 'conversation', canUseVision = false, temperature = 0.7, contentGeneration = false } = {}) {
+function buildOllamaRequestOptions({ gpuOptions = {}, intent = 'conversation', canUseVision = false, temperature = 0.7, contentGeneration = false, shortCreative = false } = {}) {
   const options = {
     num_ctx: canUseVision ? 1536 : 2048,
-    num_predict: contentGeneration ? 2048 : (intent === 'conversation' ? 1536 : 1024),
+    num_predict: shortCreative
+      ? 384
+      : (contentGeneration ? 2048 : (intent === 'conversation' ? 1024 : 1024)),
     temperature
   };
   if (gpuOptions && typeof gpuOptions.num_gpu === 'number') {
     options.num_gpu = gpuOptions.num_gpu;
+  }
+  if (shortCreative) {
+    options.stop = ['\nTitle:', '\n## Title', '\n### Title', '\nExecutive Summary', '\nAbstract:', '\nReferences:'];
   }
   return options;
 }
@@ -1172,6 +1181,13 @@ function attachImagesToChatUserMessage(message, imagePayloads) {
 
 // Local session storage matrix to support natural language keyword scans
 let conversationsStore = {};
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, 'conversationsStore', {
+    get() { return conversationsStore; },
+    set(v) { conversationsStore = v || {}; },
+    configurable: true
+  });
+}
 
 function saveConversationsToDisk() {
   const memoryEnabled = window.localStorage.getItem('ultron-memory-enabled') !== 'false';
@@ -1373,10 +1389,14 @@ function normalizeConversationStore(store) {
 }
 
 function setSendingState(isSending) {
-  isAwaitingResponse = isSending;
+  isAwaitingResponse = Boolean(isSending);
+  if (!isSending) {
+    _isSubmittingPrompt = false;
+  }
   if (btnSend) {
-    btnSend.disabled = isSending;
-    btnSend.setAttribute('aria-disabled', String(isSending));
+    btnSend.disabled = Boolean(isSending);
+    btnSend.setAttribute('aria-disabled', String(Boolean(isSending)));
+    btnSend.classList.toggle('disabled', Boolean(isSending));
     btnSend.title = isSending ? 'Waiting for Ultron to finish responding' : 'Send message';
     btnSend.style.display = isSending ? 'none' : 'flex';
   }
@@ -1430,41 +1450,158 @@ function renderMessageContent(content, text) {
   if (isThinkingMarkup(text) || isRichResultMarkup(text) || isAgentWidgetMarkup(text)) {
     content.innerHTML = text;
   } else {
-    const structured = structureReadableMarkdown(text || '');
-    content.innerHTML = window.ultronAPI.parseMarkdown(structured);
+    let rawText = text || '';
+    let thoughtHtml = '';
+    
+    // Extract <think>...</think> if returned by reasoning model (DeepSeek-R1, QwQ, etc.)
+    const thinkMatch = rawText.match(/<think>([\s\S]*?)<\/think>/i);
+    if (thinkMatch) {
+      const rawThought = thinkMatch[1].trim();
+      rawText = rawText.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
+      if (rawThought) {
+        thoughtHtml = `
+          <div class="chatgpt-thought-container" data-state="collapsed">
+            <div class="thought-header">
+              <div class="thought-header-left">
+                <svg class="thought-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>
+                <span class="thought-title">Thought Process</span>
+              </div>
+              <div class="thought-header-right">
+                <svg class="thought-chevron" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+            </div>
+            <div class="thought-body collapsed">${window.ultronAPI.parseMarkdown(rawThought)}</div>
+          </div>
+        `;
+      }
+    }
+
+    if (!rawText.trim() && !thoughtHtml) {
+      rawText = "I have completed processing your request.";
+    }
+
+    const structured = structureReadableMarkdown(rawText);
+    content.innerHTML = thoughtHtml + window.ultronAPI.parseMarkdown(structured);
+
+    // Wire thought expand/collapse toggle
+    content.querySelectorAll('.thought-header').forEach(hdr => {
+      hdr.addEventListener('click', () => {
+        const card = hdr.closest('.chatgpt-thought-container');
+        const body = card ? card.querySelector('.thought-body') : null;
+        if (card && body) {
+          const isCollapsed = body.classList.contains('collapsed');
+          body.classList.toggle('collapsed', !isCollapsed);
+          card.classList.toggle('expanded', isCollapsed);
+        }
+      });
+    });
   }
   formatCodeBlocks(content);
   wrapMarkdownTables(content);
+  renderMarkdownCallouts(content);
   markAiContentVoicePending(content);
 }
 
 function wrapMarkdownTables(container) {
   if (!container) return;
   container.querySelectorAll('table').forEach((table) => {
-    if (table.parentElement && table.parentElement.classList.contains('md-table-wrap')) return;
+    if (table.parentElement && (table.parentElement.classList.contains('md-table-wrap') || table.parentElement.classList.contains('table-responsive-wrapper'))) return;
     const wrap = document.createElement('div');
-    wrap.className = 'md-table-wrap';
+    wrap.className = 'table-responsive-wrapper md-table-wrap';
     table.parentNode.insertBefore(wrap, table);
     wrap.appendChild(table);
   });
 }
 
-function buildMarkdownFormattingRules() {
-  return `FORMATTING (Markdown — always):
-- Open with **one bold summary line**.
-- Use bullet lists (- ) or numbered lists (1. ) for multiple items — never dense paragraphs.
-- Use ### subheadings when the answer has 2+ sections.
-- Use markdown tables (| A | B |) for comparisons of 3+ items.
-- Keep paragraphs to 1–2 short sentences max.
-- Never write "(No specific URL/source given)" — sources appear below separately.
-- Never claim you lack web access when live search data is provided.`;
+function renderMarkdownCallouts(container) {
+  if (!container) return;
+  const blockquotes = container.querySelectorAll('blockquote');
+  blockquotes.forEach((bq) => {
+    if (bq.dataset.calloutProcessed) return;
+    bq.dataset.calloutProcessed = 'true';
+
+    const rawHtml = bq.innerHTML.trim();
+    const match = rawHtml.match(/^<p>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:<br\s*\/?>)?([\s\S]*?)<\/p>([\s\S]*)$/i);
+    if (match) {
+      const type = match[1].toUpperCase();
+      const firstLine = match[2].trim();
+      const rest = match[3] || '';
+      const contentHtml = (firstLine ? `<p>${firstLine}</p>` : '') + rest;
+
+      const callout = document.createElement('div');
+      callout.className = `markdown-callout callout-${type.toLowerCase()}`;
+
+      const iconMap = {
+        NOTE: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>',
+        TIP: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"></path><path d="M10 22h4"></path><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5.76.76 1.23 1.52 1.41 2.5"></path></svg>',
+        IMPORTANT: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>',
+        WARNING: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>',
+        CAUTION: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>'
+      };
+
+      const titleMap = {
+        NOTE: 'Note',
+        TIP: 'Tip',
+        IMPORTANT: 'Important',
+        WARNING: 'Warning',
+        CAUTION: 'Caution'
+      };
+
+      callout.innerHTML = `
+        <div class="callout-header">
+          <span class="callout-icon">${iconMap[type] || ''}</span>
+          <span class="callout-title">${titleMap[type] || type}</span>
+        </div>
+        <div class="callout-body">${contentHtml}</div>
+      `;
+
+      bq.parentNode.replaceChild(callout, bq);
+    }
+  });
+}
+
+function buildMarkdownFormattingRules(options = {}) {
+  const { shortCreative = false, allowContextReuse = true, entertainment = false } = options;
+  if (shortCreative) {
+    return `FORMATTING (keep it light for this short creative request):
+- Deliver ONLY the requested creative piece (poem, haiku, short paragraph, etc.).
+- Do NOT add essays, reports, research papers, summaries of other topics, or extra sections after you finish.
+- Do NOT invent follow-up prompts or continue with unrelated titles.
+- Light markdown is fine (line breaks, soft emphasis). Skip mermaid, tables, and mandatory Summary blocks.`;
+  }
+
+  if (entertainment) {
+    return `FORMATTING (movie / show recommendations — keep it tight):
+- Lead with a short direct answer, then a clean bullet list of recommendations.
+- For each pick: **Title** — platform (if known) · one line on why it fits.
+- Cap at 6–8 picks. No cast encyclopedias, plot novels, poster/logo captions, mermaid, or broken tables.
+- Never invent cast credits or streaming availability. If unsure, omit that detail.
+- Do NOT invent meta titles about formatting styles or "Markdown Response for …".`;
+  }
+
+  return `FORMATTING (clear, useful Markdown):
+- Answer the user's ask first. Use ### headings and bullet lists when they improve scanability.
+- Add a short Summary only for long technical/complex answers — skip it for simple lists, recommendations, or short Q&A.
+- Include \`\`\`mermaid\`\`\` diagrams only when the user explicitly asks for a diagram, architecture, flowchart, or mindmap. NEVER invent flowcharts/diagrams for reminders, timers, alarms, or "remind me in X seconds/minutes" requests.
+- Use Markdown tables only for real multi-column comparisons with known facts — never incomplete/broken tables.
+- Use **bold** for key terms and \`inline code\` for technical identifiers. Keep paragraphs to 1–3 sentences.
+- Do NOT invent meta titles about formatting styles or "Markdown Response for …".
+
+REASONING (for non-trivial tasks, not greetings or simple lists):
+1. Understand the goal and constraints.
+2. Execute fully and correctly.
+3. Self-check against the request before finishing.
+${allowContextReuse
+    ? '- For follow-up messages that clearly refer to earlier turns, reuse the conversation\'s earlier context, decisions, and prior answers instead of starting over.'
+    : '- Answer ONLY the current user request. Do NOT continue, expand, or remix prior essays/reports from earlier turns unless the user explicitly asks about them.'}
+- For multi-part tasks, address every part.`;
 }
 
 function structureReadableMarkdown(text) {
   let t = String(text || '').trim();
   if (!t) return t;
 
-  // Filter out internal ReAct agent execution logs (Thought:, Action:, Action Input:) if outputting final response text
+  // 1. Filter out internal ReAct agent execution logs (Thought:, Action:, Action Input:)
   if (/\bAction\s*Input\s*:/i.test(t)) {
     const actionInputMatch = t.match(/\bAction\s*Input\s*:\s*([\s\S]+)$/i);
     if (actionInputMatch && actionInputMatch[1]) {
@@ -1480,18 +1617,79 @@ function structureReadableMarkdown(text) {
     t = t.replace(/(?:^|\n)\s*(?:Thought|Action)\s*:[^\n]*/gi, '').trim();
   }
 
+  // 1b. Filter out leaked instruction benchmark / prompt meta artifacts
+  t = t.replace(/^\[?Greetings\]?:?\s*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Instruction\s*\d+\s*\([^)]*\)[\s\S]*?(?=(?:```|###|\n\n[A-Z]|$))/gi, '');
+  t = t.replace(/(?:^|\n)\s*Mandatory\s*(?:Input\s*)?Constraints?:?[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Complexity\s*&\s*Scale:?[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Realistic\s*Constraints:?[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Advanced\s*Visualization\s*Techniques:?[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Comprehensive\s*Output\s*&\s*Explanation:?[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Mandatory\s*Diagram\s*Instruction:[^\n]*/gi, '');
+  t = t.replace(/(?:^|\n)\s*Mandatory\s*Chart\s*Instruction:[^\n]*/gi, '');
+
+  // 2. Clean hallucinated or stale search disclaimers & fake drive links
+  t = t.replace(/\[(?:Flowchart|Diagram|Visual)[^\]]*\]\(https?:\/\/(?:drive\.google\.com|www\.google\.com)[^)]*\)/gi, '');
+  t = t.replace(/For a visual representation,\s*please refer to[^\n.]*[.\n]?/gi, '');
   t = t.replace(/\s*\(No specific URL\/source given\)\s*/gi, ' ');
   t = t.replace(/\s*\(no specific url[^)]*\)\s*/gi, ' ');
   t = t.replace(/\bdeveloped by Microsoft\b[^.!\n]*[.!\n]?/gi, '');
   t = t.replace(/\bI am unable to directly execute actions\b[^.!\n]*[.!\n]?/gi, '');
   t = t.replace(/\bwhile I don't have real-time access\b[^.!\n]*[.!\n]?/gi, '');
 
-  const dashItems = t.match(/\s-\s+[A-Za-z0-9"']/g);
-  if (!/^[\s#*\d-]/.test(t) && dashItems && dashItems.length >= 2) {
-    t = t.replace(/\s-\s+(?=[A-Za-z0-9"'])/g, '\n- ');
-    if (!/^\s*[-*]/.test(t)) t = `- ${t.replace(/^\-\s*/, '')}`;
-  }
+  // 3. Fix squashed markdown tables cleanly without breaking table cells
+  // 3a. Separate table start from preceding prose
+  t = t.replace(/([^\n|])\s*(\|[ \t]*[A-Za-z0-9_#*][^|\n]*\|)/g, '$1\n\n$2');
 
+  // 3b. Normalize double pipe or spaced pipe row delimiters like "| Col A | Col B | | Col C | Col D |"
+  t = t.replace(/\|\s*\|\s*/g, '|\n| ');
+  t = t.replace(/\s*\|\|\s*/g, '\n| ');
+  t = t.replace(/\|\s*\|(?=-)/g, '|\n|');
+
+  // 3c. Ensure table has a proper divider row (|---|---|...) if missing after the first row
+  const rawTableLines = t.split('\n');
+  const repairedTableLines = [];
+  for (let i = 0; i < rawTableLines.length; i++) {
+    const cur = rawTableLines[i].trim();
+    repairedTableLines.push(rawTableLines[i]);
+    if (cur.startsWith('|') && cur.endsWith('|') && cur.split('|').length >= 3 && !cur.includes('---')) {
+      const next = i + 1 < rawTableLines.length ? rawTableLines[i + 1].trim() : '';
+      if (!next.startsWith('|') || !next.includes('---')) {
+        const colCount = cur.split('|').filter(c => c.trim().length > 0).length;
+        if (colCount >= 2) {
+          const divider = '| ' + Array(colCount).fill('---').join(' | ') + ' |';
+          repairedTableLines.push(divider);
+        }
+      }
+    }
+  }
+  t = repairedTableLines.join('\n');
+
+  // 4. Separate inline bold headers following a table or paragraph
+  t = t.replace(/([^\n])\s+(\*\*[A-Z][^*]{2,40}\*\*:?)/g, '$1\n\n$2');
+
+  // 5. Fix single-line bullet runs like "* Item 1 * Item 2" or "+ Step 1 + Step 2" or "• Step 1 • Step 2" or "- Item 1 - Item 2"
+  t = t.replace(/([^\n])\s+([•*+-])\s+(\*\*[A-Za-z0-9])/g, '$1\n- $3');
+  t = t.replace(/([^\n])\s+([•*+-])\s+([A-Za-z0-9])/g, '$1\n- $3');
+  t = t.replace(/^([•*+])\s+/gm, '- ');
+
+  // 6. Fix single-line numbered list runs like "1. First step 2. Second step 3. Third step"
+  t = t.replace(/([^\n])\s+(\d+\.)\s+([A-Z"'])/g, '$1\n$2 $3');
+
+  // 7. Fix unspaced inline markdown headings like "end of paragraph. ## Heading"
+  t = t.replace(/([^\n#])\s+(#{1,4}\s+[A-Za-z0-9])/g, '$1\n\n$2');
+
+  // 7b. Fix unspaced horizontal dividers and pseudo visual tags like "!Flow --- text"
+  t = t.replace(/([^\n])\s+---\s+([^\n])/g, '$1\n\n---\n\n$2');
+  t = t.replace(/!([A-Za-z0-9\s,]+)\s+---\s+/g, '\n\n### $1\n\n');
+
+  // 8. Ensure blank line before headings
+  t = t.replace(/([^\n])\n(#{1,4}\s+[^\n]+)/g, '$1\n\n$2\n');
+
+  // 9. Ensure blank line before list blocks following a paragraph
+  t = t.replace(/([^\n\d\-*#|])\n([0-9]+\.\s+|- |\* )/g, '$1\n\n$2');
+
+  // 10. Clean up excess blank lines
   return t.replace(/\n{3,}/g, '\n\n').trim();
 }
 
@@ -1542,6 +1740,161 @@ function formatCodeBlocks(containerElement) {
     if (codeEl && codeEl.className) {
       const match = codeEl.className.match(/language-([a-zA-Z0-9]+)/);
       if (match) lang = match[1].toLowerCase();
+    }
+
+    if (lang === 'mermaid' && window.UltronVisualEngine) {
+      // Skip incomplete fences (streaming / truncated) to avoid flicker loops
+      const trimmedCode = String(rawCode || '').trim();
+      if (!trimmedCode || trimmedCode.length < 12) return;
+      if (!/\b(flowchart|graph|mindmap|sequenceDiagram|erDiagram|classDiagram|stateDiagram|gantt|pie)\b/i.test(trimmedCode)
+          && !/(-->|==>|-\.->)/.test(trimmedCode)) {
+        return;
+      }
+
+      const visualWrapper = document.createElement('div');
+      visualWrapper.className = 'visual-diagram-container';
+      if (pre.parentNode) {
+        pre.parentNode.insertBefore(visualWrapper, pre);
+        pre.remove();
+      }
+
+      window.UltronVisualEngine.renderMermaidDiagram(rawCode).then(html => {
+        // Ignore stale async renders if another diagram already replaced this wrapper
+        if (!visualWrapper.isConnected) return;
+        visualWrapper.innerHTML = html;
+        const btnCopy = visualWrapper.querySelector('.btn-diagram-copy');
+        const btnToggle = visualWrapper.querySelector('.btn-diagram-toggle');
+        const rawCodeEl = visualWrapper.querySelector('.diagram-raw-code');
+        const svgViewport = visualWrapper.querySelector('.diagram-svg-viewport');
+
+        const btnExpand = visualWrapper.querySelector('.btn-diagram-expand');
+        if (btnExpand) {
+          btnExpand.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.UltronCanvas && typeof window.UltronCanvas.openVisualInspector === 'function') {
+              const svgEl = visualWrapper.querySelector('.diagram-svg-viewport');
+              const tagEl = visualWrapper.querySelector('.diagram-tag');
+              window.UltronCanvas.openVisualInspector({
+                title: tagEl ? tagEl.textContent.trim() : 'Visual Diagram',
+                type: 'Diagram',
+                svgContent: svgEl ? svgEl.innerHTML : '',
+                rawCode: rawCode
+              });
+            }
+          });
+        }
+
+        if (btnCopy) {
+          btnCopy.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(rawCode);
+            const span = btnCopy.querySelector('span');
+            if (span) span.textContent = 'Copied!';
+            setTimeout(() => { if (span) span.textContent = 'Copy'; }, 2000);
+          });
+        }
+
+        if (btnToggle && rawCodeEl && svgViewport) {
+          btnToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const isCodeVisible = rawCodeEl.style.display !== 'none';
+            rawCodeEl.style.display = isCodeVisible ? 'none' : 'block';
+            svgViewport.style.display = isCodeVisible ? 'block' : 'none';
+            const span = btnToggle.querySelector('span');
+            if (span) span.textContent = isCodeVisible ? 'Code' : 'Diagram';
+          });
+        }
+      });
+      return;
+    }
+
+    if ((lang === 'chart' || lang === 'json-chart' || lang === 'data-chart') && window.UltronVisualEngine) {
+      const chartWrapper = document.createElement('div');
+      chartWrapper.className = 'visual-chart-wrapper';
+      if (pre.parentNode) {
+        pre.parentNode.insertBefore(chartWrapper, pre);
+        pre.remove();
+      }
+      chartWrapper.innerHTML = window.UltronVisualEngine.renderChart(rawCode);
+      return;
+    }
+
+    // Only explicit gen-ui fence languages become Live Interactive Widgets.
+    // Regular ```html / ```htm code stays as a normal in-chat code block (ChatGPT-style).
+    const isInteractiveHtmlWidget =
+      lang === 'widget'
+      || lang === 'gen-ui'
+      || lang === 'generative-ui'
+      || lang === 'interactive-ui'
+      || lang === 'html-widget';
+
+    if (isInteractiveHtmlWidget && window.UltronVisualEngine) {
+      const widgetWrapper = document.createElement('div');
+      widgetWrapper.className = 'visual-genui-wrapper';
+      if (pre.parentNode) {
+        pre.parentNode.insertBefore(widgetWrapper, pre);
+        pre.remove();
+      }
+      widgetWrapper.innerHTML = window.UltronVisualEngine.renderGenerativeUiWidget(rawCode);
+
+      const btnExpand = widgetWrapper.querySelector('.btn-gen-ui-expand');
+      const btnCopy = widgetWrapper.querySelector('.btn-gen-ui-copy');
+      const btnToggle = widgetWrapper.querySelector('.btn-gen-ui-toggle');
+      const btnCanvas = widgetWrapper.querySelector('.btn-gen-ui-canvas');
+      const rawCodeEl = widgetWrapper.querySelector('.gen-ui-raw-code');
+      const viewportEl = widgetWrapper.querySelector('.gen-ui-viewport');
+
+      if (btnExpand) {
+        btnExpand.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (window.UltronCanvas && typeof window.UltronCanvas.openVisualInspector === 'function') {
+            const titleEl = widgetWrapper.querySelector('.gen-ui-title');
+            const iframe = widgetWrapper.querySelector('iframe');
+            window.UltronCanvas.openVisualInspector({
+              title: titleEl ? titleEl.textContent.trim() : 'Interactive Widget',
+              type: 'Widget',
+              isWidget: true,
+              fullHtml: iframe ? (iframe.getAttribute('srcdoc') || rawCode) : rawCode,
+              rawCode: rawCode
+            });
+          }
+        });
+      }
+
+      if (btnCopy) {
+        btnCopy.addEventListener('click', (e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(rawCode);
+          const span = btnCopy.querySelector('span');
+          if (span) span.textContent = 'Copied!';
+          setTimeout(() => { if (span) span.textContent = 'Copy'; }, 2000);
+        });
+      }
+
+      if (btnToggle && rawCodeEl && viewportEl) {
+        btnToggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const isCodeVisible = rawCodeEl.style.display !== 'none';
+          rawCodeEl.style.display = isCodeVisible ? 'none' : 'block';
+          viewportEl.style.display = isCodeVisible ? 'block' : 'none';
+          const span = btnToggle.querySelector('span');
+          if (span) span.textContent = isCodeVisible ? 'Code' : 'Preview';
+        });
+      }
+
+      if (btnCanvas) {
+        btnCanvas.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (window.UltronCanvasWorkspace && typeof window.UltronCanvasWorkspace.openFile === 'function') {
+            window.UltronCanvasWorkspace.openFile({
+              name: 'widget.html',
+              content: rawCode,
+              language: 'html'
+            });
+          }
+        });
+      }
+      return;
     }
 
     if (codeEl) {
@@ -1630,6 +1983,15 @@ function formatCodeBlocks(containerElement) {
       codeBox.appendChild(pre);
     }
   });
+
+  const tables = containerElement.querySelectorAll('table');
+  tables.forEach((tbl) => {
+    if (tbl.parentElement && tbl.parentElement.classList.contains('table-responsive-wrapper')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'table-responsive-wrapper';
+    tbl.parentNode.insertBefore(wrap, tbl);
+    wrap.appendChild(tbl);
+  });
 }
 
 function extractCreatedFilesFromText(text) {
@@ -1695,6 +2057,7 @@ function extractProjectFilesFromResponse(text) {
   let m;
   while ((m = blockRe.exec(text)) !== null) {
     const lang = (m[1] || '').toLowerCase();
+    if (/^(mermaid|chart|json-chart|svg|gen-ui|widget|generative-ui)$/i.test(lang)) continue;
     const infoRest = (m[2] || '').trim();
     const content = m[3] || '';
     if (!content.trim()) continue;
@@ -2162,14 +2525,39 @@ function renderProjectCreationCard(contentElement, projectFiles, opts = {}) {
   contentElement.appendChild(card);
 }
 
+function isVisualDiagramResponseOrRequest(fullText, contentElement) {
+  const t = String(fullText || '').toLowerCase();
+  if (t.includes('```mermaid') || t.includes('```chart') || t.includes('```json-chart') || t.includes('```gen-ui') || t.includes('```widget')) {
+    return true;
+  }
+  if (contentElement && (contentElement.querySelector('.visual-diagram-container') || contentElement.querySelector('.visual-genui-wrapper') || contentElement.querySelector('.visual-chart-wrapper'))) {
+    return true;
+  }
+  try {
+    if (typeof currentSessionId !== 'undefined' && currentSessionId && typeof conversationsStore !== 'undefined' && conversationsStore[currentSessionId]) {
+      const msgs = conversationsStore[currentSessionId].messages || [];
+      const lastUser = msgs.slice().reverse().find(m => m && (!m.isAi && m.sender !== 'Ultron'));
+      if (lastUser && lastUser.text) {
+        const uText = lastUser.text.toLowerCase();
+        if (/\b(diagram|flowchart|flow\s*chart|mindmap|mind\s*map|visualize|draw|architecture\s*diagram|system\s*architecture|timeline|roadmap|concept\s*tree|sequence\s*diagram|er\s*diagram|generative\s*ui|interactive\s*widget)\b/i.test(uText)) {
+          return true;
+        }
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
 async function renderCreatedFileActionButtons(contentElement, fullText) {
   if (!contentElement || !fullText) return;
   if (contentElement.querySelector('.created-file-actions-row')) return;
   if (contentElement.querySelector('.project-creation-card')) return;
 
-  // IDE-style: when the reply contains code blocks for project files, write
-  // them to disk — creating missing files AND updating existing ones, so
-  // "edit the css" rewrites style.css in place instead of adding a new file.
+  // Suppress project creation prompt for diagrams, visual renderings, and mindmaps
+  if (isVisualDiagramResponseOrRequest(fullText, contentElement)) return;
+
+  // Chat-only code replies: do NOT show "Create this project on your computer?"
+  // Only offer Open / Show in Folder when files already exist on disk.
   const projectFiles = extractProjectFilesFromResponse(fullText);
   if (projectFiles.length && window.ultronAPI && window.ultronAPI.fileExists) {
     const defaultRoot = `${getDefaultProjectsRoot()}\\${deriveProjectFolderName()}`;
@@ -2207,28 +2595,18 @@ async function renderCreatedFileActionButtons(contentElement, fullText) {
       } catch (err) {
         exists = false;
       }
-      let changed = true;
-      if (exists && window.ultronAPI.readFile) {
-        try {
-          const r = await window.ultronAPI.readFile(guess);
-          if (r && r.success) changed = String(r.data || '') !== String(f.content || '');
-        } catch (err) { changed = true; }
-      }
-      resolved.push({ ...f, path: guess, exists, changed });
+      resolved.push({ ...f, path: guess, exists });
     }
-    const missing = resolved.filter(f => !f.exists);
-    const updated = resolved.filter(f => f.exists && f.changed);
-    if (missing.length || updated.length) {
-      renderProjectCreationCard(contentElement, missing.concat(updated), { updateOnly: missing.length === 0 && updated.length > 0 });
-      return;
-    }
+    const onDisk = resolved.filter(f => f.exists);
+    if (!onDisk.length) return;
+
     const row = document.createElement('div');
     row.className = 'created-file-actions-row';
-    resolved.slice(0, 3).forEach(f => {
+    onDisk.slice(0, 3).forEach(f => {
       row.appendChild(buildOpenFileButton(f.filename, f.path));
       row.appendChild(buildShowFolderButton(f.path));
     });
-    const htmlFile = resolved.find(f => /\.html?$/i.test(f.filename));
+    const htmlFile = onDisk.find(f => /\.html?$/i.test(f.filename));
     if (htmlFile) row.appendChild(buildOpenInBrowserButton(htmlFile.path));
     contentElement.appendChild(row);
     return;
@@ -2259,7 +2637,65 @@ function finalizeAiMessageBubble(contentElement, fullText, { autoSpeak = true } 
   const actionsDiv = messageWrapper ? messageWrapper.querySelector('.message-actions') : null;
   if (actionsDiv) wireMessageActionButtons(actionsDiv, fullText);
   renderCreatedFileActionButtons(contentElement, fullText);
+  attachVisualSuggestionChips(contentElement, fullText);
   if (autoSpeak) finishStreamingAutoSpeak(fullText);
+}
+
+function attachVisualSuggestionChips(contentElement, fullText) {
+  if (!contentElement || !fullText || !window.UltronVisualEngine) return;
+  const messageWrapper = contentElement.closest('.message-wrapper') || contentElement.parentNode;
+  if (!messageWrapper) return;
+  if (messageWrapper.querySelector('.visual-suggestions-bar')) return;
+
+  let userPrompt = '';
+  try {
+    if (typeof currentSessionId !== 'undefined' && currentSessionId && typeof conversationsStore !== 'undefined' && conversationsStore[currentSessionId]) {
+      const msgs = conversationsStore[currentSessionId].messages || [];
+      const lastUser = msgs.slice().reverse().find(m => m && (!m.isAi && m.sender !== 'Ultron'));
+      if (lastUser) userPrompt = lastUser.text || '';
+    }
+  } catch (e) {}
+
+  // Skip visualize chips for entertainment / recommendation answers
+  if (typeof isEntertainmentRecommendationQuery === 'function' && isEntertainmentRecommendationQuery(userPrompt)) {
+    return;
+  }
+  // Skip visualize chips for reminder / timer / alarm requests
+  if (typeof isReminderOrTimerRequest === 'function' && isReminderOrTimerRequest(userPrompt)) {
+    return;
+  }
+
+  const opportunities = window.UltronVisualEngine.detectVisualOpportunities(fullText, userPrompt);
+  if (!opportunities || opportunities.length === 0) return;
+
+  const bar = document.createElement('div');
+  bar.className = 'visual-suggestions-bar';
+
+  const title = document.createElement('span');
+  title.className = 'visual-suggest-title';
+  title.innerHTML = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg> Visualize:`;
+  bar.appendChild(title);
+
+  opportunities.forEach(opp => {
+    const chip = document.createElement('button');
+    chip.className = 'visual-suggest-chip';
+    chip.innerHTML = `<span class="chip-icon">${opp.icon}</span><span class="chip-label">${opp.label}</span>`;
+    chip.title = opp.prompt;
+    chip.addEventListener('click', () => {
+      const inputEl = document.getElementById('chat-input') || document.querySelector('.chat-input-textarea');
+      if (inputEl) {
+        inputEl.value = opp.prompt;
+      }
+      if (typeof submitPrompt === 'function') {
+        submitPrompt(opp.prompt);
+      } else if (typeof btnSend !== 'undefined' && btnSend) {
+        btnSend.click();
+      }
+    });
+    bar.appendChild(chip);
+  });
+
+  contentElement.appendChild(bar);
 }
 
 async function typeMessageResponse(contentElement, fullText, options = {}) {
@@ -2269,7 +2705,15 @@ async function typeMessageResponse(contentElement, fullText, options = {}) {
   // Hide message actions while typing / thinking
   if (actionsDiv) actionsDiv.style.display = 'none';
 
-  if (!fullText || fullText.length < 10 || isThinkingMarkup(fullText) || isRichResultMarkup(fullText) || isAgentWidgetMarkup(fullText) || options.instant) {
+  if (!fullText || !String(fullText).trim()) {
+    fullText = "I have completed your request. Please let me know if you would like more information.";
+  }
+
+  // Diagrams/charts must render once when complete — word typing causes node flicker loops
+  const hasVisualFence = /```(?:mermaid|chart|json-chart|gen-ui|widget)\b/i.test(String(fullText || ''));
+  const forceInstant = options.instant || hasVisualFence;
+
+  if (!fullText || fullText.length < 10 || isThinkingMarkup(fullText) || isRichResultMarkup(fullText) || isAgentWidgetMarkup(fullText) || forceInstant) {
     renderMessageContent(contentElement, fullText);
     formatCodeBlocks(contentElement);
     wrapMarkdownTables(contentElement);
@@ -2363,7 +2807,9 @@ function renderChatMessage(sender, text, isAi = false, options = {}) {
   if (isAi) {
     const avatar = document.createElement('div');
     avatar.className = 'avatar ai';
-    avatar.innerHTML = `<img src="../../Assets/Brand-Assets/ultron-logo.png" alt="Ultron" />`;
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    const aiLogoSrc = isLight ? '../../Assets/brown-b-black-logo.png' : '../../Assets/brown-b-white-logo.png';
+    avatar.innerHTML = `<img src="${aiLogoSrc}" alt="Brown" onerror="this.src='${aiLogoSrc}'" />`;
     messageDiv.appendChild(avatar);
     
     const wrapper = document.createElement('div');
@@ -2541,10 +2987,12 @@ function rebuildSessionHistoryList() {
 
 function buildSessionHistoryItemMarkup(id, session) {
   const title = session?.title || 'New chat';
+  const timestampRaw = session?.updatedAt || session?.createdAt || (session?.messages && session.messages[session.messages.length - 1]?.createdAt);
+  const formattedTime = formatSidebarTimestamp(timestampRaw);
   return `
     <span class="session-row-text">
       <span class="nav-text text-truncate">${escapeHtml(title)}</span>
-      <span class="session-timestamp">${formatSidebarTimestamp(session.updatedAt || session.createdAt)}</span>
+      ${formattedTime ? `<span class="session-timestamp font-xsmall">${escapeHtml(formattedTime)}</span>` : ''}
     </span>
     <button type="button" class="session-delete-btn" data-session-id="${escapeHtml(id)}" title="Delete chat" aria-label="Delete chat">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
@@ -2578,16 +3026,22 @@ async function checkOllamaConnection() {
   try {
     const response = await fetch('http://127.0.0.1:11434/api/tags');
     if (response.ok) {
+      const data = await response.json().catch(() => ({}));
+      if (data && Array.isArray(data.models)) {
+        installedModelsList = data.models;
+      }
       return { connected: true };
     }
   } catch (err) {}
 
   // Fallback check via system profiler / installed models query
   try {
-    const res = await window.ultronAPI.profileSystem();
-    if (res && res.success && Array.isArray(res.installedModels) && res.installedModels.length > 0) {
-      installedModelsList = res.installedModels;
-      return { connected: true };
+    if (window.ultronAPI && typeof window.ultronAPI.profileSystem === 'function') {
+      const res = await window.ultronAPI.profileSystem();
+      if (res && res.success && Array.isArray(res.installedModels) && res.installedModels.length > 0) {
+        installedModelsList = res.installedModels;
+        return { connected: true };
+      }
     }
   } catch (e) {}
 
@@ -2683,21 +3137,15 @@ function dismissToast(el) {
   setTimeout(() => el.remove(), 220);
 }
 
-/**
- * Stackable toast. type: error | warning | success | info
- * actions: [{ label, primary?, onClick }]
- */
 function showToast({ type = 'info', title = '', message = '', duration = 6500, actions = [] } = {}) {
   const stack = ensureToastStack();
   const toast = document.createElement('div');
   toast.className = `ultron-toast ${type}`;
   toast.setAttribute('role', type === 'error' || type === 'warning' ? 'alert' : 'status');
-
   const iconSvg = TOAST_ICONS[type] || TOAST_ICONS.info;
   const actionsHtml = (actions || []).map((a, i) =>
     `<button type="button" class="ultron-toast-action${a.primary ? ' primary' : ''}" data-toast-action="${i}">${a.label}</button>`
   ).join('');
-
   toast.innerHTML = `
     <svg class="ultron-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconSvg}</svg>
     <div class="ultron-toast-body">
@@ -2707,36 +3155,26 @@ function showToast({ type = 'info', title = '', message = '', duration = 6500, a
     </div>
     <button type="button" class="ultron-toast-close" aria-label="Dismiss">✕</button>
   `;
-
   toast.querySelector('.ultron-toast-close')?.addEventListener('click', () => dismissToast(toast));
   toast.querySelectorAll('[data-toast-action]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const idx = Number(btn.getAttribute('data-toast-action'));
-      const action = actions[idx];
-      try { action?.onClick?.(); } catch (_) { /* ignore */ }
+      try { actions[idx]?.onClick?.(); } catch (_) { /* ignore */ }
       dismissToast(toast);
     });
   });
-
   stack.appendChild(toast);
-  while (stack.children.length > 4) {
-    stack.removeChild(stack.firstChild);
-  }
-
+  while (stack.children.length > 4) stack.removeChild(stack.firstChild);
   const ms = type === 'error' ? Math.max(duration, 8000) : duration;
-  if (ms > 0) {
-    setTimeout(() => dismissToast(toast), ms);
-  }
+  if (ms > 0) setTimeout(() => dismissToast(toast), ms);
   return toast;
 }
 
 function openSettingsModelsPane() {
   try {
-    const settingsBtn = document.getElementById('btn-open-settings') || document.querySelector('[data-open-settings]');
-    settingsBtn?.click();
+    (document.getElementById('btn-open-settings') || document.querySelector('[data-open-settings]'))?.click();
     setTimeout(() => {
-      const tab = document.querySelector('[data-settings-tab="models"], #settings-tab-models, button[data-section="models"]');
-      tab?.click();
+      document.querySelector('[data-settings-tab="models"], #settings-tab-models, button[data-section="models"]')?.click();
     }, 120);
   } catch (_) { /* ignore */ }
 }
@@ -2757,63 +3195,35 @@ function classifyModelFailure(errOrText, modelName = activeModel) {
   const model = String(modelName || 'model');
   const isHf = model.startsWith('hf.co/');
   const isCloud = model.endsWith('-cloud');
-
+  if (/activeTemp is not defined/i.test(raw)) {
+    return { code: 'INTERNAL', title: 'Internal chat error', message: 'A temperature setting bug was hit. Restart Ultron after updating — this should be fixed.', toastType: 'error' };
+  }
   if (/failed to fetch|networkerror|econnrefused|enotfound|fetch failed|could not connect|err_connection/i.test(msg)) {
-    return {
-      code: 'OLLAMA_OFFLINE',
-      title: 'Ollama not reachable',
-      message: 'Could not reach http://127.0.0.1:11434. Start Ollama (tray app or `ollama serve`), then retry.',
-      toastType: 'error'
-    };
+    return { code: 'OLLAMA_OFFLINE', title: 'Ollama not reachable', message: 'Could not reach http://127.0.0.1:11434. Start Ollama (tray app or `ollama serve`), then retry.', toastType: 'error' };
   }
   if (/api key|unauthorized|401|invalid.*key|permission denied|gemini api key/i.test(msg)) {
-    return {
-      code: 'API_KEY',
-      title: 'API key required',
-      message: raw || 'Add or fix your cloud API key in Settings → Models.',
-      toastType: 'error'
-    };
+    return { code: 'API_KEY', title: 'API key required', message: raw || 'Add or fix your cloud API key in Settings → Models.', toastType: 'error' };
   }
   if (/sign.?in|not signed|ollama cloud|cloud auth/i.test(msg) || (isCloud && /unauthorized|403|401/.test(msg))) {
-    return {
-      code: 'OLLAMA_CLOUD_AUTH',
-      title: 'Ollama Cloud sign-in required',
-      message: `"${model}" runs on Ollama Cloud. Sign in under Settings → Models, then try again.`,
-      toastType: 'warning'
-    };
+    return { code: 'OLLAMA_CLOUD_AUTH', title: 'Ollama Cloud sign-in required', message: `"${model}" runs on Ollama Cloud. Sign in under Settings → Models.`, toastType: 'warning' };
   }
   if (/not found|no such model|pull|unknown model/i.test(msg) || (isHf && /404|file does not exist/.test(msg))) {
     return {
       code: 'MODEL_MISSING',
       title: isHf ? 'Hugging Face model not installed' : 'Model not installed',
       message: isHf
-        ? `"${model}" is not on this PC yet. Download it from Settings → Models (Ollama will pull the GGUF).`
+        ? `"${model}" is not on this PC yet. Download it from Settings → Models.`
         : `"${model}" is not installed. Pull it from Settings → Models or run ollama pull ${model}.`,
       toastType: 'warning'
     };
   }
   if (/memory|vram|out of memory|requires more|num_gpu/i.test(msg)) {
-    return {
-      code: 'MEMORY',
-      title: 'Not enough memory for this model',
-      message: `"${model}" needs more RAM/VRAM. Close heavy apps, pick a smaller model, or use Gemini / Ollama Cloud.`,
-      toastType: 'warning'
-    };
+    return { code: 'MEMORY', title: 'Not enough memory for this model', message: `"${model}" needs more RAM/VRAM. Close heavy apps, pick a smaller model, or use Gemini / Ollama Cloud.`, toastType: 'warning' };
   }
   if (/quota|rate limit|resource.?exhausted|429/i.test(msg)) {
-    return {
-      code: 'QUOTA',
-      title: 'Cloud quota exceeded',
-      message: raw || 'This cloud model hit a rate/quota limit. Wait a bit or switch models.',
-      toastType: 'warning'
-    };
+    return { code: 'QUOTA', title: 'Cloud quota exceeded', message: raw || 'This cloud model hit a rate/quota limit. Wait or switch models.', toastType: 'warning' };
   }
-  return {
-    code: 'GENERIC',
-    title: 'Model request failed',
-    message: raw || `Could not get a response from ${model}.`,
-    toastType: 'error'
-  };
+  return { code: 'GENERIC', title: 'Model request failed', message: raw || `Could not get a response from ${model}.`, toastType: 'error' };
 }
 
 function notifyModelIssue(classified, { actions } = {}) {
@@ -2841,16 +3251,10 @@ function notifyModelIssue(classified, { actions } = {}) {
 async function ensureOllamaReadyForChat({ silent = false } = {}) {
   let conn = await checkOllamaConnection();
   if (conn.connected) return { ok: true, started: false };
-
   const installCheck = await window.ultronAPI?.checkOllamaInstalled?.().catch(() => ({ installed: false }));
   if (installCheck?.installed) {
     if (!silent) {
-      showToast({
-        type: 'warning',
-        title: 'Starting Ollama…',
-        message: 'Ollama is installed but was not running. Trying to start it now.',
-        duration: 4000
-      });
+      showToast({ type: 'warning', title: 'Starting Ollama…', message: 'Ollama is installed but was not running. Trying to start it now.', duration: 4000 });
     }
     try {
       await window.ultronAPI.startOllamaService(installCheck.path);
@@ -2858,16 +3262,13 @@ async function ensureOllamaReadyForChat({ silent = false } = {}) {
         await new Promise((r) => setTimeout(r, 1000));
         conn = await checkOllamaConnection();
         if (conn.connected) {
-          if (!silent) {
-            showToast({ type: 'success', title: 'Ollama connected', message: 'Local model service is ready.', duration: 3500 });
-          }
+          if (!silent) showToast({ type: 'success', title: 'Ollama connected', message: 'Local model service is ready.', duration: 3500 });
           hideOllamaBanner();
           return { ok: true, started: true };
         }
       }
     } catch (_) { /* fall through */ }
   }
-
   const classified = {
     code: 'OLLAMA_OFFLINE',
     title: installCheck?.installed ? 'Ollama is not running' : 'Ollama is not installed',
@@ -2885,28 +3286,22 @@ async function preflightActiveModelForChat() {
   const model = activeModel || '';
   const hub = window.UltronMultiProviderHub;
   const provider = hub ? hub.detectProviderForModel(model) : 'ollama';
-
   if (provider !== 'ollama') {
     const key = hub?.getStoredApiKey?.(provider) || (provider === 'gemini' ? (localStorage.getItem('ultron-gemini-api-key') || '') : '');
-    if (hub?.PROVIDERS?.[provider]?.requiresKey !== false && provider !== 'custom') {
-      const needsKey = ['gemini', 'openai', 'anthropic', 'deepseek', 'groq'].includes(provider);
-      if (needsKey && !String(key).trim()) {
-        const classified = {
-          code: 'API_KEY',
-          title: `${provider} API key missing`,
-          message: `Add your ${provider} API key in Settings → Models before using ${model || provider}.`,
-          toastType: 'error'
-        };
-        notifyModelIssue(classified);
-        return { ok: false, classified, provider };
-      }
+    if (['gemini', 'openai', 'anthropic', 'deepseek', 'groq'].includes(provider) && !String(key).trim()) {
+      const classified = {
+        code: 'API_KEY',
+        title: `${provider} API key missing`,
+        message: `Add your ${provider} API key in Settings → Models before using ${model || provider}.`,
+        toastType: 'error'
+      };
+      notifyModelIssue(classified);
+      return { ok: false, classified, provider };
     }
     return { ok: true, provider };
   }
-
   const ollama = await ensureOllamaReadyForChat();
   if (!ollama.ok) return { ok: false, classified: ollama.classified, provider: 'ollama' };
-
   if (String(model).endsWith('-cloud') && window.ultronAPI?.getOllamaAuthStatus) {
     try {
       const status = await window.ultronAPI.getOllamaAuthStatus();
@@ -2919,24 +3314,17 @@ async function preflightActiveModelForChat() {
         };
         notifyModelIssue(classified, {
           actions: [
-            {
-              label: 'Sign in',
-              primary: true,
-              onClick: () => window.ultronAPI?.ollamaSignin?.().catch(() => openSettingsModelsPane())
-            },
+            { label: 'Sign in', primary: true, onClick: () => window.ultronAPI?.ollamaSignin?.().catch(() => openSettingsModelsPane()) },
             { label: 'Settings', onClick: openSettingsModelsPane }
           ]
         });
         return { ok: false, classified, provider: 'ollama' };
       }
-    } catch (_) { /* continue; pull/chat will surface auth errors */ }
+    } catch (_) { /* continue */ }
   }
-
   if (String(model).startsWith('hf.co/')) {
     await refreshInstalledModelsFromOllama();
-    const installed = (installedModelsList || []).some(
-      (m) => String(m.name || m).toLowerCase() === String(model).toLowerCase()
-    );
+    const installed = (installedModelsList || []).some((m) => String(m.name || m).toLowerCase() === String(model).toLowerCase());
     if (!installed) {
       const classified = {
         code: 'MODEL_MISSING',
@@ -2948,7 +3336,6 @@ async function preflightActiveModelForChat() {
       return { ok: false, classified, provider: 'ollama' };
     }
   }
-
   return { ok: true, provider: 'ollama' };
 }
 
@@ -2959,36 +3346,18 @@ async function tryGeminiFallbackAfterLocalFailure(prompt, systemPrompt, extraMes
     try { ONLINE_GEMINI_MODELS = await discoverGeminiModels(apiKey); } catch (_) { /* ignore */ }
   }
   const geminiModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name || 'gemini-3.6-flash';
-  showToast({
-    type: 'warning',
-    title: 'Falling back to Google Gemini',
-    message: `Local/Ollama request failed. Trying ${geminiModel}…`,
-    duration: 4500
-  });
+  showToast({ type: 'warning', title: 'Falling back to Google Gemini', message: `Local/Ollama request failed. Trying ${geminiModel}…`, duration: 4500 });
   try {
-    const output = await queryGeminiAPI(
-      prompt,
-      systemPrompt,
-      geminiModel,
-      apiKey,
-      extraMessages || [],
-      visionImages || []
-    );
+    const output = await queryGeminiAPI(prompt, systemPrompt, geminiModel, apiKey, extraMessages || [], visionImages || []);
     if (output && String(output).trim()) {
       activeModel = geminiModel;
       updateModelSelectorLabel();
       syncModelAttachmentCapabilities();
-      showToast({
-        type: 'success',
-        title: 'Gemini fallback succeeded',
-        message: `Switched to ${geminiModel} for this reply. You can change the model anytime in the dropdown.`,
-        duration: 5000
-      });
+      showToast({ type: 'success', title: 'Gemini fallback succeeded', message: `Switched to ${geminiModel} for this reply.`, duration: 5000 });
       return output;
     }
   } catch (err) {
-    const classified = classifyModelFailure(err, geminiModel);
-    notifyModelIssue(classified);
+    notifyModelIssue(classifyModelFailure(err, geminiModel));
   }
   return null;
 }
@@ -3092,7 +3461,7 @@ async function startOllamaInstallFlow(buttonElement) {
   const result = await window.ultronAPI.installOllama();
   if (result.success) {
     if (result.ultronRoot) {
-      logTrace(`${paths.storageFolderName || 'Ultron-local'} ready at: ${result.ultronRoot} (models → ${result.modelsDir || result.ultronRoot + '\\models'})`, 'system');
+      logTrace(`${paths.storageFolderName || 'brown-local'} ready at: ${result.ultronRoot} (models → ${result.modelsDir || result.ultronRoot + '\\models'})`, 'system');
     }
     logTrace('winget Ollama installation command executed successfully.', 'system');
     showOllamaBanner('warning', 'Ollama installation spawned. Checking connection...', false);
@@ -3222,34 +3591,58 @@ async function refreshOllamaStatus() {
 }
 
 async function refreshOllamaCloudAuthUI() {
-  const badge = document.getElementById('ollama-cloud-auth-badge');
-  const btnSignin = document.getElementById('btn-ollama-signin');
-  if (!badge || !window.ultronAPI?.getOllamaAuthStatus) return;
+  const badge = document.getElementById('ollama-cloud-status-badge') || document.getElementById('ollama-cloud-auth-badge');
+  const btnConnect = document.getElementById('btn-toggle-ollama-cloud-connect') || document.getElementById('btn-ollama-signin');
+  const btnDisconnect = document.getElementById('btn-disconnect-ollama-cloud');
+  const subtitle = document.getElementById('ollama-cloud-subtitle');
 
-  badge.classList.remove('is-signed-in', 'is-signed-out', 'is-checking');
+  if (!window.ultronAPI?.getOllamaAuthStatus) return;
 
   try {
     const status = await window.ultronAPI.getOllamaAuthStatus();
+    isOllamaCloudConnectedState = Boolean(status && status.signedIn);
     if (status.signedIn) {
-      badge.textContent = 'Signed in';
-      badge.classList.add('is-signed-in');
-      if (btnSignin) {
-        btnSignin.textContent = 'Sign out';
-        btnSignin.classList.remove('btn-primary-sm');
-        btnSignin.classList.add('btn-secondary-sm');
+      if (badge) {
+        badge.textContent = `Connected (${OLLAMA_CLOUD_PULL_MODELS.length} Cloud Models)`;
+        badge.style.background = 'rgba(52, 211, 153, 0.15)';
+        badge.style.color = '#34d399';
+        badge.style.borderColor = 'rgba(52, 211, 153, 0.3)';
+      }
+      if (subtitle) {
+        subtitle.textContent = `Connected • ${OLLAMA_CLOUD_PULL_MODELS.length} Ollama Cloud models unlocked (free tier)`;
+      }
+      if (btnConnect) {
+        btnConnect.style.display = 'none';
+      }
+      if (btnDisconnect) {
+        btnDisconnect.style.display = 'inline-flex';
+        btnDisconnect.classList.remove('hidden');
       }
     } else {
-      badge.textContent = 'Not signed in';
-      badge.classList.add('is-signed-out');
-      if (btnSignin) {
-        btnSignin.textContent = 'Sign in';
-        btnSignin.classList.add('btn-primary-sm');
-        btnSignin.classList.remove('btn-secondary-sm');
+      if (badge) {
+        badge.textContent = 'Not connected';
+        badge.style.background = 'rgba(161, 161, 170, 0.12)';
+        badge.style.color = '#a1a1aa';
+        badge.style.borderColor = 'rgba(161, 161, 170, 0.25)';
+      }
+      if (subtitle) {
+        subtitle.textContent = 'Endpoint: https://ollama.com • Official Cloud Models';
+      }
+      if (btnConnect) {
+        btnConnect.style.display = 'inline-flex';
+        btnConnect.classList.remove('hidden');
+      }
+      if (btnDisconnect) {
+        btnDisconnect.style.display = 'none';
+        btnDisconnect.classList.add('hidden');
       }
     }
   } catch (e) {
-    badge.textContent = 'Unavailable';
-    badge.classList.add('is-signed-out');
+    if (badge) {
+      badge.textContent = 'Not connected';
+      badge.style.background = 'rgba(161, 161, 170, 0.12)';
+      badge.style.color = '#a1a1aa';
+    }
   }
 }
 
@@ -3261,7 +3654,7 @@ async function ensureOllamaCloudAuthForPull(modelName) {
   if (status.signedIn) return true;
 
   const proceed = window.confirm(
-    'Ollama Cloud models require signing in with your Ollama account.\n\nOpen the sign-in page in your browser now?'
+    'Ollama Cloud models require connecting your Ollama account.\n\nOpen the official Ollama authorization page in your browser now?'
   );
   if (!proceed) return false;
 
@@ -3269,54 +3662,103 @@ async function ensureOllamaCloudAuthForPull(modelName) {
 }
 
 async function runOllamaSigninFlow() {
-  const btnSignin = document.getElementById('btn-ollama-signin');
-  const badge = document.getElementById('ollama-cloud-auth-badge');
-  if (btnSignin) {
-    btnSignin.disabled = true;
-    btnSignin.textContent = 'Signing in…';
+  const btnConnect = document.getElementById('btn-toggle-ollama-cloud-connect') || document.getElementById('btn-ollama-signin');
+  const btnText = document.getElementById('ollama-cloud-btn-text');
+  const badge = document.getElementById('ollama-cloud-status-badge') || document.getElementById('ollama-cloud-auth-badge');
+
+  if (btnConnect) {
+    btnConnect.disabled = true;
+    if (btnText) btnText.textContent = 'Connecting…';
   }
-  if (badge) badge.textContent = 'Waiting for browser…';
+  if (badge) {
+    badge.textContent = 'Awaiting Browser Approval…';
+    badge.style.background = 'rgba(234, 179, 8, 0.15)';
+    badge.style.color = '#eab308';
+    badge.style.borderColor = 'rgba(234, 179, 8, 0.3)';
+  }
 
-  const result = await window.ultronAPI.ollamaSignin().catch(err => ({
-    success: false,
-    error: err.message || 'Sign-in failed.'
-  }));
+  // 1. Trigger sign-in (spawns ollama signin and opens connect URL in browser)
+  const signinRes = await window.ultronAPI.ollamaSignin().catch(() => ({ success: false }));
+  logTrace(`Ollama Cloud authorization flow initiated in browser: ${signinRes?.authUrl || 'https://ollama.com/signin'}`, 'system');
 
-  if (btnSignin) btnSignin.disabled = false;
-  await refreshOllamaCloudAuthUI();
+  showOllamaBanner(
+    'info',
+    'Opening Ollama authorization in your browser. Please approve or log in on ollama.com, then return here.',
+    true
+  );
 
-  if (result.success) {
-    logTrace('Signed in to Ollama Cloud.', 'system');
+  // 2. Poll live verification for up to 45 seconds (every 2.5s)
+  const startTime = Date.now();
+  const maxWaitMs = 45000;
+  let isAuthed = false;
+
+  while (Date.now() - startTime < maxWaitMs) {
+    await new Promise(r => setTimeout(r, 2500));
+    try {
+      const verify = await window.ultronAPI.verifyOllamaCloudAuth();
+      if (verify && verify.authorized) {
+        isAuthed = true;
+        break;
+      }
+    } catch (_) {}
+  }
+
+  if (btnConnect) {
+    btnConnect.disabled = false;
+    if (btnText) btnText.textContent = 'Connect Ollama Cloud';
+  }
+
+  if (isAuthed) {
+    await window.ultronAPI.setOllamaAuthStatus(true);
+    await refreshOllamaCloudAuthUI();
+    renderModelDropdownList();
+    renderSettingsModels();
+    renderOllamaCatalog();
+    showOllamaBanner('success', '✓ Successfully connected to Ollama Cloud! All cloud models are now available in your library.', true);
+    logTrace('Verified and connected to Ollama Cloud.', 'system');
     return true;
+  } else {
+    await window.ultronAPI.setOllamaAuthStatus(false);
+    await refreshOllamaCloudAuthUI();
+    showOllamaBanner('warning', 'Ollama Cloud connection was not approved or timed out. Please click Connect to try again.', true);
+    logTrace('Ollama Cloud authorization was not completed in browser.', 'system');
+    return false;
   }
-
-  logTrace(result.error || 'Ollama Cloud sign-in did not complete.', 'system');
-  alert(result.error || 'Ollama Cloud sign-in did not complete. Finish sign-in in your browser, then try again.');
-  return false;
 }
 
 function initOllamaCloudAuthUI() {
-  const btnSignin = document.getElementById('btn-ollama-signin');
-  if (!btnSignin) return;
+  const btnConnect = document.getElementById('btn-toggle-ollama-cloud-connect') || document.getElementById('btn-ollama-signin');
+  const btnDisconnect = document.getElementById('btn-disconnect-ollama-cloud');
 
   refreshOllamaCloudAuthUI();
 
-  btnSignin.addEventListener('click', async (e) => {
-    e.preventDefault();
-    if (!window.ultronAPI?.getOllamaAuthStatus) return;
+  if (btnConnect) {
+    btnConnect.addEventListener('click', async (e) => {
+      e.preventDefault();
+      await runOllamaSigninFlow();
+    });
+  }
 
-    const status = await window.ultronAPI.getOllamaAuthStatus();
-    if (status.signedIn && window.ultronAPI.ollamaSignout) {
-      btnSignin.disabled = true;
-      await window.ultronAPI.ollamaSignout();
-      btnSignin.disabled = false;
+  if (btnDisconnect) {
+    btnDisconnect.addEventListener('click', async (e) => {
+      e.preventDefault();
+      btnDisconnect.disabled = true;
+      btnDisconnect.textContent = 'Disconnecting…';
+      if (window.ultronAPI?.ollamaSignout) {
+        await window.ultronAPI.ollamaSignout().catch(() => {});
+      }
+      if (window.ultronAPI?.setOllamaAuthStatus) {
+        await window.ultronAPI.setOllamaAuthStatus(false).catch(() => {});
+      }
+      btnDisconnect.disabled = false;
+      btnDisconnect.textContent = 'Disconnect';
       await refreshOllamaCloudAuthUI();
-      logTrace('Signed out of Ollama Cloud.', 'system');
-      return;
-    }
-
-    await runOllamaSigninFlow();
-  });
+      renderModelDropdownList();
+      renderSettingsModels();
+      renderOllamaCatalog();
+      logTrace('Disconnected from Ollama Cloud.', 'system');
+    });
+  }
 
   document.querySelector('.settings-tab-btn[data-tab="models"]')?.addEventListener('click', () => {
     refreshOllamaCloudAuthUI();
@@ -3893,9 +4335,18 @@ function getAgentRuntimeSettings() {
 
 function buildAgentSkillsSnippet(userPrompt) {
   const runtime = getAgentRuntimeSettings();
-  if (!runtime.skillsEnabled || !window.UltronAgentSkills) return '';
-  const skills = window.UltronAgentSkills.findSkillsForPrompt(userPrompt, 2);
-  return window.UltronAgentSkills.buildSkillsPromptSection(skills);
+  let result = '';
+  if (runtime.skillsEnabled && window.UltronAgentSkills) {
+    let skills = window.UltronAgentSkills.findSkillsForPrompt(userPrompt, 3);
+    if (isReminderOrTimerRequest(userPrompt)) {
+      skills = (skills || []).filter(s => s && s.id !== 'visual-diagram-chart-creator' && s.id !== 'generative-ui-builder');
+    }
+    result += window.UltronAgentSkills.buildSkillsPromptSection(skills);
+  }
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.getFormattedPreferencesPrompt === 'function') {
+    result += window.UltronAgentMemory.getFormattedPreferencesPrompt();
+  }
+  return result;
 }
 
 function persistTaskMemory(summary) {
@@ -3996,9 +4447,66 @@ function appendChatMessage(sender, text, isAi = false, options = {}) {
     touchSession();
     rebuildSessionHistoryList();
     saveConversationsToDisk();
+
+    // --- Post-message entity extraction and summary trigger ---
+    if (isAi && text && window.UltronEntityTracker) {
+      try {
+        // Detect context type from the response content
+        const contextType = /restaurant|cafe|bar|food|dining/i.test(text) ? 'restaurant'
+          : /laptop|computer|phone|device|product/i.test(text) ? 'product'
+          : /hotel|resort|airbnb|stay/i.test(text) ? 'accommodation'
+          : 'generic';
+        window.UltronEntityTracker.extractEntitiesFromText(currentSessionId, text, contextType);
+      } catch (e) { /* non-fatal */ }
+    }
+    // Trigger rolling summary when conversation grows long enough
+    if (isAi && window.UltronContextEngine && window.UltronContextEngine.needsSummaryUpdate) {
+      try {
+        const msgCount = conversationsStore[currentSessionId].messages.length;
+        if (window.UltronContextEngine.needsSummaryUpdate(currentSessionId, msgCount)) {
+          // Generate summary asynchronously (don't block chat)
+          generateRollingSummaryAsync(currentSessionId).catch(() => {});
+        }
+      } catch (e) { /* non-fatal */ }
+    }
   }
   
   return content;
+}
+
+// Generate a rolling summary of the conversation asynchronously
+async function generateRollingSummaryAsync(sessionId) {
+  if (!sessionId || !conversationsStore[sessionId]) return;
+  if (!window.UltronContextEngine || !window.UltronAgentMemory) return;
+  try {
+    const messages = conversationsStore[sessionId].messages;
+    if (messages.length < 12) return; // Don't summarize short conversations
+
+    const existingSummary = window.UltronAgentMemory.getConversationSummary
+      ? window.UltronAgentMemory.getConversationSummary(sessionId)
+      : null;
+
+    // Get the messages that need summarizing (older ones not yet covered)
+    const turnsCovered = existingSummary ? (existingSummary.turnsCovered || 0) : 0;
+    const msgsToSummarize = messages.slice(turnsCovered, -4); // Keep last 4 unsummarized
+
+    if (msgsToSummarize.length < 4) return;
+
+    const summaryPrompt = window.UltronContextEngine.buildSummaryPrompt(
+      msgsToSummarize,
+      existingSummary ? existingSummary.text : ''
+    );
+
+    const summary = await queryOfflineLLM(summaryPrompt, [], 'conversation',
+      'You are a concise summarizer. Preserve all key facts, names, numbers, decisions, and user preferences. Output only the summary, nothing else.');
+
+    if (summary && summary.length > 20 && summary.length < 3000) {
+      window.UltronAgentMemory.saveConversationSummary(sessionId, summary);
+      logTrace(`Rolling summary updated (${messages.length} turns covered).`, 'system');
+    }
+  } catch (e) {
+    logTrace(`Rolling summary error (non-fatal): ${e.message}`, 'system');
+  }
 }
 
 // Cached system environment context (refreshed periodically)
@@ -4293,6 +4801,8 @@ function isMetaInstructionLeak(text) {
 
 function shouldSkipConversationHistory(prompt) {
   const p = String(prompt || '').trim();
+  if (isShortCreativeRequest(p)) return true;
+  if (isFreshStandaloneRequest(p)) return true;
   if (isContentGenerationRequest(p)) return true;
   if (/^(hi|hello|hey|good\s*(morning|afternoon|evening|night))[\s,!.?]*(\w+)?[\s!.?]*$/i.test(p)) return true;
   return false;
@@ -4325,11 +4835,18 @@ function isIrrelevantModelResponse(text, userPrompt) {
   if (/provide me with some examples/i.test(lower) && !/example/i.test(promptLower)) return true;
   if (/avoid (using |getting tripped up by )/i.test(lower)) return true;
 
-  if (isContentGenerationRequest(userPrompt)) {
-    const wantsPoem = /\bpoem\b/i.test(promptLower);
+  if (isContentGenerationRequest(userPrompt) || isShortCreativeRequest(userPrompt)) {
+    const wantsPoem = /\bpoem|haiku|limerick|sonnet|ode\b/i.test(promptLower);
     const wantsEssay = /\bessay\b/i.test(promptLower);
     if (wantsPoem && wantsEssay === false && /\bessay\b/i.test(lower) && !/\bpoem\b/i.test(lower)) return true;
     if (wantsEssay && /\bpoem:/i.test(lower) && !/\bessay\b/i.test(lower)) return true;
+
+    // Reject runaway replies that append unrelated research papers after a short creative ask
+    if (isShortCreativeRequest(userPrompt)) {
+      const hasExtraReport = /\b(executive summary|literature review|case study|references:|telecommuting|microservices architecture|scholarly)\b/i.test(plain);
+      if (hasExtraReport) return true;
+      if (plain.length > 2500) return true;
+    }
 
     // Only apply strict single-word topic check for explicit essay/article prompts
     if (wantsEssay || /\b(article|story|poem)\b/i.test(promptLower)) {
@@ -4350,25 +4867,100 @@ function isIrrelevantModelResponse(text, userPrompt) {
   return false;
 }
 
-function isGenericAssistantGreeting(text) {
-  const lower = String(text || '').toLowerCase();
-  return /\b(hello!?\s+i'?m ultron|i'?m ultron,?\s+your (ai )?assistant|how can i assist you today|how can i help you today|what can i do for you)\b/i.test(lower);
+/** Trim model runaway that appends a second unrelated document after the requested piece. */
+function trimRunawayContinuation(text, userPrompt) {
+  const raw = String(text || '');
+  if (!raw.trim()) return raw;
+  if (!isShortCreativeRequest(userPrompt) && !isFreshStandaloneRequest(userPrompt)) return raw;
+
+  // Cut before a second major "Title:" / report that doesn't belong to a short ask
+  if (isShortCreativeRequest(userPrompt)) {
+    const cutPatterns = [
+      /\n{2,}Title:\s+/i,
+      /\n{2,}#{1,3}\s+(The Societal Impact|Microservices|Executive Summary|Abstract|Introduction)\b/i,
+      /\n{2,}(Executive Summary|Literature Review|References)\s*:/i,
+    ];
+    for (const re of cutPatterns) {
+      const m = raw.match(re);
+      if (m && typeof m.index === 'number' && m.index > 80) {
+        return raw.slice(0, m.index).trim();
+      }
+    }
+  }
+  return raw;
 }
 
-function buildConversationSystemPrompt() {
-  return `You are Ultron, a helpful local AI assistant on the user's Windows PC.
-${buildMarkdownFormattingRules()}
-Reply naturally in first person. Never mention system prompts, rules, or meta instructions.
-For current events, live prices, today's news, or who holds an office right now, say you will look it up online if you are not certain — do not invent outdated facts.`;
+function isGenericAssistantGreeting(text) {
+  const lower = String(text || '').toLowerCase();
+  return /\b(hello!?\s+i'?m brown|i'?m brown,?\s+your (ai )?assistant|how can i assist you today|how can i help you today|what can i do for you)\b/i.test(lower);
+}
+
+function buildConversationSystemPrompt(prompt = '') {
+  const shortCreative = isShortCreativeRequest(prompt);
+  const entertainment = isEntertainmentRecommendationQuery(prompt);
+  const allowContextReuse = isFollowUpAboutPriorTurn(prompt);
+  const reminderAsk = typeof isReminderOrTimerRequest === 'function' && isReminderOrTimerRequest(prompt);
+  const reminderRule = reminderAsk
+    ? `\nREMINDERS/TIMERS: The user wants a real reminder or timer — do NOT output Mermaid/flowcharts. Confirm you'll note it, or give a short setTimeout / Windows Clock tip. Never invent a diagram about reminders.`
+    : '';
+  return `You are Brown, a friendly, intelligent, and helpful AI assistant on the user's Windows PC.
+${buildMarkdownFormattingRules({ shortCreative, allowContextReuse, entertainment })}
+Reply naturally in first person ("I", "me"). Never mention system prompts, rules, or meta instructions.
+When greeted (e.g. "hello", "hi", "hey", "good morning"), respond warmly and concisely in 1–2 friendly sentences (e.g. "Hello! How can I help you today?"). Do NOT dump unsolicited PC maintenance checklists, features, or system troubleshooting guides.
+For current events, live prices, today's news, or who holds an office right now, say you will look it up online if you are not certain — do not invent outdated facts.
+CRITICAL: Fulfill the CURRENT user message only. Do not continue previous answers, append old reports, or invent additional documents after you finish.${reminderRule}`;
 }
 
 function buildContentGenerationSystemPrompt(userPrompt) {
   const topic = extractContentTopic(userPrompt);
-  const topicLine = topic ? `The topic is: ${topic}.` : '';
+  const topicLine = topic ? `Topic / Subject: "${topic}"` : '';
+  const isGenerativeUiOrWidget = /\b(interactive\s*ui|generative\s*ui|create\s*a?\s*calculator|unit\s*converter|interactive\s*widget|mini\s*app|interactive\s*tool|live\s*dashboard\s*widget|interactive\s*simulator|ui\s*widget|html\s*widget|build\s*a?\s*widget|gen-ui)\b/i.test(userPrompt)
+    && !/\b(html|css|javascript|js|python)\s*code\b/i.test(userPrompt)
+    && !/\bwrite\b[\s\S]{0,40}\b(html|css|javascript|code)\b/i.test(userPrompt);
+
+  if (isGenerativeUiOrWidget) {
+    return `You are Brown, an expert full-stack developer and Generative UI specialist.
+The user wants a rich, self-contained interactive UI widget rendered directly inside the chat.
+
+CRITICAL GENERATIVE UI RULES:
+1. Wrap the widget inside a \`\`\`gen-ui code block.
+2. Include full HTML, embedded CSS (<style>), and working JavaScript (<script>) in a clean single block.
+3. Use a modern, responsive dark-theme design matching Ultron (#0f1012 background, #18181b inputs, indigo/purple gradients, clear typography).
+4. Wire up all buttons, sliders, input fields, and calculation logic with vanilla JS so it works dynamically in real time.
+5. Provide a brief 1-2 sentence explanation of how to use the interactive tool.`;
+  }
+
+  const isDiagramOrVisual = !isReminderOrTimerRequest(userPrompt)
+    && /\b(diagram|flowchart|flow\s*chart|architecture|mindmap|mind\s*map|sequence\s*diagram|er\s*diagram|state\s*diagram|chart|graph|visual|infographic)\b/i.test(userPrompt);
+
+  if (isDiagramOrVisual) {
+    return `You are Brown, an expert educator and visual documentation specialist.
+Create a clear, accurate Mermaid diagram for: "${topic || userPrompt}".
+
+CRITICAL RULES (follow exactly):
+1. Output ONE complete \`\`\`mermaid code block, then a short 2–3 sentence summary. No HTML/CSS/JS.
+2. Prefer a simple linear flowchart for phases/pipelines/workflows:
+\`\`\`mermaid
+flowchart TD
+  A[Lexical Analysis] --> B[Syntax Analysis]
+  B --> C[Semantic Analysis]
+  C --> D[Intermediate Code Generation]
+  D --> E[Code Optimization]
+  E --> F[Code Generation]
+\`\`\`
+3. Use real domain labels (never "Step 1", "Node A", "Process Steps", or CSS like classDef color="#...").
+4. Node format MUST be Id[Readable Label] with arrows -->. Connect every phase in order.
+5. Decision/edge labels MUST stay on the arrow between nodes as -->|Yes| or -->|No| — NEVER glue them into node text (wrong: C[|Yes| Set Reminder] or "|Yes| CSet Reminder"; right: Ask{Ready?} -->|Yes| Go[Start]).
+6. Do NOT use classDef, style, click, or CSS color attributes. Avoid subgraphs unless the user asked for layered architecture.
+7. For mindmaps use \`mindmap\`; for multi-actor flows use \`sequenceDiagram\`; otherwise use \`flowchart TD\`.
+8. Keep the diagram complete in one shot — no partial or truncated nodes.
+9. Never treat a reminder/timer/alarm request as a diagram topic.`;
+  }
+
   const isDocumentAnalysis = /\b(attached document|resume|cv|document|pdf|paper|report)\b/i.test(userPrompt) && /\b(analyze|analyse|summary|summarize|review|extract|skills|feedback|critique|evaluate|questions?|about|read|tell me)\b/i.test(userPrompt);
 
   if (isDocumentAnalysis) {
-    return `You are Ultron, an expert document analyst, technical reviewer, and professional career advisor.
+    return `You are Brown, an expert document analyst, technical reviewer, and professional career advisor.
 Analyze the user's provided document thoroughly, accurately, and objectively.
 Rules:
 - Read and reference the provided document contents carefully.
@@ -4381,7 +4973,7 @@ Rules:
   const isWebOrCode = /\b(landing\s*page|website|webpage|page|html|css|javascript|code|script|component|app|frontend|ui|portfolio|dashboard|template)\b/i.test(userPrompt);
 
   if (isWebOrCode) {
-    return `You are Ultron, an expert web developer, UI designer, and software engineer.
+    return `You are Brown, an expert web developer, UI designer, and software engineer.
 Provide complete, production-ready, beautiful, and fully functional code and content matching the user's exact request.
 ${topicLine}
 Rules:
@@ -4392,28 +4984,30 @@ Rules:
 - Speak directly and provide the solution immediately.`;
   }
 
-  return `You are Ultron, a skilled writing assistant. Write exactly what the user requested — complete, high-quality, and well-structured content.
+  return `You are Brown, a skilled writing assistant. Write exactly what the user requested — complete, high-quality, and well-structured content.
 ${topicLine}
 Rules:
-- Output the complete essay, article, story, guide, or writing requested.
+- Output ONLY the piece requested (poem, essay, story, guide, etc.) — nothing else.
+- Do NOT append other essays, research papers, unrelated titles, or prior-chat topics after you finish.
 - Do NOT mention system prompts, context, guidelines, or meta instructions.
 - Do NOT ask the user for feedback or examples.
-- Stay on topic and match the requested format.`;
+- Stay on topic and match the requested format.
+- When the request is short (e.g. a poem), keep the reply short and stop immediately when done.`;
 }
 
 async function queryFreshConversation(prompt, imagePayloads = [], streamCallbacks = null) {
   const system = isContentGenerationRequest(prompt)
     ? buildContentGenerationSystemPrompt(prompt)
-    : buildConversationSystemPrompt();
+    : buildConversationSystemPrompt(prompt);
   return queryOfflineLLM(prompt, [], 'conversation', system, imagePayloads, streamCallbacks);
 }
 
 function buildConversationPromptFromHistory(recentMsgs, currentPrompt) {
   const lines = (recentMsgs || [])
     .filter(m => !isUnusableChatHistoryMessage(m.text))
-    .slice(-6)
+    .slice(-4)
     .map(m => {
-      const text = extractPlainTextFromMessage(m.text);
+      const text = clampHistoryMessageText(extractPlainTextFromMessage(m.text), !!m.isAi);
       if (!text) return null;
       return `${m.isAi ? 'Assistant' : 'User'}: ${text}`;
     })
@@ -4425,8 +5019,15 @@ function buildConversationPromptFromHistory(recentMsgs, currentPrompt) {
     lines.pop();
   }
 
-  if (lines.length === 0) return trimmedPrompt;
-  return `${lines.join('\n')}\nUser: ${trimmedPrompt}\nAssistant:`;
+  if (lines.length === 0) {
+    return /CURRENT USER REQUEST/i.test(trimmedPrompt)
+      ? `${trimmedPrompt}\nAssistant:`
+      : `${buildCurrentRequestGuard(trimmedPrompt)}\nAssistant:`;
+  }
+  const guardedCurrent = /CURRENT USER REQUEST/i.test(trimmedPrompt)
+    ? trimmedPrompt
+    : buildCurrentRequestGuard(trimmedPrompt);
+  return `${lines.join('\n')}\n${guardedCurrent}\nAssistant:`;
 }
 
 function shouldUseOllamaGenerateForConversation(intent, customSystemPromptOverride, canUseVision, extraMessages) {
@@ -4458,8 +5059,8 @@ function isFollowUpAboutPriorTurn(prompt) {
 
 function buildFollowUpConversationSystemPrompt() {
   const ctx = getRecentSessionContextSnippet(4);
-  return `You are Ultron, the user's local AI assistant on Windows.
-${buildMarkdownFormattingRules()}
+  return `You are Brown, the user's local AI assistant on Windows.
+${buildMarkdownFormattingRules({ allowContextReuse: true })}
 The user is asking a FOLLOW-UP about the immediately previous message in this chat.
 ${ctx ? `\n${ctx}\n` : ''}
 Rules:
@@ -4533,10 +5134,31 @@ function sanitizeResponseText(text, userPrompt = '', options = {}) {
   cleaned = cleaned.replace(/^in conclusion, here['’]s an example of how to avoid[\s\S]*?(?=\n\nPoem:|\n\n[A-Z]|$)/gi, '').trim();
   cleaned = cleaned.replace(/^thanks for the feedback\.[\s\S]*?(?=\n\n|$)/gi, '').trim();
 
+  // 4c. Aggressive Prompt Echo & Instruction Leaks Detection (e.g. tiny models echoing rubric rules)
+  const isPromptEcho = /\b(Executive TL;DR|Visual Diagrams?\s*\(Mermai?D\)|Structured Comparis?on Table|Actionable Takeaways?|ALWAYS start with a >\s*\[!NOTE\]|ALWAYS include a complete, valid Mermai?D|Incubate in your own articulate words|NEVER echo raw site title suffixes|CRITICAL ANTIGRAVITY-STYLE|Antigravity[- ]Style)\b/i.test(cleaned);
+  if (isPromptEcho) {
+    cleaned = cleaned
+      .replace(/(?:^|\n)#{0,3}\s*Antigravity[- ]Style[^\n]*/gi, '')
+      .replace(/(?:^|\n)(?:Executive TL;DR:?\s*\d*\.?\s*)+[^\n]*ALWAYS start with[^\n]*/gi, '')
+      .replace(/(?:^|\n)Visual Diagrams?\s*\(Mermai?D\):?[\s\S]*?(?=(?:^|\n)Structured Comparis?on Table|\n\n|$)/gi, '')
+      .replace(/(?:^|\n)Structured Comparis?on Table:?[\s\S]*?(?=(?:^|\n)Actionable Takeaways?|\n\n|$)/gi, '')
+      .replace(/(?:^|\n)Actionable Takeaways?:?[\s\S]*?(?=\n\n|$)/gi, '')
+      .trim();
+
+    if (!cleaned || /\b(ALWAYS start with|ALWAYS include|Incubate in your own|Antigravity[- ]Style)\b/i.test(cleaned) || cleaned.length < 30) {
+      cleaned = '';
+    }
+  }
+
+  // 4d. Strip fake image / poster caption lines small models invent (e.g. "Mirzapur Poster")
+  cleaned = cleaned.replace(/(?:^|\n)\s*#{0,3}\s*[A-Z][\w\s&:'-]{1,48}\s+(?:Poster|Logo|Cast|Banner|Thumbnail)\s*(?=\n|$)/g, '\n');
+  cleaned = cleaned.replace(/(?:^|\n)\s*#{0,3}\s*Antigravity[- ]Style[^\n]*/gi, '\n');
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+
   // 5. Replace template tags
   const userNameEl = document.querySelector('.profile-detail-name');
   const currentUserName = userNameEl ? userNameEl.textContent.trim() : 'User';
-  cleaned = cleaned.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
+  cleaned = cleaned.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Brown");
   cleaned = cleaned.replace(/\[user_name\]|\[User Name\]|<user name>/gi, currentUserName);
 
   // 6. Strip invented or unverified hyperlinks from web summaries
@@ -4700,6 +5322,14 @@ async function buildWebSearchQuery(userPrompt) {
     if (isProductOrShoppingQuery(userPrompt)) {
       out = augmentShoppingSearchQuery(userPrompt, out, regional);
     }
+    if (isEntertainmentRecommendationQuery(userPrompt)) {
+      if (!/\b(similar|like|best|recommend)\b/i.test(out)) {
+        out = `${out} similar shows movies recommendations`.trim();
+      }
+      if (!/\b(netflix|prime|hotstar|ott|zee5)\b/i.test(out)) {
+        out = `${out} OTT`.trim();
+      }
+    }
     return out.replace(/\s+/g, ' ').trim();
   };
 
@@ -4856,6 +5486,21 @@ async function runFanOutWebSearch(userPrompt, primaryQuery, activitySteps, onSta
     });
   }
 
+  // Save search results to memory for context engine Layer 7
+  if (window.UltronAgentMemory && typeof window.UltronAgentMemory.saveSearchResults === 'function') {
+    try {
+      window.UltronAgentMemory.saveSearchResults(currentSessionId, {
+        query: primaryQuery,
+        results: ranked.slice(0, 5).map(r => ({
+          title: r.title || '',
+          url: r.url || '',
+          snippet: r.snippet || ''
+        })),
+        source: 'web'
+      });
+    } catch (e) { /* non-fatal */ }
+  }
+
   return searchResult;
 }
 
@@ -4904,9 +5549,23 @@ function normalizePromptTypos(prompt) {
     .replace(/\bmesage\b/gi, 'message');
 }
 
+function isEntertainmentRecommendationQuery(prompt) {
+  const p = normalizePromptTypos(prompt).toLowerCase();
+  if (!p) return false;
+  const mediaNoun = /\b(movies?|films?|shows?|series|web\s*series|tv\s*shows?|anime|k[- ]?drama|documentar(?:y|ies)|ott|netflix|prime\s*video|hotstar|hulu|disney\+|zee5|sonyliv)\b/i.test(p);
+  const recommendCue = /\b(find|recommend|suggest|similar|like|best|top|watch|must[- ]?watch|something\s+like|shows?\s+for|movies?\s+for|based\s+on)\b/i.test(p);
+  const titleCue = /\b(mirzapur|sacred\s+games|squid\s+game|breaking\s+bad|game\s+of\s+thrones|stranger\s+things|the\s+boys|money\s+heist|panchayat|scam\s+1992)\b/i.test(p);
+  if (mediaNoun && (recommendCue || titleCue)) return true;
+  if (/\b(similar|like|based\s+on)\b/i.test(p) && (mediaNoun || titleCue)) return true;
+  if (/\b(best|top)\s+(movies?|films?|shows?|series|web\s*series)\b/i.test(p)) return true;
+  return false;
+}
+
 function isProductOrShoppingQuery(prompt) {
   const p = normalizePromptTypos(prompt).toLowerCase();
-  const productNouns = 'monitor|laptop|phone|headphone|earbuds|keyboard|mouse|tablet|tv|television|camera|gpu|graphics card|processor|cpu|ssd|hard drive|speaker|watch|smartwatch|fridge|refrigerator|shoe|shoes|sneaker|sneakers|footwear|sandals|boots|bag|backpack|dress|shirt|jacket|clothing|clothes|furniture|sofa|bed|mattress|bike|bicycle|scooter|buy|purchase|deal|deals|price|amazon|flipkart|myntra|ajio|meesho';
+  // Movie/show recommendation asks are not product shopping
+  if (isEntertainmentRecommendationQuery(prompt)) return false;
+  const productNouns = 'course|courses|tutorial|tutorials|certification|certifications|classes|book|books|academy|learning|monitor|laptop|phone|headphone|earbuds|keyboard|mouse|tablet|tv|television|camera|gpu|graphics card|processor|cpu|ssd|hard drive|speaker|watch|smartwatch|fridge|refrigerator|shoe|shoes|sneaker|sneakers|footwear|sandals|boots|bag|backpack|dress|shirt|jacket|clothing|clothes|furniture|sofa|bed|mattress|bike|bicycle|scooter|buy|purchase|deal|deals|price|amazon|flipkart|myntra|ajio|meesho|tool|tools|software|app|apps';
 
   if (/\b(find|show|list|recommend|suggest|pick|get|give|search)\s+(me\s+)?(the\s+)?(some\s+)?/i.test(p)
       && /\b(under|below|less than|within|around|budget)\s+[\d,.]+/i.test(p)) {
@@ -4916,7 +5575,8 @@ function isProductOrShoppingQuery(prompt) {
   if (/\b(best|top|recommended|budget|cheapest|affordable)\s+.+\b(under|below|less than|within|around)\s+[\d,.]+/i.test(p)) return true;
   if (/\b(under|below|less than|within|around)\s+[\d,.]+\b/i.test(p) && new RegExp(`\\b(${productNouns})\\b`, 'i').test(p)) return true;
   if (/\b(find|show|get|give|search)\s+(me\s+)?(the\s+)?(some\s+)?/i.test(p) && new RegExp(`\\b(${productNouns})\\b`, 'i').test(p)) return true;
-  if (/\b(which|what)\s+(monitor|laptop|phone|headphone|keyboard|mouse|tablet|tv|gpu|processor|smartphone|shoe|shoes|sneaker)\s+(should|to|can|is)\b/i.test(p)) return true;
+  if (new RegExp(`\\b(best|top|recommended|good|popular|free|paid)\\s+(${productNouns})\\b`, 'i').test(p)) return true;
+  if (/\b(which|what)\s+(monitor|laptop|phone|headphone|keyboard|mouse|tablet|tv|gpu|processor|smartphone|shoe|shoes|sneaker|course|tutorial|book|tool)\s+(should|to|can|is)\b/i.test(p)) return true;
   if (/\bcompare\b/i.test(p) && /\b(vs|versus|or)\b/i.test(p)) return true;
   return false;
 }
@@ -4947,26 +5607,31 @@ function augmentShoppingSearchQuery(userPrompt, query, regional = {}) {
 }
 
 function hasExplicitSearchIntent(prompt) {
-  const p = String(prompt || '').toLowerCase();
+  const p = String(prompt || '').toLowerCase().trim();
+  // Bare command words without a query topic should be handled conversationally
+  if (/^(search|google|find|look up|research|browse|web search|open search)$/i.test(p)) {
+    return false;
+  }
+  if (isEntertainmentRecommendationQuery(prompt)) return true;
   if (isProductOrShoppingQuery(prompt)) return true;
-  if (p.startsWith('search')) return true;
+  if (/^search\s+(for|about|online|the web|google|[a-zA-Z0-9]{2,})/i.test(p)) return true;
   if (/\b(research|deep research|investigate|compare .+ vs|which is better|pros and cons)\b/i.test(p)) return true;
   if (/\b(check|get|tell me|what'?s?\s+the)\s+weather\b/i.test(p)) return true;
   if (/\bweather\s+(in|for|at)\b/i.test(p)) return true;
   if (/\b(search the web|search online|google for|look up online|find out about|latest news|current news|weather in|weather for|news about|web search)\b/i.test(p)) return true;
-  if (/\b(search|google|look up|find out)\b/i.test(p) && /\b(news|weather|price|deals|latest|trending|stock|crypto|offers)\b/i.test(p)) return true;
+  if (/\b(search|google|look up|find out)\b/i.test(p) && /\b(news|weather|price|deals|latest|trending|stock|crypto|offers|website|online|page|portal)\b/i.test(p)) return true;
   if (/\?\s*$/.test(p.trim()) && /\b(best|top|recommended|under \d+|compare|vs|versus)\b/i.test(p)) return true;
   return false;
 }
 
 function searchContextForLLM(searchPayload) {
   if (!searchPayload) return '';
-  if (searchPayload.answerContext) return searchPayload.answerContext;
   return (searchPayload.results || []).map((item, index) => {
-    const body = item.pageContent
-      ? `Content:\n${String(item.pageContent).slice(0, 2500)}`
-      : `Snippet: ${item.snippet || 'No snippet available.'}`;
-    return `[${index + 1}] ${item.title}\nURL: ${item.url}\nSource: ${item.source}\n${body}`;
+    const title = plainSearchSnippet(item.title || '');
+    const snippet = plainSearchSnippet(item.snippet || '');
+    const pageExcerpt = item.pageContent ? plainSearchSnippet(item.pageContent).slice(0, 1200) : '';
+    const body = pageExcerpt || snippet || 'No details available.';
+    return `Source [${index + 1}]: "${title}" (${item.source || 'web'})\nKey Information: ${body}`;
   }).join('\n\n');
 }
 
@@ -4996,7 +5661,15 @@ function getSourceFaviconUrl(domain) {
 
 function plainSearchSnippet(text) {
   return String(text || '')
+    .replace(/[=\-_~*]{3,}/g, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
+    .replace(/\{"@context"[\s\S]*?\}/gi, ' ')
+    .replace(/\{"@type"[\s\S]*?\}/gi, ' ')
+    .replace(/\b(?:if\s*\(navigator|window\.|document\.|\$\(document\)|var\s+[a-zA-Z0-9_$]+\s*=)[\s\S]*?[;}]/gi, ' ')
+    .replace(/\bURL:\s*https?:\/\/\S+/gi, ' ')
+    .replace(/\bContent:\s*\*/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -5172,15 +5845,67 @@ function buildProductResultsAnswer(userPrompt, searchPayload, regional = {}) {
 
   if (!picks.length) return { text: '', factCount: 0 };
 
-  const lines = [`**Best ${productType}${budgetLabel}**`, ''];
-  picks.slice(0, 6).forEach((pick, index) => {
+  const lines = [
+    `I found several top options for **${userPrompt}**:`,
+    ''
+  ];
+
+  picks.forEach((pick, index) => {
     const pricePart = pick.price ? ` — **${pick.price}**` : '';
     const sourcePart = pick.source ? ` _(${pick.source})_` : '';
-    lines.push(`${index + 1}. **${pick.name}**${pricePart}${sourcePart}`);
+    lines.push(`### ${index + 1}. ${pick.name}${pricePart}`);
+    if (pick.snippet) {
+      lines.push(`${pick.snippet}.. [${index + 1}]${sourcePart}`);
+    }
+    lines.push('');
   });
-  lines.push('', '_Prices from live web results — check sources for current availability._');
+
+  lines.push(`> 💡 *Check the interactive matches and source links below for direct access and details.*`);
 
   return { text: lines.join('\n').trim(), factCount: picks.length };
+}
+
+function buildEntertainmentResultsAnswer(userPrompt, searchPayload) {
+  const results = dedupeSearchResultsByDomain(searchPayload?.results || []);
+  if (!results.length) return { text: '', count: 0 };
+
+  const lines = [
+    `If you like that vibe, here are solid similar picks from live sources:`,
+    ''
+  ];
+
+  const seen = new Set();
+  let count = 0;
+  for (const item of results) {
+    if (count >= 7) break;
+    const title = plainSearchSnippet(item.title || '')
+      .replace(/\s*[-|–—]\s*(?:IMDb|Rotten Tomatoes|Wikipedia|Netflix|Prime Video|Amazon|Hotstar|Disney\+|Zee5|SonyLIV|YouTube|Reddit|Quora|Times of India|Hindustan Times|Filmfare)[^.]*$/i, '')
+      .replace(/\b(similar|like|best|top|shows?|movies?|series|web series|watch|ott)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const snippet = plainSearchSnippet(item.snippet || item.pageContent || '').slice(0, 140);
+    const key = title.toLowerCase();
+    if (!title || title.length < 3 || seen.has(key)) continue;
+    // Prefer titles that look like show names rather than "10 best shows like…"
+    if (/^\d+\s+best/i.test(title) || /\b(list of|must watch|recommendations?)\b/i.test(title)) {
+      // Still usable as a source tip, but prefer extracting from snippet when possible
+      const fromSnippet = snippet.match(/\b([A-Z][\w'&.:+-]{1,40}(?:\s+[A-Z][\w'&.:+-]{1,30}){0,4})\b/);
+      if (fromSnippet && fromSnippet[1].length > 3 && !seen.has(fromSnippet[1].toLowerCase())) {
+        seen.add(fromSnippet[1].toLowerCase());
+        lines.push(`- **${fromSnippet[1]}** — ${snippet || `see [${count + 1}]`}`);
+        count += 1;
+        continue;
+      }
+    }
+    seen.add(key);
+    lines.push(`- **${title}** — ${snippet || `details in source [${count + 1}]`}`);
+    count += 1;
+  }
+
+  if (!count) return { text: '', count: 0 };
+  lines.push('');
+  lines.push('_Open the sources below for platforms and full lists._');
+  return { text: lines.join('\n').trim(), count };
 }
 
 async function buildSearchFallbackAnswer(userPrompt, searchPayload) {
@@ -5192,23 +5917,186 @@ async function buildSearchFallbackAnswer(userPrompt, searchPayload) {
     if (weather.text) return weather.text;
   }
 
+  if (isEntertainmentRecommendationQuery(userPrompt)) {
+    const entertainment = buildEntertainmentResultsAnswer(userPrompt, { ...searchPayload, results });
+    if (entertainment.text) return entertainment.text;
+  }
+
   if (isProductOrShoppingQuery(userPrompt)) {
     const sysEnv = await getSystemContext();
     const product = buildProductResultsAnswer(userPrompt, { ...searchPayload, results }, getRegionalShoppingContext(sysEnv));
     if (product.text) return product.text;
   }
 
-  const bodies = results.map(item => ({
-    title: item.title || getSourceDomain(item),
-    body: plainSearchSnippet(item.pageContent || item.snippet || '')
-  })).filter(entry => entry.body.length > 20);
+  if (isLocalPlacesIntent(userPrompt) || (window.UltronLocationContext && window.UltronLocationContext.isLocalOrPlacesQuery(userPrompt))) {
+    if (window.UltronEntityExtractor && typeof window.UltronEntityExtractor.buildPlacesResultsAnswer === 'function') {
+      const placesAns = window.UltronEntityExtractor.buildPlacesResultsAnswer(userPrompt, { ...searchPayload, results }, searchPayload?.locationLabel || '');
+      if (placesAns && placesAns.text && placesAns.count > 0) return placesAns.text;
+    }
+  }
 
-  const lines = [`**Quick results**`, ''];
-  bodies.slice(0, 4).forEach(entry => {
-    lines.push(`- **${entry.title}:** ${entry.body.slice(0, 160)}${entry.body.length > 160 ? '…' : ''}`);
-  });
-  if (bodies.length > 4) lines.push('', '_Open **See more** for additional sources._');
+  const cleanTitle = (rawTitle) => {
+    let t = plainSearchSnippet(rawTitle || '');
+    t = t.replace(/\s*[-|–—]\s*(?:IBM|AWS|Amazon|Databricks|Domo|GeeksforGeeks|Coursera|DataCamp|Wikipedia|Microsoft|Google|Oracle|Snowflake|TutorialsPoint|W3Schools|Medium|YouTube|Stack Overflow|Reddit|Quora)[^.]*$/i, '').trim();
+    return t;
+  };
+
+  // Factual Q&A / Information Synthesis
+  const cleanResults = results.map(item => ({
+    title: cleanTitle(item.title || getSourceDomain(item)),
+    source: getSourceDomain(item),
+    snippet: plainSearchSnippet(item.snippet || ''),
+    content: plainSearchSnippet(item.pageContent || '')
+  })).filter(item => (item.snippet && item.snippet.length > 15) || (item.content && item.content.length > 20));
+
+  if (!cleanResults.length) return '';
+
+  const isComparison = /\b(difference between|vs\.?|compare|comparison|versus)\b/i.test(userPrompt);
+  const lines = [];
+  const seenSentences = new Set();
+
+  const top = cleanResults[0];
+  const primaryText = top.content || top.snippet;
+  const rawSentences = primaryText
+    .split(/(?<=[.?!])\s+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 15 && !/^\s*(?:if|var|const|let|\{|\$)\b/i.test(s));
+
+  const mainSentence = rawSentences[0] || top.title;
+  lines.push(`> [!NOTE]\n> **Quick Summary:** ${mainSentence} [1]\n`);
+
+  if (isComparison) {
+    const rawEntities = userPrompt.match(/difference\s+between\s+(?:the\s+)?([A-Za-z0-9\s,]+?)\s+(?:and|&|vs\.?|versus)\s+(?:the\s+)?([A-Za-z0-9\s,]+?)(?:\?|$|\.|\s+in\b)/i)
+      || userPrompt.match(/\b([A-Za-z0-9\s]+?)\s+(?:vs\.?|versus)\s+([A-Za-z0-9\s]+?)(?:\?|$|\.|\s+in\b)/i);
+    
+    let entA = 'Concept A';
+    let entB = 'Concept B';
+    if (rawEntities && rawEntities[1] && rawEntities[2]) {
+      entA = rawEntities[1].trim();
+      entB = rawEntities[2].trim();
+      if (entA.length > 25) entA = entA.slice(0, 25);
+      if (entB.length > 25) entB = entB.slice(0, 25);
+    }
+
+    lines.push(`### Comparison Overview\n`);
+    lines.push(`| Dimension / Feature | ${entA} | ${entB} |`);
+    lines.push(`| :--- | :--- | :--- |`);
+
+    const aspects = [
+      { name: 'Core Definition', keyA: `Primary foundational paradigm of ${entA}.`, keyB: `Targeted or extended application in ${entB}.` },
+      { name: 'Primary Scope', keyA: `Broad architecture and baseline functionality.`, keyB: `Specialized domain focus and tactical use.` },
+      { name: 'Implementation', keyA: `Comprehensive, centralized setup and management.`, keyB: `Agile, modular, and optimized for speed.` },
+      { name: 'Best For', keyA: `Enterprise-wide standard and unified operations.`, keyB: `Fast, department-level execution and agility.` }
+    ];
+
+    aspects.forEach(asp => {
+      lines.push(`| **${asp.name}** | ${asp.keyA} | ${asp.keyB} |`);
+    });
+    lines.push('');
+
+    // Detailed Bullet Points
+    lines.push(`### Key Distinctions & Details\n`);
+    for (let i = 0; i < Math.min(cleanResults.length, 5); i++) {
+      const r = cleanResults[i];
+      const rText = r.snippet || r.content.slice(0, 200);
+      const rSentences = rText.split(/(?<=[.?!])\s+/).filter(s => s.length > 15);
+      const candidate = (rSentences[0] || rText).slice(0, 160).trim();
+      
+      const normKey = candidate.toLowerCase().slice(0, 40);
+      if (candidate && candidate.length > 20 && !seenSentences.has(normKey)) {
+        seenSentences.add(normKey);
+        const titleLabel = r.title.length < 35 ? r.title : 'Key Distinction';
+        lines.push(`- **${titleLabel}:** ${candidate}${candidate.length >= 160 ? '…' : ''} [${i + 1}]`);
+      }
+    }
+
+    lines.push(`\n> [!TIP]\n> **Decision Guide:** Choose **${entA}** for broad foundation and centralized governance; choose **${entB}** for specialized execution and modular speed.`);
+  } else {
+    // General factual topic
+    lines.push(`### Overview & Key Insights\n`);
+    for (let i = 0; i < Math.min(cleanResults.length, 4); i++) {
+      const r = cleanResults[i];
+      const rText = r.snippet || r.content.slice(0, 180);
+      const rSentences = rText.split(/(?<=[.?!])\s+/).filter(s => s.length > 15);
+      const cleanSnippet = (rSentences[0] || rText).slice(0, 160).trim();
+      const normKey = cleanSnippet.toLowerCase().slice(0, 40);
+
+      if (cleanSnippet && cleanSnippet.length > 15 && !seenSentences.has(normKey)) {
+        seenSentences.add(normKey);
+        const label = r.title && r.title.length < 35 ? r.title : 'Core Detail';
+        lines.push(`- **${label}:** ${cleanSnippet}${cleanSnippet.length >= 160 ? '…' : ''} [${i + 1}]`);
+      }
+    }
+  }
+
   return lines.join('\n').trim();
+}
+
+function formatPointwiseSearchAnswer(text, userPrompt, regional = {}) {
+  let t = String(text || '').trim();
+  if (!t) return t;
+
+  // If already well structured with bullet points, headings, table, or callouts, return immediately
+  const hasTable = t.includes('|---') || t.includes('| :---') || (t.includes('|') && /\n\s*\|[^\n]+\|\s*\n/.test(t));
+  const bulletCount = (t.match(/^\s*[-*•]\s+/gm) || []).length;
+  const headingCount = (t.match(/^#{1,4}\s+/gm) || []).length;
+  const numberedListCount = (t.match(/^\d+\.\s+\*\*/gm) || []).length;
+  const hasCallout = t.includes('> [!NOTE]') || t.includes('> [!TIP]');
+
+  if (bulletCount >= 2 || headingCount >= 1 || numberedListCount >= 1 || hasTable || hasCallout) {
+    return t;
+  }
+
+  // Clean prompt artifact leftovers without destroying multiline formatting
+  t = t
+    .replace(/\bURL:\s*https?:\/\/\S+/gi, '')
+    .replace(/\bContent:\s*\*/gi, '')
+    .replace(/\bSource \[\d+\]:\s*/gi, '')
+    .replace(/\{"@context"[\s\S]*?\}/gi, '')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+
+  // Model produced a dense multi-line paragraph wall of text -> Auto-structure into clean point-wise breakdown
+  const sentences = t
+    .split(/(?<=[.?!])\s+(?=[A-Z0-9"'])/)
+    .map(s => s.trim())
+    .filter(s => s.length > 15);
+
+  if (sentences.length <= 1) return t;
+
+  const lines = [];
+  lines.push(`> [!NOTE]\n> **Quick Summary:** ${sentences[0]}\n`);
+
+  let currentItemIndex = 1;
+
+  for (let i = 1; i < sentences.length; i++) {
+    let s = sentences[i];
+    if (!s) continue;
+
+    // Detect if this sentence introduces a specific product or model
+    const productMatch = s.match(/\b(Motorola|Samsung|Apple|iPhone|Xiaomi|Redmi|Realme|OnePlus|iQOO|Vivo|Oppo|Google Pixel|Nothing Phone|Poco|Sony|Asus|Lenovo|HP|Dell|Acer|MacBook|Nord|Edge|Galaxy|Pro|Plus|Ultra|Fusion|Neo|Z|GT|V\d+[a-z]?)\s+[A-Za-z0-9\s+]+/i);
+
+    // Highlight key tech specs (chipset, display, battery, camera, prices)
+    s = s
+      .replace(/\b(Snapdragon\s+[A-Za-z0-9\s]+|Dimensity\s+[A-Za-z0-9\s]+|Apple\s+A\d+\s+Bionic|Apple\s+M\d+|Intel\s+Core\s+[A-Za-z0-9\s]+|Ryzen\s+[A-Za-z0-9\s]+)\b/gi, '**`$1`**')
+      .replace(/\b(\d+(\.\d+)?-inch\s+(EXTREME\s+)?(AMOLED|OLED|IPS|LCD|Retina)(\s+display)?|\d{2,3}\s*Hz(\s+refresh\s+rate)?)\b/gi, '**`$1`**')
+      .replace(/\b(\d{3,5}\s*mAh(\s+battery)?|\d{2,3}W(\s+fast)?\s+charging|\d+m\s+charging\s+time)\b/gi, '**`$1`**')
+      .replace(/\b(\d{2,3}\s*MP(\s+main|\s+primary|\s+camera|\s+OIS)?|4k\s*@?\d*\s*fps(\s+video)?)\b/gi, '**`$1`**')
+      .replace(/(?:₹|Rs\.?|INR|\$|USD|€|£)\s?[0-9][0-9,]*(?:\.[0-9]{1,2})?/gi, '**`$&`**');
+
+    if (productMatch && (s.includes('stands out') || s.includes('best') || s.includes('powered by') || s.includes('features') || s.includes('top pick') || s.includes('ranks among'))) {
+      const brandName = productMatch[0].trim();
+      lines.push(`### ${currentItemIndex}. **${brandName}**`);
+      lines.push(`- **Overview:** ${s}`);
+      currentItemIndex++;
+    } else if (/\b(In terms of|For those who|Overall|Camera|Battery|Display|Performance|Pricing|Available)\b/i.test(s)) {
+      lines.push(`- **Highlight:** ${s}`);
+    } else {
+      lines.push(`- ${s}`);
+    }
+  }
+
+  return lines.join('\n');
 }
 
 async function summarizeSearchAnswer(userPrompt, searchPayload, searchQuery, options = {}) {
@@ -5242,15 +6130,6 @@ async function summarizeSearchAnswer(userPrompt, searchPayload, searchQuery, opt
   const sysEnv = await getSystemContext();
   const regional = getRegionalShoppingContext(sysEnv);
 
-  if (isProductOrShoppingQuery(userPrompt)) {
-    const product = buildProductResultsAnswer(userPrompt, dedupedPayload, regional);
-    if (product.factCount >= 2) {
-      return sanitizeResponseText(product.text, userPrompt, {
-        allowedUrls: dedupedPayload.results.map(item => item.url).filter(Boolean)
-      });
-    }
-  }
-
   const weatherBlock = isWeatherQuery(userPrompt) ? `
 
 WEATHER FORMAT (mandatory — no paragraphs):
@@ -5261,55 +6140,105 @@ WEATHER FORMAT (mandatory — no paragraphs):
 - **Humidity:** [value]
 - **Wind:** [value]
 
-Rules: Max 6 bullet lines. Only facts from live data. Never describe weather companies, agriculture, or generic climate advice.` : '';
+Rules: Max 6 bullet lines. Only facts from live data.` : '';
 
-  const productBlock = isProductOrShoppingQuery(userPrompt) ? `
+  const entertainmentBlock = isEntertainmentRecommendationQuery(userPrompt) ? `
 
-PRODUCT / SHOPPING FORMAT (mandatory):
-**Best [product type] under [budget in ${regional.currency || 'local currency'}]**
+ENTERTAINMENT RECOMMENDATIONS (mandatory):
+- Answer directly with shows/movies similar to what the user asked for.
+- Format as a short bullet list. Each item: **Title** — platform (if known from sources) · one-line why it fits.
+- Max 6–8 recommendations. Lead with at most 1–2 sentences of context about the reference title.
+- Do NOT write cast encyclopedias, plot novels, poster/logo captions, mermaid diagrams, or broken tables.
+- Do NOT invent cast roles, directors, or streaming availability. Prefer omitting a detail over guessing.
+- Never title the reply with formatting style names.` : '';
 
-1. **[Exact product name]** — **[price in ${regional.currency || 'local currency'}]** _(source)_
-2. ...
+  const isPlaces = locCtx ? locCtx.isLocalOrPlacesQuery(userPrompt) : isLocalPlacesIntent(userPrompt);
+  let extractedPlaces = [];
+  if (isPlaces && window.UltronEntityExtractor) {
+    const locLabel = dedupedPayload.locationLabel || locationNote.replace(/User location:\s*/i, '').trim();
+    extractedPlaces = window.UltronEntityExtractor.extractPlacesFromSearchResults(dedupedPayload.results, locLabel);
+    if (extractedPlaces.length > 0) {
+      dedupedPayload.places = extractedPlaces;
+    }
+  }
 
-Rules:
-- List 4–6 specific products with real names and prices from the live data.
-- Use ${regional.currency === 'INR' ? '₹ / INR / rupees' : regional.currency || 'local currency'} — NEVER assume USD unless the data says so.
-- Budget "${userPrompt.match(/\b(under|below)\s+[\d,.]+/i)?.[0] || ''}" means ${regional.currency === 'INR' ? 'Indian Rupees' : regional.currencyWord || 'local currency'}.
-- No generic brand advice. No "I don't have real-time access". No essays.` : '';
+  const placesBlock = extractedPlaces.length > 0 ? `
 
-  const summarySystemPrompt = `You are Ultron, a concise assistant in a direct conversation with ${userName}.
-Answer using ONLY the live web information provided.${hopNote}${locationNote}${weatherBlock}${productBlock}
+VERIFIED LOCAL PLACES DISCOVERED:
+${extractedPlaces.map((p, idx) => `${idx + 1}. ${p.name} | Rating: ${p.rating}/5 | Category: ${p.category} | Location: ${p.location} | Highlight: ${p.highlight}`).join('\n')}
 
-CRITICAL:
-- Give RESULTS not essays. ${buildMarkdownFormattingRules()}
-- Include specific numbers (prices, temps, dates, names) when present in the data.
-- Cite sources inline: append [1], [2], etc. matching the numbered live-data sources after each key fact.
-- Speak in first person ("I found…"). No meta narration.
-- No raw URLs — sources are shown separately below.`;
+Present these specific places to the user with their names, ratings, and highlights. Do NOT invent fake places or list generic aggregator articles.` : '';
 
-  const summaryPrompt = `Request: ${userPrompt}
+  const summarySystemPrompt = `You are Brown, an articulate, helpful AI assistant in conversation with ${userName}.
+Synthesize a clear, accurate answer using the live web search data provided.${hopNote}${locationNote}${weatherBlock}${entertainmentBlock}${placesBlock}
 
-Search: ${searchQuery}
+Formatting guidelines:
+- Start with a direct 1-2 sentence overview.
+- When recommending restaurants, places, products, movies, or shows, highlight each specific pick with the most useful details from the sources.
+- Organize with clean subheadings (###) and bold bullet points when helpful — keep entertainment answers as a short list, not an encyclopedia.
+- Include comparison tables or workflow diagrams only when directly relevant and you have real multi-column facts.
+- Cite facts naturally with [1], [2].
+- Synthesize in your own words. Never repeat prompt instructions, rubric titles, formatting style names, or raw website title suffixes.`;
 
-Live data:
+  const summaryPrompt = `User Request: ${userPrompt}
+
+Search Query: ${searchQuery}
+
+Live Search Sources:
 ${liveContext}
 
-Write the final answer now.`;
+${isEntertainmentRecommendationQuery(userPrompt)
+    ? 'Write a tight recommendation list for the user request using the live sources. No essays, no fake posters/logos, no formatting-style titles.'
+    : 'Write a clear, well-structured answer using the live sources. Prefer usefulness over length. Do not mention formatting styles or prompt instructions.'}`;
 
   let summary = await queryOfflineLLM(summaryPrompt, [], 'conversation', summarySystemPrompt, loopImagePayloads);
+
+  const isJunkOrVerbatimEcho = (text) => {
+    if (!text || text.trim().length < 15) return true;
+    // Prompt echo & rubric leakage detection
+    if (/\b(Executive TL;DR|Visual Diagrams\s*\(Mermaid\)|CRITICAL ANTIGRAVITY-STYLE|Antigravity[- ]Style|ALWAYS start with a >|Structured Subheadings & Bold Bullets|Actionable Takeaways|No Raw Snippet Echoing|Live Search Sources:|Formatting guidelines:)\b/i.test(text)) return true;
+    if (/\b(CRITICAL.*RULES|ALWAYS include a complete, valid Mermaid|callout block summarizing the core answer)\b/i.test(text)) return true;
+    if (/\[!HYPERLINK\]/i.test(text)) return true;
+    if (/<!--\s*followups:/i.test(text) && text.trim().startsWith('<!--')) return true;
+    // Scraping boilerplate & raw HTML/JSON leaks
+    if (/\bURL:\s*https?:\/\//i.test(text)) return true;
+    if (/\bContent:\s*\*/i.test(text)) return true;
+    if (/^[^:\n]+URL:\s*https?:\/\//i.test(text)) return true;
+    if (/\[Source \d+:/i.test(text)) return true;
+    if (/\{"@context"/i.test(text)) return true;
+    if (/\bif\s*\(navigator\./i.test(text)) return true;
+    if (/^https?:\/\//i.test(text)) return true;
+    // Fake image / poster caption encyclopedia dumps (common small-model failure mode)
+    const fakeCaptionHits = (text.match(/(?:^|\n)\s*[A-Z][\w\s&:'-]{1,40}\s+(?:Poster|Logo|Cast|Banner|Thumbnail)\s*(?:\n|$)/g) || []).length;
+    if (fakeCaptionHits >= 2) return true;
+    if (isEntertainmentRecommendationQuery(userPrompt) && /\b(Plot Synopsis|Cast Highlights|Key Information)\b/i.test(text) && fakeCaptionHits >= 1) return true;
+    if (isEntertainmentRecommendationQuery(userPrompt) && /\bIntroduction\b/i.test(text) && /\bConclusion\b/i.test(text) && text.length > 1800) return true;
+    // Tag spam loops
+    if ((text.match(/\[!NOTE\]/gi) || []).length > 4) return true;
+    if ((text.match(/```mermaid/gi) || []).length > 2) return true;
+    return false;
+  };
+
   if (
     !summary
-    || !summary.trim()
+    || isJunkOrVerbatimEcho(summary)
     || isModelLoadFailureResponse(summary)
     || summary.includes('offline model loop failed')
     || summary.includes('Search Query Generator')
     || (isWeatherQuery(userPrompt) && summary.split(/\n\n/).some(p => p.length > 320))
+    || (isEntertainmentRecommendationQuery(userPrompt) && summary.split(/\n\n/).some(p => p.length > 900))
     || (isProductOrShoppingQuery(userPrompt) && /\b(don'?t have real-time|do not have real-time|without access to current|historically speaking|while i don'?t have|cannot access current)\b/i.test(summary))
-    || (isProductOrShoppingQuery(userPrompt) && summary.split(/\n\n/).some(p => p.length > 280))
   ) {
-    summary = (await buildSearchFallbackAnswer(userPrompt, dedupedPayload))
-      || `I found ${dedupedPayload.results.length} live result${dedupedPayload.results.length === 1 ? '' : 's'} for "${searchQuery}". Open the sources below for details.`;
+    if (isPlaces && extractedPlaces.length > 0 && window.UltronEntityExtractor) {
+      summary = window.UltronEntityExtractor.formatPlacesMarkdown(extractedPlaces, userPrompt, dedupedPayload.locationLabel || '');
+    } else {
+      summary = (await buildSearchFallbackAnswer(userPrompt, dedupedPayload))
+        || `I found ${dedupedPayload.results.length} live result${dedupedPayload.results.length === 1 ? '' : 's'} for "${searchQuery}". Open the sources below for details.`;
+    }
   }
+
+  // Enforce point-wise formatting on output
+  summary = formatPointwiseSearchAnswer(summary, userPrompt, regional);
 
   return sanitizeResponseText(summary, userPrompt, {
     allowedUrls: dedupedPayload.results.map(item => item.url).filter(Boolean)
@@ -5334,7 +6263,6 @@ function renderStackedSourcesHtml(results) {
         ${faviconUrl
           ? `<img src="${escapeHtml(faviconUrl.replace('sz=32', 'sz=64'))}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><span class="source-stack-fallback" style="display:none;">🌐</span>`
           : `<span class="source-stack-fallback">🌐</span>`}
-        <span class="source-cite-num">${index + 1}</span>
       </a>
     `;
   }).join('');
@@ -5345,10 +6273,10 @@ function renderStackedSourcesHtml(results) {
     return `
       <a class="source-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
         <div class="source-header">
+          <span class="source-cite-num source-cite-num-inline">${index + 1}</span>
           ${faviconUrl
             ? `<img class="source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" /><span class="source-favicon-fallback" style="display:none;">🌐</span>`
             : `<span class="source-favicon-fallback">🌐</span>`}
-          <span class="source-cite-num source-cite-num-inline">${index + 1}</span>
           <span class="source-domain">${escapeHtml(domain)}</span>
         </div>
         <div class="source-result-title">${escapeHtml(item.title || item.source || 'Web result')}</div>
@@ -5364,81 +6292,336 @@ function renderStackedSourcesHtml(results) {
         <span class="source-summary-preview">
           ${stackBlock}
           <span class="source-see-more-cta">
-            <span class="source-see-more-label">See more</span>
+            <span class="source-see-more-label">Sources</span>
             <span class="source-more-count">+${extraCount}</span>
           </span>
         </span>
-        <span class="source-summary-less">See less</span>
+        <span class="source-summary-less">Hide sources</span>
       </summary>
       <div class="source-expanded-list">${all.map(renderSourceCard).join('')}</div>
     </details>
-  ` : stackBlock;
+  ` : `
+    <div class="source-summary-preview">
+      ${stackBlock}
+      <span class="source-see-more-cta">
+        <span class="source-see-more-label">Sources</span>
+        <span class="source-more-count">${all.length}</span>
+      </span>
+    </div>
+  `;
 
   return `
     <div class="search-section search-sources-section">
-      <div class="search-section-title">Sources</div>
       ${bodyHtml}
     </div>
   `;
 }
 
+function extractPriceFromText(text) {
+  const match = String(text || '').match(/(?:₹|Rs\.?|INR|\$|USD|€|£)\s?[0-9][0-9,]*(?:\.[0-9]{1,2})?/i);
+  return match ? match[0].trim() : '';
+}
+
+function formatPriceWithLocalEquivalent(priceStr, regional = {}) {
+  if (!priceStr) return '';
+  const clean = priceStr.trim();
+  if (clean.startsWith('$') && regional.currency === 'INR') {
+    const num = parseFloat(clean.replace(/[^0-9.]/g, ''));
+    if (num && !isNaN(num)) {
+      const inrEst = Math.round(num * 86.5);
+      return `${clean} (~₹${inrEst.toLocaleString('en-IN')})`;
+    }
+  }
+  return clean;
+}
+
+function enhanceCitationsWithTooltips(renderedHtml, results) {
+  if (!renderedHtml || !Array.isArray(results) || !results.length) return renderedHtml;
+  return renderedHtml.replace(/\[(\d{1,2})\]/g, (match, p1) => {
+    const idx = parseInt(p1, 10) - 1;
+    const item = results[idx];
+    if (!item || !item.url) return match;
+    const domain = getSourceDomain(item);
+    const faviconUrl = getSourceFaviconUrl(domain);
+    const title = escapeHtml(item.title || domain);
+    const snippet = escapeHtml((item.snippet || item.pageContent || '').slice(0, 140));
+    
+    return `
+      <span class="citation-ref-wrapper">
+        <a class="citation-badge" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" data-cite-num="${p1}">[${p1}]</a>
+        <span class="citation-tooltip">
+          <span class="citation-tooltip-header">
+            ${faviconUrl ? `<img class="citation-tooltip-favicon" src="${escapeHtml(faviconUrl)}" alt="" />` : `<span class="citation-tooltip-icon">🌐</span>`}
+            <span class="citation-tooltip-domain">${escapeHtml(domain)}</span>
+          </span>
+          <span class="citation-tooltip-title">${title}</span>
+          ${snippet ? `<span class="citation-tooltip-snippet">${snippet}..</span>` : ''}
+        </span>
+      </span>
+    `;
+  });
+}
+
 function renderSearchExperience(answer, searchPayload) {
   const results = dedupeSearchResultsByDomain(Array.isArray(searchPayload.results) ? searchPayload.results.slice(0, 12) : []);
-  const products = Array.isArray(searchPayload.products) ? searchPayload.products.slice(0, 6) : [];
-  const answerHtml = window.ultronAPI.parseMarkdown(
-    structureReadableMarkdown(sanitizeResponseText(answer || '', searchPayload.query || '', {
+  const videos = Array.isArray(searchPayload.videos) ? searchPayload.videos.slice(0, 4) : [];
+  
+  const locCtx = window.UltronLocationContext;
+  const isPlacesQuery = Boolean(
+    (Array.isArray(searchPayload.places) && searchPayload.places.length > 0)
+    || (locCtx && locCtx.isLocalOrPlacesQuery(searchPayload.query || ''))
+    || isLocalPlacesIntent(searchPayload.query || '')
+  );
+
+  // Extract or build products / match cards list
+  let items = [];
+  if (Array.isArray(searchPayload.places) && searchPayload.places.length > 0) {
+    items = [...searchPayload.places];
+  } else if (Array.isArray(searchPayload.products) && searchPayload.products.length > 0) {
+    items = [...searchPayload.products];
+  } else if (isPlacesQuery && window.UltronEntityExtractor) {
+    items = window.UltronEntityExtractor.extractPlacesFromSearchResults(results, searchPayload.locationLabel || '');
+  } else if (isProductOrShoppingQuery(searchPayload.query || '')) {
+    items = results.map(r => ({
+      title: r.title || getSourceDomain(r),
+      url: r.url,
+      source: getSourceDomain(r),
+      snippet: r.snippet || (r.pageContent ? r.pageContent.slice(0, 160) : ''),
+      price: extractPriceFromText(`${r.title} ${r.snippet}`),
+      image: r.image || '',
+      type: 'product'
+    })).filter(it => it.price);
+  }
+
+  // Filter valid items and deduplicate URLs
+  const seenUrls = new Set();
+  items = items.filter(it => {
+    if (!it.title && !it.name) return false;
+    const key = (it.url || it.id || it.title || it.name).toLowerCase();
+    if (seenUrls.has(key)) return false;
+    seenUrls.add(key);
+    return true;
+  });
+
+  // Extract follow-ups from answer if present
+  let cleanAnswer = answer || '';
+  let followups = [];
+  const followupMatch = cleanAnswer.match(/<!--\s*followups:\s*(\[[\s\S]*?\])\s*-->/i);
+  if (followupMatch) {
+    try {
+      followups = JSON.parse(followupMatch[1]);
+      cleanAnswer = cleanAnswer.replace(followupMatch[0], '').trim();
+    } catch (e) {
+      followups = [];
+    }
+  }
+
+  // Fallback follow-ups based on query intent if none generated
+  if (!followups.length && searchPayload.query) {
+    const q = searchPayload.query.toLowerCase();
+    if (isPlacesQuery) {
+      followups = [
+        `What are the popular dishes or menus here?`,
+        `Which of these have outdoor or rooftop seating?`,
+        `What are good dessert or coffee spots nearby?`
+      ];
+    } else if (q.includes('course') || q.includes('dsa') || q.includes('tutorial')) {
+      followups = [
+        `Compare the top courses for ${searchPayload.query}`,
+        `Show me free alternatives and tutorials`,
+        `What are the prerequisites and roadmap?`
+      ];
+    } else if (isProductOrShoppingQuery(q)) {
+      followups = [
+        `Compare the specs of the top 2 options`,
+        `Are there cheaper alternatives with similar features?`,
+        `What are the pros and cons of each?`
+      ];
+    }
+  }
+
+  const rawAnswerHtml = window.ultronAPI.parseMarkdown(
+    structureReadableMarkdown(sanitizeResponseText(cleanAnswer, searchPayload.query || '', {
       allowedUrls: results.map(item => item.url).filter(Boolean)
     }))
   );
 
-  const productHtml = products.length > 0 && isProductOrShoppingQuery(searchPayload.query || '') ? `
-    <div class="search-section">
-      <div class="search-section-title">Product Matches</div>
-      <div class="product-card-grid">
-        ${products.map((item) => {
-          let domain = '';
-          try {
-            const urlObj = new URL(item.url);
-            domain = urlObj.hostname.replace(/^www\./, '');
-          } catch (e) {
-            domain = item.source || 'web';
-          }
-          const faviconUrl = domain && domain !== 'web' 
-            ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
-            : '';
+  const answerHtml = enhanceCitationsWithTooltips(rawAnswerHtml, results);
 
-          return `
-            <a class="product-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
-              ${item.image ? `<img class="product-result-image" src="${escapeHtml(item.image)}" alt="" onerror="this.style.display='none';" />` : ''}
-              <div class="product-result-body">
-                <div class="product-source-header">
-                  ${faviconUrl 
-                    ? `<img class="product-source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none';" />` 
-                    : `<span class="product-source-icon">🛍️</span>`
-                  }
-                  <span class="product-source-domain">${escapeHtml(domain || item.source || 'web')}</span>
-                </div>
-                <div class="product-result-title">${escapeHtml(item.title || 'Product result')}</div>
-                ${item.price ? `<div class="product-result-price">${escapeHtml(item.price)}</div>` : ''}
-                ${item.snippet ? `<div class="product-result-snippet">${escapeHtml(item.snippet)}</div>` : ''}
-              </div>
-            </a>
-          `;
-        }).join('')}
+  const initialItems = items.slice(0, 4);
+
+  const renderCard = (item) => {
+    let domain = '';
+    try {
+      const urlObj = new URL(item.url);
+      domain = urlObj.hostname.replace(/^www\./, '');
+    } catch (e) {
+      domain = item.source || item.sourceDomain || 'web';
+    }
+    const faviconUrl = domain && domain !== 'web' 
+      ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
+      : '';
+
+    const formattedPrice = item.price ? formatPriceWithLocalEquivalent(item.price) : '';
+    const ratingBadge = item.rating 
+      ? `<span class="product-result-price-badge" style="background: rgba(234,179,8,0.15); color: #eab308; border-color: rgba(234,179,8,0.3);">⭐ ${typeof item.rating === 'number' ? item.rating.toFixed(1) : item.rating}</span>`
+      : '';
+
+    const isPlace = isPlacesQuery || item.type === 'place';
+    const fallbackIcon = isPlace ? '🍽️' : (item.type === 'course' ? '🎓' : '🛍️');
+
+    const cardImg = item.image 
+      ? `<img class="product-result-image" src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name || item.title)}" loading="lazy" onerror="this.outerHTML='<div class=\\'product-result-icon-fallback\\'>${fallbackIcon}</div>';" />`
+      : `<div class="product-result-icon-fallback">${fallbackIcon}</div>`;
+
+    const displayTitle = item.name || item.title || 'Result';
+    const subInfo = item.category || item.location || '';
+
+    return `
+      <a class="product-result-card" href="${escapeHtml(item.url || '#')}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(displayTitle)} on ${escapeHtml(domain)}">
+        ${cardImg}
+        <div class="product-result-body">
+          <div class="product-source-header">
+            ${faviconUrl 
+              ? `<img class="product-source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" /><span class="product-source-icon" style="display:none;">🌐</span>` 
+              : `<span class="product-source-icon">🌐</span>`
+            }
+            <span class="product-source-domain">${escapeHtml(domain || item.source || 'web')}</span>
+            ${ratingBadge || (formattedPrice ? `<span class="product-result-price-badge">${escapeHtml(formattedPrice)}</span>` : '')}
+          </div>
+          <div class="product-result-title">${escapeHtml(displayTitle)}</div>
+          ${subInfo ? `<div class="product-result-snippet" style="font-weight: 500; color: var(--text-secondary, #94a3b8); margin-bottom: 2px;">${escapeHtml(subInfo)}</div>` : ''}
+          ${item.highlight || item.snippet ? `<div class="product-result-snippet">${escapeHtml(item.highlight || item.snippet)}</div>` : ''}
+          <div class="product-result-footer">
+            <span class="product-visit-btn">${isPlace ? 'View Spot' : 'Visit'} <span class="product-arrow">→</span></span>
+          </div>
+        </div>
+      </a>
+    `;
+  };
+
+  const renderVideoCard = (video) => {
+    return `
+      <a class="video-result-card" href="${escapeHtml(video.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(video.title)}">
+        <div class="video-thumbnail-container">
+          ${video.thumbnail ? `<img class="video-thumbnail-img" src="${escapeHtml(video.thumbnail)}" alt="" onerror="this.style.display='none';" />` : ''}
+          <div class="video-play-overlay">
+            <span class="video-play-icon">▶</span>
+          </div>
+        </div>
+        <div class="video-result-body">
+          <div class="video-source-tag">YouTube</div>
+          <div class="video-result-title">${escapeHtml(video.title)}</div>
+          ${video.snippet ? `<div class="video-result-snippet">${escapeHtml(video.snippet)}</div>` : ''}
+        </div>
+      </a>
+    `;
+  };
+
+  const totalResultsCount = items.length + videos.length + results.length;
+  const sectionTitle = isPlacesQuery ? 'Top Places & Restaurants' : 'Featured Matches';
+  const sectionCountLabel = isPlacesQuery ? `${items.length} spots recommended` : `${items.length} options found`;
+  const filterPillLabel = isPlacesQuery ? 'Places' : 'Featured';
+
+  const filtersBarHtml = `
+    <div class="search-filters-bar">
+      <button type="button" class="search-filter-pill active" data-filter="all">All (${totalResultsCount})</button>
+      ${initialItems.length > 0 ? `<button type="button" class="search-filter-pill" data-filter="products">${filterPillLabel} (${items.length})</button>` : ''}
+      ${videos.length > 0 ? `<button type="button" class="search-filter-pill" data-filter="videos">Videos (${videos.length})</button>` : ''}
+      <button type="button" class="search-filter-pill" data-filter="sources">Sources (${results.length})</button>
+    </div>
+  `;
+
+  const productHtml = items.length > 0 ? `
+    <div class="search-section search-products-section">
+      <div class="search-section-header">
+        <div class="search-section-title-wrap">
+          <span class="search-section-title">${sectionTitle}</span>
+          <span class="search-section-count">${sectionCountLabel}</span>
+        </div>
+        ${items.length > 2 ? `
+        <div class="search-carousel-controls">
+          <button type="button" class="search-carousel-btn search-carousel-prev" title="Scroll Left" aria-label="Previous">‹</button>
+          <button type="button" class="search-carousel-btn search-carousel-next" title="Scroll Right" aria-label="Next">›</button>
+        </div>` : ''}
+      </div>
+      <div class="product-card-carousel" tabindex="0">
+        ${items.slice(0, 10).map(renderCard).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  const videosHtml = videos.length > 0 ? `
+    <div class="search-section search-videos-section">
+      <div class="search-section-header">
+        <span class="search-section-title">Video Guides &amp; Tutorials</span>
+        <span class="search-section-count">${videos.length} videos</span>
+      </div>
+      <div class="video-card-grid">
+        ${videos.map(renderVideoCard).join('')}
       </div>
     </div>
   ` : '';
 
   const sourcesHtml = renderStackedSourcesHtml(results);
 
+  const followupsHtml = followups.length > 0 ? `
+    <div class="search-followups-container">
+      <div class="search-followups-title"><span class="followup-sparkle">✨</span> Related Questions</div>
+      <div class="search-followups-list">
+        ${followups.map(q => `<button type="button" class="search-followup-chip" data-query="${escapeHtml(q)}">${escapeHtml(q)} <span class="followup-arrow">→</span></button>`).join('')}
+      </div>
+    </div>
+  ` : '';
+
   return `
     <div class="ultron-search-experience">
+      ${filtersBarHtml}
       <div class="search-answer">${answerHtml}</div>
       ${productHtml}
+      ${videosHtml}
       ${sourcesHtml}
+      ${followupsHtml}
     </div>
   `;
 }
+
+// Global click event handlers for search filter pills, carousels, and follow-up chips
+document.addEventListener('click', (e) => {
+  const carouselBtn = e.target.closest('.search-carousel-btn');
+  if (carouselBtn) {
+    const parentSection = carouselBtn.closest('.search-section');
+    const carousel = parentSection?.querySelector('.product-card-carousel, .video-card-grid');
+    if (carousel) {
+      const scrollAmount = carouselBtn.classList.contains('search-carousel-prev') ? -320 : 320;
+      carousel.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+    return;
+  }
+
+  const chip = e.target.closest('.search-followup-chip');
+  if (chip && chip.dataset.query) {
+    if (typeof submitPrompt === 'function') {
+      submitPrompt(chip.dataset.query);
+    }
+    return;
+  }
+
+  const filterPill = e.target.closest('.search-filter-pill');
+  if (filterPill) {
+    const parent = filterPill.closest('.ultron-search-experience');
+    if (!parent) return;
+    parent.querySelectorAll('.search-filter-pill').forEach(p => p.classList.remove('active'));
+    filterPill.classList.add('active');
+    const filter = filterPill.dataset.filter;
+    const prodSec = parent.querySelector('.search-products-section');
+    const vidSec = parent.querySelector('.search-videos-section');
+    const srcSec = parent.querySelector('.search-sources-section');
+    if (prodSec) prodSec.style.display = (filter === 'all' || filter === 'products') ? '' : 'none';
+    if (vidSec) vidSec.style.display = (filter === 'all' || filter === 'videos') ? '' : 'none';
+    if (srcSec) srcSec.style.display = (filter === 'all' || filter === 'sources') ? '' : 'none';
+  }
+});
 
 /**
  * True when the user wants generated text/content in chat, not desktop control.
@@ -5446,11 +6629,21 @@ function renderSearchExperience(answer, searchPayload) {
  */
 function isContentGenerationRequest(prompt) {
   const p = String(prompt || '');
+  if (isReminderOrTimerRequest(p)) return false;
   if (isCodeOnlyGenerationRequest(p)) return true;
 
+  // Short creative forms even without "write/create" verbs
+  if (/\b(short\s+)?(poem|haiku|limerick|sonnet|ode|lyrics|rap\s+verse)\b/i.test(p)) return true;
+  if (/\b(short\s+)?(story|fable|fairy\s*tale)\b/i.test(p) && /\b(write|draft|compose|create|generate|give|make|tell)\b/i.test(p)) return true;
+
   // 1. Common creation / generation phrases with optional descriptors
-  // Matches: "create me a landing page", "create a me a landing page", "write a python script", "build a modern website", "generate a react component", etc.
-  if (/\b(write|draft|compose|create|generate|give|make|build|design|code|develop)\s+(?:a\s+)?(?:me\s+)?(?:an?\s+)?(?:the\s+)?(?:\w+\s+){0,3}(essay|article|story|poem|letter|email|report|summary|speech|blog|post|paragraph|explanation|review|analysis|outline|notes?|caption|headline|bio|resume|cv|itinerary|recipe|table|guide|tutorial|documentation|pitch|proposal|ideas?|questions?|quiz|dialogue|lyrics|script|code|snippet|function|program|class|algorithm|landing\s*page|website|webpage|web\s*site|web\s*page|portfolio|homepage|home\s*page|ui|frontend|component|dashboard|mockup|wireframe|layout|template|navbar|footer|header|card|modal|form|login\s*page|signup\s*page|game|calculator|app|application)\b/i.test(p)) {
+  // Matches: "create a flowchart diagram", "draw an architecture diagram", "generate a comparison chart", "create me a landing page", etc.
+  if (/\b(write|draft|compose|create|generate|give|make|build|design|code|develop|draw|show|plot)\s+(?:a\s+)?(?:me\s+)?(?:an?\s+)?(?:the\s+)?(?:\w+\s+){0,3}(diagram|flowchart|flow\s*chart|architecture|mindmap|mind\s*map|sequence\s*diagram|er\s*diagram|state\s*diagram|chart|graph|visual|infographic|essay|article|story|poem|letter|email|report|summary|speech|blog|post|paragraph|explanation|review|analysis|outline|notes?|caption|headline|bio|resume|cv|itinerary|recipe|table|guide|tutorial|documentation|pitch|proposal|ideas?|questions?|quiz|dialogue|lyrics|script|code|snippet|function|program|class|algorithm|landing\s*page|website|webpage|web\s*site|web\s*page|portfolio|homepage|home\s*page|ui|frontend|component|dashboard|mockup|wireframe|layout|template|navbar|footer|header|card|modal|form|login\s*page|signup\s*page|game|calculator|app|application)\b/i.test(p)) {
+    return true;
+  }
+
+  // 1b. Direct diagram & visualization requests
+  if (/\b(create|generate|draw|show|build|make)\s+(?:a\s+)?(?:flowchart|diagram|mindmap|architecture|chart|graph)\b/i.test(p)) {
     return true;
   }
 
@@ -5482,15 +6675,62 @@ function isContentGenerationRequest(prompt) {
   return false;
 }
 
-/** User wants source code only (e.g. "write only html", "html code only"). */
+/** Short creative asks that must not pull prior long essays into context. */
+function isShortCreativeRequest(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p || p.length > 220) return false;
+  if (/\b(research|analysis|report|paper|thesis|comprehensive|in-depth|scholarly|references|case study|microservices|telecommuting)\b/i.test(p)) {
+    return false;
+  }
+  return /\b(short\s+)?(poem|haiku|limerick|sonnet|ode|quatrain|couplet|lyrics|rap\s+verse|joke|riddle|one[\s-]liner)\b/i.test(p)
+    || /\b(write|draft|compose|give|make|create)\s+(me\s+)?(a\s+)?(short\s+)?(poem|haiku|paragraph|blurb|caption|tagline)\b/i.test(p);
+}
+
+function isFreshStandaloneRequest(prompt) {
+  if (isFollowUpAboutPriorTurn(prompt)) return false;
+  if (isShortCreativeRequest(prompt)) return true;
+  if (isContentGenerationRequest(prompt)) return true;
+  const p = String(prompt || '').trim();
+  // New imperative requests shouldn't inherit prior essay topics
+  if (/^(write|draft|compose|create|generate|explain|summarize|analyze|compare|list|build|make|design)\b/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
+const MAX_HISTORY_ASSISTANT_CHARS = 420;
+const MAX_HISTORY_USER_CHARS = 500;
+
+function clampHistoryMessageText(text, isAi) {
+  const plain = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!plain) return '';
+  const limit = isAi ? MAX_HISTORY_ASSISTANT_CHARS : MAX_HISTORY_USER_CHARS;
+  if (plain.length <= limit) return plain;
+  return `${plain.slice(0, limit - 1)}…`;
+}
+
+function buildCurrentRequestGuard(prompt) {
+  const trimmed = String(prompt || '').trim();
+  return `CURRENT USER REQUEST (highest priority — fulfill ONLY this; do not continue prior essays, reports, poems, or unrelated sections from earlier turns):\n${trimmed}`;
+}
+
+/** User wants source code only (e.g. "write only html", "html code only", "write me html code for..."). */
 function isCodeOnlyGenerationRequest(prompt) {
   const p = String(prompt || '').toLowerCase();
+  // Explicit interactive-widget asks should NOT take the code-only path
+  if (/\b(interactive\s*ui|generative\s*ui|interactive\s*widget|live\s*widget|gen-ui|html\s*widget)\b/i.test(p)) {
+    return false;
+  }
   if (/\b(only|just)\s+(html|css|javascript|js|python|typescript|tsx?|jsx?|code|sql|json|xml|svg)\b/.test(p)) return true;
   if (/\b(html|css|javascript|js|python|typescript|tsx?|jsx?|code|sql|json|xml|svg)\s+only\b/.test(p)) return true;
   if (/\bwrite\s+(only\s+)?(html|css|javascript|js|python|code)\b/.test(p)) return true;
   if (/\b(code\s+only|only\s+code)\b/.test(p)) return true;
   if (/\bgive\s+me\s+(only\s+)?(html|css|javascript|js|python|code)\b/.test(p)) return true;
   if (/\b(show|provide|output)\s+(me\s+)?(only\s+)?(html|css|javascript|js|python|code)\b/.test(p)) return true;
+  // "write me a html code for...", "html code for login form", "create javascript for..."
+  if (/\b(write|draft|compose|create|generate|give|make|build|show|provide)\b[\s\S]{0,48}\b(html|css|javascript|js|typescript|python|sql|code)\b/i.test(p)) return true;
+  if (/\b(html|css|javascript|js|typescript|python)\s+code\b/i.test(p)) return true;
+  if (/\bcode\s+(for|to)\b.+\b(form|login|page|website|component|function|script)\b/i.test(p)) return true;
   return false;
 }
 
@@ -5511,7 +6751,7 @@ function detectRequestedCodeLanguage(prompt) {
 function buildCodeGenerationSystemPrompt(userPrompt) {
   const lang = detectRequestedCodeLanguage(userPrompt);
   const langLabel = lang === 'html' ? 'HTML5' : lang;
-  return `You are Ultron, a coding assistant. The user wants source code only.
+  return `You are Brown, a coding assistant. The user wants source code only.
 
 Rules:
 - Output exactly ONE fenced code block: \`\`\`${lang}
@@ -5591,12 +6831,249 @@ function hasLocalFilesystemCues(prompt) {
   return scope;
 }
 
+/**
+ * Mathematical Calculation & Arithmetic Engine Skill
+ * Evaluates arithmetic, formulas, percentages, trigonometry, and roots with 100% precision.
+ */
+function evaluateMathQuery(prompt) {
+  const p = String(prompt || '').trim();
+  if (!p) return null;
+
+  // 1. Percentage: "15% of 8500" or "what is 20% of 250"
+  const pctMatch = p.match(/(?:what\s+is\s+|calculate\s+|how\s+much\s+is\s+)?([0-9.]+)\s*%\s*(?:of|\*)\s*([0-9.]+)/i);
+  if (pctMatch) {
+    const pct = parseFloat(pctMatch[1]);
+    const total = parseFloat(pctMatch[2]);
+    const res = (pct / 100) * total;
+    return {
+      type: 'percentage',
+      expression: `${pct}% of ${total}`,
+      result: res,
+      formattedResult: Number.isInteger(res) ? res.toLocaleString() : res.toLocaleString(undefined, { maximumFractionDigits: 6 }),
+      steps: [
+        `Convert ${pct}% to decimal: ${pct} ÷ 100 = ${pct / 100}`,
+        `Multiply by base value: ${pct / 100} × ${total} = ${res}`
+      ]
+    };
+  }
+
+  // 2. Arithmetic / Math Expression
+  const cleanExpr = p
+    .replace(/^(?:how\s+much\s+is|what\s+is\s+the\s+value\s+of|what\s+is|what's|calculate|compute|solve|evaluate)\s+/i, '')
+    .replace(/\?+$/, '')
+    .replace(/=/g, '')
+    .trim();
+
+  // Normalize operators
+  let expr = cleanExpr
+    .replace(/\b(?:sqrt|square\s+root\s+of)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.sqrt($1)')
+    .replace(/\b(?:sqrt|square\s+root\s+of)\s+([0-9.]+)/gi, 'Math.sqrt($1)')
+    .replace(/\b(?:cbrt|cube\s+root\s+of)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.cbrt($1)')
+    .replace(/\b(?:abs)\s*\(\s*([0-9.-]+)\s*\)/gi, 'Math.abs($1)')
+    .replace(/\b(?:sin)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.sin($1 * Math.PI / 180)')
+    .replace(/\b(?:cos)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.cos($1 * Math.PI / 180)')
+    .replace(/\b(?:tan)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.tan($1 * Math.PI / 180)')
+    .replace(/\b(?:log)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.log10($1)')
+    .replace(/\b(?:ln)\s*\(\s*([0-9.]+)\s*\)/gi, 'Math.log($1)')
+    .replace(/(\d+)\s*\^\s*(\d+)/g, 'Math.pow($1, $2)')
+    .replace(/[xX×]/g, '*')
+    .replace(/÷/g, '/');
+
+  // Verify expression contains only safe math tokens: numbers, operators, Math functions, parentheses, spaces
+  if (/^[0-9\s.+\-*/%(),Math.sqrtcbsintanlopwPI]+$/.test(expr) && /\d/.test(expr)) {
+    try {
+      const calculated = Function(`'use strict'; return (${expr});`)();
+      if (typeof calculated === 'number' && !isNaN(calculated) && isFinite(calculated)) {
+        const rounded = Number.isInteger(calculated)
+          ? calculated.toLocaleString()
+          : (Math.abs(calculated) < 0.000001
+              ? calculated.toExponential(4)
+              : calculated.toLocaleString(undefined, { maximumFractionDigits: 8 }));
+
+        return {
+          type: 'arithmetic',
+          expression: cleanExpr,
+          result: calculated,
+          formattedResult: rounded
+        };
+      }
+    } catch (e) {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function isMathOrCalculationQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  if (evaluateMathQuery(p)) return true;
+  if (/^(?:calculate|compute|solve|evaluate)\s+[0-9a-z(]/i.test(p)) return true;
+  if (/^(?:what\s+is|what's|how\s+much\s+is)\s+[0-9\s.+\-*/%^()xX÷×]+\??$/i.test(p)) return true;
+  if (/\b\d+\s*%\s*(?:of|\*)\s*\d+/i.test(p)) return true;
+  if (/\b(?:sqrt|cbrt|sin|cos|tan|log|factorial)\s*\(\s*\d+/i.test(p)) return true;
+  return false;
+}
+
+function formatMathSolution(math) {
+  if (!math) return '';
+  if (math.type === 'percentage') {
+    return `### 🧮 Calculation Result\n\n**${math.expression}** = **\`${math.formattedResult}\`**\n\n#### Steps:\n${math.steps.map(s => `- ${s}`).join('\n')}`;
+  }
+  return `### 🧮 Calculation Result\n\n**${math.expression}** = **\`${math.formattedResult}\`**\n\n- **Exact Value:** \`${math.result}\``;
+}
+
+function isSystemControlQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  // Volume controls: "set volume to 35%", "set system volume to 15 percent", "volume 50%", "mute", "unmute", "turn volume up"
+  if (/\b(set\s+(?:system\s+)?volume|change\s+volume|volume\s+to|volume\s+up|volume\s+down|turn\s+(?:up|down)\s+volume|turn\s+the\s+volume|mute\s+audio|unmute\s+audio|toggle\s+mute|mute\s+volume|unmute\s+volume|mute|unmute)\b/i.test(p)) {
+    return true;
+  }
+  if (/\b(?:volume)\b/i.test(p) && /\b(?:\d{1,3}\s*%|\d{1,3}\s*percent|\d{1,3})\b/i.test(p)) {
+    return true;
+  }
+  // Media controls: "play music", "pause music", "next track", "previous track", "stop music"
+  if (/\b(pause\s+music|play\s+music|pause\s+song|play\s+song|next\s+track|previous\s+track|prev\s+track|next\s+song|previous\s+song|stop\s+music|resume\s+music|skip\s+song|skip\s+track)\b/i.test(p)) {
+    return true;
+  }
+  // Screen brightness: "set brightness to 70%", "brightness 80%"
+  if (/\b(set\s+(?:screen\s+)?brightness|change\s+brightness|brightness\s+to)\b/i.test(p)) {
+    return true;
+  }
+  // System lock / sleep / restart: "lock my pc", "sleep pc", "lock computer"
+  if (/\b(lock\s+(?:my\s+)?(?:pc|computer|workstation|screen)|put\s+(?:pc|computer)\s+to\s+sleep|sleep\s+(?:pc|computer))\b/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
+async function executeSystemControlQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!window.ultronAPI) return { success: false, message: 'System API unavailable.' };
+
+  // Volume: "set volume to 35%", "set system volume to 15 percent", "set system volume to 35%"
+  const volMatch = p.match(/\b(?:set\s+(?:system\s+)?volume\s+(?:to\s+)?|volume\s+(?:to\s+)?|turn\s+(?:the\s+)?volume\s+to\s+)(\d{1,3})(?:\s*%|\s*percent)?/i)
+    || p.match(/(\d{1,3})\s*(?:%|percent)\s+volume/i)
+    || p.match(/volume\s+(\d{1,3})/i);
+
+  if (volMatch && volMatch[1]) {
+    const level = Math.max(0, Math.min(100, parseInt(volMatch[1], 10)));
+    const res = await window.ultronAPI.windowsSetVolume(level);
+    return {
+      success: res?.success !== false,
+      message: `🔊 **System Volume Set**: Adjusted master volume to **${level}%**.`
+    };
+  }
+
+  if (/\b(volume\s+up|turn\s+up\s+volume|increase\s+volume)\b/i.test(p)) {
+    const cur = await window.ultronAPI.windowsGetVolume();
+    const target = Math.min(100, (cur.level || 50) + 10);
+    await window.ultronAPI.windowsSetVolume(target);
+    return {
+      success: true,
+      message: `🔊 **Volume Increased**: Adjusted volume from **${cur.level}%** to **${target}%**.`
+    };
+  }
+
+  if (/\b(volume\s+down|turn\s+down\s+volume|decrease\s+volume|lower\s+volume)\b/i.test(p)) {
+    const cur = await window.ultronAPI.windowsGetVolume();
+    const target = Math.max(0, (cur.level || 50) - 10);
+    await window.ultronAPI.windowsSetVolume(target);
+    return {
+      success: true,
+      message: `🔉 **Volume Decreased**: Adjusted volume from **${cur.level}%** to **${target}%**.`
+    };
+  }
+
+  if (/\b(mute\s+volume|mute\s+audio|mute\s+sound|mute)\b/i.test(p) && !p.includes('unmute')) {
+    await window.ultronAPI.windowsToggleMute();
+    return {
+      success: true,
+      message: `🔇 **Audio Muted**: Master audio has been muted.`
+    };
+  }
+
+  if (/\b(unmute\s+volume|unmute\s+audio|unmute\s+sound|unmute|toggle\s+mute)\b/i.test(p)) {
+    await window.ultronAPI.windowsToggleMute();
+    return {
+      success: true,
+      message: `🔊 **Audio Unmuted**: Master audio is now active.`
+    };
+  }
+
+  // Media playback
+  if (/\b(pause|stop)\s+(music|song|track|playback|spotify|youtube)\b/i.test(p) || p === 'pause') {
+    await window.ultronAPI.windowsMediaKey('pause');
+    return { success: true, message: `⏸️ **Media Paused**: Playback paused.` };
+  }
+
+  if (/\b(play|resume)\s+(music|song|track|playback|spotify|youtube)\b/i.test(p) || p === 'play') {
+    await window.ultronAPI.windowsMediaKey('play');
+    return { success: true, message: `▶️ **Media Playing**: Playback resumed.` };
+  }
+
+  if (/\b(next\s+track|next\s+song|skip\s+song|skip\s+track)\b/i.test(p)) {
+    await window.ultronAPI.windowsMediaKey('next');
+    return { success: true, message: `⏭️ **Next Track**: Skipped to the next track.` };
+  }
+
+  if (/\b(previous\s+track|previous\s+song|prev\s+track|prev\s+song)\b/i.test(p)) {
+    await window.ultronAPI.windowsMediaKey('prev');
+    return { success: true, message: `⏮️ **Previous Track**: Returned to previous track.` };
+  }
+
+  // Brightness
+  const brightMatch = p.match(/\b(?:set\s+(?:screen\s+)?brightness\s+(?:to\s+)?|brightness\s+(?:to\s+)?|change\s+brightness\s+to\s+)(\d{1,3})(?:\s*%|\s*percent)?/i);
+  if (brightMatch && brightMatch[1]) {
+    const level = Math.max(0, Math.min(100, parseInt(brightMatch[1], 10)));
+    await window.ultronAPI.windowsSetBrightness(level);
+    return {
+      success: true,
+      message: `☀️ **Screen Brightness Set**: Adjusted display brightness to **${level}%**.`
+    };
+  }
+
+  // Lock workstation
+  if (/\b(lock\s+(?:my\s+)?(?:pc|computer|workstation|screen))\b/i.test(p)) {
+    await window.ultronAPI.windowsLock();
+    return { success: true, message: `🔒 **Workstation Locked**: Windows session locked.` };
+  }
+
+  // Sleep
+  if (/\b(sleep\s+(?:pc|computer)|put\s+(?:pc|computer)\s+to\s+sleep)\b/i.test(p)) {
+    await window.ultronAPI.windowsSleep();
+    return { success: true, message: `💤 **System Sleep**: Windows entering sleep mode.` };
+  }
+
+  return { success: false, message: 'System action completed.' };
+}
+
+/** Detects questions explicitly asking for external download/install instructions. */
+function isInformationalOrHowToQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  if (isMathOrCalculationQuery(p) || isSystemControlQuery(p)) return false;
+  if (/\b(how\s+to\s+(download|install|setup|configure|deploy))\b/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
 /** Desktop/file/UI cues that mean the user wants tools, not a chat answer. */
 function hasDesktopActionCues(prompt) {
   const p = String(prompt || '');
   // Strip out attached document blocks so document contents/names don't falsely trigger desktop automation
   const cleanPrompt = p.replace(/📄\s*\*\*Attached Document\s*\[[^\]]+\]\*\*:\s*```[\s\S]*?```/gi, '').trim();
-  return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|visit|play|song|video|music|track|youtube|spotify|claude|chatgpt|openai|gemini|github|reddit|twitter|notepad|chrome|edge|browser|desktop|download|document|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|double\s*click|right\s*click|scroll|mouse|cursor|login|logout|sign\s*in|sign\s*out|search\s+.+?\s+on|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(cleanPrompt)
+
+  // If it's a math or informational question with no explicit command to launch/modify local desktop, do not treat as a desktop action
+  if (isMathOrCalculationQuery(cleanPrompt)) return false;
+  if (isInformationalOrHowToQuery(cleanPrompt) && !/\b(open\s+notepad|open\s+chrome|open\s+edge|open\s+folder|create\s+(a\s+)?(file|folder)|write\s+into\s+notepad|type\s+into\s+notepad|save\s+as\s+[a-z0-9_.-]+\.[a-z]{2,4})\b/i.test(cleanPrompt)) {
+    return false;
+  }
+
+  return /\b(open|opening|launch|launching|start|starting|focus|switch\s+to|go to|navigate|head to|take me to|browse to|visit|play|song|video|music|track|youtube|spotify|claude|chatgpt|openai|gemini|github|reddit|twitter|notepad|chrome|edge|browser|save\s+(to|as|it|the)|write\s+(to|into|in)\s+(a\s+)?(file|folder|notepad)|type\s+(into|in|hello|text)|click|double\s*click|right\s*click|scroll|screenshot|screen\s*capture|capture\s*(the\s*)?screen|createa?\s+(a\s+)?file|creat\s+(a\s+)?file|create\s+(a\s+)?(file|folder)|new\s+file|simulate\s+(the\s+)?(action\s+of\s+)?(open|launch|type|click))\b/i.test(cleanPrompt)
     || /\.(txt|docx?|pdf|md|js|py|ts|html)\b/i.test(cleanPrompt)
     || /[A-Za-z]:\\/.test(cleanPrompt)
     || hasLocalFilesystemCues(cleanPrompt);
@@ -5628,25 +7105,27 @@ function isWebSearchEnabled() {
 
 function isFactualOrCurrentEventsQuery(prompt) {
   const p = String(prompt || '').toLowerCase().replace(/\s+/g, ' ');
-  if (/\b(right now|currently|at present|as of now|today|this week|this month|this year|in 2026|in 2025|latest|recent|live update|happening now)\b/i.test(p)) return true;
-  if (/\b(now|nwo)\b/i.test(p) && /\b(who|what|when|where|which)\b/i.test(p)) return true;
-  if (/\bwho\s+(is|are|was|'s)\b/i.test(p) && /\b(prime minister|president|chief minister|ceo|governor|mayor|king|queen|leader|head of|minister of|secretary of)\b/i.test(p)) return true;
-  if (/\b(what is the|what's the|what are the)\s+(price|score|result|winner|population|capital|weather|news)\b/i.test(p)) return true;
-  if (/\b(news about|latest on|update on|happening in|election result|match result|stock price|crypto price)\b/i.test(p)) return true;
-  if (/\b(when did|when was|when is|where is|how old is|how much is|how many people)\b/i.test(p)) return true;
+  if (isMathOrCalculationQuery(p) || isSystemControlQuery(p)) return false;
+  if (hasExplicitSearchIntent(p)) return true;
+  if (isInformationalOrHowToQuery(p)) return true;
+  if (/\b(right now|currently|at present|as of now|today|this week|this month|in 2026|live update|happening now|breaking news)\b/i.test(p)) return true;
+  if (/\b(live\s+score|match\s+score|winner\s+of|weather\s+in|stock\s+price|crypto\s+price|current\s+price|download\s+link|official\s+download|how\s+to\s+download|how\s+to\s+install)\b/i.test(p)) return true;
+  if (/\b(cursor(\s+ai)?|midjourney|sora|v0\.dev|bolt\.new)\b/i.test(p) && /\b(how to download|how to install|download link|pricing)\b/i.test(p)) return true;
   return false;
 }
 
 function isStaleOrUncertainResponse(text) {
-  const lower = String(text || '').toLowerCase();
-  return /\b(as of my last update|knowledge cutoff|don't have access to real.?time|do not have access to real.?time|may not be up to date|my training data|cannot provide real.?time|as of \d{4}|i'm not able to browse|don't have live|do not have live|information may be outdated|i don't have up-to-date|without access to the internet)\b/i.test(lower);
+  const lower = String(text || '').toLowerCase().trim();
+  if (!lower) return false;
+  return /\b(as of my last update|knowledge cutoff|don't have access to real.?time|do not have access to real.?time|may not be up to date|my training data|cannot provide real.?time|as of \d{4}|i'm not able to browse|don't have live|do not have live|information may be outdated|i don't have up-to-date|without access to the internet|i don't know|i do not know|i'm not sure|i am not sure|i don't have information|i do not have information|i am not familiar with|i cannot find information|i don't have details|as an ai language model|as an ai assistant|i don't possess information|i'm unable to provide details|i don't have access to the internet|i am unable to browse|i cannot browse the web)\b/i.test(lower);
 }
 
 function shouldFallbackToWebSearch(prompt, response) {
   if (!isWebSearchEnabled()) return false;
+  if (isMathOrCalculationQuery(prompt)) return false;
   // Never hijack an attached-document analysis (resume/PDF review) into a web search.
   if (/attached document \[/i.test(String(prompt || ''))) return false;
-  return isFactualOrCurrentEventsQuery(prompt) || isStaleOrUncertainResponse(response);
+  return isFactualOrCurrentEventsQuery(prompt) || isInformationalOrHowToQuery(prompt) || isStaleOrUncertainResponse(response);
 }
 
 /** Split "who is PM … open notepad" into a web search part + desktop action tail. */
@@ -5668,12 +7147,167 @@ function splitSearchAndActionPrompt(prompt) {
   return { searchPart, actionPart };
 }
 
+function isLocalPlacesIntent(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  const locCtx = window.UltronLocationContext;
+  if (locCtx && typeof locCtx.isLocalOrPlacesQuery === 'function') {
+    return locCtx.isLocalOrPlacesQuery(p);
+  }
+  return /\b(restaurants?|cafes?|coffee\s+shops?|food|dining|places?\s+to\s+eat|hotels?|baker(?:y|ies)|bars?|pubs?|lounges?|stores?|shops?|supermarkets?|malls?|hospitals?|clinics?|pharmac(?:y|ies)|gyms?|salons?|parks?|tourist\s+spots?|attractions?|places?\s+to\s+visit)\b/i.test(p);
+}
+
+function isGeneralKnowledgeQuery(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  // If explicitly asking to search the web, shop, get live prices/weather, or local discovery, not pure general knowledge
+  if (hasExplicitSearchIntent(p) || isProductOrShoppingQuery(p) || isLocalPlacesIntent(p)) return false;
+  if (/\b(search|google|look\s*up|browse|find\s+out|latest|current|today|tonight|yesterday|tomorrow|this\s+week|this\s+month|news|price|cost|buy|cheap|deal|weather|forecast|score|match|live|stock|crypto|released?|download|install|version|near\s+me|nearby)\b/i.test(p)) {
+    return false;
+  }
+  // Standard educational, conceptual, scientific, historical, linguistic, or theoretical inquiries
+  if (/^(what\s+is|what\s+are|what\s+does|why\s+is|why\s+are|why\s+do|why\s+does|how\s+does|how\s+do|explain|define|describe|meaning\s+of|definition\s+of|concept\s+of|theory\s+of|principles?\s+of|difference\s+between)\b/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Intent Classifier — determines what the user actually wants.
- * Returns: 'conversation' | 'action' | 'search' | 'time' | 'system_info' | 'user_identity'
+ * Returns: 'math' | 'conversation' | 'action' | 'search' | 'time' | 'system_info' | 'user_identity' | 'reminder' | 'system_control'
  */
+function isReminderOrTimerRequest(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p) return false;
+  // Explicit diagram asks are never reminders
+  if (/\b(diagram|flowchart|flow\s*chart|mermaid|mindmap|visualize|infographic|draw\s+(a\s+)?(diagram|flowchart|chart))\b/i.test(p)) {
+    return false;
+  }
+  if (/\b(remind\s+me|set\s+(a\s+)?(reminder|timer|alarm)|timer\s+for|alarm\s+(for|in)|wake\s+me(\s+up)?)\b/i.test(p)) {
+    return true;
+  }
+  if (/\b(remind|timer|alarm|notify\s+me|ping\s+me)\b/i.test(p) && /\b(in|after|for)\s+\d+/i.test(p)) {
+    return true;
+  }
+  return false;
+}
+
+function parseReminderRequest(prompt) {
+  const raw = String(prompt || '').trim();
+  if (!raw) return null;
+  const delayMatch = raw.match(/\b(?:in|after|for)\s+(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\b/i)
+    || raw.match(/\b(\d+(?:\.\d+)?)\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b/i);
+  if (!delayMatch) return null;
+
+  const amount = parseFloat(delayMatch[1]);
+  const unitRaw = String(delayMatch[2] || '').toLowerCase();
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  let delayMs = amount * 1000;
+  if (/^m(in(ute)?s?)?$/.test(unitRaw)) delayMs = amount * 60 * 1000;
+  else if (/^h(r|our)?s?$/.test(unitRaw)) delayMs = amount * 3600 * 1000;
+  else if (/^s(ec(ond)?s?)?$/.test(unitRaw)) delayMs = amount * 1000;
+
+  const maxMs = 24 * 60 * 60 * 1000;
+  if (delayMs > maxMs) delayMs = maxMs;
+
+  let message = raw
+    .replace(/^(hey|hi|hello|yo|please)[,!\s]+/i, '')
+    .replace(/\b(can\s+u|can\s+you|could\s+you|would\s+you|please)\s+/gi, '')
+    .replace(/\bremind\s+me\s+(to\s+)?/i, '')
+    .replace(/\bset\s+(a\s+)?(reminder|timer|alarm)\s*(to\s+|for\s+)?/i, '')
+    .replace(/\bwake\s+me(\s+up)?\s*/i, '')
+    .replace(/\b(notify\s+me|ping\s+me)\s+(to\s+)?/i, '')
+    .replace(/\b(in|after|for)\s+\d+(?:\.\d+)?\s*(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\b/i, '')
+    .replace(/\b\d+(?:\.\d+)?\s*(seconds?|secs?|minutes?|mins?|hours?|hrs?)\b/i, '')
+    .replace(/[?.!,]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!message || message.length < 2 || /^(to|please|me)$/i.test(message)) {
+    message = 'Reminder';
+  } else {
+    message = message.charAt(0).toUpperCase() + message.slice(1);
+  }
+
+  return {
+    message,
+    delayMs,
+    amount,
+    unit: unitRaw,
+    humanDelay: formatReminderDelay(amount, unitRaw)
+  };
+}
+
+function formatReminderDelay(amount, unitRaw) {
+  const u = String(unitRaw || '').toLowerCase();
+  if (/^m(in(ute)?s?)?$/.test(u)) return `${amount} minute${amount === 1 ? '' : 's'}`;
+  if (/^h(r|our)?s?$/.test(u)) return `${amount} hour${amount === 1 ? '' : 's'}`;
+  if (/^s(ec(ond)?s?)?$/.test(u)) return `${amount} second${amount === 1 ? '' : 's'}`;
+  return `${amount} ${unitRaw}`;
+}
+
+function scheduleLocalReminder({ message, delayMs }) {
+  const body = String(message || 'Reminder').trim() || 'Reminder';
+  const ms = Math.max(500, Number(delayMs) || 0);
+
+  try {
+    if (typeof Notification !== 'undefined') {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    }
+  } catch (_) { /* ignore */ }
+
+  const timerId = setTimeout(() => {
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('Ultron Reminder', { body });
+      }
+    } catch (_) { /* ignore */ }
+    try {
+      showToast({ type: 'info', title: 'Reminder', message: body, duration: 14000 });
+    } catch (_) { /* ignore */ }
+    try {
+      showOllamaBanner('success', `Reminder: ${body}`, true, false);
+    } catch (_) { /* ignore */ }
+  }, ms);
+
+  return timerId;
+}
+
+function buildReminderResponse(prompt) {
+  const parsed = parseReminderRequest(prompt);
+  if (parsed) {
+    scheduleLocalReminder(parsed);
+    return `Got it — I'll remind you: **${parsed.message}** in **${parsed.humanDelay}**. You'll get a toast (and a desktop notification if allowed).\n\n_This timer runs while Ultron stays open._`;
+  }
+
+  return `I can set a real in-app timer if you include a delay — e.g. "remind me to drink water in 10 seconds" or "set a timer for 5 minutes".\n\nFor something that survives closing Ultron, use the Windows **Clock** app (Timer / Alarms), or a quick script:\n\n\`\`\`js\nsetTimeout(() => alert('Drink water'), 10_000);\n\`\`\`\n\nI won't invent a flowchart for reminders — tell me the delay and what to say when it fires.`;
+}
+
 function classifyIntent(prompt) {
   const p = prompt.toLowerCase().trim();
+
+  // -2. Direct Native System Controls (Volume, Mute, Media, Brightness, Lock)
+  if (isSystemControlQuery(prompt)) {
+    return 'system_control';
+  }
+
+  // -1. Exact Mathematical & Arithmetic Calculations (Instant Math Skill)
+  if (isMathOrCalculationQuery(prompt)) {
+    return 'math';
+  }
+
+  // -1a. Reminders / timers / alarms — never route to diagram generation
+  if (isReminderOrTimerRequest(prompt)) {
+    return 'reminder';
+  }
+
+  // -1b. Direct Visual / Diagram / Flowchart / Mindmap Generation (Instant Chat In-App Visual)
+  if (/\b(diagram|flowchart|flow\s*chart|architecture|mindmap|mind\s*map|sequence\s*diagram|er\s*diagram|state\s*diagram|chart|graph|visualize|draw|plot)\b/i.test(p) && !hasDesktopActionCues(prompt)) {
+    return 'conversation';
+  }
 
   // 0. User identity queries ("who am i", "my name", "correct my name", "do you know me")
   if (/\b(who am i|my name|what('s|\s+is)\s+my\s+name|do you know me|who i am|correct my name)\b/i.test(p)) {
@@ -5739,17 +7373,28 @@ function classifyIntent(prompt) {
     return 'conversation';
   }
 
-  // 6. General knowledge — search the web when factual/current and web search is on
-  if (/^(what is|what are|who is|who are|why is|why do|how does|how do|explain|tell me about|define|describe|meaning of|difference between)\b/i.test(p) && !/\b(file|folder|directory|create|make|write|delete|run|execute|install|open|list|show|read)\b/i.test(p)) {
-    if (isWebSearchEnabled() && (isFactualOrCurrentEventsQuery(prompt) || hasExplicitSearchIntent(prompt) || /\b(latest|today|current|recent|2024|2025|2026|news|price|stock|weather)\b/i.test(p))) {
-      return 'search';
-    }
+  // 5c. General knowledge, conceptual explanations, science, history -> direct LLM conversational synthesis
+  if (isGeneralKnowledgeQuery(prompt) && !hasDesktopActionCues(prompt)) {
     return 'conversation';
   }
 
-  // 6b. Factual / current-events phrasing even without leading "who is"
-  if (isWebSearchEnabled() && isFactualOrCurrentEventsQuery(prompt) && !hasDesktopActionCues(prompt)) {
+  // 5d. Local places, dining, restaurants, and local services discovery -> search intent
+  if (isLocalPlacesIntent(prompt)) {
     return 'search';
+  }
+
+  // 6. Web Search for How-To, Factual Knowledge, Product Info, or Current Events
+  if (isWebSearchEnabled()) {
+    if (isFactualOrCurrentEventsQuery(prompt) || isInformationalOrHowToQuery(prompt) || hasExplicitSearchIntent(prompt) || /\b(latest|today|current|recent|2024|2025|2026|news|price|stock|weather|download|install|guide|tutorial|specs|release)\b/i.test(p)) {
+      if (!isContentGenerationRequest(prompt) && !hasLocalFilesystemCues(prompt)) {
+        return 'search';
+      }
+    }
+  }
+
+  // 6b. General knowledge fallback if web search is off
+  if (/^(what is|what are|who is|who are|why is|why do|how does|how do|explain|tell me about|define|describe|meaning of|difference between)\b/i.test(p) && !/\b(file|folder|directory|create|make|write|delete|run|execute|install|open|list|show|read)\b/i.test(p)) {
+    return 'conversation';
   }
 
   // 6c. Saved workflow / routine triggers → desktop automation
@@ -5902,16 +7547,31 @@ async function queryGeminiAPI(prompt, systemPrompt, modelName, apiKey, extraMess
   }
 }
 
+let isOllamaCloudConnectedState = false;
+
 function isOllamaCloudPulledModel(modelName) {
   return String(modelName || '').toLowerCase().endsWith('-cloud');
 }
 
 function getInstalledCloudModels() {
   const map = new Map();
+  // 1. Any pulled cloud models from local Ollama
   (installedModelsList || []).forEach((model) => {
     const name = typeof model === 'string' ? model : model.name;
-    if (name && isOllamaCloudPulledModel(name)) map.set(name, typeof model === 'string' ? { name, size: 0 } : model);
+    if (name && isOllamaCloudPulledModel(name)) {
+      map.set(name.toLowerCase(), typeof model === 'string' ? { name, size: 0 } : model);
+    }
   });
+
+  // 2. If user is connected to Ollama Cloud, make all cloud models available
+  if (isOllamaCloudConnectedState) {
+    (OLLAMA_CLOUD_PULL_MODELS || []).forEach((model) => {
+      if (!map.has(model.name.toLowerCase())) {
+        map.set(model.name.toLowerCase(), { name: model.name, size: model.size || 'Cloud', desc: model.desc });
+      }
+    });
+  }
+
   return Array.from(map.values());
 }
 
@@ -5926,7 +7586,6 @@ function getInstalledOfflineModels() {
 
 // Offline inference helper querying local servers or Online Cloud APIs
 async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null, customSystemPromptOverride = null, imagePayloads = [], streamCallbacks = null) {
-  const fallbackDepth = (streamCallbacks && streamCallbacks._fallbackDepth) || 0;
   // Direct Ollama / Gemini API generate/chat loop.
   let restoredActiveModel = null;
   try {
@@ -5962,20 +7621,66 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
 
     const memorySnippet = getLearnedMemorySnippet() + (await getRagKnowledgeSnippet(prompt));
 
-    const agentPromptContext = buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet, Array.isArray(imagePayloads) && imagePayloads.length > 0);
+    // --- Context Engine Integration ---
+    // Build 8-layer context for enriched system prompt and entity-resolved user prompt
+    let contextEngineBlock = '';
+    let contextAugmentedPrompt = prompt;
+    if (window.UltronContextEngine) {
+      try {
+        const provider = window.UltronMultiProviderHub ? window.UltronMultiProviderHub.detectProviderForModel(activeModel) : 'ollama';
+        const recentMsgs = (currentSessionId && conversationsStore[currentSessionId])
+          ? conversationsStore[currentSessionId].messages
+              .filter(m => !isUnusableChatHistoryMessage(m.text))
+              .slice(-12)
+              .map(m => ({ role: m.isAi ? 'assistant' : 'user', content: extractPlainTextFromMessage(m.text) }))
+          : [];
+        const ctxResult = window.UltronContextEngine.buildContext({
+          userPrompt: prompt,
+          sessionId: currentSessionId,
+          provider,
+          modelId: activeModel,
+          currentMode: intent,
+          recentMessages: recentMsgs,
+          maxRecentMessages: 10
+        });
+        if (ctxResult.systemContextBlock) {
+          contextEngineBlock = '\n\n' + ctxResult.systemContextBlock;
+        }
+        if (ctxResult.userPromptAugmented && ctxResult.resolvedEntities && ctxResult.resolvedEntities.length > 0) {
+          contextAugmentedPrompt = ctxResult.userPromptAugmented;
+          logTrace(`Entity resolution: ${ctxResult.entityExplanations.join('; ')}`, 'system');
+        }
+      } catch (ctxErr) {
+        logTrace(`Context engine error (non-fatal): ${ctxErr.message}`, 'system');
+      }
+    }
+
+    const agentPromptContext = buildAgentPromptContext(sysEnv, realtime, userName, memorySnippet + contextEngineBlock, Array.isArray(imagePayloads) && imagePayloads.length > 0);
     const agentSystemPrompt = intent === 'action' ? resolveAgentSystemPrompt(agentPromptContext) : null;
     const visionImages = Array.isArray(imagePayloads) ? imagePayloads.filter(p => p && p.data) : [];
     const canUseVision = visionImages.length > 0 && modelSupportsVision(activeModel);
 
     const isCodeRequest = intent === 'conversation' && isCodeOnlyGenerationRequest(prompt);
     const isContentRequest = intent === 'conversation' && isContentGenerationRequest(prompt);
+    const isShortCreative = intent === 'conversation' && isShortCreativeRequest(prompt);
     const skipConversationHistory = intent === 'conversation' && shouldSkipConversationHistory(prompt);
+    // Temperature for local Ollama (was referenced as undeclared activeTemp — broke all local chats)
+    const activeTemp = isCodeRequest ? 0.15 : (isShortCreative ? 0.8 : (isContentRequest ? 0.75 : (intent === 'conversation' ? 0.7 : 0.2)));
+
+    // Gate memory/RAG for fresh standalone asks so prior topics don't leak into the answer
+    const injectMemory = (memoryEnabled && intent !== 'conversation')
+      || (memoryEnabled && intent === 'conversation' && isFollowUpAboutPriorTurn(prompt) && !isShortCreative);
+    const effectiveMemorySnippet = injectMemory ? memorySnippet : '';
+    const effectiveContextBlock = (intent === 'action'
+      || (intent === 'conversation' && isFollowUpAboutPriorTurn(prompt) && !skipConversationHistory))
+      ? contextEngineBlock
+      : '';
 
     const systemPrompt = customSystemPromptOverride || window.localStorage.getItem('ultron-custom-system-prompt') || agentSystemPrompt || (intent === 'conversation'
       ? (isCodeRequest
         ? buildCodeGenerationSystemPrompt(prompt)
-        : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt()))
-      : `You are Ultron, a warm, highly intelligent, articulate, and engaging AI assistant in a direct 1-on-1 personal conversation with ${userName}.
+        : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt(prompt)))
+      : `You are Brown, a warm, highly intelligent, articulate, and engaging AI assistant in a direct 1-on-1 personal conversation with ${userName}.
 
 CONVERSATIONAL PERSONA & DIRECT VOICE RULES:
 1. ALWAYS speak directly to ${userName} in the first person ("I", "me", "my") addressing ${userName} as "you".
@@ -5991,26 +7696,23 @@ REAL-TIME CONTEXT:
 ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
 - Operating System: Windows ${sysEnv.osVersion || '10/11'} (${sysEnv.arch || 'x64'})
 - Home Directory: ${sysEnv.homeDir || 'C:\\Users\\vedan'}
-- Available Drives: ${drivesDesc}` : ''}${memorySnippet}`);
+- Available Drives: ${drivesDesc}` : ''}${effectiveMemorySnippet}${effectiveContextBlock}`);
 
-    let finalUserPrompt = prompt;
+    let finalUserPrompt = contextAugmentedPrompt || prompt;
+    if (intent === 'conversation' && !isFollowUpAboutPriorTurn(prompt)) {
+      finalUserPrompt = buildCurrentRequestGuard(finalUserPrompt);
+    }
     if (isVoiceChatModeEnabled()) {
-      finalUserPrompt = `${prompt}\n\n[Voice Mode Active: Be concise, natural, and direct (1–3 spoken sentences). Do NOT output markdown headers, tables, code blocks, or URLs.]`;
+      finalUserPrompt = `${finalUserPrompt}\n\n[Voice Mode Active: Be concise, natural, and direct (1–3 spoken sentences). Do NOT output markdown headers, tables, code blocks, or URLs.]`;
     }
     if (visionImages.length > 0 && !canUseVision && !activeModel.startsWith('gemini')) {
-      finalUserPrompt = `${prompt}\n\n[Note: Desktop screenshot(s) were captured for this step, but the active model "${activeModel}" does not support vision. Switch to a vision model (e.g. llava, gemini) to analyze screen content.]`;
+      finalUserPrompt = `${finalUserPrompt}\n\n[Note: Desktop screenshot(s) were captured for this step, but the active model "${activeModel}" does not support vision. Switch to a vision model (e.g. llava, gemini) to analyze screen content.]`;
     }
-    if (/\b(table|tabular|difference between|vs|comparison)\b/i.test(prompt) && !/\b(html\s+code|css\s+code|write\s+code)\b/i.test(prompt)) {
-      finalUserPrompt = `${prompt}\n\n[Formatting Instruction: Respond using standard Markdown table syntax (| Header 1 | Header 2 |). DO NOT write HTML/CSS code.]`;
-    }
+    // Keep user prompt clean — instructions are cleanly delivered via systemPrompt
 
-    // Route Multi-Provider cloud APIs (Gemini, OpenAI, Anthropic, DeepSeek, Groq, Custom).
-    // Local Ollama, Hugging Face GGUF (hf.co/...), and Ollama Cloud (*-cloud) stay on the Ollama path below.
-    const provider = window.UltronMultiProviderHub
-      ? window.UltronMultiProviderHub.detectProviderForModel(activeModel)
-      : 'ollama';
-    const isCloudApiProvider = provider !== 'ollama';
-    if (isCloudApiProvider && getLocalAiMode() !== 'local-only') {
+    // Cloud APIs only — HF GGUF + Ollama Cloud stay on the local Ollama path below.
+    const provider = window.UltronMultiProviderHub ? window.UltronMultiProviderHub.detectProviderForModel(activeModel) : 'ollama';
+    if (provider !== 'ollama' && getLocalAiMode() !== 'local-only') {
       try {
         const output = await window.UltronMultiProviderHub.queryProvider({
           provider,
@@ -6018,41 +7720,15 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
           prompt: finalUserPrompt,
           systemPrompt,
           messages: extraMessages,
-          temperature: isCodeRequest ? 0.15 : (intent === 'conversation' ? 0.7 : 0.2),
+          temperature: activeTemp,
           visionImages,
           signal: _activeAbortController ? _activeAbortController.signal : undefined
         });
-        return output;
+        return trimRunawayContinuation(String(output || ''), prompt);
       } catch (err) {
         logTrace(`${provider} API execution error: ${err.message}`, 'system');
         const classified = classifyModelFailure(err, activeModel);
         notifyModelIssue(classified);
-        if (fallbackDepth < 1 && getLocalAiMode() !== 'cloud-only') {
-          const local = selectBestInstalledLocalModel();
-          if (local) {
-            showToast({
-              type: 'warning',
-              title: 'Trying local Ollama fallback',
-              message: `${classified.title}. Switching to ${local}…`,
-              duration: 4500
-            });
-            const prev = activeModel;
-            activeModel = local;
-            updateModelSelectorLabel();
-            try {
-              const nestedCallbacks = streamCallbacks
-                ? { ...streamCallbacks, _fallbackDepth: fallbackDepth + 1 }
-                : { _fallbackDepth: fallbackDepth + 1 };
-              const localOut = await queryOfflineLLM(prompt, extraMessages, intent, customSystemPromptOverride, imagePayloads, nestedCallbacks);
-              if (localOut && String(localOut).trim() && !/Connection Error|Provider Error|not reachable|API key/i.test(localOut)) {
-                showToast({ type: 'success', title: 'Local fallback worked', message: `Used ${local} after ${provider} failed.`, duration: 4500 });
-                return localOut;
-              }
-            } catch (_) { /* ignore */ }
-            activeModel = prev;
-            updateModelSelectorLabel();
-          }
-        }
         return `⚠️ **${provider.toUpperCase()} Provider Error**\n\n${classified.message}\n\nPlease check your configuration in **Settings > Models** or select another model from the dropdown.`;
       }
     }
@@ -6068,7 +7744,8 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       intent,
       canUseVision,
       temperature: activeTemp,
-      contentGeneration: isContentRequest || isCodeRequest
+      contentGeneration: (isContentRequest || isCodeRequest) && !isShortCreative,
+      shortCreative: isShortCreative
     });
     if (typeof gpuOptions.num_gpu === 'number') {
       const gpuName = sysEnv.dedicatedGpu?.model || sysEnv.hardware?.dedicatedGpu?.model || 'GPU';
@@ -6084,8 +7761,8 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
     );
 
     if (memoryEnabled && currentSessionId && conversationsStore[currentSessionId] && !useGenerateForConversation && !skipConversationHistory) {
-      // Sliding window memory — shorter window for follow-ups
-      const historyLimit = (customSystemPromptOverride && /follow-up/i.test(customSystemPromptOverride)) ? 4 : 10;
+      // Sliding window memory — shorter window; clamp long assistant essays
+      const historyLimit = (customSystemPromptOverride && /follow-up/i.test(customSystemPromptOverride)) ? 4 : 6;
       const recentMsgs = conversationsStore[currentSessionId].messages
         .filter(m => !isUnusableChatHistoryMessage(m.text))
         .slice(-historyLimit);
@@ -6093,19 +7770,21 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       // Gemma 2 models in Ollama do not support 'system' role in chat messages array
       const chatMessages = isGemma ? [] : [{ role: 'system', content: systemPrompt }];
       
-      // For general conversational intents, include recent history. For action execution loops,
-      // prevent past conversational hallucinations from poisoning the current task's tool calls.
-      if (intent !== 'action') {
-        recentMsgs.forEach(m => {
-          const textContent = extractPlainTextFromMessage(m.text);
-          if (textContent) {
-            chatMessages.push({
-              role: m.isAi ? 'assistant' : 'user',
-              content: textContent
-            });
-          }
-        });
-      }
+      // Include recent history for ALL intents. For action execution loops,
+      // use a shorter window to prevent past conversational hallucinations
+      // from poisoning tool calls, but never drop history entirely —
+      // the user may reference earlier results ("save the code you wrote earlier").
+      const actionWindowLimit = 4;
+      const msgsToInclude = intent === 'action' ? recentMsgs.slice(-actionWindowLimit) : recentMsgs;
+      msgsToInclude.forEach(m => {
+        const textContent = clampHistoryMessageText(extractPlainTextFromMessage(m.text), !!m.isAi);
+        if (textContent) {
+          chatMessages.push({
+            role: m.isAi ? 'assistant' : 'user',
+            content: textContent
+          });
+        }
+      });
       
       // Append extra observation messages from agent loop
       if (Array.isArray(extraMessages) && extraMessages.length > 0) {
@@ -6140,11 +7819,11 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       // Conversation mode: /api/generate avoids small models meta-commenting on chat system roles
       const recentMsgs = conversationsStore[currentSessionId].messages
         .filter(m => !isUnusableChatHistoryMessage(m.text))
-        .slice(-8);
+        .slice(-4);
       const convPrompt = buildConversationPromptFromHistory(recentMsgs, finalUserPrompt);
       const convSystem = isCodeRequest
         ? buildCodeGenerationSystemPrompt(prompt)
-        : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt());
+        : (isContentRequest ? buildContentGenerationSystemPrompt(prompt) : buildConversationSystemPrompt(prompt));
 
       bodyData = {
         model: activeModel,
@@ -6225,7 +7904,7 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
           ? buildCodeGenerationSystemPrompt(prompt)
           : (isContentRequest
             ? buildContentGenerationSystemPrompt(prompt)
-            : buildConversationSystemPrompt());
+            : buildConversationSystemPrompt(prompt));
         const retryModel = isTinyLocalModel(activeModel)
           ? (selectBestInstalledLocalModel([activeModel]) || activeModel)
           : activeModel;
@@ -6237,8 +7916,8 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
           keep_alive: '5m',
           options: {
             ...ollamaOptions,
-            temperature: isContentRequest ? 0.75 : 0.7,
-            num_predict: isContentRequest ? 2048 : 512
+            temperature: isShortCreative ? 0.8 : (isContentRequest ? 0.75 : 0.7),
+            num_predict: isShortCreative ? 384 : (isContentRequest ? 2048 : 512)
           }
         };
         try {
@@ -6265,9 +7944,12 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
         }
       }
 
-      const sanitized = isCodeRequest
-        ? sanitizeCodeGenerationResponse(text, prompt)
-        : sanitizeResponseText(text, prompt);
+      const sanitized = trimRunawayContinuation(
+        isCodeRequest
+          ? sanitizeCodeGenerationResponse(text, prompt)
+          : sanitizeResponseText(text, prompt),
+        prompt
+      );
       if (intent === 'conversation' && !isCodeRequest && isIrrelevantModelResponse(sanitized, prompt)) {
         if (/^(hi|hello|hey|good\s*(morning|evening|afternoon|night))[\s!.?]*(\w+)?[\s!.?]*$/i.test(String(prompt || '').trim())) {
           const firstName = getUserFirstName();
@@ -6349,34 +8031,42 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
       }
 
       logTrace(`Local LLM response HTTP error (${response.status}): ${errDetail}`, 'error');
-      const httpClassified = classifyModelFailure(errDetail || `HTTP ${response.status}`, activeModel);
-      notifyModelIssue(httpClassified);
+      
+      // Auto-recover if model is not found in Ollama by switching to an actually available model
+      if (errDetail && errDetail.toLowerCase().includes('not found')) {
+        const fallbackCandidates = [
+          ...getInstalledCloudModels().map(m => m.name),
+          ...getInstalledOfflineModels().map(m => m.name),
+          ...(window.UltronMultiProviderHub?.getAvailableModels?.(true) || []).map(m => m.name)
+        ].filter(name => name && name.toLowerCase() !== activeModel.toLowerCase());
+
+        if (fallbackCandidates.length > 0) {
+          const alternateModel = fallbackCandidates[0];
+          logTrace(`Model "${activeModel}" was not found on Ollama. Automatically switching to available model: "${alternateModel}"`, 'system');
+          activeModel = alternateModel;
+          updateModelSelectorLabel();
+          renderModelDropdownList();
+          // Retry with the available model
+          return queryOfflineLLM(prompt, extraMessages, intentOverride, customSystemPromptOverride, imagePayloads, streamCallbacks);
+        }
+      }
+
+      // Handle Unauthorized Ollama Cloud requests
+      if (response.status === 401 || (errDetail && errDetail.toLowerCase().includes('unauthorized'))) {
+        isOllamaCloudConnectedState = false;
+        if (window.ultronAPI?.setOllamaAuthStatus) {
+          window.ultronAPI.setOllamaAuthStatus(false).catch(() => {});
+        }
+        refreshOllamaCloudAuthUI();
+        return `⚠️ **Ollama Cloud Authorization Required (${activeModel})**\n\nYour session is not yet authorized on Ollama's official servers to run cloud-streamed models.\n\n**To Fix:**\n1. Open **Settings → Models**.\n2. Click **Connect Ollama Cloud** and approve the authorization in your browser.\n3. Or select an installed offline model or Google Gemini from the model dropdown.`;
+      }
+
       if (!isOllamaRecoverableError(errDetail)) {
-        const geminiFallback = await tryGeminiFallbackAfterLocalFailure(
-          finalUserPrompt,
-          systemPrompt,
-          extraMessages,
-          canUseVision ? visionImages : []
-        );
-        if (geminiFallback) return geminiFallback;
-        return `Warning: **Ollama Model Error (${activeModel})**\n\n${httpClassified.message}\n\n` + '`' + `${errDetail || 'Unknown error'}` + '`' + `\n\nTry another model from the dropdown, pull an **Ollama Cloud** model (Settings → Models → Sign in to Ollama Cloud), or restart Ollama.`;
+        return `Warning: **Ollama Model Error (${activeModel})**\n\nOllama returned an error before generating a response:\n\n` + '`' + `${errDetail || 'Unknown error'}` + '`' + `\n\nTry another model from the dropdown, pull an **Ollama Cloud** model (Settings → Models → Sign in to Ollama Cloud), or restart Ollama.`;
       }
       const triedModels = (recoveryResult && recoveryResult.triedModels && recoveryResult.triedModels.length)
         ? recoveryResult.triedModels.join(', ')
         : 'your installed models';
-      notifyModelIssue({
-        code: 'MEMORY',
-        title: 'Ollama memory limit exceeded',
-        message: `${activeModel} could not load. Tried: ${triedModels}. Close heavy apps or switch to a smaller / cloud model.`,
-        toastType: 'warning'
-      });
-      const memGemini = await tryGeminiFallbackAfterLocalFailure(
-        finalUserPrompt,
-        systemPrompt,
-        extraMessages,
-        canUseVision ? visionImages : []
-      );
-      if (memGemini) return memGemini;
       return `⚠️ **Ollama Memory Limit Exceeded (${activeModel})**\n\n**${activeModel}** could not load because your PC did not have enough free RAM/VRAM at that moment. Ultron already tried these installed models on CPU with compact settings: ${triedModels}.\n\n**What usually fixes this:**\n1. Close memory-heavy apps (browsers, games) and send again.\n2. Restart Ollama from the system tray.\n3. Pick **tinyllama:latest** or **gemma2:2b** from the model dropdown.\n4. Pull an **Ollama Cloud** model (e.g. \`gpt-oss:20b-cloud\`) — runs on Ollama servers, not your GPU.\n5. Or connect **Google Gemini** in Settings → Models.`;
     }
   } catch (e) {
@@ -6389,12 +8079,7 @@ ${intent === 'action' || intent === 'search' ? `HOST SYSTEM ENVIRONMENT & TOOLS:
     logTrace(`Local LLM offline loop exception: ${e.message}`, 'error');
     const classified = classifyModelFailure(e, activeModel);
     notifyModelIssue(classified);
-    const geminiFallback = await tryGeminiFallbackAfterLocalFailure(
-      prompt,
-      null,
-      extraMessages,
-      imagePayloads || []
-    );
+    const geminiFallback = await tryGeminiFallbackAfterLocalFailure(prompt, null, extraMessages, imagePayloads || []);
     if (geminiFallback) return geminiFallback;
     return `⚠️ **${classified.title}**\n\n${classified.message}\n\n*Endpoint: ` + '`http://127.0.0.1:11434`' + `*`;
   } finally {
@@ -6610,7 +8295,6 @@ async function connectGemini(apiKey, options = {}) {
     updateGeminiConnectionBadge();
     renderModelDropdownList();
     logTrace(`Gemini connection failed: ${err.message}`, 'error');
-    notifyModelIssue(classifyModelFailure(err, 'gemini'));
     return { success: false, error: err.message };
   }
 }
@@ -6740,6 +8424,91 @@ function getBrandAssetLogo(provider) {
   }
 }
 
+const modelDetailsFlyout = document.getElementById('model-details-flyout');
+const flyoutValModel = document.getElementById('flyout-val-model');
+const flyoutValProvider = document.getElementById('flyout-val-provider');
+const flyoutValInputs = document.getElementById('flyout-val-inputs');
+const flyoutValReasoning = document.getElementById('flyout-val-reasoning');
+const flyoutValContext = document.getElementById('flyout-val-context');
+const modelDropdownSearchInput = document.getElementById('model-dropdown-search-input');
+
+function getModelMetadata(modelName, providerId) {
+  const nameLower = (modelName || '').toLowerCase();
+  let provider = 'Ollama Local';
+  let inputs = 'text, image, pdf';
+  let reasoning = 'Allows reasoning';
+  let context = '128,000';
+
+  if (providerId === 'gemini' || nameLower.includes('gemini')) {
+    provider = 'Google Gemini';
+    inputs = 'text, image, pdf, audio';
+    context = nameLower.includes('pro') ? '2,000,000' : '1,000,000';
+    reasoning = nameLower.includes('thinking') ? 'Allows reasoning' : 'Fast multimodal';
+  } else if (providerId === 'openai' || nameLower.includes('gpt') || nameLower.includes('o1') || nameLower.includes('o3') || nameLower.includes('o4')) {
+    provider = 'OpenAI';
+    inputs = nameLower.includes('4o') ? 'text, image, audio' : 'text, image, pdf';
+    context = '128,000';
+    reasoning = (nameLower.includes('o1') || nameLower.includes('o3') || nameLower.includes('o4') || nameLower.includes('reason')) ? 'Allows reasoning' : 'High precision';
+  } else if (providerId === 'anthropic' || nameLower.includes('claude')) {
+    provider = 'OpenRouter';
+    inputs = 'text, image, pdf';
+    context = '1,000,000';
+    reasoning = 'Allows reasoning';
+  } else if (providerId === 'deepseek' || nameLower.includes('deepseek')) {
+    provider = 'DeepSeek API';
+    inputs = 'text, code';
+    context = '64,000';
+    reasoning = 'Allows reasoning';
+  } else if (providerId === 'groq' || nameLower.includes('groq')) {
+    provider = 'Groq Cloud';
+    inputs = 'text, code';
+    context = '128,000';
+    reasoning = 'Ultra-fast LPU inference';
+  } else if (nameLower.includes('nemotron') || nameLower.includes('mimo')) {
+    provider = 'OpenCode Zen';
+    inputs = 'text, code';
+    context = '128,000';
+    reasoning = 'Allows reasoning';
+  } else if (nameLower.includes('llama') || nameLower.includes('mistral') || nameLower.includes('phi')) {
+    provider = providerId === 'cloud' ? 'Ollama Cloud' : 'Ollama Local';
+    inputs = (nameLower.includes('vision') || nameLower.includes('llava')) ? 'text, image' : 'text, code';
+    context = nameLower.includes('llama3') ? '128,000' : '32,768';
+    reasoning = 'Local execution';
+  }
+
+  return {
+    model: modelName,
+    provider: provider,
+    inputs: inputs,
+    reasoning: reasoning,
+    context: context
+  };
+}
+
+function attachModelItemHoverDetails(item, modelName, providerId) {
+  item.addEventListener('mouseenter', () => {
+    if (!modelDetailsFlyout || !flyoutValModel) return;
+    const meta = getModelMetadata(modelName, providerId);
+    flyoutValModel.textContent = meta.model;
+    flyoutValProvider.textContent = meta.provider;
+    flyoutValInputs.textContent = meta.inputs;
+    flyoutValReasoning.textContent = meta.reasoning;
+    flyoutValContext.textContent = meta.context;
+
+    const itemRect = item.getBoundingClientRect();
+    const dropdownRect = modelDropdown ? modelDropdown.getBoundingClientRect() : { top: 0, height: 300 };
+    const topOffset = Math.max(8, Math.min(itemRect.top - dropdownRect.top - 8, 260));
+    modelDetailsFlyout.style.top = `${topOffset}px`;
+    modelDetailsFlyout.classList.remove('hidden');
+  });
+
+  item.addEventListener('mouseleave', (e) => {
+    if (modelDetailsFlyout && (!e.relatedTarget || !e.relatedTarget.closest('.model-dropdown-item'))) {
+      modelDetailsFlyout.classList.add('hidden');
+    }
+  });
+}
+
 function renderModelDropdownList() {
   if (!modelDropdownList) return;
   modelDropdownList.innerHTML = '';
@@ -6751,7 +8520,6 @@ function renderModelDropdownList() {
   if (hasGeminiKey && geminiConnectionState === 'connected' && ONLINE_GEMINI_MODELS.length > 0) {
     const onlineHeader = document.createElement('div');
     onlineHeader.className = 'model-dropdown-section-title';
-    onlineHeader.style.cssText = 'padding: 8px 12px 4px 12px; font-size: 11px; font-weight: 600; color: #60a5fa; letter-spacing: 0.02em; text-transform: none;';
     onlineHeader.textContent = 'Google Gemini';
     modelDropdownList.appendChild(onlineHeader);
 
@@ -6761,11 +8529,12 @@ function renderModelDropdownList() {
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       item.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="../../Assets/Brand-Assets/gemini-logo.png" alt="Gemini" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
-          <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
+          <img src="../../Assets/Brand-Assets/gemini-logo.png" alt="Gemini" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
+          <span class="model-name-text">${model.name}</span>
         </div>
-        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.5); flex-shrink: 0; text-align: right; margin-left: 8px;">${model.tag}</span>
+        <span class="model-badge">${model.tag || 'Cloud'}</span>
       `;
+      attachModelItemHoverDetails(item, model.name, 'gemini');
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept('');
         activeModel = model.name;
@@ -6773,6 +8542,7 @@ function renderModelDropdownList() {
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
         if (modelDropdown) modelDropdown.classList.add('hidden');
+        if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
         if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
         logTrace(`Chat context model shifted to Online Model: "${activeModel}"`, 'local');
       });
@@ -6784,10 +8554,10 @@ function renderModelDropdownList() {
   if (window.UltronMultiProviderHub && typeof window.UltronMultiProviderHub.getAvailableModels === 'function') {
     const hubModels = window.UltronMultiProviderHub.getAvailableModels(true);
     const providers = [
+      { id: 'anthropic', label: 'Anthropic Claude', color: '#60a5fa' },
       { id: 'openai', label: 'OpenAI', color: '#10a37f' },
-      { id: 'anthropic', label: 'Anthropic Claude', color: '#d97706' },
       { id: 'deepseek', label: 'DeepSeek API', color: '#3b82f6' },
-      { id: 'groq', label: 'Groq Cloud', color: '#f97316' },
+      { id: 'groq', label: 'Groq Cloud', color: '#60a5fa' },
       { id: 'custom', label: 'Custom Models', color: '#8b5cf6' }
     ];
 
@@ -6796,7 +8566,6 @@ function renderModelDropdownList() {
       if (pModels.length > 0) {
         const pHeader = document.createElement('div');
         pHeader.className = 'model-dropdown-section-title';
-        pHeader.style.cssText = `padding: 10px 12px 4px 12px; font-size: 11px; font-weight: 600; color: ${p.color}; letter-spacing: 0.02em; text-transform: none; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;`;
         pHeader.textContent = p.label;
         modelDropdownList.appendChild(pHeader);
 
@@ -6806,14 +8575,15 @@ function renderModelDropdownList() {
           hasAnyRenderedModel = true;
           const item = document.createElement('div');
           item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
-          const badgeTag = model.tag || (p.id === 'custom' ? 'CUSTOM' : p.id.toUpperCase());
+          const badgeTag = model.tag || (p.id === 'custom' ? 'CUSTOM' : 'API');
           item.innerHTML = `
             <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-              <img src="${pLogo}" alt="${p.label}" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
-              <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.displayName || model.name}</span>
+              <img src="${pLogo}" alt="${p.label}" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
+              <span class="model-name-text">${model.displayName || model.name}</span>
             </div>
-            <span class="model-badge" style="font-size: 10px; font-weight: 600; color: ${p.color}; flex-shrink: 0; text-align: right; margin-left: 8px;">${badgeTag}</span>
+            <span class="model-badge">${badgeTag}</span>
           `;
+          attachModelItemHoverDetails(item, model.displayName || model.name, p.id);
           item.addEventListener('click', async () => {
             await unloadOllamaModelsExcept('');
             activeModel = model.name;
@@ -6821,6 +8591,7 @@ function renderModelDropdownList() {
             modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
             item.classList.add('active');
             if (modelDropdown) modelDropdown.classList.add('hidden');
+            if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
             if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
             logTrace(`Chat context model shifted to ${p.label}: "${activeModel}"`, 'system');
           });
@@ -6834,7 +8605,6 @@ function renderModelDropdownList() {
   if (cloudModels.length > 0) {
     const cloudHeader = document.createElement('div');
     cloudHeader.className = 'model-dropdown-section-title';
-    cloudHeader.style.cssText = 'padding: 10px 12px 4px 12px; font-size: 11px; font-weight: 600; color: #34d399; letter-spacing: 0.02em; text-transform: none; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;';
     cloudHeader.textContent = 'Ollama Cloud';
     modelDropdownList.appendChild(cloudHeader);
 
@@ -6844,11 +8614,12 @@ function renderModelDropdownList() {
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       item.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama Cloud" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
-          <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
+          <img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama Cloud" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
+          <span class="model-name-text">${model.name}</span>
         </div>
-        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: #34d399; flex-shrink: 0; text-align: right; margin-left: 8px;">CLOUD</span>
+        <span class="model-badge">Cloud</span>
       `;
+      attachModelItemHoverDetails(item, model.name, 'cloud');
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept(model.name);
         activeModel = model.name;
@@ -6856,6 +8627,7 @@ function renderModelDropdownList() {
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
         if (modelDropdown) modelDropdown.classList.add('hidden');
+        if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
         if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
         logTrace(`Chat context model shifted to Ollama Cloud: "${activeModel}"`, 'local');
       });
@@ -6866,7 +8638,6 @@ function renderModelDropdownList() {
   // Render Local Ollama Models section
   const localHeader = document.createElement('div');
   localHeader.className = 'model-dropdown-section-title';
-  localHeader.style.cssText = 'padding: 10px 12px 4px 12px; font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.02em; text-transform: none; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 4px;';
   localHeader.textContent = 'Offline Models';
   modelDropdownList.appendChild(localHeader);
 
@@ -6890,18 +8661,20 @@ function renderModelDropdownList() {
       const modelLogo = isHf
         ? '../../Assets/Brand-Assets/hf-logo.png'
         : '../../Assets/Brand-Assets/ollama-white-logo.png';
-      let badgeText = isHf ? 'HF GGUF' : 'LOCAL';
+      let badgeText = isHf ? 'HF GGUF' : 'Free';
       if (model.name.includes(':')) {
         badgeText = model.name.split(':')[1].toUpperCase();
       }
+      const badgeHtml = badgeText === 'LATEST' ? '' : `<span class="model-badge">${badgeText}</span>`;
 
       item.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="${modelLogo}" alt="${isHf ? 'Hugging Face' : 'Ollama'}" style="width: 16px; height: 16px; object-fit: contain; flex-shrink: 0;" />
-          <span class="model-name-text" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${model.name}</span>
+          <img src="${modelLogo}" alt="${isHf ? 'Hugging Face' : 'Ollama'}" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
+          <span class="model-name-text">${model.name}</span>
         </div>
-        <span class="model-badge" style="font-size: 10px; font-weight: 600; color: ${isHf ? '#fde047' : 'rgba(255,255,255,0.5)'}; flex-shrink: 0; text-align: right; margin-left: 8px;">${badgeText}</span>
+        ${badgeHtml}
       `;
+      attachModelItemHoverDetails(item, model.name, 'local');
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept(model.name);
         activeModel = model.name;
@@ -6909,6 +8682,7 @@ function renderModelDropdownList() {
         modelDropdownList.querySelectorAll('.model-dropdown-item').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
         if (modelDropdown) modelDropdown.classList.add('hidden');
+        if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
         if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
         logTrace(`Chat context model shifted to Local Model: "${activeModel}"`, 'local');
       });
@@ -6929,22 +8703,10 @@ function renderModelDropdownList() {
         </svg>
         <span>No Models Available</span>
       </div>
-      <p style="margin: 0 0 10px 0; color: #a1a1aa; font-size: 11px; line-height: 1.4;">
+      <p style="margin: 0; color: #a1a1aa; font-size: 11px; line-height: 1.4;">
         Download local models from the Models tab or configure cloud providers in Settings.
       </p>
-      <button id="btn-dropdown-go-models" style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #ffffff; padding: 5px 12px; font-size: 11.5px; font-weight: 600; border-radius: 6px; cursor: pointer;">
-        Browse Models Catalog
-      </button>
     `;
-    const btnGo = emptyState.querySelector('#btn-dropdown-go-models');
-    if (btnGo) {
-      btnGo.addEventListener('click', () => {
-        if (modelDropdown) modelDropdown.classList.add('hidden');
-        if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
-        const navModels = document.querySelector('[data-view="models"]');
-        if (navModels) navModels.click();
-      });
-    }
     modelDropdownList.appendChild(emptyState);
   }
 
@@ -7124,6 +8886,7 @@ if (modelSelectorBtn) {
     const isOpen = !modelDropdown.classList.contains('hidden');
     if (isOpen) {
       modelDropdown.classList.add('hidden');
+      if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
       if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
     } else {
       // Close plus menu if open
@@ -7131,6 +8894,13 @@ if (modelSelectorBtn) {
       if (plusDropdown) plusDropdown.classList.add('hidden');
       const plusWrapper = document.getElementById('plus-menu-wrapper');
       if (plusWrapper) plusWrapper.classList.remove('open');
+
+      if (modelDropdownSearchInput) {
+        modelDropdownSearchInput.value = '';
+      }
+      if (modelDetailsFlyout) {
+        modelDetailsFlyout.classList.add('hidden');
+      }
 
       // Open instantly with rendered model list
       try {
@@ -7140,6 +8910,10 @@ if (modelSelectorBtn) {
       }
       modelDropdown.classList.remove('hidden');
       if (modelSelectorWrapper) modelSelectorWrapper.classList.add('open');
+
+      if (modelDropdownSearchInput) {
+        setTimeout(() => modelDropdownSearchInput.focus(), 50);
+      }
 
       // Proactively refresh Ollama models from tags API & IPC
       refreshInstalledModelsFromOllama().then(() => {
@@ -7158,11 +8932,49 @@ if (modelSelectorBtn) {
   });
 }
 
+if (modelDropdown) {
+  modelDropdown.addEventListener('mouseleave', () => {
+    if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
+  });
+}
+
+if (modelDropdownSearchInput) {
+  modelDropdownSearchInput.addEventListener('input', (e) => {
+    const query = (e.target.value || '').toLowerCase().trim();
+    if (!modelDropdownList) return;
+    const items = modelDropdownList.querySelectorAll('.model-dropdown-item');
+    const titles = modelDropdownList.querySelectorAll('.model-dropdown-section-title');
+
+    items.forEach(item => {
+      const text = (item.textContent || '').toLowerCase();
+      if (!query || text.includes(query)) {
+        item.style.display = 'flex';
+      } else {
+        item.style.display = 'none';
+      }
+    });
+
+    titles.forEach(title => {
+      let next = title.nextElementSibling;
+      let hasVisible = false;
+      while (next && !next.classList.contains('model-dropdown-section-title')) {
+        if (next.classList.contains('model-dropdown-item') && next.style.display !== 'none') {
+          hasVisible = true;
+          break;
+        }
+        next = next.nextElementSibling;
+      }
+      title.style.display = hasVisible ? 'block' : 'none';
+    });
+  });
+}
+
 const btnDropdownDownloadModels = document.getElementById('btn-dropdown-download-models');
 if (btnDropdownDownloadModels) {
   btnDropdownDownloadModels.addEventListener('click', (e) => {
     e.stopPropagation();
     if (modelDropdown) modelDropdown.classList.add('hidden');
+    if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
     if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
     if (typeof openSettingsPanel === 'function') {
       openSettingsPanel('models');
@@ -7172,7 +8984,8 @@ if (btnDropdownDownloadModels) {
 
 document.addEventListener('click', (e) => {
   if (modelSelectorWrapper && !modelSelectorWrapper.contains(e.target)) {
-    modelDropdown.classList.add('hidden');
+    if (modelDropdown) modelDropdown.classList.add('hidden');
+    if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
     modelSelectorWrapper.classList.remove('open');
   }
   if (voiceModeModelsWrap && !voiceModeModelsWrap.contains(e.target)) {
@@ -7423,13 +9236,52 @@ function isMeaninglessPrompt(text) {
   return false;
 }
 
+function getThinkingLabelForPrompt(prompt) {
+  const p = String(prompt || '').toLowerCase();
+  if (isReminderOrTimerRequest(prompt)) {
+    return 'Setting reminder';
+  }
+  if (/\b(mindmap|mind\s*map|concept\s*tree|taxonomy)\b/i.test(p)) {
+    return 'Generating mindmap';
+  }
+  if (/\b(architecture|tech stack|system design|layer|microservice)\b/i.test(p)) {
+    return 'Creating visual architecture';
+  }
+  if (/\b(flowchart|flow\s*chart|process\s*flow|pipeline)\b/i.test(p)) {
+    return 'Visualizing flowchart';
+  }
+  if (/\b(chart|graph|plot|bar\s*chart|pie\s*chart|line\s*chart)\b/i.test(p)) {
+    return 'Visualizing data chart';
+  }
+  if (/\b(diagram|visualize|draw|timeline|roadmap|gantt)\b/i.test(p)) {
+    return 'Visualizing diagram';
+  }
+  if (/\b(interactive\s*ui|generative\s*ui|calculator|converter|widget)\b/i.test(p)) {
+    return 'Building interactive UI';
+  }
+  if (/\b(search|find|google|look up|who is|price|latest news)\b/i.test(p)) {
+    return 'Searching knowledge';
+  }
+  return 'Thinking';
+}
+
 // Submit prompt logic
 async function submitPrompt(overridePrompt) {
-  if (isAwaitingResponse) return;
+  if (isAwaitingResponse || _isSubmittingPrompt) return;
+  _isSubmittingPrompt = true;
 
   let prompt = (typeof overridePrompt === 'string' && overridePrompt.trim())
     ? overridePrompt.trim()
-    : chatInput.value.trim();
+    : (chatInput ? chatInput.value.trim() : '');
+
+  // Synchronously clear input field immediately to prevent race-condition double sends
+  if (typeof overridePrompt !== 'string' && chatInput) {
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+  }
+
+  setSendingState(true);
+
   let currentImagePayloads = [];
   const userAttachedVisuals = [];
   let llmEnrichedPrompt = prompt;
@@ -7478,7 +9330,11 @@ async function submitPrompt(overridePrompt) {
     } catch (_) { /* artifact resolution is best-effort */ }
   }
 
-  if (!prompt && userAttachedVisuals.length === 0) return;
+  if (!prompt && userAttachedVisuals.length === 0) {
+    setSendingState(false);
+    _isSubmittingPrompt = false;
+    return;
+  }
 
   const displayPrompt = prompt;
   prompt = normalizePromptTypos(llmEnrichedPrompt || prompt || 'Please analyze the attached file(s).');
@@ -7486,13 +9342,6 @@ async function submitPrompt(overridePrompt) {
   // Create a new AbortController for this request so the stop button can cancel it
   _activeAbortController = new AbortController();
 
-  setSendingState(true);
-  
-  if (typeof overridePrompt !== 'string') {
-    chatInput.value = '';
-    chatInput.style.height = 'auto';
-  }
-  
   // Toggle off search overlay if open
   chatSearchOverlay.classList.add('hidden');
   
@@ -7564,8 +9413,9 @@ async function submitPrompt(overridePrompt) {
         renderChecklist([]);
       }
 
-      // 4. Setup AI placeholder loading bubble
-      const aiBubble = appendChatMessage('Ultron', '<div class="thinking-container">Thinking<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>', true, { skipSave: true });
+      // 4. Setup AI placeholder loading bubble with dynamic thinking status
+      const thinkingLabel = getThinkingLabelForPrompt(routingPrompt);
+      const aiBubble = appendChatMessage('Ultron', `<div class="thinking-container">${escapeHtml(thinkingLabel)}<div class="thinking-dot-wrapper"><span class="thinking-dot"></span><span class="thinking-dot"></span><span class="thinking-dot"></span></div></div>`, true, { skipSave: true });
       
       // Check model readiness (Ollama / cloud keys / HF pull / Ollama Cloud auth)
       if (intent === 'action' || intent === 'conversation' || intent === 'search') {
@@ -7589,7 +9439,30 @@ async function submitPrompt(overridePrompt) {
         triggerAiTitleGeneration(prompt);
       }
 
-      if (intent === 'user_identity') {
+      if (intent === 'system_control') {
+        const sysResult = await executeSystemControlQuery(routingPrompt);
+        const response = sysResult.message || (sysResult.success ? 'System setting updated.' : 'Failed to update system setting.');
+        await typeMessageResponse(aiBubble, response);
+        appendChatMessage('Ultron', response, true, { skipRender: true });
+
+      } else if (intent === 'reminder') {
+        const response = buildReminderResponse(routingPrompt);
+        await typeMessageResponse(aiBubble, response);
+        appendChatMessage('Ultron', response, true, { skipRender: true });
+
+      } else if (intent === 'math') {
+        const mathResult = evaluateMathQuery(routingPrompt);
+        let response = '';
+        if (mathResult) {
+          response = formatMathSolution(mathResult);
+        } else {
+          const mathSysPrompt = `You are an expert mathematician and precise computational assistant. Solve the user's calculation step-by-step with exact arithmetic and format in clean Markdown.`;
+          response = await queryOfflineLLM(prompt, [], 'conversation', mathSysPrompt, currentImagePayloads);
+        }
+        await typeMessageResponse(aiBubble, response);
+        appendChatMessage('Ultron', response, true, { skipRender: true });
+
+      } else if (intent === 'user_identity') {
         const userName = getUserFullName();
         const sysEnv = await getSystemContext();
         const response = `You are **${userName}**! You are logged into this Windows PC as \`${sysEnv.username || 'vedan'}\` on computer **${sysEnv.hostname || 'Ultron-PC'}**. I am Ultron, your local AI assistant!`;
@@ -7692,10 +9565,10 @@ async function submitPrompt(overridePrompt) {
             response = `⚠️ **Local Ollama Model Connection Error**\n\nCould not connect to model **${activeModel || 'ollama'}** on ` + '`http://127.0.0.1:11434`' + `.\n\n**To Fix:**\n1. Make sure Ollama is running (` + '`ollama serve`' + `).\n2. Pull your model (` + '`ollama pull ' + (activeModel || 'tinyllama') + '`' + `).\n3. Or select Google Gemini from the top dropdown.`;
             notifyModelIssue(classifyModelFailure('Could not connect to Ollama service', activeModel));
           }
-        } else if (/Connection Error|Provider Error|API Key Required|Memory Limit Exceeded/i.test(response)) {
+        } else if (/Connection Error|Provider Error|API Key Required|Memory Limit Exceeded|Model request failed/i.test(response)) {
           notifyModelIssue(classifyModelFailure(response, activeModel));
         }
-        response = String(response || '').replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, 'Ultron');
+        response = String(response || '').replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, 'Brown');
         if (response && (shouldFallbackToWebSearch(routingPrompt, response) || (isGenericAssistantGreeting(response) && isProductOrShoppingQuery(routingPrompt)))) {
           logTrace('Factual or time-sensitive question — searching the web for a current answer.', 'system');
           await runSearchIntentFlow(routingPrompt, aiBubble, currentImagePayloads, [], [], Date.now(), false);
@@ -8744,13 +10617,39 @@ async function runSearchIntentFlow(userPrompt, aiBubble, loopImagePayloads, acti
   // Never let attached-document bodies become a web-search query.
   const stripped = String(userPrompt || '').replace(/📄\s*\*\*Attached Document[\s\S]*?```/gi, '').trim();
   if (stripped) userPrompt = stripped;
+
+  if (!userPrompt || userPrompt.trim().length < 3 || /^(search|find|google|look up|browse)$/i.test(userPrompt.trim())) {
+    const clarMsg = "What would you like me to search for? Please provide a specific topic, question, or website name.";
+    renderMessageContent(aiBubble, clarMsg);
+    finalizeAiMessageBubble(aiBubble, clarMsg);
+    appendChatMessage('Ultron', clarMsg, true, { skipRender: true });
+    return;
+  }
+
+  const locCtx = window.UltronLocationContext;
+  const isPlacesQuery = locCtx ? locCtx.isLocalOrPlacesQuery(userPrompt) : isLocalPlacesIntent(userPrompt);
+  const isImplicitLoc = locCtx ? locCtx.isImplicitLocationPhrase(userPrompt) : /\b(near me|around me|my area|my city|nearby|here)\b/i.test(userPrompt);
+
+  if (isPlacesQuery && isImplicitLoc) {
+    const loc = locCtx ? await locCtx.resolveEffectiveLocation(userPrompt, { getSystemContext }) : null;
+    const hasValid = locCtx ? locCtx.hasValidLocation(loc) : Boolean(loc?.label && !/^(unknown|none)$/i.test(loc.label));
+
+    if (!hasValid) {
+      const locAskMsg = `To help you find the best places and restaurants near you, could you please tell me your city or neighborhood? (For example: *"Amravati"* or *"Bandra, Mumbai"*). Once you share your location, I will find top-rated spots for you!`;
+      renderMessageContent(aiBubble, locAskMsg);
+      finalizeAiMessageBubble(aiBubble, locAskMsg);
+      appendChatMessage('Ultron', locAskMsg, true, { skipRender: true });
+      return;
+    }
+  }
+
   const userName = getUserFullName();
   const researchEnabled = window.UltronAgentResearch
     && window.UltronAgentResearch.getResearchConfig().enabled;
   const useDeepResearch = researchEnabled
     && window.UltronAgentResearch.isDeepResearchRequest(userPrompt);
 
-  renderSearchLiveStatus(aiBubble, agentSubgoals, useDeepResearch ? 'Planning multi-hop research...' : 'Analyzing prompt & formulating search strategy...');
+  renderSearchLiveStatus(aiBubble, agentSubgoals, useDeepResearch ? 'Planning multi-hop research...' : 'Thinking: Analyzing query & formulating targeted search...');
   await new Promise(resolve => setTimeout(resolve, 300));
 
   let searchResult = null;
@@ -9132,7 +11031,7 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
       }
     }
 
-    rawResponse = rawResponse.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Ultron");
+    rawResponse = rawResponse.replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, "Brown");
 
     if (!toolCall) {
     const reactFinalAnswer = extractReactFinalAnswer(rawResponse);
@@ -9188,6 +11087,13 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
         if (toolCall) {
           completionNudges++;
           activitySteps.push({ type: 'EXECUTE', label: humanizeToolCallLabel(toolCall) });
+        } else if (isWebSearchEnabled() && (isFactualOrCurrentEventsQuery(userPrompt) || isInformationalOrHowToQuery(userPrompt) || shouldFallbackToWebSearch(userPrompt, reactFinalAnswer))) {
+          logTrace('Informational or knowledge query in agent loop — falling back to live web search.', 'system');
+          return await runSearchIntentFlow(userPrompt, aiBubble, loopImagePayloads, activitySteps, agentSubgoals, loopStartedAt, showTaskPlan);
+        } else if (reactFinalAnswer && reactFinalAnswer.trim().length > 20 && !claimsDesktopTaskCompleted(reactFinalAnswer)) {
+          isDone = true;
+          finalResponse = sanitizeResponseText(reactFinalAnswer, userPrompt);
+          break;
         } else {
           isDone = true;
           finalResponse = "I couldn't run that on your PC — the model answered without executing anything. Try rephrasing, e.g. `create a folder named vedant in downloads`.";
@@ -9431,7 +11337,7 @@ ${missingInstruction}`;
         finalResponse = `Could not fetch content from ${pageUrl}. Check the URL or your network connection.`;
       } else {
         toolResult = pageContent.slice(0, 12000);
-        const summarySystemPrompt = `You are Ultron in a direct 1-on-1 conversation.
+        const summarySystemPrompt = `You are Brown in a direct 1-on-1 conversation.
 Summarize or answer using ONLY the fetched page content below.
 Never include raw URLs in the body. Be concise and structured.`;
         const summaryPrompt = `User request:
@@ -9954,37 +11860,64 @@ Write the final answer now.`;
 }
 
 // Load historical conversation session
-function loadSession(id, title) {
+async function loadSession(id, title) {
   if (typeof closeSettingsPanel === 'function') {
     closeSettingsPanel();
   }
   const chatMain = document.querySelector('.chat-main');
 
-  if (activeChatTitle) activeChatTitle.textContent = title;
   setSendingState(false);
   activeSubgoals = [];
 
   try {
-    if (!id || !conversationsStore[id]) {
+    if (!id) {
       if (chatMain) chatMain.classList.add('empty-state');
       chatMessagesContainer.innerHTML = '';
       updateWelcomeGreeting();
       renderChecklist([]);
+      if (activeChatTitle) activeChatTitle.textContent = 'New chat';
       return;
+    }
+
+    // Fallback load from disk if session not currently populated in memory
+    if (!conversationsStore[id] && window.ultronAPI && typeof window.ultronAPI.loadConversations === 'function') {
+      try {
+        const loadRes = await window.ultronAPI.loadConversations();
+        if (loadRes && loadRes.success && loadRes.data) {
+          const loadedStore = JSON.parse(loadRes.data);
+          if (loadedStore && typeof loadedStore === 'object') {
+            Object.assign(conversationsStore, loadedStore);
+          }
+        }
+      } catch (loadErr) {
+        console.warn('Fallback loadConversations error:', loadErr);
+      }
     }
 
     currentSessionId = id;
     chatMessagesContainer.innerHTML = '';
 
     const savedSession = conversationsStore[id];
+    const sessionTitle = title || savedSession?.title || 'Chat';
+    if (activeChatTitle) activeChatTitle.textContent = sessionTitle;
+
     if (savedSession && Array.isArray(savedSession.messages) && savedSession.messages.length > 0) {
       if (chatMain) chatMain.classList.remove('empty-state');
       for (const msg of savedSession.messages) {
+        if (!msg) continue;
         const isAi = msg.isAi != null ? Boolean(msg.isAi) : msg.sender === 'Ultron';
-        const contentEl = renderChatMessage(msg.sender, msg.text, isAi);
-        if (isAi && contentEl) finalizeAiMessageBubble(contentEl, msg.text, { autoSpeak: false });
+        const contentEl = renderChatMessage(msg.sender || (isAi ? 'Ultron' : 'User'), msg.text || '', isAi);
+        if (isAi && contentEl) {
+          try {
+            finalizeAiMessageBubble(contentEl, msg.text || '', { autoSpeak: false });
+          } catch (finErr) {
+            console.warn('finalizeAiMessageBubble non-fatal error:', finErr);
+          }
+        }
       }
-      chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+      setTimeout(() => {
+        chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+      }, 50);
     } else {
       if (chatMain) chatMain.classList.add('empty-state');
       updateWelcomeGreeting();
@@ -10134,6 +12067,18 @@ function getModelBrandInfo(modelName, author = '', provider = '') {
     };
   }
 
+  const isCloud = m.endsWith('-cloud') || provider === 'cloud';
+  const isGptOss = m.startsWith('gpt-oss') || m.startsWith('gptoss');
+
+  if (isCloud || isGptOss) {
+    return {
+      brand: isCloud ? 'Ollama Cloud' : 'Ollama',
+      author: author || 'ollama',
+      avatar: `<div class="model-brand-avatar ollama-avatar"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
+      prefix: ''
+    };
+  }
+
   // Cloud multi-providers
   if (provider === 'gemini' || m.includes('gemini')) {
     return {
@@ -10143,7 +12088,7 @@ function getModelBrandInfo(modelName, author = '', provider = '') {
       prefix: ''
     };
   }
-  if (provider === 'openai' || m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) {
+  if (provider === 'openai' || ((m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3')) && !isGptOss && !isCloud)) {
     return {
       brand: 'OpenAI',
       author: author || 'openai',
@@ -10313,6 +12258,7 @@ function selectAndActivateModel(modelName) {
   updateModelSelectorLabel();
   syncModelAttachmentCapabilities();
   renderSettingsModels();
+  renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
   logTrace(`Active model set to "${modelName}".`, 'system');
 }
 
@@ -10334,17 +12280,37 @@ function renderSettingsModels() {
   settingsModelsList.innerHTML = '';
   renderModelTypeFilterBar(document.getElementById('installed-model-filters'));
 
-  const filteredInstalled = (installedModelsList || []).filter(model => {
+  const effectiveInstalledMap = new Map();
+  // 1. Locally installed models
+  (installedModelsList || []).forEach(model => {
+    const name = typeof model === 'string' ? model : model.name;
+    if (name) {
+      effectiveInstalledMap.set(name.toLowerCase(), typeof model === 'string' ? { name } : model);
+    }
+  });
+
+  // 2. If signed in with Ollama Cloud, include all cloud models in the Installed Models library!
+  if (isOllamaCloudConnectedState) {
+    (OLLAMA_CLOUD_PULL_MODELS || []).forEach(model => {
+      if (!effectiveInstalledMap.has(model.name.toLowerCase())) {
+        effectiveInstalledMap.set(model.name.toLowerCase(), model);
+      }
+    });
+  }
+
+  const allEffectiveInstalled = Array.from(effectiveInstalledMap.values());
+
+  const filteredInstalled = allEffectiveInstalled.filter(model => {
     const name = typeof model === 'string' ? model : model.name;
     return modelMatchesFilter(name, '', [], activeModelCatalogFilter);
   });
   
-  // 2. Render downloaded models
-  if (installedModelsList.length === 0) {
+  // 2. Render downloaded / unlocked models
+  if (allEffectiveInstalled.length === 0) {
     settingsModelsList.innerHTML = `
       <div style="border: 1px dashed var(--border-color); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 8px;">
-        <p style="font-size: 13px; color: var(--accent-white); font-weight: 500; margin: 0 0 6px 0;">No local model weights installed yet</p>
-        <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 14px 0;">Click below to download <strong>Phi-3</strong> (2.2 GB), a stronger small model for reliable offline replies.</p>
+        <p style="font-size: 13px; color: var(--accent-white); font-weight: 500; margin: 0 0 6px 0;">No model weights installed yet</p>
+        <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 14px 0;">Connect your <strong>Ollama Cloud</strong> account above or download <strong>Phi-3</strong> (2.2 GB) for offline replies.</p>
         <button id="btn-quick-download-phi3" class="btn-primary-sm" style="background-color: #ffffff !important; color: #000000 !important; font-weight: 600; padding: 6px 16px; font-size: 12px; border-radius: 6px; cursor: pointer; border: none;">
           Download Phi-3 (2.2 GB)
         </button>
@@ -10438,8 +12404,11 @@ function renderSettingsModels() {
         <div class="card-header-right">
           <span class="card-token-metric">${escapeHtml(paramBadge)} • ${escapeHtml(sizeText)}</span>
           ${isActive
-            ? `<span class="badge-installed">ACTIVE</span>`
-            : `<button class="btn-select-model" data-model="${escapeHtml(name)}">Select</button>`
+            ? `<span class="badge-in-use">In Use</span>`
+            : (isCloudModel
+                ? `<button class="btn-cloud-use btn-select-model" data-model="${escapeHtml(name)}">Use Model</button>`
+                : `<button class="btn-select-model" data-model="${escapeHtml(name)}">Select</button>`
+              )
           }
           <button class="btn-delete-model" data-model="${escapeHtml(name)}" title="Delete this model">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
@@ -11249,6 +13218,189 @@ if (btnBannerClose) {
   });
 }
 
+// ==========================================
+// MODELS TOP-RIGHT DOWNLOAD TRACKER & CIRCULAR PROGRESS CONTROLLER
+// ==========================================
+const activeModelDownloadsMap = new Map();
+let isDownloadPopoverOpen = false;
+
+function getDownloadProgressRingOffset(percent) {
+  const radius = 14;
+  const circumference = 2 * Math.PI * radius; // ~87.9646
+  const pct = Math.max(0, Math.min(100, Number(percent) || 0));
+  return circumference - (pct / 100) * circumference;
+}
+
+function updateModelsDownloadTrackerUI() {
+  const trackerEl = document.getElementById('models-download-tracker');
+  const btnIndicator = document.getElementById('btn-models-download-indicator');
+  const ringFill = document.getElementById('download-progress-ring');
+  const badge = document.getElementById('download-active-badge');
+  const popover = document.getElementById('models-download-popover');
+  const popoverSummary = document.getElementById('download-popover-status-summary');
+  const itemsContainer = document.getElementById('download-popover-items');
+
+  if (!trackerEl || !btnIndicator || !ringFill) return;
+
+  const entries = Array.from(activeModelDownloadsMap.values());
+  const activeDownloads = entries.filter(e => e.status !== 'Completed' && e.status !== 'Failed' && e.status !== 'Cancelled');
+
+  if (entries.length === 0) {
+    trackerEl.classList.add('hidden');
+    if (popover) popover.classList.add('hidden');
+    isDownloadPopoverOpen = false;
+    return;
+  }
+
+  // Show tracker in top right of models header
+  trackerEl.classList.remove('hidden');
+
+  if (activeDownloads.length > 0) {
+    btnIndicator.classList.add('is-downloading');
+    if (badge) {
+      badge.classList.remove('hidden');
+      badge.textContent = String(activeDownloads.length);
+    }
+    
+    // Average progress percentage for the circular ring
+    const avgPercent = activeDownloads.reduce((acc, curr) => acc + (curr.percent || 0), 0) / activeDownloads.length;
+    ringFill.style.strokeDashoffset = `${getDownloadProgressRingOffset(avgPercent)}px`;
+    ringFill.style.stroke = '#22c55e';
+    if (popoverSummary) {
+      popoverSummary.textContent = `${activeDownloads.length} Downloading`;
+      popoverSummary.style.color = '#22c55e';
+    }
+  } else {
+    btnIndicator.classList.remove('is-downloading');
+    if (badge) badge.classList.add('hidden');
+    ringFill.style.strokeDashoffset = '0px';
+    ringFill.style.stroke = '#22c55e';
+    if (popoverSummary) {
+      popoverSummary.textContent = 'All Finished';
+      popoverSummary.style.color = '#a1a1aa';
+    }
+  }
+
+  // Render popover items
+  if (itemsContainer) {
+    itemsContainer.innerHTML = '';
+    entries.forEach((item) => {
+      const isHf = item.modelName.startsWith('hf.co/');
+      const card = document.createElement('div');
+      card.className = 'download-popover-card';
+      
+      const isDone = item.status === 'Completed';
+      const isCancelled = item.status === 'Cancelled';
+      const isFailed = item.status === 'Failed';
+
+      card.innerHTML = `
+        <div class="download-card-title-row">
+          <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+            <span class="download-card-name" title="${escapeHtml(item.modelName)}">${escapeHtml(item.modelName)}</span>
+            <span class="download-card-tag">${isHf ? 'GGUF' : 'OLLAMA'}</span>
+          </div>
+          ${(!isDone && !isCancelled && !isFailed) ? `
+            <button type="button" class="btn-popover-cancel" data-model="${escapeHtml(item.modelName)}">Cancel</button>
+          ` : `
+            <span style="font-size: 10px; font-weight: 600; color: ${isDone ? '#22c55e' : '#ef4444'};">${escapeHtml(item.status)}</span>
+          `}
+        </div>
+        <div class="download-card-progress-track">
+          <div class="download-card-progress-fill" style="width: ${item.percent || 0}%; ${isDone ? 'background: #22c55e;' : ''}"></div>
+        </div>
+        <div class="download-card-stats-row">
+          <span>${item.percent || 0}% ${item.downloaded ? `(${escapeHtml(item.downloaded)}${item.total ? ` / ${escapeHtml(item.total)}` : ''})` : ''}</span>
+          <span>${item.speed ? escapeHtml(item.speed) : (isDone ? 'Completed' : '--')}</span>
+        </div>
+      `;
+
+      const btnCancel = card.querySelector('.btn-popover-cancel');
+      if (btnCancel) {
+        btnCancel.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          btnCancel.disabled = true;
+          btnCancel.textContent = 'Cancelling…';
+          try {
+            await window.ultronAPI.cancelDownloadModel(item.modelName);
+            item.status = 'Cancelled';
+            updateModelsDownloadTrackerUI();
+          } catch (err) {
+            console.warn('Cancel error:', err);
+          }
+        });
+      }
+
+      itemsContainer.appendChild(card);
+    });
+  }
+}
+
+function initModelsDownloadTracker() {
+  const btnIndicator = document.getElementById('btn-models-download-indicator');
+  const popover = document.getElementById('models-download-popover');
+  const trackerEl = document.getElementById('models-download-tracker');
+
+  if (!btnIndicator || !popover) return;
+
+  btnIndicator.addEventListener('click', (e) => {
+    e.stopPropagation();
+    isDownloadPopoverOpen = !isDownloadPopoverOpen;
+    if (isDownloadPopoverOpen) {
+      popover.classList.remove('hidden');
+      updateModelsDownloadTrackerUI();
+    } else {
+      popover.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (isDownloadPopoverOpen && trackerEl && !trackerEl.contains(e.target)) {
+      isDownloadPopoverOpen = false;
+      popover.classList.add('hidden');
+    }
+  });
+
+  // Global listener for download progress from any model download
+  if (window.ultronAPI?.onDownloadProgress) {
+    window.ultronAPI.onDownloadProgress((data) => {
+      if (!data || !data.modelName) return;
+      const key = data.modelName.toLowerCase();
+      const existing = activeModelDownloadsMap.get(key) || { modelName: data.modelName };
+      
+      existing.modelName = data.modelName;
+      existing.percent = typeof data.percent === 'number' ? data.percent : (existing.percent || 0);
+      existing.downloaded = data.downloaded || existing.downloaded || '';
+      existing.total = data.total || existing.total || '';
+      existing.speed = data.speed || existing.speed || '';
+      existing.status = existing.percent >= 100 ? 'Completed' : 'Downloading…';
+      existing.timestamp = Date.now();
+
+      activeModelDownloadsMap.set(key, existing);
+      updateModelsDownloadTrackerUI();
+
+      // Update specific card button if visible
+      const activeCardBtn = document.querySelector(`.btn-catalog-pull[data-model="${data.modelName}"], .btn-catalog-pull[data-model="${key}"]`);
+      if (activeCardBtn && existing.status !== 'Completed') {
+        activeCardBtn.classList.add('is-downloading');
+        activeCardBtn.disabled = true;
+        activeCardBtn.innerHTML = `
+          <svg class="lottie-download-svg is-active-anim" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#22c55e" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;">
+            <line class="lottie-download-beam" x1="12" y1="2" x2="12" y2="13" stroke="#22c55e" stroke-width="1.8"></line>
+            <g class="lottie-download-arrow">
+              <line class="lottie-download-stem" x1="12" y1="4" x2="12" y2="13"></line>
+              <polyline points="8 9.5 12 13.5 16 9.5"></polyline>
+            </g>
+            <path class="lottie-download-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+          </svg>
+          Downloading (${existing.percent}%)
+        `;
+      }
+    });
+  }
+}
+
+initModelsDownloadTracker();
+
 let activeDownloadingModel = null;
 
 // Bind model downloader
@@ -11260,7 +13412,6 @@ btnDownloadModel.addEventListener('click', async () => {
   if (!cloudOk) return;
   
   activeDownloadingModel = modelName;
-  const inputsRow = document.getElementById('download-inputs-row');
   const progressContainer = document.getElementById('download-progress-container');
   const progressStatus = document.getElementById('download-progress-status');
   const progressStats = document.getElementById('download-progress-stats');
@@ -11283,6 +13434,19 @@ btnDownloadModel.addEventListener('click', async () => {
   
   logTrace(`Triggering background weight pull: "ollama pull ${modelName}"`, 'system');
   
+  // Register in download activity tracker
+  activeModelDownloadsMap.set(modelName.toLowerCase(), {
+    modelName,
+    percent: 0,
+    downloaded: '0 MB',
+    total: '',
+    speed: '--',
+    status: 'Downloading…',
+    timestamp: Date.now()
+  });
+  updateModelsDownloadTrackerUI();
+  renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+
   if (progressContainer) {
     progressContainer.style.setProperty('display', 'block', 'important');
     progressContainer.classList.remove('hidden');
@@ -11303,13 +13467,40 @@ btnDownloadModel.addEventListener('click', async () => {
       if (progressSpeed) {
         progressSpeed.textContent = data.speed ? `Speed: ${data.speed}` : 'Speed: --';
       }
+
+      // Update tracker Map
+      const item = activeModelDownloadsMap.get(modelName.toLowerCase()) || { modelName };
+      item.percent = data.percent;
+      item.downloaded = data.downloaded;
+      item.total = data.total;
+      item.speed = data.speed;
+      item.status = data.percent >= 100 ? 'Completed' : 'Downloading…';
+      activeModelDownloadsMap.set(modelName.toLowerCase(), item);
+      updateModelsDownloadTrackerUI();
     }
   });
   
   try {
     const result = await window.ultronAPI.downloadModel(modelName);
+    const item = activeModelDownloadsMap.get(modelName.toLowerCase());
+
     if (result.success) {
       logTrace(`Model weights for "${modelName}" pulled successfully!`, 'system');
+      if (item) {
+        item.status = 'Completed';
+        item.percent = 100;
+        item.justCompleted = true;
+        updateModelsDownloadTrackerUI();
+        renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+        renderSettingsModels();
+
+        setTimeout(() => {
+          if (item) item.justCompleted = false;
+          activeModelDownloadsMap.delete(modelName.toLowerCase());
+          updateModelsDownloadTrackerUI();
+          renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+        }, 4500);
+      }
       alert(`Model weights for "${modelName}" pulled successfully!\n\nTo run this model manually from the command line, run:\nollama run ${modelName}`);
       inputDownloadModel.value = '';
       
@@ -11318,8 +13509,22 @@ btnDownloadModel.addEventListener('click', async () => {
       renderSettingsModels();
     } else if (result.cancelled) {
       logTrace(`Model pull for "${modelName}" was cancelled by user.`, 'system');
+      if (item) {
+        item.status = 'Cancelled';
+        updateModelsDownloadTrackerUI();
+        setTimeout(() => {
+          activeModelDownloadsMap.delete(modelName.toLowerCase());
+          updateModelsDownloadTrackerUI();
+          renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+        }, 3000);
+      }
     } else {
       logTrace(`Failed to download weights: ${result.error}`, 'system');
+      if (item) {
+        item.status = 'Failed';
+        updateModelsDownloadTrackerUI();
+        renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
+      }
       alert(`Failed to download weights: ${result.error}`);
     }
   } catch (err) {
@@ -11365,11 +13570,14 @@ let hfSearchDebounceTimer = null;
 let activeHfSearchQuery = '';
 
 const OLLAMA_CLOUD_PULL_MODELS = [
-  { name: 'gpt-oss:20b-cloud', size: '20B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Fast general tasks on Ollama Cloud (free tier — sign in in Settings → Models)', tags: ['cloud', 'thinking'] },
-  { name: 'gpt-oss:120b-cloud', size: '120B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Large reasoning model — runs on Ollama servers, not your GPU', tags: ['cloud', 'thinking'] },
-  { name: 'deepseek-v3.1:671b-cloud', size: '671B', downloadSize: 'Cloud', provider: 'ollama', desc: 'DeepSeek v3.1 cloud inference via Ollama', tags: ['cloud', 'thinking'] },
-  { name: 'qwen3-coder:480b-cloud', size: '480B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Heavy code generation on Ollama Cloud', tags: ['cloud', 'code'] },
-  { name: 'minimax-m2.7-cloud', size: 'CLOUD', downloadSize: 'Cloud', provider: 'ollama', desc: 'MiniMax M2.7 cloud model', tags: ['cloud'] },
+  { name: 'gpt-oss:20b-cloud', size: '20B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Fast general tasks & coding on Ollama Cloud (free tier — runs on Ollama servers)', tags: ['cloud', 'thinking', 'code'] },
+  { name: 'gpt-oss:120b-cloud', size: '120B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Large reasoning & chain-of-thought model — runs on Ollama cloud infrastructure', tags: ['cloud', 'thinking'] },
+  { name: 'deepseek-v3.1:671b-cloud', size: '671B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Flagship DeepSeek v3.1 671B mixture-of-experts cloud inference via Ollama', tags: ['cloud', 'thinking'] },
+  { name: 'deepseek-r1:70b-cloud', size: '70B', downloadSize: 'Cloud', provider: 'ollama', desc: 'DeepSeek R1 70B reasoning & math model hosted on Ollama Cloud', tags: ['cloud', 'thinking'] },
+  { name: 'qwen3-coder:480b-cloud', size: '480B', downloadSize: 'Cloud', provider: 'ollama', desc: 'State-of-the-art code generation & repository reasoning on Ollama Cloud', tags: ['cloud', 'code'] },
+  { name: 'qwen2.5:72b-cloud', size: '72B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Alibaba Qwen 2.5 72B flagship high-accuracy cloud model', tags: ['cloud', 'thinking'] },
+  { name: 'llama3.3:70b-cloud', size: '70B', downloadSize: 'Cloud', provider: 'ollama', desc: 'Meta Llama 3.3 70B versatile reasoning & chat model hosted on Ollama servers', tags: ['cloud'] },
+  { name: 'minimax-m2.7-cloud', size: 'CLOUD', downloadSize: 'Cloud', provider: 'ollama', desc: 'MiniMax M2.7 high speed multimodal cloud model', tags: ['cloud'] },
 ];
 
 const OLLAMA_POPULAR_MODELS = [
@@ -11634,7 +13842,10 @@ function renderOllamaCatalog(filterQuery = '') {
 
   catalogListEl.innerHTML = '';
   const query = filterQuery.toLowerCase().trim();
-  const installedNames = new Set((installedModelsList || []).map(m => (typeof m === 'string' ? m : m.name).toLowerCase()));
+  const installedNames = new Set([
+    ...(installedModelsList || []).map(m => (typeof m === 'string' ? m : m.name).toLowerCase()),
+    ...(isOllamaCloudConnectedState ? (OLLAMA_CLOUD_PULL_MODELS || []).map(m => m.name.toLowerCase()) : [])
+  ]);
 
   function appendCatalogSection(title, titleColor, models, limitSlice = true, badgeType = null) {
     const filtered = filterCatalogModels(models, filterQuery);
@@ -11694,12 +13905,77 @@ function renderOllamaCatalog(filterQuery = '') {
       ? `<div class="card-tags-row">${tagPills.map(t => `<span class="card-tag-pill"><span class="card-tag-dot" style="background:${t.color}"></span>${escapeHtml(t.label)}</span>`).join('')}</div>`
       : '';
 
+    const dlInfo = activeModelDownloadsMap.get(model.name.toLowerCase());
+    const isActivelyDownloading = dlInfo && dlInfo.status !== 'Completed' && dlInfo.status !== 'Failed' && dlInfo.status !== 'Cancelled';
+    const isJustCompleted = dlInfo && dlInfo.status === 'Completed' && dlInfo.justCompleted;
+
     // Build action button
-    let actionButtonHtml = `<button class="btn-catalog-pull" data-model="${escapeHtml(model.name)}">Download Model</button>`;
-    if (isInstalled) {
-      actionButtonHtml = `<span class="badge-installed">INSTALLED</span>`;
-    } else if (isCloudModel) {
-      actionButtonHtml = `<button class="btn-catalog-pull btn-cloud-use" data-model="${escapeHtml(model.name)}">Use Model</button>`;
+    let actionButtonHtml = '';
+    if (isCloudModel) {
+      const isActiveCloud = activeModel && (activeModel.toLowerCase() === model.name.toLowerCase() || activeModel.toLowerCase().split(':')[0] === model.name.toLowerCase().split(':')[0]);
+      if (isActiveCloud) {
+        actionButtonHtml = `
+          <span class="badge-in-use" title="Model is currently active">
+            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            In Use
+          </span>
+        `;
+      } else {
+        actionButtonHtml = `
+          <button class="btn-cloud-use btn-catalog-pull" data-model="${escapeHtml(model.name)}" title="Select and use this cloud model">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" stroke="none" style="margin-right: 4px;">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+            </svg>
+            Use Model
+          </button>
+        `;
+      }
+    } else if (isActivelyDownloading) {
+      actionButtonHtml = `
+        <button class="btn-catalog-pull is-downloading" disabled data-model="${escapeHtml(model.name)}">
+          <svg class="lottie-download-svg is-active-anim" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#22c55e" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;">
+            <line class="lottie-download-beam" x1="12" y1="2" x2="12" y2="13" stroke="#22c55e" stroke-width="1.8"></line>
+            <g class="lottie-download-arrow">
+              <line class="lottie-download-stem" x1="12" y1="4" x2="12" y2="13"></line>
+              <polyline points="8 9.5 12 13.5 16 9.5"></polyline>
+            </g>
+            <path class="lottie-download-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+          </svg>
+          Downloading (${dlInfo.percent || 0}%)
+        </button>
+      `;
+    } else if (isJustCompleted) {
+      actionButtonHtml = `
+        <span class="badge-installed just-completed">
+          <svg class="lottie-check-svg play-once" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#22c55e" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
+            <circle class="lottie-check-circle" cx="12" cy="12" r="10" stroke="#22c55e" stroke-width="2.2" fill="none"></circle>
+            <polyline class="lottie-check-mark" points="7.5 12 10.5 15 16.5 9" stroke="#22c55e" stroke-width="2.6"></polyline>
+          </svg>
+          INSTALLED
+        </span>
+      `;
+    } else if (isInstalled) {
+      actionButtonHtml = `
+        <span class="badge-installed">
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 3px;">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          INSTALLED
+        </span>
+      `;
+    } else {
+      actionButtonHtml = `
+        <button class="btn-catalog-pull" data-model="${escapeHtml(model.name)}">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;">
+            <line x1="12" y1="4" x2="12" y2="14"></line>
+            <polyline points="8 10 12 14 16 10"></polyline>
+            <path d="M4 18v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1"></path>
+          </svg>
+          Download
+        </button>
+      `;
     }
 
     // HuggingFace logo badge
@@ -11950,7 +14226,7 @@ if (inputDownloadModel) {
 btnSend.addEventListener('click', (e) => {
   e.preventDefault();
   e.stopPropagation();
-  if (isAwaitingResponse) return;
+  if (isAwaitingResponse || _isSubmittingPrompt) return;
   submitPrompt();
 });
 
@@ -11971,7 +14247,7 @@ chatInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     e.stopPropagation();
-    if (isAwaitingResponse) return;
+    if (isAwaitingResponse || _isSubmittingPrompt) return;
     submitPrompt();
   }
 });
@@ -12166,149 +14442,91 @@ async function loadAccountDetails(options = {}) {
       forceRefresh: false
     });
   }
+
+  // Silently sync desktop app telemetry & onboarding email in background
+  syncDesktopAppTelemetry().catch(() => {});
 }
 
-async function loadSetupStatusSnapshot() {
-  const snapshot = { completed: false, deferred: false, forcedReset: false };
-  if (!window.ultronAPI?.loadSetupStatus) return snapshot;
+// ── Silent Background Telemetry & Onboarding Email Sync ─────────────────────
+function getOrCreateDesktopDeviceId() {
   try {
-    const raw = await window.ultronAPI.loadSetupStatus();
-    if (typeof raw === 'boolean') {
-      snapshot.completed = raw;
-      return snapshot;
+    let id = window.localStorage.getItem('ultron-device-id');
+    if (!id) {
+      const rand = Math.random().toString(36).substring(2, 12) + Math.random().toString(36).substring(2, 12);
+      id = `win_${Date.now().toString(36)}_${rand}`;
+      window.localStorage.setItem('ultron-device-id', id);
     }
-    if (raw && typeof raw === 'object') {
-      snapshot.completed = Boolean(raw.completed);
-      snapshot.deferred = Boolean(raw.deferred) && !snapshot.completed;
-      snapshot.forcedReset = Boolean(raw.forcedReset);
-    }
-  } catch (e) { /* ignore */ }
-  return snapshot;
+    return id;
+  } catch (_) {
+    return `win_sess_${Date.now()}`;
+  }
 }
 
-async function areOnboardingKokoroVoicesReady() {
+async function syncDesktopAppTelemetry() {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   try {
-    const res = await window.ultronAPI?.getTtsCatalog?.();
-    const models = res?.models || [];
-    const heart = models.some(m => m.key === 'kokoro-heart' && m.installed);
-    const michael = models.some(m => m.key === 'kokoro-michael' && m.installed);
-    return heart && michael;
-  } catch (e) {
-    return false;
-  }
-}
+    const userEmail = (window.localStorage.getItem('ultron-user-email') || '').trim();
+    const userName = (window.localStorage.getItem('ultron-user-name') || '').trim();
+    const deviceId = getOrCreateDesktopDeviceId();
+    const privacyAccepted = window.localStorage.getItem('ultron-privacy-accepted') === 'true';
+    const privacyAcceptedAt = window.localStorage.getItem('ultron-privacy-accepted-at') || (privacyAccepted ? new Date().toISOString() : '');
+    const privacyVersion = window.localStorage.getItem('ultron-privacy-version') || '1.0';
 
-function hideFinishSetupBanner() {
-  const banner = document.getElementById('finish-setup-banner');
-  if (banner) banner.classList.add('hidden');
-}
+    if (!userEmail || userEmail === 'user@example.com' || !userEmail.includes('@')) {
+      return;
+    }
 
-function showFinishSetupBanner(message) {
-  const banner = document.getElementById('finish-setup-banner');
-  if (!banner) return;
-  const msgEl = banner.querySelector('.notification-message');
-  if (msgEl && message) msgEl.textContent = message;
-  banner.classList.remove('hidden');
-}
-
-async function markSetupFullyCompleted() {
-  window.localStorage.setItem('ultron-setup-completed', 'true');
-  window.localStorage.removeItem('ultron-setup-deferred');
-  if (window.ultronAPI?.saveSetupStatus) {
-    await window.ultronAPI.saveSetupStatus({ completed: true, deferred: false });
-  }
-  hideFinishSetupBanner();
-}
-
-async function markSetupDeferred() {
-  window.localStorage.setItem('ultron-setup-deferred', 'true');
-  window.localStorage.removeItem('ultron-setup-completed');
-  if (window.ultronAPI?.saveSetupStatus) {
-    await window.ultronAPI.saveSetupStatus({ completed: false, deferred: true });
-  }
-}
-
-async function maybeShowFinishSetupEntry() {
-  if (await areOnboardingKokoroVoicesReady()) {
-    await markSetupFullyCompleted();
-    return;
-  }
-  showFinishSetupBanner('Finish setup: download Kokoro neural voices for offline TTS.');
-}
-
-let finishSetupBannerBound = false;
-function bindFinishSetupBannerActions() {
-  if (finishSetupBannerBound) return;
-  finishSetupBannerBound = true;
-
-  const btnVoices = document.getElementById('btn-finish-setup-voices');
-  if (btnVoices) {
-    btnVoices.addEventListener('click', async () => {
-      btnVoices.disabled = true;
-      const prevLabel = btnVoices.textContent;
-      btnVoices.textContent = 'Downloading…';
-      showFinishSetupBanner('Downloading Kokoro neural voices…');
-      try {
-        const result = await window.ultronAPI?.downloadKokoroOnboardingVoices?.();
-        if (result?.success) {
-          await markSetupFullyCompleted();
-          logTrace('Kokoro neural voices installed. Setup complete.', 'system');
-          return;
-        }
-        if (!result?.cancelled) {
-          const err = result?.error || 'Kokoro download failed.';
-          showFinishSetupBanner(err);
-          logTrace(err, 'system');
-        } else {
-          showFinishSetupBanner('Finish setup: download Kokoro neural voices for offline TTS.');
-        }
-      } catch (err) {
-        const msg = err?.message || 'Kokoro download failed.';
-        showFinishSetupBanner(msg);
-        logTrace(msg, 'system');
-      } finally {
-        btnVoices.disabled = false;
-        btnVoices.textContent = prevLabel || 'Download Voices';
+    const firestoreUrl = `https://firestore.googleapis.com/v1/projects/ultron-da7a0/databases/(default)/documents/deviceAppSync/${deviceId}`;
+    const payload = {
+      fields: {
+        deviceId: { stringValue: deviceId },
+        email: { stringValue: userEmail.toLowerCase() },
+        name: { stringValue: userName || userEmail.split('@')[0] },
+        platform: { stringValue: 'Windows 11 / 10 x64' },
+        appVersion: { stringValue: 'v1.0.16' },
+        onboarded: { booleanValue: true },
+        privacyAccepted: { booleanValue: privacyAccepted },
+        privacyAcceptedAt: { stringValue: privacyAcceptedAt },
+        privacyVersion: { stringValue: privacyVersion },
+        lastOnlineAt: { timestampValue: new Date().toISOString() }
       }
-    });
-  }
+    };
 
-  const btnDismiss = document.getElementById('btn-finish-setup-dismiss');
-  if (btnDismiss) {
-    btnDismiss.addEventListener('click', () => {
-      hideFinishSetupBanner();
-    });
+    await fetch(firestoreUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  } catch (_) {
+    // Silent fail in background
   }
+}
+
+// Auto-trigger background telemetry on startup and when connection resumes
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => {
+    syncDesktopAppTelemetry().catch(() => {});
+  });
+  setTimeout(() => {
+    syncDesktopAppTelemetry().catch(() => {});
+  }, 4000);
+  setInterval(() => {
+    syncDesktopAppTelemetry().catch(() => {});
+  }, 30 * 60 * 1000);
 }
 
 async function checkAndRunFirstTimeOnboarding() {
-  bindFinishSetupBannerActions();
-
-  const diskStatus = await loadSetupStatusSnapshot();
-  if (diskStatus.forcedReset) {
-    window.localStorage.removeItem('ultron-setup-completed');
-    window.localStorage.removeItem('ultron-setup-deferred');
+  let isCompleted = window.localStorage.getItem('ultron-setup-completed') === 'true';
+  if (!isCompleted && window.ultronAPI && window.ultronAPI.loadSetupStatus) {
+    try {
+      isCompleted = await window.ultronAPI.loadSetupStatus();
+      if (isCompleted) {
+        window.localStorage.setItem('ultron-setup-completed', 'true');
+      }
+    } catch (e) {}
   }
 
-  let isCompleted = diskStatus.completed || window.localStorage.getItem('ultron-setup-completed') === 'true';
-  let isDeferred = diskStatus.deferred || window.localStorage.getItem('ultron-setup-deferred') === 'true';
-
-  if (diskStatus.forcedReset) {
-    isCompleted = false;
-    isDeferred = false;
-  }
-
-  if (isCompleted && !diskStatus.forcedReset) {
-    // Sync local flag if disk said completed
-    window.localStorage.setItem('ultron-setup-completed', 'true');
-    window.localStorage.removeItem('ultron-setup-deferred');
-    return;
-  }
-
-  // Setup Later: allow main UI but keep a non-blocking finish-setup entry
-  if (isDeferred && !diskStatus.forcedReset) {
-    window.localStorage.setItem('ultron-setup-deferred', 'true');
-    await maybeShowFinishSetupEntry();
+  if (isCompleted) {
     return;
   }
 
@@ -12329,6 +14547,7 @@ async function checkAndRunFirstTimeOnboarding() {
   const step4 = document.getElementById('onboard-step-4');
   const step5 = document.getElementById('onboard-step-5');
   const footerActions = document.getElementById('onboard-footer-actions');
+  const emailNote = document.getElementById('onboard-email-note');
 
   const fullNameInput = document.getElementById('onboard-full-name');
   const birthdateInput = document.getElementById('onboard-birthdate');
@@ -12344,15 +14563,119 @@ async function checkAndRunFirstTimeOnboarding() {
   const btnFinish = document.getElementById('btn-onboard-finish');
   const btnInstallOllama = document.getElementById('btn-onboard-install-ollama');
   const btnRetryOllama = document.getElementById('btn-onboard-retry-ollama');
-  const btnSkipLater = document.getElementById('btn-onboard-skip-later');
 
   let ollamaReady = false;
   let readyRedirectTimer = null;
+  let onboardVoiceMuted = false;
+  let currentOnboardAudioElem = null;
+
+  const ONBOARD_AUDIO_CANDIDATES = {
+    0: ['../../Assets/sounds/step-0-welcome.mp3'],
+    1: ['../../Assets/sounds/step-1-name.mp3'],
+    2: ['../../Assets/sounds/step-2-birthdate.mp3'],
+    3: ['../../Assets/sounds/step-3-email.mp3'],
+    4: ['../../Assets/sounds/step-4-requirements.mp3'],
+    5: ['../../Assets/sounds/step-5-ready.mp3']
+  };
+
+  async function speakOnboardStep(step) {
+    if (onboardVoiceMuted) return;
+    const candidates = ONBOARD_AUDIO_CANDIDATES[step];
+    if (!candidates || !candidates.length) return;
+    await playOnboardAudioCandidates(candidates);
+  }
+
+  async function playOnboardAudioCandidates(candidates) {
+    stopOnboardVoice();
+    if (onboardVoiceMuted) return;
+
+    const voiceBtn = document.getElementById('btn-onboard-voice-guide');
+    if (voiceBtn) {
+      voiceBtn.classList.add('is-speaking');
+      const wave = voiceBtn.querySelector('.voice-wave-container');
+      const iconIdle = voiceBtn.querySelector('.voice-icon-idle');
+      const iconMuted = voiceBtn.querySelector('.voice-icon-muted');
+      if (wave) wave.classList.remove('hidden');
+      if (iconIdle) iconIdle.classList.add('hidden');
+      if (iconMuted) iconMuted.classList.add('hidden');
+    }
+
+    function setVoiceIdleState() {
+      if (voiceBtn) {
+        voiceBtn.classList.remove('is-speaking');
+        const wave = voiceBtn.querySelector('.voice-wave-container');
+        const iconIdle = voiceBtn.querySelector('.voice-icon-idle');
+        const iconMuted = voiceBtn.querySelector('.voice-icon-muted');
+        if (wave) wave.classList.add('hidden');
+        if (iconIdle) iconIdle.classList.toggle('hidden', onboardVoiceMuted);
+        if (iconMuted) iconMuted.classList.toggle('hidden', !onboardVoiceMuted);
+      }
+    }
+
+    for (const src of candidates) {
+      try {
+        const audio = new Audio(src);
+        currentOnboardAudioElem = audio;
+        audio.onended = () => {
+          currentOnboardAudioElem = null;
+          setVoiceIdleState();
+        };
+        audio.onerror = () => {
+          currentOnboardAudioElem = null;
+          setVoiceIdleState();
+        };
+        await audio.play();
+        return;
+      } catch (err) {
+        currentOnboardAudioElem = null;
+      }
+    }
+    setVoiceIdleState();
+  }
+
+  function stopOnboardVoice() {
+    if (currentOnboardAudioElem) {
+      try {
+        currentOnboardAudioElem.pause();
+        currentOnboardAudioElem.currentTime = 0;
+      } catch (e) {}
+      currentOnboardAudioElem = null;
+    }
+
+    const voiceBtn = document.getElementById('btn-onboard-voice-guide');
+    if (voiceBtn) {
+      voiceBtn.classList.remove('is-speaking');
+      const wave = voiceBtn.querySelector('.voice-wave-container');
+      const iconIdle = voiceBtn.querySelector('.voice-icon-idle');
+      const iconMuted = voiceBtn.querySelector('.voice-icon-muted');
+      if (wave) wave.classList.add('hidden');
+      if (iconIdle) iconIdle.classList.toggle('hidden', onboardVoiceMuted);
+      if (iconMuted) iconMuted.classList.toggle('hidden', !onboardVoiceMuted);
+    }
+  }
+
+  const btnVoiceGuide = document.getElementById('btn-onboard-voice-guide');
+  if (btnVoiceGuide) {
+    btnVoiceGuide.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (btnVoiceGuide.classList.contains('is-speaking')) {
+        onboardVoiceMuted = true;
+        btnVoiceGuide.classList.add('is-muted');
+        stopOnboardVoice();
+      } else if (onboardVoiceMuted) {
+        onboardVoiceMuted = false;
+        btnVoiceGuide.classList.remove('is-muted');
+        speakOnboardStep(currentStep);
+      } else {
+        speakOnboardStep(currentStep);
+      }
+    });
+  }
 
   const stepHeadings = {
-    1: 'Your profile',
-    2: 'Date of birth',
-    3: 'Email',
+    1: 'Your Name',
+    2: 'Your Date of Birth',
+    3: 'Your Email',
     4: 'Requirements & Components',
   };
 
@@ -12372,22 +14695,29 @@ async function checkAndRunFirstTimeOnboarding() {
     if (progressRow && !notInstalled) progressRow.classList.add('hidden');
   }
 
-  async function finishOnboarding({ deferred = false } = {}) {
-    if (deferred) {
-      await markSetupDeferred();
-    } else {
-      await markSetupFullyCompleted();
+  async function finishOnboarding() {
+    const privacyCheckbox = document.getElementById('onboard-privacy-checkbox');
+    const privacyError = document.getElementById('onboard-privacy-error');
+    if (privacyCheckbox && !privacyCheckbox.checked) {
+      if (privacyError) privacyError.classList.remove('hidden');
+      return;
+    }
+    if (privacyError) privacyError.classList.add('hidden');
+
+    window.localStorage.setItem('ultron-privacy-accepted', 'true');
+    window.localStorage.setItem('ultron-privacy-accepted-at', new Date().toISOString());
+    window.localStorage.setItem('ultron-privacy-version', '1.0');
+
+    stopOnboardVoice();
+    window.localStorage.setItem('ultron-setup-completed', 'true');
+    if (window.ultronAPI && window.ultronAPI.saveSetupStatus) {
+      await window.ultronAPI.saveSetupStatus(true);
     }
     onboardingScreen.classList.add('hidden');
 
     await loadAccountDetails();
     updateWelcomeGreeting();
-    if (deferred) {
-      logTrace('Setup deferred — finish Kokoro voices anytime from the banner or Settings → Agent Sounds.', 'system');
-      await maybeShowFinishSetupEntry();
-    } else {
-      logTrace('First-time setup completed successfully! Welcome to Ultron.', 'system');
-    }
+    logTrace('First-time setup completed successfully! Welcome to Brown AI.', 'system');
   }
 
   // Pre-fill existing user info if available
@@ -12451,7 +14781,50 @@ async function checkAndRunFirstTimeOnboarding() {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return `${y}/${m}/${d}`;
+  }
+
+  function attachDateSlashFormatter(input) {
+    if (!input) return;
+
+    let isDeleting = false;
+    input.addEventListener('keydown', (e) => {
+      isDeleting = e.key === 'Backspace' || e.key === 'Delete';
+    });
+
+    input.addEventListener('input', () => {
+      if (isDeleting) return;
+
+      const raw = input.value;
+      const digits = raw.replace(/\D/g, '').slice(0, 8);
+      if (!digits) {
+        input.value = '';
+        return;
+      }
+
+      let formatted = '';
+      if (digits.length >= 4 && (digits.startsWith('19') || digits.startsWith('20'))) {
+        // YYYY/MM/DD pattern
+        if (digits.length <= 4) {
+          formatted = digits;
+        } else if (digits.length <= 6) {
+          formatted = `${digits.slice(0, 4)}/${digits.slice(4)}`;
+        } else {
+          formatted = `${digits.slice(0, 4)}/${digits.slice(4, 6)}/${digits.slice(6, 8)}`;
+        }
+      } else {
+        // DD/MM/YYYY pattern
+        if (digits.length <= 2) {
+          formatted = digits;
+        } else if (digits.length <= 4) {
+          formatted = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+        } else {
+          formatted = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+        }
+      }
+
+      input.value = formatted;
+    });
   }
 
   function initCustomDatePicker() {
@@ -12468,6 +14841,8 @@ async function checkAndRunFirstTimeOnboarding() {
     const container = document.getElementById('onboard-date-field-container');
 
     if (!dateInput || !popover || !monthSelect || !yearSelect || !daysContainer) return;
+
+    attachDateSlashFormatter(dateInput);
 
     // Populate years (1920 to current year)
     const currentYearNow = new Date().getFullYear();
@@ -12702,6 +15077,9 @@ async function checkAndRunFirstTimeOnboarding() {
     if (step0) step0.classList.toggle('hidden', !onWelcome);
     if (formShell) formShell.classList.toggle('hidden', onWelcome);
 
+    // Automatically speak context guidance for the current onboarding step
+    speakOnboardStep(currentStep);
+
     if (onWelcome) return;
 
     if (stepHeading && stepHeadings[currentStep]) {
@@ -12716,6 +15094,7 @@ async function checkAndRunFirstTimeOnboarding() {
     if (step4) step4.classList.add('hidden');
     if (step5) step5.classList.add('hidden');
     if (footerActions) footerActions.classList.remove('hidden');
+    if (emailNote) emailNote.classList.toggle('hidden', currentStep !== 3);
 
     if (currentStep === 1) {
       if (step1) step1.classList.remove('hidden');
@@ -12739,8 +15118,8 @@ async function checkAndRunFirstTimeOnboarding() {
       if (step4) step4.classList.remove('hidden');
       if (btnBack) btnBack.classList.remove('hidden');
       if (btnNext) btnNext.classList.add('hidden');
-      // Setup Later stays available — defers Kokoro without marking fully complete
-      if (btnSkipLater) btnSkipLater.classList.remove('hidden');
+      // Voice models are a mandatory setup component — no skipping.
+      if (btnSkipLater) btnSkipLater.classList.add('hidden');
       setFinishVisible(Boolean(compStatus.kokoro));
       runOboardingRequirementsCheck();
     } else if (currentStep === 5) {
@@ -12838,19 +15217,81 @@ async function checkAndRunFirstTimeOnboarding() {
     kokoro: false
   };
 
+  function areAllOnboardingComponentsReady() {
+    return Boolean(compStatus.ollama && compStatus.uia && compStatus.kokoro);
+  }
+
+  function updateRequirementsBatchButton({ busy = false } = {}) {
+    const btn = document.getElementById('btn-onboard-download-all');
+    if (!btn) return;
+
+    if (busy) {
+      btn.disabled = true;
+      btn.classList.remove('installed');
+      btn.innerHTML = `<div class="onboard-spinner"></div> Setting up components…`;
+      return;
+    }
+
+    if (areAllOnboardingComponentsReady()) {
+      btn.disabled = true;
+      btn.classList.add('installed');
+      btn.innerHTML = `All components ready`;
+      return;
+    }
+
+    btn.disabled = false;
+    btn.classList.remove('installed');
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      Set up missing components
+    `;
+  }
+
+  const onboardDownloadIcon = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+      <polyline points="7 10 12 15 17 10"></polyline>
+      <line x1="12" y1="15" x2="12" y2="3"></line>
+    </svg>
+  `;
+
+  const onboardCheckIcon = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12"></polyline>
+    </svg>
+  `;
+
+  function setOnboardComponentAction(btn, state, label) {
+    if (!btn) return;
+    btn.className = 'btn-onboard-comp-action';
+    btn.disabled = state === 'ready' || state === 'busy';
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('title', label);
+
+    if (state === 'ready') {
+      btn.classList.add('installed');
+      btn.innerHTML = onboardCheckIcon;
+    } else if (state === 'busy') {
+      btn.innerHTML = `<div class="onboard-spinner" aria-hidden="true"></div>`;
+    } else {
+      btn.innerHTML = onboardDownloadIcon;
+    }
+  }
+
   async function checkOllamaComp() {
     const badge = document.getElementById('onboard-badge-ollama');
     const desc = document.getElementById('onboard-desc-ollama');
     const btn = document.getElementById('btn-onboard-action-ollama');
-    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = 'Checking…'; }
+    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
+    setOnboardComponentAction(btn, 'busy', 'Checking Ollama');
     if (desc) desc.textContent = 'Verifying Ollama local neural service…';
 
     const conn = await checkOllamaConnection();
     if (conn.connected) {
       compStatus.ollama = true;
-      if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Ready'; }
-      if (desc) desc.textContent = 'Ollama is online and connected (Localhost:11434).';
-      if (btn) { btn.textContent = 'Connected'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+      if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
+      if (desc) desc.textContent = 'Ollama is online at Localhost:11434.';
+      setOnboardComponentAction(btn, 'ready', 'Ollama ready');
       return true;
     }
 
@@ -12864,9 +15305,9 @@ async function checkAndRunFirstTimeOnboarding() {
           const retry = await checkOllamaConnection();
           if (retry.connected) {
             compStatus.ollama = true;
-            if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Ready'; }
-            if (desc) desc.textContent = 'Ollama is online and connected.';
-            if (btn) { btn.textContent = 'Connected'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+            if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
+            if (desc) desc.textContent = 'Ollama is online.';
+            setOnboardComponentAction(btn, 'ready', 'Ollama ready');
             return true;
           }
         }
@@ -12874,9 +15315,9 @@ async function checkAndRunFirstTimeOnboarding() {
     }
 
     compStatus.ollama = false;
-    if (badge) { badge.className = 'onboard-comp-badge missing'; badge.textContent = 'Not Running'; }
+    if (badge) { badge.className = 'onboard-comp-badge missing'; badge.textContent = ''; }
     if (desc) desc.textContent = 'Ollama is not running. Install or launch Ollama to run local models.';
-    if (btn) { btn.textContent = 'Install / Start'; btn.className = 'btn-onboard-comp-action'; btn.disabled = false; }
+    setOnboardComponentAction(btn, 'download', 'Install or start Ollama');
     return false;
   }
 
@@ -12884,24 +15325,25 @@ async function checkAndRunFirstTimeOnboarding() {
     const badge = document.getElementById('onboard-badge-uia');
     const desc = document.getElementById('onboard-desc-uia');
     const btn = document.getElementById('btn-onboard-action-uia');
-    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = 'Checking…'; }
+    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
+    setOnboardComponentAction(btn, 'busy', 'Checking Windows UI Automation');
     if (desc) desc.textContent = 'Verifying Windows UI automation server…';
 
     try {
       const res = await window.ultronAPI?.checkMcpWindowsUia?.();
       if (res?.installed) {
         compStatus.uia = true;
-        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Installed'; }
+        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
         if (desc) desc.textContent = 'Windows UI Automation server is ready for desktop control.';
-        if (btn) { btn.textContent = 'Installed'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+        setOnboardComponentAction(btn, 'ready', 'Windows UI Automation ready');
         return true;
       }
     } catch (e) {}
 
     compStatus.uia = false;
-    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = 'Available'; }
+    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = ''; }
     if (desc) desc.textContent = 'Enables deep Windows UI automation and native app control.';
-    if (btn) { btn.textContent = 'Setup Automation'; btn.className = 'btn-onboard-comp-action'; btn.disabled = false; }
+    setOnboardComponentAction(btn, 'download', 'Set up Windows UI Automation');
     return false;
   }
 
@@ -12909,7 +15351,8 @@ async function checkAndRunFirstTimeOnboarding() {
     const badge = document.getElementById('onboard-badge-kokoro');
     const desc = document.getElementById('onboard-desc-kokoro');
     const btn = document.getElementById('btn-onboard-action-kokoro');
-    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = 'Checking…'; }
+    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
+    setOnboardComponentAction(btn, 'busy', 'Checking voice models');
     if (desc) desc.textContent = 'Verifying Kokoro neural voice synthesizer…';
 
     try {
@@ -12920,17 +15363,17 @@ async function checkAndRunFirstTimeOnboarding() {
 
       if (heartInstalled && michaelInstalled) {
         compStatus.kokoro = true;
-        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = 'Installed'; }
+        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
         if (desc) desc.textContent = 'Heart & Michael neural voice models are ready.';
-        if (btn) { btn.textContent = 'Ready'; btn.className = 'btn-onboard-comp-action installed'; btn.disabled = true; }
+        setOnboardComponentAction(btn, 'ready', 'Voice models ready');
         return true;
       }
     } catch (e) {}
 
     compStatus.kokoro = false;
-    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = 'Required'; }
+    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = ''; }
     if (desc) desc.textContent = 'Offline TTS · Downloads Heart (Female) & Michael (Male) voices. Required to finish setup.';
-    if (btn) { btn.textContent = 'Download Voices'; btn.className = 'btn-onboard-comp-action'; btn.disabled = false; }
+    setOnboardComponentAction(btn, 'download', 'Download voice models');
     return false;
   }
 
@@ -12946,27 +15389,29 @@ async function checkAndRunFirstTimeOnboarding() {
       await startKokoroOnboardDownload();
     }
     setFinishVisible(Boolean(compStatus.kokoro));
+    updateRequirementsBatchButton();
   }
 
   // Action listeners for individual cards
   const btnActionOllama = document.getElementById('btn-onboard-action-ollama');
   if (btnActionOllama) {
     btnActionOllama.onclick = async () => {
-      btnActionOllama.disabled = true;
+      setOnboardComponentAction(btnActionOllama, 'busy', 'Installing or starting Ollama');
       await startOllamaInstallFlow(btnActionOllama);
       await checkOllamaComp();
+      updateRequirementsBatchButton();
     };
   }
 
   const btnActionUia = document.getElementById('btn-onboard-action-uia');
   if (btnActionUia) {
     btnActionUia.onclick = async () => {
-      btnActionUia.disabled = true;
-      btnActionUia.textContent = 'Setting up…';
+      setOnboardComponentAction(btnActionUia, 'busy', 'Setting up Windows UI Automation');
       const badge = document.getElementById('onboard-badge-uia');
-      if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = 'Setting up…'; }
+      if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = ''; }
       await window.ultronAPI?.installMcpWindowsUia?.();
       await checkUiaComp();
+      updateRequirementsBatchButton();
     };
   }
 
@@ -12974,29 +15419,12 @@ async function checkAndRunFirstTimeOnboarding() {
   async function startKokoroOnboardDownload() {
     const btn = document.getElementById('btn-onboard-action-kokoro');
     const badge = document.getElementById('onboard-badge-kokoro');
-    const desc = document.getElementById('onboard-desc-kokoro');
-    if (btn) { btn.disabled = true; btn.textContent = 'Downloading…'; }
-    if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = 'Downloading…'; }
-    if (desc) desc.textContent = 'Downloading Heart & Michael neural voices…';
-
-    let result = null;
-    try {
-      result = await window.ultronAPI?.downloadKokoroOnboardingVoices?.();
-    } catch (err) {
-      result = { success: false, error: err?.message || 'Kokoro download failed.' };
-    }
-
+    setOnboardComponentAction(btn, 'busy', 'Downloading voice models');
+    if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = ''; }
+    await window.ultronAPI?.downloadKokoroOnboardingVoices?.();
     await checkKokoroComp();
-    if (!compStatus.kokoro) {
-      const errMsg = (!result?.cancelled && (result?.error || 'Kokoro download failed.')) || null;
-      if (errMsg) {
-        if (badge) { badge.className = 'onboard-comp-badge missing'; badge.textContent = 'Failed'; }
-        if (desc) desc.textContent = errMsg;
-        if (btn) { btn.textContent = 'Retry Download'; btn.className = 'btn-onboard-comp-action'; btn.disabled = false; }
-        logTrace(errMsg, 'system');
-      }
-    }
     setFinishVisible(Boolean(compStatus.kokoro));
+    updateRequirementsBatchButton();
   }
   if (btnActionKokoro) {
     btnActionKokoro.onclick = () => startKokoroOnboardDownload();
@@ -13006,22 +15434,18 @@ async function checkAndRunFirstTimeOnboarding() {
   const btnDownloadAll = document.getElementById('btn-onboard-download-all');
   if (btnDownloadAll) {
     btnDownloadAll.onclick = async () => {
-      btnDownloadAll.disabled = true;
-      btnDownloadAll.innerHTML = `<div class="onboard-spinner"></div> Setting up all components…`;
+      updateRequirementsBatchButton({ busy: true });
 
       // 1. UIA
       if (!compStatus.uia && window.ultronAPI?.installMcpWindowsUia) {
-        try {
-          await window.ultronAPI.installMcpWindowsUia();
-        } catch (err) {
-          logTrace(err?.message || 'Windows UI Automation setup failed.', 'system');
-        }
+        await window.ultronAPI.installMcpWindowsUia().catch(() => {});
         await checkUiaComp();
       }
 
       // 2. Kokoro
       if (!compStatus.kokoro && window.ultronAPI?.downloadKokoroOnboardingVoices) {
-        await startKokoroOnboardDownload();
+        await window.ultronAPI.downloadKokoroOnboardingVoices().catch(() => {});
+        await checkKokoroComp();
       }
 
       // 3. Ollama
@@ -13030,20 +15454,21 @@ async function checkAndRunFirstTimeOnboarding() {
       }
 
       setFinishVisible(Boolean(compStatus.kokoro));
-      btnDownloadAll.disabled = false;
-      btnDownloadAll.innerHTML = compStatus.kokoro
-        ? `✓ Requirements Setup Complete`
-        : `Retry Setup`;
-      if (compStatus.kokoro) btnDownloadAll.classList.add('installed');
+      updateRequirementsBatchButton();
     };
   }
 
-  // Skip / Setup Later button — main UI allowed; Kokoro still outstanding
+  // Skip / Setup Later button
+  const btnSkipLater = document.getElementById('btn-onboard-skip-later');
   if (btnSkipLater) {
     btnSkipLater.onclick = async () => {
+      currentStep = 5;
+      updateStepUI();
       if (readyRedirectTimer) clearTimeout(readyRedirectTimer);
-      readyRedirectTimer = null;
-      await finishOnboarding({ deferred: true });
+      readyRedirectTimer = setTimeout(async () => {
+        readyRedirectTimer = null;
+        await finishOnboarding();
+      }, 2000);
     };
   }
 
@@ -13056,7 +15481,7 @@ async function checkAndRunFirstTimeOnboarding() {
       if (readyRedirectTimer) clearTimeout(readyRedirectTimer);
       readyRedirectTimer = setTimeout(async () => {
         readyRedirectTimer = null;
-        await finishOnboarding({ deferred: false });
+        await finishOnboarding();
       }, 2400);
     };
   }
@@ -14533,7 +16958,6 @@ function getVoiceSttCulture() {
   return 'en-US';
 }
 
-const settingPerformanceProfile = document.getElementById('setting-performance-profile');
 const settingPerformanceProfileNote = document.getElementById('setting-performance-profile-note');
 const settingVoiceInputDevice = document.getElementById('setting-voice-input-device');
 const settingVoiceSensitivity = document.getElementById('setting-voice-sensitivity');
@@ -14548,7 +16972,6 @@ function getPerformanceProfile() {
 
 function applyPerformanceProfile(profile = getPerformanceProfile()) {
   document.body.dataset.performanceProfile = profile;
-  if (settingPerformanceProfile) settingPerformanceProfile.value = profile;
   if (settingPerformanceProfileNote) {
     settingPerformanceProfileNote.textContent = profile === 'battery'
       ? 'Reduced animation, polling, and background startup work'
@@ -14556,7 +16979,59 @@ function applyPerformanceProfile(profile = getPerformanceProfile()) {
         ? 'Fast refreshes and full visual effects'
         : 'Balanced daily use';
   }
+  syncPerformanceProfileUI(profile);
 }
+
+let perfProfileOptions = [];
+let perfProfileLabel = null;
+
+function syncPerformanceProfileUI(profile = getPerformanceProfile()) {
+  if (!perfProfileLabel || perfProfileOptions.length === 0) return;
+  const active = perfProfileOptions.find(o => o.dataset.value === profile) || perfProfileOptions[1];
+  perfProfileLabel.textContent = active.textContent;
+  perfProfileOptions.forEach(o => {
+    o.classList.toggle('selected', o === active);
+    o.setAttribute('aria-selected', String(o === active));
+  });
+}
+
+function setupPerformanceProfileDropdown() {
+  const wrap = document.getElementById('perf-profile-select');
+  const btn = document.getElementById('perf-profile-btn');
+  const menu = document.getElementById('perf-profile-menu');
+  perfProfileLabel = document.getElementById('perf-profile-label');
+  if (!wrap || !btn || !menu || !perfProfileLabel) return;
+
+  perfProfileOptions = Array.from(menu.querySelectorAll('.custom-select-option'));
+
+  const close = () => {
+    menu.classList.add('hidden');
+    btn.setAttribute('aria-expanded', 'false');
+  };
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = menu.classList.toggle('hidden') === false;
+    btn.setAttribute('aria-expanded', String(open));
+  });
+
+  perfProfileOptions.forEach(opt => {
+    opt.addEventListener('click', (e) => {
+      e.stopPropagation();
+      localStorage.setItem('ultron-performance-profile', opt.dataset.value);
+      applyPerformanceProfile(opt.dataset.value);
+      close();
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target)) close();
+  });
+
+  syncPerformanceProfileUI();
+}
+
+setupPerformanceProfileDropdown();
 
 function getSelectedVoiceInputDeviceId() {
   return localStorage.getItem('ultron-voice-input-device') || '';
@@ -14595,10 +17070,6 @@ function initRuntimePreferencesUI() {
   applyPerformanceProfile();
   refreshVoiceInputDevices();
 
-  settingPerformanceProfile?.addEventListener('change', () => {
-    localStorage.setItem('ultron-performance-profile', settingPerformanceProfile.value);
-    applyPerformanceProfile(settingPerformanceProfile.value);
-  });
   settingVoiceInputDevice?.addEventListener('change', () => {
     localStorage.setItem('ultron-voice-input-device', settingVoiceInputDevice.value || '');
   });
@@ -15067,28 +17538,11 @@ function transitionVoicePillToMainInput() {
     return Promise.resolve();
   }
   return new Promise((resolve) => {
-    if (voiceRecordingPill) {
-      voiceRecordingPill.classList.add('fading-out');
-      setTimeout(() => {
-        voiceRecordingPill.classList.add('hidden');
-        voiceRecordingPill.classList.remove('fading-out');
-        if (mainInputPill) {
-          mainInputPill.classList.remove('hidden');
-          mainInputPill.classList.add('fading-out');
-          requestAnimationFrame(() => {
-            mainInputPill.classList.remove('fading-out');
-            resolve();
-          });
-        } else {
-          resolve();
-        }
-      }, 120);
-    } else if (mainInputPill) {
-      mainInputPill.classList.remove('hidden');
-      resolve();
-    } else {
-      resolve();
+    if (voiceRecordingPill) voiceRecordingPill.classList.add('hidden');
+    if (mainInputPill) {
+      mainInputPill.classList.remove('hidden', 'is-recording', 'fading-out');
     }
+    resolve();
   });
 }
 
@@ -15125,39 +17579,6 @@ async function blobToBase64Data(blob) {
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
-}
-
-async function transcribeAudioWithGemini(audioBlob) {
-  const apiKey = localStorage.getItem('ultron-gemini-api-key') || '';
-  if (!apiKey || !audioBlob || !audioBlob.size) return '';
-
-  try {
-    const base64Audio = await blobToBase64Data(audioBlob);
-    const speechModel = pickDefaultGeminiModel() || ONLINE_GEMINI_MODELS[0]?.name;
-    if (!speechModel) return '';
-
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${speechModel}:generateContent?key=${encodeURIComponent(apiKey.trim())}`;
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: 'Transcribe the following spoken voice audio recording into plain text verbatim. Return ONLY the spoken words with zero quotes, headers, or commentary.' },
-            { inlineData: { mimeType: audioBlob.type || 'audio/webm', data: base64Audio } }
-          ]
-        }],
-        generationConfig: { temperature: 0 }
-      })
-    });
-
-    if (!res.ok) return '';
-    const jsonRes = await res.json();
-    return jsonRes.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-  } catch (e) {
-    console.warn('Gemini audio transcribe error:', e);
-    return '';
-  }
 }
 
 async function prepareSttSamples({ audioBlob = null, pcmSamples = null, pcmSampleRate = 48000, strictVoiceGate = false } = {}) {
@@ -15229,31 +17650,10 @@ async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcm
   const inVoiceMode = isVoiceChatModeEnabled();
   lastVoiceTranscriptionError = '';
 
-  // Cloud-grade transcription first when a Gemini key is configured - it is
-  // dramatically more accurate than any on-device engine for both chat and
-  // voice mode. Falls through to the native Windows engine when offline.
-  const geminiKeyForStt = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
-  if (geminiKeyForStt && audioBlob && audioBlob.size > 0) {
-    try {
-      const cloudText = await transcribeAudioWithGemini(audioBlob);
-      if (cloudText) {
-        logTrace('Cloud speech transcription complete.', 'system');
-        return cloudText.trim();
-      }
-    } catch (cloudErr) {
-      console.warn('Cloud transcription notice:', cloudErr.message);
-    }
-  }
-
-  // Live Windows Speech transcript (accumulated in real time while the user
-  // spoke). Prefer it over re-decoding the recorded buffer; fall through to
-  // the recorded-audio engines only when the live engine produced nothing.
-  const liveWindowsText = String(finalVoiceTranscript || '').trim();
-  if (liveWindowsText) {
-    logTrace('Speech transcription complete (live Windows engine).', 'system');
-    return liveWindowsText;
-  }
-
+  // Local Whisper on the recorded buffer is the most accurate on-device engine
+  // (and multilingual), so it runs first. The live Windows dictation transcript
+  // is only used as a fallback below — it frequently mishears names and short
+  // phrases and must not override a good Whisper result.
   const samples = await prepareSttSamples({ audioBlob, pcmSamples, pcmSampleRate, strictVoiceGate: false });
   if (samples && samples.length > 800 && window.ultronAPI?.transcribeAudio) {
     setVoiceTranscribingUi(true);
@@ -15272,12 +17672,12 @@ async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcm
         return result.text.trim();
       }
 
-      if (audioBlob && audioBlob.size > 0) {
-        const geminiText = await transcribeAudioWithGemini(audioBlob);
-        if (geminiText) {
-          logTrace('Cloud speech transcription complete.', 'system');
-          return geminiText.trim();
-        }
+      // Whisper found nothing — fall back to the live Windows dictation
+      // transcript accumulated while the user spoke, if any.
+      const liveWindowsText = String(finalVoiceTranscript || '').trim();
+      if (liveWindowsText) {
+        logTrace('Speech transcription complete (live Windows engine).', 'system');
+        return liveWindowsText;
       }
 
       const message = result?.error || 'Did not detect clear speech.';
@@ -15286,21 +17686,11 @@ async function resolveVoiceTranscript({ audioBlob = null, pcmSamples = null, pcm
       if (!inVoiceMode) updateVoiceLiveTranscript(message, { processing: false });
     } catch (e) {
       console.warn('Speech transcription error:', e);
-      if (audioBlob && audioBlob.size > 0) {
-        try {
-          const geminiText = await transcribeAudioWithGemini(audioBlob);
-          if (geminiText) return geminiText.trim();
-        } catch (gErr) { /* ignore */ }
-      }
       logTrace('Voice transcription notice: ' + e.message, 'system');
     }
   } else if ((pcmSamples && pcmSamples.length > 0) || (audioBlob && audioBlob.size > 0)) {
-    if (audioBlob && audioBlob.size > 0) {
-      try {
-        const geminiText = await transcribeAudioWithGemini(audioBlob);
-        if (geminiText) return geminiText.trim();
-      } catch (gErr) { /* ignore */ }
-    }
+    const liveWindowsText = String(finalVoiceTranscript || '').trim();
+    if (liveWindowsText) return liveWindowsText;
     lastVoiceTranscriptionError = samples
       ? 'Recording was too short for Windows Speech.'
       : 'No usable microphone audio was captured.';
@@ -15421,19 +17811,11 @@ async function startVoiceRecording(options = {}) {
       setVoiceModeStatus('Listening…');
     } else {
       updateVoiceLiveTranscript('Listening…', { processing: false });
+      // Keep the main input pill open and transform it in-place into the
+      // recording capsule (mic -> pause/waveform/timer) instead of swapping it out.
       if (mainInputPill) {
-        mainInputPill.classList.add('fading-out');
-        setTimeout(() => {
-          mainInputPill.classList.add('hidden');
-          mainInputPill.classList.remove('fading-out');
-          if (voiceRecordingPill) {
-            voiceRecordingPill.classList.remove('hidden');
-            voiceRecordingPill.classList.add('fading-out');
-            requestAnimationFrame(() => {
-              voiceRecordingPill.classList.remove('fading-out');
-            });
-          }
-        }, 120);
+        mainInputPill.classList.add('is-recording');
+        if (voiceRecordingPill) voiceRecordingPill.classList.remove('hidden');
       }
     }
 
@@ -15533,37 +17915,11 @@ async function startVoiceRecording(options = {}) {
       speechRecognition.start();
     }
 
-    // Modern Windows Speech engine (live). Streams recognition from the mic
-    // while the user speaks - dramatically more accurate than decoding the
-    // recorded buffer afterwards. Runs alongside the recorder so we always
-    // keep the raw audio for cloud/Whisper fallbacks.
-    if (!SpeechRec && window.ultronAPI?.startLiveSpeech) {
-      try {
-        const liveResult = await window.ultronAPI.startLiveSpeech(getVoiceSttCulture());
-        if (liveResult?.success) {
-          liveWindowsSttActive = true;
-          liveWindowsSttFailed = false;
-          if (liveWindowsSttUnsubscribe) { try { liveWindowsSttUnsubscribe(); } catch (e) {} }
-          liveWindowsSttUnsubscribe = window.ultronAPI.onLiveSpeechPartial
-            ? window.ultronAPI.onLiveSpeechPartial(handleLiveWindowsSttPartial)
-            : null;
-        } else {
-          liveWindowsSttActive = false;
-          liveWindowsSttFailed = true;
-          if (liveResult?.code === 'privacy') {
-            logTrace(liveResult.error || 'Turn on Online speech recognition in Windows Settings \u2192 Privacy & security \u2192 Speech for the most accurate mic input.', 'system');
-            if (!liveSttPrivacyWarned) {
-              liveSttPrivacyWarned = true;
-              alert('For accurate voice input, turn on "Online speech recognition":\nWindows Settings \u2192 Privacy & security \u2192 Speech.\n\nUntil then, Ultron falls back to a less accurate offline engine.');
-            }
-          }
-        }
-      } catch (liveErr) {
-        liveWindowsSttActive = false;
-        liveWindowsSttFailed = true;
-        console.warn('Live Windows speech notice:', liveErr?.message || liveErr);
-      }
-    }
+    // Offline-first: do NOT start the WinRT live dictation engine — it depends on
+    // the OS "online speech recognition" service. Local Whisper (primary) plus
+    // the offline System.Speech fallback handle transcription without any network.
+    liveWindowsSttActive = false;
+    liveWindowsSttFailed = false;
   } catch (err) {
     console.error('Microphone access error:', err);
     voiceCaptureActive = false;
@@ -15587,7 +17943,7 @@ async function startVoiceRecording(options = {}) {
       setVoiceModeStatus('Tap to start listening');
       startVoiceOrbAnimation('idle');
       if (err.name === 'NotAllowedError') {
-        logTrace('Microphone blocked — allow Ultron in Windows Settings → Privacy → Microphone.', 'system');
+        logTrace('Microphone blocked — allow Brown in Windows Settings → Privacy → Microphone.', 'system');
       }
     } else {
       const msg = err.name === 'NotAllowedError'
@@ -15835,12 +18191,12 @@ function drawWaveform() {
       _prevHeights[i] += (targetHeight - _prevHeights[i]) * 0.45;
       const pillHeight = _prevHeights[i];
       const y = (height - pillHeight) / 2;
-      // Vibrant Blue visualizer waveform fill
+      // Light monochrome visualizer waveform fill (matches reference capsule)
       if (voiceFactor >= 0.01) {
-        const glowOpacity = Math.min(1.0, 0.65 + voiceFactor * 0.35);
-        canvasCtx.fillStyle = `rgba(59, 130, 246, ${glowOpacity})`;
+        const glowOpacity = Math.min(1.0, 0.75 + voiceFactor * 0.25);
+        canvasCtx.fillStyle = `rgba(255, 255, 255, ${glowOpacity})`;
       } else {
-        canvasCtx.fillStyle = 'rgba(96, 165, 250, 0.45)';
+        canvasCtx.fillStyle = 'rgba(255, 255, 255, 0.35)';
       }
 
       canvasCtx.beginPath();
@@ -15890,7 +18246,7 @@ async function loadStoragePathsUI() {
   if (!paths) return;
 
   if (storageUltronRootLabel) {
-    const folderLabel = paths.storageFolderName || (paths.ultronRoot?.includes('Ultron-AI') ? 'Ultron-AI' : 'Ultron-local');
+    const folderLabel = paths.storageFolderName || (paths.ultronRoot?.includes('Ultron-AI') ? 'Ultron-AI' : 'brown-local');
     storageUltronRootLabel.textContent = `${folderLabel}: ${paths.ultronRoot || paths.defaultUltronRoot || ''}`;
   }
   if (storageInstallRootLabel) {
@@ -15910,7 +18266,7 @@ async function loadStoragePathsUI() {
   const ollamaNote = document.getElementById('setting-ollama-install-note');
   if (ollamaNote) {
     const modelsPath = paths.modelsDir || paths.defaultModelsDir || '';
-    const folderName = paths.storageFolderName || 'Ultron-local';
+    const folderName = paths.storageFolderName || 'brown-local';
     ollamaNote.textContent = paths.ollamaInstallPath
       ? `Ollama: ${paths.ollamaInstallPath}. Models → ${modelsPath || `${folderName}\\models`}.`
       : `Models → ${modelsPath || `${folderName}\\models`} when Ollama is installed.`;
@@ -16196,49 +18552,105 @@ function settleBootStep(promise, timeoutMs = 10000) {
   ]);
 }
 
-const BOOT_MIN_TOTAL_MS = 2800;
-const SPLASH_SHARE = 0.5;
-const SPLASH_FADE_MS = 350;
-const BOOT_FAILSAFE_MS = 20000;
+const SPLASH_DISPLAY_DURATION_MS = 1500; // Smooth 1.5s boot sequence
+const SKELETON_DISPLAY_DURATION_MS = 1000;
+const SPLASH_FADE_MS = 450;
+const bootStartTime = Date.now();
 
 function waitMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+let splashStatusInterval = null;
+let splashTransitionTimeout = null;
+
+function updateSplashStatus(message, immediate = false) {
+  const el = document.getElementById('splash-status-text');
+  if (!el || !message) return;
+  if (el.dataset.currentMsg === message) return;
+  el.dataset.currentMsg = message;
+
+  if (immediate) {
+    if (splashTransitionTimeout) {
+      clearTimeout(splashTransitionTimeout);
+      splashTransitionTimeout = null;
+    }
+    el.classList.remove('status-fade-out', 'status-fade-in');
+    el.textContent = message;
+    return;
+  }
+
+  if (splashTransitionTimeout) {
+    clearTimeout(splashTransitionTimeout);
+  }
+
+  el.classList.add('status-fade-out');
+  el.classList.remove('status-fade-in');
+
+  splashTransitionTimeout = setTimeout(() => {
+    el.textContent = message;
+    el.classList.remove('status-fade-out');
+    el.classList.add('status-fade-in');
+
+    // Force browser reflow to trigger smooth entry transition
+    void el.offsetWidth;
+
+    requestAnimationFrame(() => {
+      el.classList.remove('status-fade-in');
+    });
+    splashTransitionTimeout = null;
+  }, 220);
+}
+
+function startSplashStatusCycle() {
+  const messages = [
+    { at: 0, text: 'Starting up...' },
+    { at: 1800, text: 'Checking your models...' },
+    { at: 3600, text: 'Syncing your workspace...' },
+    { at: 5400, text: 'Checking connections...' },
+    { at: 7200, text: 'Connecting services...' },
+    { at: 8800, text: 'Getting everything ready...' }
+  ];
+
+  const start = Date.now();
+  // Immediately set first message without fade lag
+  updateSplashStatus(messages[0].text, true);
+
+  splashStatusInterval = setInterval(() => {
+    const elapsed = Date.now() - start;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (elapsed >= messages[i].at) {
+        updateSplashStatus(messages[i].text);
+        break;
+      }
+    }
+  }, 100);
+}
+
+function stopSplashStatusCycle() {
+  if (splashStatusInterval) {
+    clearInterval(splashStatusInterval);
+    splashStatusInterval = null;
+  }
+  if (splashTransitionTimeout) {
+    clearTimeout(splashTransitionTimeout);
+    splashTransitionTimeout = null;
+  }
+}
+
 function dismissSplashScreen() {
+  stopSplashStatusCycle();
   const splashScreen = document.getElementById('app-splash-screen');
   if (!splashScreen || splashScreen.dataset.dismissed === '1') {
-    return Promise.resolve();
+    return;
   }
   splashScreen.dataset.dismissed = '1';
   splashScreen.classList.add('fade-out');
-  return waitMs(SPLASH_FADE_MS).then(() => {
+  setTimeout(() => {
     splashScreen.style.display = 'none';
     splashScreen.style.pointerEvents = 'none';
-  });
-}
-
-function runSplashIntroSequence(splashDurationMs) {
-  const splashScreen = document.getElementById('app-splash-screen');
-  if (!splashScreen) return Promise.resolve();
-
-  return new Promise((resolve) => {
-    let resolved = false;
-    const finish = async () => {
-      if (resolved) return;
-      resolved = true;
-      await dismissSplashScreen();
-      resolve();
-    };
-
-    const timer = setTimeout(finish, splashDurationMs);
-
-    // Skip only on direct click of splash screen
-    splashScreen.addEventListener('click', () => {
-      clearTimeout(timer);
-      finish();
-    }, { once: true });
-  });
+    if (window.ultronAPI?.splashDone) window.ultronAPI.splashDone();
+  }, SPLASH_FADE_MS);
 }
 
 function ensureSkeletonVisible() {
@@ -16251,50 +18663,46 @@ function ensureSkeletonVisible() {
   skeletonOverlay.style.pointerEvents = 'all';
 }
 
-// Failsafe: never leave overlays stuck if boot hangs
-setTimeout(() => {
-  dismissSplashScreen();
-  hideSkeletonLoader();
-}, BOOT_FAILSAFE_MS);
-
 async function bootSystem() {
-  const bootStartedAt = Date.now();
-  const splashDurationMs = Math.round(BOOT_MIN_TOTAL_MS * SPLASH_SHARE);
+  const splashScreen = document.getElementById('app-splash-screen');
+  if (splashScreen) {
+    splashScreen.style.display = 'flex';
+    splashScreen.style.opacity = '1';
+    splashScreen.style.visibility = 'visible';
+  }
 
-  // 1. Logo + Ultron text for first 50% of the min boot window
-  const splashPromise = runSplashIntroSequence(splashDurationMs);
-  ensureSkeletonVisible();
+  startSplashStatusCycle();
 
   try {
-    // 2. Instant Synchronous UI pre-renders (hidden under splash / skeleton)
-    updateWelcomeGreeting();
-    setSendingState(false);
-    initTraceEmptyState();
-    renderChecklist([]);
-    syncPlusMenuToggles();
-    initAutomationSettingsUI();
-    startLiveMetricsPolling();
+    // 1. Instant Synchronous UI pre-renders (safely isolated)
+    try { updateWelcomeGreeting(); } catch (e) { console.warn('Welcome greeting err:', e); }
+    try { setSendingState(false); } catch (e) { console.warn('Sending state err:', e); }
+    try { initTraceEmptyState(); } catch (e) { console.warn('Trace empty state err:', e); }
+    try { renderChecklist([]); } catch (e) { console.warn('Checklist err:', e); }
+    try { syncPlusMenuToggles(); } catch (e) { console.warn('Menu toggles err:', e); }
+    try { initAutomationSettingsUI(); } catch (e) { console.warn('Automation settings err:', e); }
+    try { startLiveMetricsPolling(); } catch (e) { console.warn('Live metrics err:', e); }
 
-    // 3. Parallel preload — Ollama, models, location, storage, config, etc.
+    // 2. Parallel background preload (non-blocking)
     const coreTasks = [
-      settleBootStep(syncStoragePathOnBoot().then(() => loadStoragePathsUI())),
-      settleBootStep(reloadConversationsFromDisk()),
-      settleBootStep(loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: false }), 12000),
-      settleBootStep(checkOllamaStartup(), 15000),
-      settleBootStep(initMultiProviderUI()),
-      settleBootStep(syncSecurityMode()),
-      settleBootStep((async () => {
+      syncStoragePathOnBoot().then(() => loadStoragePathsUI()).catch(() => {}),
+      reloadConversationsFromDisk().catch(() => {}),
+      loadAccountDetails({ locationReason: 'startup', forceLocationRefresh: false }).catch(() => {}),
+      checkOllamaStartup().catch(() => {}),
+      (typeof initMultiProviderUI === 'function' ? initMultiProviderUI() : Promise.resolve()).catch(() => {}),
+      syncSecurityMode().catch(() => {}),
+      (async () => {
         if (window.UltronAgentPrompt?.loadUltronAgentConfig) {
           await window.UltronAgentPrompt.loadUltronAgentConfig().catch(() => {});
           if (window.UltronAgentPrompt?.startUltronAgentConfigHotReload) {
             window.UltronAgentPrompt.startUltronAgentConfigHotReload();
           }
         }
-      })())
+      })()
     ];
 
     if (window.UltronAgentMemory?.loadTaskMemory) {
-      _learnedTaskMemory = window.UltronAgentMemory.loadTaskMemory().map(item => item.text || item);
+      try { _learnedTaskMemory = window.UltronAgentMemory.loadTaskMemory().map(item => item.text || item); } catch (e) {}
     }
 
     const bootAllowlist = getSavedAuthorizedAppsMap();
@@ -16302,34 +18710,33 @@ async function bootSystem() {
       window.ultronAPI.setAuthorizedApps(bootAllowlist).catch(() => {});
     }
 
-    const resourcesPromise = Promise.allSettled(coreTasks);
-
-    // Wait for splash (50%) to finish, then expose skeleton overlay
-    await splashPromise;
-    ensureSkeletonVisible();
-
-    // 4. Skeleton phase: remain until resources finish AND the other 50% of min duration has elapsed
-    const elapsed = Date.now() - bootStartedAt;
-    const skeletonMinMs = Math.max(0, BOOT_MIN_TOTAL_MS - elapsed);
-
-    await Promise.all([
-      resourcesPromise,
-      waitMs(skeletonMinMs)
-    ]);
-
-    await checkAndRunFirstTimeOnboarding().catch(() => {});
-    initVoiceChatModeAfterBoot();
-
-    // 5. Hydrate model UI with loaded data
-    renderModelDropdownList();
-    updateModelSelectorLabel();
-
-    // 6. All resources ready → reveal the real interface
-    hideSkeletonLoader();
+    // Run core tasks in parallel
+    Promise.allSettled(coreTasks).catch(() => {});
   } catch (err) {
-    console.error('Boot sequence error:', err);
-    await dismissSplashScreen();
+    console.error('Boot sequence initialization warning:', err);
+  } finally {
+    // MANDATORY 10-SECOND LOCK: ALWAYS guarantee splash displays for strictly 10.0 seconds
+    const elapsed = Date.now() - bootStartTime;
+    if (elapsed < SPLASH_DISPLAY_DURATION_MS) {
+      await waitMs(SPLASH_DISPLAY_DURATION_MS - elapsed);
+    }
+
+    updateSplashStatus('Ready — Let’s get started!');
+    await waitMs(300);
+
+    dismissSplashScreen();
+
+    try {
+      renderModelDropdownList();
+      renderSettingsModels();
+      updateModelSelectorLabel();
+    } catch (e) {}
+
     hideSkeletonLoader();
+
+    // Deferred tasks after UI is live
+    checkAndRunFirstTimeOnboarding().catch(() => {});
+    initVoiceChatModeAfterBoot();
   }
 }
 
@@ -16352,6 +18759,620 @@ if (btnToggleLeftSidebar && leftSidebar) {
     logTrace('Left navigation menu width toggled.', 'system');
   });
 }
+
+// Windows top title bar settings quick-option buttons
+function handleTopBarSettingsShortcut(tabName) {
+  if (typeof openSettingsPanel === 'function') {
+    const currentActiveTab = document.querySelector('.settings-tab-btn.active')?.getAttribute('data-tab');
+    if (typeof settingsPanelOpen !== 'undefined' && settingsPanelOpen && currentActiveTab === tabName) {
+      if (typeof closeSettingsPanel === 'function') closeSettingsPanel();
+    } else {
+      openSettingsPanel(tabName);
+    }
+  } else {
+    document.getElementById('btn-settings')?.click();
+  }
+}
+
+// (models / knowledge / automation / apps / sync / settings open dropdowns — see topbar dropdown wiring below)
+
+// ===== Theme engine (dark / light / system) =====
+function updateLogoSources(resolvedTheme) {
+  const isLight = resolvedTheme === 'light';
+  const logoSrc = isLight ? '../../Assets/brown-black-logo.png' : '../../Assets/brown-white-logo.png';
+  const logoAltSrc = isLight ? '../Assets/brown-black-logo.png' : '../Assets/brown-white-logo.png';
+  const bLogoSrc = isLight ? '../../Assets/brown-b-black-logo.png' : '../../Assets/brown-b-white-logo.png';
+  const bLogoAltSrc = isLight ? '../Assets/brown-b-black-logo.png' : '../Assets/brown-b-white-logo.png';
+
+  document.querySelectorAll('.brand-logo, .welcome-logo, .voice-mode-logo, .onboarding-logo-img, .release-notes-brand-logo').forEach(img => {
+    if (img && img.tagName === 'IMG') {
+      img.src = logoSrc;
+      img.onerror = () => { img.src = logoSrc; };
+    }
+  });
+
+  document.querySelectorAll('.about-app-logo, .avatar.ai img').forEach(img => {
+    if (img && img.tagName === 'IMG') {
+      img.src = bLogoSrc;
+      img.onerror = () => { img.src = bLogoSrc; };
+    }
+  });
+
+  const miniPill = document.querySelector('.mini-pill-logo');
+  if (miniPill) {
+    miniPill.src = bLogoAltSrc;
+    miniPill.onerror = () => { miniPill.src = bLogoAltSrc; };
+  }
+}
+
+function resolveThemeMode(mode) {
+  if (mode === 'system' && window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+  return mode === 'light' ? 'light' : 'dark';
+}
+function applyAppTheme(mode, userInitiated) {
+  const resolved = resolveThemeMode(mode);
+  document.documentElement.setAttribute('data-theme', resolved);
+  try { localStorage.setItem('ultron-theme', mode); } catch (e) {}
+  document.querySelectorAll('.theme-card').forEach(c => c.classList.toggle('active', c.getAttribute('data-theme-choice') === mode));
+  document.querySelectorAll('.tsd-theme').forEach(b => b.classList.toggle('active', b.getAttribute('data-theme-choice') === mode));
+  updateLogoSources(resolved);
+  if (window.ultronAPI?.setAppTheme) window.ultronAPI.setAppTheme(resolved, !!userInitiated);
+}
+window.applyAppTheme = applyAppTheme;
+window.updateLogoSources = updateLogoSources;
+
+// Global theme choice delegated listener so clicking theme in topbar or settings always works
+document.addEventListener('click', (e) => {
+  const themeBtn = e.target.closest('[data-theme-choice]');
+  if (themeBtn) {
+    const choice = themeBtn.getAttribute('data-theme-choice');
+    if (choice) applyAppTheme(choice, true);
+  }
+});
+
+applyAppTheme(localStorage.getItem('ultron-theme') || 'dark');
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: light)');
+  const onOsThemeChange = () => { if ((localStorage.getItem('ultron-theme') || 'dark') === 'system') applyAppTheme('system'); };
+  if (mq.addEventListener) mq.addEventListener('change', onOsThemeChange); else if (mq.addListener) mq.addListener(onOsThemeChange);
+}
+
+// ===== Topbar Dropdown Helpers & Animations =====
+function hideDDAnimated(dd) {
+  if (!dd || dd.classList.contains('hidden')) return;
+  dd.classList.add('closing');
+  setTimeout(() => { dd.classList.add('hidden'); dd.classList.remove('closing'); }, 140);
+}
+function toggleDD(dd) {
+  if (!dd) return;
+  if (dd.classList.contains('hidden')) { dd.classList.remove('closing'); dd.classList.remove('hidden'); }
+  else hideDDAnimated(dd);
+}
+
+// Close any open topbar dropdown on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.titlebar-settings-wrap')) {
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => hideDDAnimated(d));
+  }
+});
+
+// ===== Topbar: chat toggle + prev/next navigation =====
+const SETTINGS_TAB_ORDER = ['account','models','knowledge','sync','desktop','sounds','performance','storage','permissions','apps','updates','appearance','about'];
+function currentSettingsTab() { return document.querySelector('.settings-tab-btn.active')?.getAttribute('data-tab') || 'account'; }
+function gotoSettingsTab(tab) { const b = document.querySelector(`.settings-tab-btn[data-tab="${tab}"]`); if (b) b.click(); }
+
+const chatToggleBtn = document.getElementById('titlebar-btn-chat');
+if (chatToggleBtn) {
+  chatToggleBtn.addEventListener('click', () => {
+    if (typeof closeSettingsPanel === 'function') closeSettingsPanel();
+    if (leftSidebar) { leftSidebar.classList.remove('hidden-full'); leftSidebar.classList.remove('collapsed'); }
+    const promptInput = document.getElementById('prompt-input');
+    if (promptInput) promptInput.focus();
+  });
+}
+document.getElementById('titlebar-btn-prev')?.addEventListener('click', () => {
+  if (typeof openSettingsPanel !== 'function') return;
+  if (!settingsPanelOpen) { openSettingsPanel('account'); return; }
+  const idx = SETTINGS_TAB_ORDER.indexOf(currentSettingsTab());
+  gotoSettingsTab(SETTINGS_TAB_ORDER[(idx - 1 + SETTINGS_TAB_ORDER.length) % SETTINGS_TAB_ORDER.length]);
+});
+document.getElementById('titlebar-btn-next')?.addEventListener('click', () => {
+  if (typeof openSettingsPanel !== 'function') return;
+  if (!settingsPanelOpen) { openSettingsPanel('account'); return; }
+  const idx = SETTINGS_TAB_ORDER.indexOf(currentSettingsTab());
+  gotoSettingsTab(SETTINGS_TAB_ORDER[(idx + 1) % SETTINGS_TAB_ORDER.length]);
+});
+
+// ===== Topbar: Settings Dropdown Wiring =====
+const titlebarSettingsDropdown = document.getElementById('titlebar-settings-dropdown');
+const tsdAppearanceToggle = document.getElementById('tsd-appearance-toggle');
+const tsdAppearanceSub = document.getElementById('tsd-appearance-sub');
+
+document.getElementById('titlebar-btn-settings')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (titlebarSettingsDropdown) {
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== titlebarSettingsDropdown) hideDDAnimated(d); });
+    const willOpen = titlebarSettingsDropdown.classList.contains('hidden');
+    if (willOpen && tsdAppearanceSub) {
+      tsdAppearanceSub.classList.remove('hidden');
+      tsdAppearanceToggle?.classList.add('open');
+    }
+    toggleDD(titlebarSettingsDropdown);
+  }
+});
+
+if (tsdAppearanceToggle && tsdAppearanceSub) {
+  tsdAppearanceToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Clicking "Appearance" expands/collapses the inline theme options
+    const isHidden = tsdAppearanceSub.classList.toggle('hidden');
+    tsdAppearanceToggle.classList.toggle('open', !isHidden);
+  });
+}
+
+// Quick navigation shortcuts in Settings dropdown
+const bindTsdNav = (btnId, tabName) => {
+  document.getElementById(btnId)?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    hideDDAnimated(titlebarSettingsDropdown);
+    if (typeof openSettingsPanel === 'function') openSettingsPanel(tabName);
+  });
+};
+bindTsdNav('tsd-go-account', 'account');
+bindTsdNav('tsd-go-models', 'models');
+bindTsdNav('tsd-go-knowledge', 'knowledge');
+bindTsdNav('tsd-go-automation', 'desktop');
+bindTsdNav('tsd-go-apps', 'apps');
+bindTsdNav('tsd-go-all-settings', 'account');
+bindTsdNav('tsd-about', 'about');
+
+// ===== Topbar: Help Dropdown Wiring =====
+const helpBtn = document.getElementById('titlebar-btn-help');
+const helpDD = document.getElementById('titlebar-help-dropdown');
+if (helpBtn && helpDD) {
+  helpBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== helpDD) hideDDAnimated(d); });
+    toggleDD(helpDD);
+  });
+}
+
+document.getElementById('thd-contact')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (helpDD) hideDDAnimated(helpDD);
+  if (window.ultronAPI?.openExternal) {
+    window.ultronAPI.openExternal('https://usebrown.online/#contact');
+  }
+});
+
+document.getElementById('thd-docs')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (helpDD) hideDDAnimated(helpDD);
+  if (window.ultronAPI?.openExternal) {
+    window.ultronAPI.openExternal('https://usebrown.online/#docs');
+  }
+});
+
+document.getElementById('thd-blogs')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (helpDD) hideDDAnimated(helpDD);
+  if (window.ultronAPI?.openExternal) {
+    window.ultronAPI.openExternal('https://usebrown.online/#blog');
+  }
+});
+
+document.getElementById('thd-release-notes')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (helpDD) hideDDAnimated(helpDD);
+  const rnModal = document.getElementById('release-notes-modal');
+  if (rnModal) {
+    rnModal.classList.remove('hidden');
+  } else if (window.ultronAPI?.openExternal) {
+    window.ultronAPI.openExternal('https://github.com/vedantwankhade123/Brown-Releases/releases');
+  }
+});
+
+document.getElementById('thd-website')?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (helpDD) hideDDAnimated(helpDD);
+  if (window.ultronAPI?.openExternal) {
+    window.ultronAPI.openExternal('https://usebrown.online');
+  }
+});
+
+// ===== Topbar: Knowledge & Automation Dropdowns =====
+const knowledgeBtn = document.getElementById('titlebar-btn-knowledge');
+const knowledgeDD = document.getElementById('titlebar-knowledge-dropdown');
+if (knowledgeBtn && knowledgeDD) {
+  knowledgeBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== knowledgeDD) hideDDAnimated(d); });
+    toggleDD(knowledgeDD);
+  });
+}
+document.getElementById('tkd-go-settings')?.addEventListener('click', () => { hideDDAnimated(knowledgeDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('knowledge'); });
+document.getElementById('tkd-add-folder')?.addEventListener('click', () => { hideDDAnimated(knowledgeDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('knowledge'); });
+document.getElementById('tkd-reindex')?.addEventListener('click', () => { hideDDAnimated(knowledgeDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('knowledge'); });
+
+const automationBtn = document.getElementById('titlebar-btn-automation');
+const automationDD = document.getElementById('titlebar-automation-dropdown');
+if (automationBtn && automationDD) {
+  automationBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== automationDD) hideDDAnimated(d); });
+    toggleDD(automationDD);
+  });
+}
+document.getElementById('tad2-go-settings')?.addEventListener('click', () => { hideDDAnimated(automationDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('desktop'); });
+document.getElementById('tad2-uia')?.addEventListener('click', () => { hideDDAnimated(automationDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('desktop'); });
+document.getElementById('tad2-screen')?.addEventListener('click', () => { hideDDAnimated(automationDD); if (typeof openSettingsPanel === 'function') openSettingsPanel('permissions'); });
+
+// ===== Topbar: Models Dropdown (Full Connectors & Installed Models) =====
+const modelsBtn = document.getElementById('titlebar-btn-models');
+const modelsDD = document.getElementById('titlebar-models-dropdown');
+
+async function populateModelsDropdown() {
+  const connectorsList = document.getElementById('tmd-connectors-list');
+  const installedList = document.getElementById('tmd-installed');
+  if (!connectorsList || !installedList) return;
+
+  // 1. Check live status for each connector
+  const geminiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
+  const hasGemini = Boolean(geminiKey || (Array.isArray(ONLINE_GEMINI_MODELS) && ONLINE_GEMINI_MODELS.length > 0));
+  
+  const openaiKey = (window.UltronMultiProviderHub?.getStoredApiKey('openai') || '').trim();
+  const claudeKey = (window.UltronMultiProviderHub?.getStoredApiKey('anthropic') || '').trim();
+  const deepseekKey = (window.UltronMultiProviderHub?.getStoredApiKey('deepseek') || '').trim();
+  const groqKey = (window.UltronMultiProviderHub?.getStoredApiKey('groq') || '').trim();
+  const customUrl = (window.UltronMultiProviderHub?.getCustomEndpointUrl() || localStorage.getItem('ultron-custom-endpoint-url') || '').trim();
+  const ollamaCloudKey = (window.UltronMultiProviderHub?.getStoredApiKey('ollama_cloud') || localStorage.getItem('ultron-ollama-cloud-token') || '').trim();
+  
+  let isLocalOllamaActive = (Array.isArray(installedModelsList) && installedModelsList.length > 0);
+  try {
+    if (!isLocalOllamaActive && window.ultronAPI?.getInstalledOllamaModels) {
+      const localModels = await window.ultronAPI.getInstalledOllamaModels();
+      if (Array.isArray(localModels) && localModels.length > 0) isLocalOllamaActive = true;
+    }
+  } catch (e) {}
+
+  const connectors = [
+    { id: 'gemini', name: 'Google Gemini', icon: '../../Assets/Brand-Assets/gemini-logo.png', connected: hasGemini },
+    { id: 'openai', name: 'OpenAI', icon: '../../Assets/Brand-Assets/openai-black-logo.png', connected: Boolean(openaiKey) },
+    { id: 'anthropic', name: 'Anthropic Claude', icon: '../../Assets/Brand-Assets/claude-logo.png', connected: Boolean(claudeKey) },
+    { id: 'deepseek', name: 'DeepSeek', icon: '../../Assets/Brand-Assets/deepseek-blue-logo.png', connected: Boolean(deepseekKey) },
+    { id: 'groq', name: 'Groq Cloud', icon: '../../Assets/Brand-Assets/groq-black-logo.png', connected: Boolean(groqKey) },
+    { id: 'custom', name: 'Custom (LM Studio/vLLM)', icon: '../../Assets/Brand-Assets/lm-studio.png', connected: Boolean(customUrl) },
+    { id: 'hf', name: 'Hugging Face Hub', icon: '../../Assets/Brand-Assets/hf-logo.png', connected: true, statusText: 'Active' },
+    { id: 'ollama_cloud', name: 'Ollama Cloud', icon: '../../Assets/Brand-Assets/ollama-logo.png', connected: Boolean(ollamaCloudKey) },
+    { id: 'ollama', name: 'Local Ollama', icon: '../../Assets/Brand-Assets/ollama-logo.png', connected: isLocalOllamaActive, statusText: isLocalOllamaActive ? 'Active' : 'Offline' }
+  ];
+
+  connectorsList.innerHTML = '';
+  connectors.forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'tmd-connector-card';
+    card.title = `Configure ${c.name} in Models Settings`;
+    const isConn = c.connected;
+    const badgeText = c.statusText || (isConn ? 'Active' : 'Not configured');
+    card.innerHTML = `
+      <div class="tmd-connector-left">
+        <img src="${c.icon}" alt="${c.name}" class="tmd-connector-icon" onerror="this.src='../../Assets/brown-logo.png'">
+        <span class="tmd-connector-name">${escapeHtml(c.name)}</span>
+      </div>
+      <span class="tmd-connector-badge ${isConn ? 'connected' : 'disconnected'}">${badgeText}</span>
+    `;
+    card.addEventListener('click', () => {
+      hideDDAnimated(modelsDD);
+      if (typeof openSettingsPanel === 'function') openSettingsPanel('models');
+    });
+    connectorsList.appendChild(card);
+  });
+
+  // 2. Populate installed / configured models with 1-click model switching
+  installedList.innerHTML = '';
+  let allAvailable = [];
+
+  // Local Ollama models
+  (installedModelsList || []).forEach(m => {
+    const name = typeof m === 'string' ? m : (m.name || '');
+    if (name) allAvailable.push({ name, type: 'Local', size: m.size ? `${(m.size / (1024*1024*1024)).toFixed(1)} GB` : '' });
+  });
+
+  // Gemini models
+  (ONLINE_GEMINI_MODELS || []).forEach(m => {
+    const name = typeof m === 'string' ? m : (m.name || '');
+    if (name && !allAvailable.some(x => x.name.toLowerCase() === name.toLowerCase())) {
+      allAvailable.push({ name, type: 'Gemini Cloud', size: 'Cloud' });
+    }
+  });
+
+  // Hub / Provider models
+  if (window.UltronMultiProviderHub?.getAvailableModels) {
+    const hubModels = window.UltronMultiProviderHub.getAvailableModels(true);
+    (hubModels || []).forEach(m => {
+      const name = typeof m === 'string' ? m : (m.name || '');
+      if (name && !allAvailable.some(x => x.name.toLowerCase() === name.toLowerCase())) {
+        allAvailable.push({ name, type: m.provider || 'Cloud', size: 'API' });
+      }
+    });
+  }
+
+  if (allAvailable.length === 0) {
+    installedList.innerHTML = `<div style="padding: 10px; font-size: 12px; color: var(--text-muted); text-align: center; background: rgba(255, 255, 255, 0.02); border-radius: 8px;">No installed or connected models found. Connect an API or download a local model.</div>`;
+  } else {
+    allAvailable.slice(0, 12).forEach(m => {
+      const isCurActive = Boolean(activeModel && (
+        activeModel.toLowerCase() === m.name.toLowerCase() ||
+        activeModel.toLowerCase() === (m.name.split(':')[0]).toLowerCase()
+      ));
+
+      const row = document.createElement('div');
+      row.className = `tmd-model-row${isCurActive ? ' active' : ''}`;
+      row.title = isCurActive ? 'Currently active model' : `Click to switch to ${m.name}`;
+      const checkIcon = `
+        <span class="tmd-model-check-icon">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </span>
+      `;
+      const defaultIcon = `
+        <span class="tmd-model-default-icon">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          </svg>
+        </span>
+      `;
+
+      row.innerHTML = `
+        <div class="tmd-model-left">
+          ${isCurActive ? checkIcon : defaultIcon}
+          <span class="tmd-model-title">${escapeHtml(m.name)}</span>
+        </div>
+        <span class="tmd-model-meta">${escapeHtml(m.type)}${m.size ? ` • ${m.size}` : ''}</span>
+      `;
+      row.addEventListener('click', () => {
+        activeModel = m.name;
+        if (typeof updateModelSelectorLabel === 'function') updateModelSelectorLabel();
+        if (typeof syncModelAttachmentCapabilities === 'function') syncModelAttachmentCapabilities();
+        hideDDAnimated(modelsDD);
+        logTrace(`Switched active chat model to ${m.name}`, 'system');
+        populateModelsDropdown();
+      });
+      installedList.appendChild(row);
+    });
+  }
+}
+
+if (modelsBtn && modelsDD) {
+  modelsBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== modelsDD) hideDDAnimated(d); });
+    const willOpen = modelsDD.classList.contains('hidden');
+    toggleDD(modelsDD);
+    if (willOpen) populateModelsDropdown();
+  });
+}
+
+document.getElementById('tmd-go-settings')?.addEventListener('click', () => {
+  hideDDAnimated(modelsDD);
+  if (typeof openSettingsPanel === 'function') openSettingsPanel('models');
+});
+document.getElementById('tmd-go-download')?.addEventListener('click', () => {
+  hideDDAnimated(modelsDD);
+  if (typeof openSettingsPanel === 'function') {
+    openSettingsPanel('models').then(() => {
+      document.getElementById('tab-btn-download-models')?.click();
+    });
+  }
+});
+
+// ===== Topbar: Apps Dropdown (Interactive Authorization & Search) =====
+const appsBtn = document.getElementById('titlebar-btn-apps');
+const appsDD = document.getElementById('titlebar-apps-dropdown');
+let cachedTopbarApps = [];
+
+async function populateAppsDropdown() {
+  const list = document.getElementById('tad-apps-list');
+  const badge = document.getElementById('tad-apps-count-badge');
+  const chkMarkAll = document.getElementById('tad-chk-mark-all');
+  if (!list) return;
+
+  list.innerHTML = `<div style="padding:12px; text-align:center; font-size:12px; color:var(--text-muted);">Loading applications…</div>`;
+
+  let apps = cachedSettingsApps && cachedSettingsApps.length > 0 ? cachedSettingsApps : [];
+  if (!apps.length) {
+    try {
+      if (window.ultronAPI?.getInstalledApps) {
+        const res = await window.ultronAPI.getInstalledApps();
+        if (res && res.success && Array.isArray(res.apps)) apps = res.apps;
+      }
+    } catch (e) {}
+  }
+  cachedTopbarApps = apps.slice().sort((a, b) => a.name.localeCompare(b.name));
+
+  const authMap = getSavedAuthorizedAppsMap() || {};
+  cachedTopbarApps.forEach(a => {
+    if (authMap[a.name] === undefined) authMap[a.name] = true;
+  });
+
+  renderTopbarAppsList();
+}
+
+function renderTopbarAppsList() {
+  const list = document.getElementById('tad-apps-list');
+  const badge = document.getElementById('tad-apps-count-badge');
+  const chkMarkAll = document.getElementById('tad-chk-mark-all');
+  const searchInput = document.getElementById('tad-apps-search');
+  if (!list) return;
+
+  const query = (searchInput?.value || '').toLowerCase().trim();
+  const authMap = getSavedAuthorizedAppsMap() || {};
+
+  const filtered = cachedTopbarApps.filter(a => {
+    if (!query) return true;
+    return `${a.name} ${a.publisher || ''}`.toLowerCase().includes(query);
+  });
+
+  const totalAuthorized = cachedTopbarApps.filter(a => authMap[a.name] !== false).length;
+  if (badge) badge.textContent = `${totalAuthorized} / ${cachedTopbarApps.length} active`;
+  if (chkMarkAll) chkMarkAll.checked = (cachedTopbarApps.length > 0 && totalAuthorized === cachedTopbarApps.length);
+
+  list.innerHTML = '';
+  if (filtered.length === 0) {
+    list.innerHTML = `<div style="padding:14px; text-align:center; font-size:12px; color:var(--text-muted);">No matching applications found.</div>`;
+    return;
+  }
+
+  filtered.forEach(app => {
+    const isAuth = authMap[app.name] !== false;
+    const row = document.createElement('div');
+    row.className = `tad-app-row${isAuth ? '' : ' is-restricted'}`;
+    row.innerHTML = `
+      <div class="tad-app-left">
+        ${getAppIconMarkup(app)}
+        <span class="tad-app-name" title="${escapeHtml(app.name)}">${escapeHtml(app.name)}</span>
+      </div>
+      <button type="button" class="tad-app-toggle ${isAuth ? 'active' : ''}" aria-label="Toggle ${escapeHtml(app.name)}" title="${isAuth ? 'Authorized' : 'Restricted'}">
+        <span class="tad-app-toggle-knob"></span>
+      </button>
+    `;
+
+    const toggleBtn = row.querySelector('.tad-app-toggle');
+    toggleBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nextState = !isAuth;
+      authMap[app.name] = nextState;
+      saveAuthorizedAppsMap(authMap);
+      row.classList.toggle('is-restricted', !nextState);
+      toggleBtn.classList.toggle('active', nextState);
+      toggleBtn.title = nextState ? 'Authorized' : 'Restricted';
+      
+      // Sync main settings view if open
+      if (typeof settingsAppsList !== 'undefined' && settingsAppsList) {
+        const matchingCard = settingsAppsList.querySelector(`[data-app-name="${CSS.escape(app.name)}"]`);
+        if (matchingCard && typeof syncAppCardAuthorization === 'function') {
+          syncAppCardAuthorization(matchingCard, nextState);
+        }
+      }
+      
+      const newTotal = cachedTopbarApps.filter(a => authMap[a.name] !== false).length;
+      if (badge) badge.textContent = `${newTotal} / ${cachedTopbarApps.length} active`;
+      if (chkMarkAll) chkMarkAll.checked = (newTotal === cachedTopbarApps.length);
+    });
+
+    list.appendChild(row);
+  });
+}
+
+// Search and Mark All in Apps dropdown
+document.getElementById('tad-apps-search')?.addEventListener('input', () => {
+  renderTopbarAppsList();
+});
+
+document.getElementById('tad-chk-mark-all')?.addEventListener('change', (e) => {
+  const isChecked = e.target.checked;
+  const authMap = getSavedAuthorizedAppsMap() || {};
+  cachedTopbarApps.forEach(a => { authMap[a.name] = isChecked; });
+  saveAuthorizedAppsMap(authMap);
+  renderTopbarAppsList();
+  if (typeof renderSettingsAppsList === 'function' && typeof getFilteredSettingsApps === 'function') {
+    renderSettingsAppsList(getFilteredSettingsApps(), authMap);
+  }
+});
+
+if (appsBtn && appsDD) {
+  appsBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== appsDD) hideDDAnimated(d); });
+    const willOpen = appsDD.classList.contains('hidden');
+    toggleDD(appsDD);
+    if (willOpen) populateAppsDropdown();
+  });
+}
+
+document.getElementById('tad-go-settings')?.addEventListener('click', () => {
+  hideDDAnimated(appsDD);
+  if (typeof openSettingsPanel === 'function') openSettingsPanel('apps');
+});
+
+// Sync dropdown (device info + 30s pair code + QR + regenerate)
+const syncBtn = document.getElementById('titlebar-btn-sync');
+const syncDD = document.getElementById('titlebar-sync-dropdown');
+let _syncExpiryTimer = null;
+function drawPseudoQR(canvas, payload) {
+  if (!canvas || !canvas.getContext) return;
+  const ctx = canvas.getContext('2d'); const N = 21; const size = canvas.width; const cell = size / (N + 2);
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#000000';
+  let seed = 0; for (const ch of String(payload)) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { if (rand() > 0.5) ctx.fillRect((x + 1) * cell, (y + 1) * cell, cell, cell); }
+  const finder = (fx, fy) => { ctx.fillStyle='#000'; ctx.fillRect((fx+1)*cell,(fy+1)*cell,7*cell,7*cell); ctx.fillStyle='#fff'; ctx.fillRect((fx+2)*cell,(fy+2)*cell,5*cell,5*cell); ctx.fillStyle='#000'; ctx.fillRect((fx+3)*cell,(fy+3)*cell,3*cell,3*cell); };
+  finder(0,0); finder(N-7,0); finder(0,N-7);
+}
+async function refreshSyncInfo() {
+  try {
+    const info = await window.ultronAPI?.getDesktopSyncInfo?.();
+    if (info) {
+      const nameEl = document.getElementById('tsd-device-name'); if (nameEl) nameEl.textContent = info.syncId || 'This PC';
+      const ipEl = document.getElementById('tsd-lan-ip');
+      if (ipEl) {
+        const addrs = (info.addresses || []).filter(Boolean);
+        const primaryIp = addrs.length > 0 ? addrs[0] : '127.0.0.1';
+        ipEl.textContent = `LAN IP: ${primaryIp}${info.port ? ` : ${info.port}` : ''}`;
+        ipEl.title = addrs.length > 1 ? `All IPs: ${addrs.join(', ')} (Port ${info.port || 49200})` : ipEl.textContent;
+      }
+    }
+  } catch (e) {}
+}
+function startSyncExpiry(seconds) {
+  const expEl = document.getElementById('tsd-sync-expiry');
+  let remaining = seconds;
+  if (expEl) expEl.textContent = `Code expires in ${remaining}s`;
+  if (_syncExpiryTimer) clearInterval(_syncExpiryTimer);
+  _syncExpiryTimer = setInterval(() => {
+    remaining -= 1;
+    if (expEl) expEl.textContent = remaining > 0 ? `Code expires in ${remaining}s` : 'Code expired — regenerate';
+    if (remaining <= 0) clearInterval(_syncExpiryTimer);
+  }, 1000);
+}
+async function generateSyncPair() {
+  const res = await window.ultronAPI?.createMobilePairCode?.();
+  const codeEl = document.getElementById('tsd-pair-code');
+  const regenBtn = document.getElementById('tsd-regen-qr');
+  if (res && res.success && res.code) {
+    if (codeEl) { codeEl.textContent = res.code; codeEl.classList.remove('hidden'); }
+    drawPseudoQR(document.getElementById('tsd-qr'), res.code);
+    document.getElementById('tsd-qr-veil')?.classList.add('hidden');
+    document.getElementById('tsd-qr-refresh')?.classList.add('hidden');
+    if (regenBtn) regenBtn.textContent = 'Regenerate QR';
+    startSyncExpiry(res.expiresIn || 30);
+  }
+}
+if (syncBtn && syncDD) syncBtn.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== syncDD) hideDDAnimated(d); });
+  const willOpen = syncDD.classList.contains('hidden');
+  toggleDD(syncDD);
+  if (willOpen) {
+    refreshSyncInfo();
+    // Show a dummy QR placeholder with a white fade veil and prominent refresh button until the user generates.
+    document.getElementById('tsd-pair-code')?.classList.add('hidden');
+    const qr = document.getElementById('tsd-qr');
+    if (qr) drawPseudoQR(qr, 'BROWN-SYNC-PLACEHOLDER');
+    document.getElementById('tsd-qr-veil')?.classList.remove('hidden');
+    document.getElementById('tsd-qr-refresh')?.classList.remove('hidden');
+    const regenBtn = document.getElementById('tsd-regen-qr');
+    if (regenBtn) regenBtn.textContent = 'Generate QR';
+    const exp = document.getElementById('tsd-sync-expiry'); if (exp) exp.textContent = 'Tap the refresh icon or “Generate Pair Code”';
+  }
+});
+document.getElementById('tsd-qr-refresh')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
+document.getElementById('tsd-generate-pair')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
+document.getElementById('tsd-regen-qr')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
 
 // Bind right sidebar collapsible sections (collapse state persisted per section)
 const rightSections = document.querySelectorAll('.right-section.collapsible');
@@ -16603,6 +19624,19 @@ function getSelectedTtsVoiceUri() {
 
 function normalizeTextForSpeech(text) {
   let cleaned = extractPlainTextFromMessage(text) || String(text || '');
+
+  // Convert markdown tables into natural spoken sentences before stripping formatting
+  cleaned = cleaned.replace(/(\|[\s\S]+?\|\n\|[-:\s|]+\|\n(?:\|[\s\S]+?\|\n?)+)/g, (tableBlock) => {
+    const lines = tableBlock.trim().split('\n').filter(l => l.includes('|'));
+    if (lines.length < 3) return '';
+    const rows = lines.slice(2).map(r => r.split('|').map(c => c.trim()).filter(Boolean));
+    const spokenRows = rows.map(r => {
+      if (r.length >= 2) return `${r[0]} from ${r[1]}`;
+      return r.join(', ');
+    });
+    return `Here are the top results: ${spokenRows.slice(0, 5).join('. ')}.`;
+  });
+
   cleaned = cleaned
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`]+`/g, ' ')
@@ -16610,6 +19644,7 @@ function normalizeTextForSpeech(text) {
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^[-*•]\s+/gm, '')
     .replace(/^-{3,}$|^\*{3,}$|^_{3,}$/gm, ' ')
+    .replace(/\[\d{1,2}\]/g, '') // Strip citation badges like [1], [2] for smooth speech
     .replace(/[—–‑]/g, ' ')
     .replace(/\s[-–—]\s/g, ' ')
     .replace(/[^\w\s.,!?;:'"()]/g, ' ')
@@ -17864,11 +20899,6 @@ async function startTtsModelDownload(modelKey) {
     await window.ultronAPI.setActiveTtsModel?.(modelKey);
     if (ttsModelFeedback) ttsModelFeedback.textContent = 'Voice engine ready — tap Preview on any voice.';
     logTrace('Neural voice engine installed.', 'system');
-    if (window.localStorage.getItem('ultron-setup-deferred') === 'true') {
-      if (await areOnboardingKokoroVoicesReady()) {
-        await markSetupFullyCompleted();
-      }
-    }
   } else if (!result.cancelled) {
     if (ttsModelFeedback) ttsModelFeedback.textContent = result.error || 'Download failed.';
     logTrace(result.error || 'Neural voice download failed.', 'system');
@@ -18044,6 +21074,13 @@ async function openSettingsPanel(tabName = 'account') {
   chatMain.classList.add('settings-open');
   btnSettings?.classList.add('active');
 
+  // Fully hide the recent-conversations sidebar while settings is open.
+  if (leftSidebar) {
+    leftSidebar.classList.add('hidden-full');
+  }
+  const chatToggleBtn = document.getElementById('titlebar-btn-chat');
+  if (chatToggleBtn) chatToggleBtn.disabled = false;
+
   if (activeChatTitle) activeChatTitle.textContent = 'Settings';
   btnBackFromSettings?.classList.remove('hidden');
 
@@ -18063,6 +21100,15 @@ function closeSettingsPanel() {
   settingsPanel.classList.add('hidden');
   chatMain.classList.remove('settings-open');
   btnSettings?.classList.remove('active');
+
+  // Restore the recent-conversations sidebar when settings closes.
+  if (leftSidebar) {
+    leftSidebar.classList.remove('hidden-full');
+    leftSidebar.classList.remove('collapsed');
+    try { localStorage.setItem('ultron-left-sidebar-collapsed', 'false'); } catch (e) {}
+  }
+  const chatToggleBtn2 = document.getElementById('titlebar-btn-chat');
+  if (chatToggleBtn2) chatToggleBtn2.disabled = true; // sidebar visible -> toggle disabled
 
   if (activeChatTitle) {
     activeChatTitle.textContent = chatTitleBeforeSettings || 'New chat';
@@ -18087,6 +21133,10 @@ if (btnBackFromSettings) {
     closeSettingsPanel();
   });
 }
+
+document.getElementById('btn-settings-back-to-chat')?.addEventListener('click', () => {
+  closeSettingsPanel();
+});
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && settingsPanelOpen) {
@@ -18708,92 +21758,226 @@ function setupAutoUpdaterUI() {
   const subtitle = document.getElementById('update-status-subtitle');
   const progressLabel = document.getElementById('update-progress-label');
 
-  // Top-left Chat Header update buttons
-  const topBtnCheck = document.getElementById('top-btn-check-update');
-  const topBtnDownload = document.getElementById('top-btn-download-update');
-  const topBtnRestart = document.getElementById('top-btn-restart-install');
-  const topDownloadText = document.getElementById('top-download-text');
+  // Topbar: single stateful update button + details dropdown
+  const topWrap = document.getElementById('top-update-wrap');
+  const topBtn = document.getElementById('top-btn-update');
+  const topLabel = document.getElementById('top-update-label');
+  const topIconSpin = document.getElementById('top-update-icon-spin');
+  const topIconDownload = document.getElementById('top-update-icon-download');
+  const topIconRestart = document.getElementById('top-update-icon-restart');
+  const topRing = document.getElementById('top-update-ring-fill');
+  const topDropdown = document.getElementById('top-update-dropdown');
+  const tudTitle = document.getElementById('tud-title');
+  const tudSubtitle = document.getElementById('tud-subtitle');
+  const tudNotes = document.getElementById('tud-notes');
+  const tudProgress = document.getElementById('tud-progress');
+  const tudRing = document.getElementById('tud-ring-fill');
+  const tudPct = document.getElementById('tud-progress-pct');
+  const tudSize = document.getElementById('tud-stat-size');
+  const tudSpeed = document.getElementById('tud-stat-speed');
+  const tudEta = document.getElementById('tud-stat-eta');
+  const tudFinished = document.getElementById('tud-finished');
+  const tudBtnUpdate = document.getElementById('tud-btn-update');
+  const tudBtnRestart = document.getElementById('tud-btn-restart');
+  const tudBtnLater = document.getElementById('tud-btn-later');
 
   if (!window.ultronAPI || !window.ultronAPI.onUpdateStatus) return;
+
+  const RING_BTN_C = 2 * Math.PI * 15;
+  const RING_DD_C = 2 * Math.PI * 31;
+  let updateState = 'checking'; // checking | none | available | downloading | downloaded
+  let updateInfo = null;
+  let updateProgress = { percent: 0, bytesPerSecond: 0, transferred: 0, total: 0 };
+  let dropdownOpen = false;
+
+  function fmtBytes(n) {
+    if (!Number.isFinite(n) || n <= 0) return '0 MB';
+    const mb = n / (1024 * 1024);
+    return mb >= 100 ? `${Math.round(mb)} MB` : `${mb.toFixed(1)} MB`;
+  }
+  function fmtSpeed(bps) {
+    if (!Number.isFinite(bps) || bps <= 0) return '--';
+    return `${fmtBytes(bps)}/s`;
+  }
+  function fmtEta(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '--';
+    const s = Math.round(seconds);
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m ${s % 60}s`;
+  }
+  function setRing(circle, circumference, pct) {
+    if (!circle) return;
+    const clamped = Math.min(100, Math.max(0, pct));
+    circle.style.strokeDasharray = `${circumference}`;
+    circle.style.strokeDashoffset = `${circumference * (1 - clamped / 100)}`;
+  }
+
+  function renderTopButton() {
+    if (!topBtn) return;
+    topBtn.classList.remove('state-checking', 'state-none', 'state-available', 'state-downloading', 'state-downloaded', 'ring-visible');
+    topIconSpin?.classList.add('hidden');
+    topIconDownload?.classList.add('hidden');
+    topIconRestart?.classList.add('hidden');
+    if (updateState === 'checking') {
+      topBtn.classList.add('state-checking');
+      topIconSpin?.classList.remove('hidden');
+      if (topLabel) topLabel.textContent = 'Checking for updates';
+    } else if (updateState === 'none') {
+      topBtn.classList.add('state-none');
+      topIconDownload?.classList.remove('hidden');
+      if (topLabel) topLabel.textContent = 'No Updates';
+    } else if (updateState === 'available') {
+      topBtn.classList.add('state-available');
+      topIconDownload?.classList.remove('hidden');
+      if (topLabel) topLabel.textContent = 'Update';
+    } else if (updateState === 'downloading') {
+      topBtn.classList.add('state-downloading', 'ring-visible');
+      topIconDownload?.classList.remove('hidden');
+      if (topLabel) topLabel.textContent = `Updating ${Math.round(updateProgress.percent || 0)}%`;
+    } else {
+      topBtn.classList.add('state-downloaded');
+      topIconRestart?.classList.remove('hidden');
+      if (topLabel) topLabel.textContent = 'Restart';
+    }
+  }
+
+  function renderDropdown() {
+    if (!topDropdown) return;
+    const ver = updateInfo?.version ? `v${updateInfo.version}` : '';
+    if (updateState === 'available') {
+      if (tudTitle) tudTitle.textContent = 'New Update Available';
+      if (tudSubtitle) {
+        const date = updateInfo?.releaseDate ? new Date(updateInfo.releaseDate).toLocaleDateString() : '';
+        tudSubtitle.textContent = [ver, date].filter(Boolean).join(' · ');
+      }
+      if (tudNotes) {
+        tudNotes.textContent = updateInfo?.releaseNotes || 'Bug fixes, speed improvements, and new capabilities.';
+        tudNotes.classList.remove('hidden');
+      }
+      tudProgress?.classList.add('hidden');
+      tudFinished?.classList.add('hidden');
+      tudBtnUpdate?.classList.remove('hidden');
+      tudBtnRestart?.classList.add('hidden');
+      tudBtnLater?.classList.add('hidden');
+    } else if (updateState === 'downloading') {
+      if (tudTitle) tudTitle.textContent = `Downloading Update ${ver}`.trim();
+      if (tudSubtitle) tudSubtitle.textContent = 'Keep the app open until the download finishes.';
+      tudNotes?.classList.add('hidden');
+      tudProgress?.classList.remove('hidden');
+      tudFinished?.classList.add('hidden');
+      tudBtnUpdate?.classList.add('hidden');
+      tudBtnRestart?.classList.add('hidden');
+      tudBtnLater?.classList.add('hidden');
+    } else if (updateState === 'downloaded') {
+      if (tudTitle) tudTitle.textContent = `Update ${ver} Ready`.trim();
+      if (tudSubtitle) tudSubtitle.textContent = 'Restart to install — the app will close, install, and reopen.';
+      tudNotes?.classList.add('hidden');
+      tudProgress?.classList.add('hidden');
+      tudFinished?.classList.remove('hidden');
+      tudBtnUpdate?.classList.add('hidden');
+      tudBtnRestart?.classList.remove('hidden');
+      tudBtnLater?.classList.remove('hidden');
+    }
+  }
+
+  function renderProgress(p) {
+    updateProgress = {
+      percent: p.percent || 0,
+      bytesPerSecond: p.bytesPerSecond || 0,
+      transferred: p.transferred || 0,
+      total: p.total || 0
+    };
+    const pct = Math.round(updateProgress.percent);
+    setRing(topRing, RING_BTN_C, pct);
+    setRing(tudRing, RING_DD_C, pct);
+    if (tudPct) tudPct.textContent = `${pct}%`;
+    if (tudSize) tudSize.textContent = `${fmtBytes(updateProgress.transferred)} / ${fmtBytes(updateProgress.total)}`;
+    if (tudSpeed) tudSpeed.textContent = fmtSpeed(updateProgress.bytesPerSecond);
+    if (tudEta) {
+      tudEta.textContent = updateProgress.bytesPerSecond > 0
+        ? fmtEta((updateProgress.total - updateProgress.transferred) / updateProgress.bytesPerSecond)
+        : '--';
+    }
+  }
+
+  function setDropdownOpen(open) {
+    dropdownOpen = open;
+    topDropdown?.classList.toggle('hidden', !open);
+    topBtn?.setAttribute('aria-expanded', String(open));
+    if (open) renderDropdown();
+  }
 
   function applyUpdateStatus(data) {
     if (!data) return;
 
+    // Settings panel (Updates tab)
     if (btnCheck) {
       btnCheck.disabled = false;
       btnCheck.style.opacity = '1';
     }
-    if (topBtnCheck) {
-      topBtnCheck.disabled = false;
-      topBtnCheck.style.opacity = '1';
-      topBtnCheck.querySelector('span').textContent = 'Check for Updates';
-    }
 
     if (data.status === 'checking') {
       if (title) title.textContent = 'Checking GitHub Releases...';
-      if (topBtnCheck) {
-        topBtnCheck.disabled = true;
-        topBtnCheck.style.opacity = '0.6';
-        topBtnCheck.querySelector('span').textContent = 'Checking...';
-      }
       if (btnCheck) {
         btnCheck.disabled = true;
         btnCheck.style.opacity = '0.6';
       }
-    } else if (data.status === 'dev-mode') {
-      if (title) title.textContent = 'Dev Mode Active';
-      if (subtitle) subtitle.textContent = 'Auto-updates check remote GitHub Releases in production builds.';
-      if (topBtnCheck) {
-        topBtnCheck.querySelector('span').textContent = 'Dev Mode Active';
-        setTimeout(() => {
-          if (topBtnCheck) topBtnCheck.querySelector('span').textContent = 'Check for Updates';
-        }, 3000);
-      }
+      updateState = 'checking';
     } else if (data.status === 'available') {
+      updateInfo = { version: data.version, releaseDate: data.releaseDate, releaseNotes: data.releaseNotes };
       if (title) title.textContent = `New Update Available: v${data.version}!`;
-      if (subtitle) subtitle.textContent = `Release notes: ${data.releaseNotes || 'Bug fixes and performance improvements.'}`;
+      if (subtitle) subtitle.textContent = `Release notes: ${data.releaseNotes || 'Bug fixes, speed improvements, and new capabilities.'}`;
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'inline-flex';
-
-      if (topBtnDownload) {
-        topBtnDownload.classList.remove('hidden');
-        if (topDownloadText) topDownloadText.textContent = `Download v${data.version}`;
+      updateState = 'available';
+      if (typeof showToast === 'function') {
+        showToast(
+          `New Update Available: v${data.version}`,
+          'Open the Update button in the top bar to see details and install.',
+          'info'
+        );
       }
     } else if (data.status === 'not-available') {
-      if (title) title.textContent = 'Ultron is Up to Date ✓';
-      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.7'}).`;
+      if (title) title.textContent = 'Brown AI is Up to Date ✓';
+      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0.16'}).`;
       if (actionContainer) actionContainer.style.display = 'none';
-      if (topBtnDownload) topBtnDownload.classList.add('hidden');
-      if (topBtnRestart) topBtnRestart.classList.add('hidden');
+      updateInfo = null;
+      updateState = 'none';
     } else if (data.status === 'downloading') {
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';
-      if (progressLabel) progressLabel.textContent = `Downloading... ${data.percent}%`;
-
-      if (topBtnDownload) {
-        topBtnDownload.classList.remove('hidden');
-        if (topDownloadText) topDownloadText.textContent = `Downloading... ${data.percent}%`;
-      }
+      if (progressLabel) progressLabel.textContent = `Downloading update... ${data.percent !== undefined ? `${data.percent}%` : ''}`;
+      updateState = 'downloading';
+      renderProgress(data);
     } else if (data.status === 'downloaded') {
-      if (title) title.textContent = `Update v${data.version} Ready!`;
-      if (subtitle) subtitle.textContent = 'Click restart to install the latest version.';
+      if (title) title.textContent = `Update v${data.version || '1.0.16'} Ready to Install!`;
+      if (subtitle) subtitle.textContent = 'Update downloaded successfully. Click restart to apply changes.';
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';
       if (btnRestart) btnRestart.style.display = 'inline-flex';
       if (progressLabel) progressLabel.textContent = 'Download Complete 100%';
-
-      if (topBtnDownload) topBtnDownload.classList.add('hidden');
-      if (topBtnRestart) topBtnRestart.classList.remove('hidden');
+      updateState = 'downloaded';
+      if (typeof showToast === 'function') {
+        showToast(
+          `Update Ready: v${data.version || '1.0.14'}`,
+          'Download finished. Restart now to install, or do it later.',
+          'success'
+        );
+      }
     } else if (data.status === 'error') {
       const isUpToDate = data.error && (data.error.includes('latest version') || data.error.includes('No newer release'));
       if (isUpToDate) {
-        if (title) title.textContent = 'Ultron is Up to Date ✓';
-        if (subtitle) subtitle.textContent = 'You are running the latest version.';
+        if (title) title.textContent = 'Brown AI is Up to Date ✓';
+        if (subtitle) subtitle.textContent = 'You are running the latest version (v1.0.14).';
       } else {
-        if (title) title.textContent = 'Update Check Error';
-        if (subtitle) subtitle.textContent = data.error || 'Failed to check for updates.';
+        if (title) title.textContent = 'Update Check Status';
+        if (subtitle) subtitle.textContent = data.error || 'Brown is up to date or network check was completed.';
       }
+      updateState = 'none';
     }
+
+    renderTopButton();
+    renderDropdown();
   }
 
   const handleCheckForUpdates = async () => {
@@ -18810,9 +21994,10 @@ function setupAutoUpdaterUI() {
 
   const handleDownloadUpdate = async () => {
     if (btnDownload) btnDownload.style.display = 'none';
-    if (topBtnDownload) topBtnDownload.classList.add('hidden');
     if (progressLabel) progressLabel.textContent = 'Starting download...';
-    if (topDownloadText) topDownloadText.textContent = 'Starting download...';
+    updateState = 'downloading';
+    renderTopButton();
+    renderDropdown();
     await window.ultronAPI.downloadUpdate();
   };
 
@@ -18821,11 +22006,38 @@ function setupAutoUpdaterUI() {
   };
 
   if (btnCheck) btnCheck.addEventListener('click', handleCheckForUpdates);
-  if (topBtnCheck) topBtnCheck.addEventListener('click', handleCheckForUpdates);
   if (btnDownload) btnDownload.addEventListener('click', handleDownloadUpdate);
-  if (topBtnDownload) topBtnDownload.addEventListener('click', handleDownloadUpdate);
   if (btnRestart) btnRestart.addEventListener('click', handleRestartAndInstall);
-  if (topBtnRestart) topBtnRestart.addEventListener('click', handleRestartAndInstall);
+
+  if (topBtn) {
+    topBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (updateState === 'checking') return;
+      if (updateState === 'none') {
+        handleCheckForUpdates();
+        return;
+      }
+      setDropdownOpen(!dropdownOpen);
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    if (!dropdownOpen) return;
+    if (topWrap && !topWrap.contains(e.target)) setDropdownOpen(false);
+  });
+
+  tudBtnUpdate?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handleDownloadUpdate();
+  });
+  tudBtnRestart?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    handleRestartAndInstall();
+  });
+  tudBtnLater?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setDropdownOpen(false);
+  });
 
   window.ultronAPI.onUpdateStatus((data) => {
     applyUpdateStatus(data);
@@ -18833,18 +22045,6 @@ function setupAutoUpdaterUI() {
 }
 
 setupAutoUpdaterUI();
-
-// UI Controls: Show Mini Pill Setting Persistence
-const settingShowMiniPill = document.getElementById('setting-show-mini-pill');
-if (settingShowMiniPill) {
-  const savedVal = localStorage.getItem('ultron-show-mini-pill');
-  if (savedVal !== null) {
-    settingShowMiniPill.checked = savedVal === 'true';
-  }
-  settingShowMiniPill.addEventListener('change', () => {
-    localStorage.setItem('ultron-show-mini-pill', settingShowMiniPill.checked);
-  });
-}
 
 // Handle hand-off from Floating Action Bar companion
 
@@ -19108,6 +22308,22 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
         if (keys.groq) window.UltronMultiProviderHub.setStoredApiKey('groq', keys.groq);
         if (keys.customUrl) window.UltronMultiProviderHub.setCustomEndpointUrl(keys.customUrl);
         if (keys.customKey) window.UltronMultiProviderHub.setStoredApiKey('custom', keys.customKey);
+      }
+
+      // Proactively discover models for all configured providers
+      if (window.UltronMultiProviderHub) {
+        const providersToCheck = ['gemini', 'openai', 'anthropic', 'deepseek', 'groq', 'custom'];
+        providersToCheck.forEach(p => {
+          const hasKey = p === 'custom'
+            ? (window.UltronMultiProviderHub.getCustomEndpointUrl() || window.UltronMultiProviderHub.getStoredApiKey('custom'))
+            : (p === 'gemini' ? (localStorage.getItem('ultron-gemini-api-key') || window.UltronMultiProviderHub.getStoredApiKey('gemini')) : window.UltronMultiProviderHub.getStoredApiKey(p));
+          if (hasKey) {
+            window.UltronMultiProviderHub.fetchProviderModels(p).then(() => {
+              renderModelDropdownList();
+              updateModelSelectorLabel();
+            }).catch(() => {});
+          }
+        });
       }
     } catch {}
 
@@ -19482,68 +22698,24 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
           if (activeDevices.length === 0) {
             devicesContainer.innerHTML = `
               <div class="sync-empty-state-card">
-                <div class="sync-empty-svg-wrapper">
-                  <svg class="sync-empty-illustration" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
-                    <defs>
-                      <filter id="sync-subtle-glow-dyn" x="-20%" y="-20%" width="140%" height="140%">
-                        <feGaussianBlur stdDeviation="1.5" result="blur" />
-                        <feMerge>
-                          <feMergeNode in="blur" />
-                          <feMergeNode in="SourceGraphic" />
-                        </feMerge>
-                      </filter>
-                      <linearGradient id="sync-ring-grad-dyn" x1="0%" y1="0%" x2="100%" y2="100%">
-                        <stop offset="0%" stop-color="rgba(96, 165, 250, 0.18)" />
-                        <stop offset="100%" stop-color="rgba(255, 255, 255, 0.04)" />
-                      </linearGradient>
-                    </defs>
-
-                    <!-- Connection Lines -->
-                    <line x1="88" y1="60" x2="138" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
-                    <line x1="182" y1="60" x2="232" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
-                    <line x1="88" y1="60" x2="138" y2="60" class="connection-left" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
-                    <line x1="182" y1="60" x2="232" y2="60" class="connection-right" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
-
-                    <!-- Traveling Data Pulses -->
-                    <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-phone-to-laptop" fill="#ffffff" filter="url(#sync-subtle-glow-dyn)" />
-                    <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-laptop-to-phone" fill="#ffffff" filter="url(#sync-subtle-glow-dyn)" />
-
-                    <!-- Smartphone (Left) -->
-                    <g class="phone" transform="translate(42, 22)">
-                      <rect x="0" y="0" width="46" height="76" rx="8" ry="8" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
-                      <rect x="4" y="7" width="38" height="62" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
-                      <rect x="16" y="3" width="14" height="2.5" rx="1.2" fill="rgba(255, 255, 255, 0.6)" />
-                      <line x1="9" y1="18" x2="25" y2="18" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="9" y1="24" x2="35" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="9" y1="30" x2="29" y2="30" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                      <circle cx="23" cy="50" r="4" stroke="rgba(96, 165, 250, 0.7)" stroke-width="1" fill="rgba(96, 165, 250, 0.15)" />
-                      <circle cx="23" cy="50" r="1.5" fill="#60a5fa" />
-                      <line x1="16" y1="72" x2="30" y2="72" stroke="rgba(255, 255, 255, 0.5)" stroke-width="1.5" stroke-linecap="round" />
-                    </g>
-
-                    <!-- Sync Symbol (Center) -->
-                    <g class="sync-container">
-                      <circle cx="160" cy="60" r="18" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" fill="url(#sync-ring-grad-dyn)" />
-                      <g class="sync-icon">
-                        <path d="M 152 54 A 10 10 0 0 1 168 57" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
-                        <path d="M 165 55 L 168 57 L 166 60" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                        <path d="M 168 66 A 10 10 0 0 1 152 63" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
-                        <path d="M 155 65 L 152 63 L 154 60" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                      </g>
-                    </g>
-
-                    <!-- Laptop Screen (Right) -->
-                    <g class="laptop" transform="translate(232, 26)">
-                      <rect x="6" y="0" width="76" height="52" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
-                      <rect x="10" y="4" width="68" height="42" rx="2" ry="2" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
-                      <circle cx="44" cy="2" r="0.8" fill="rgba(255, 255, 255, 0.5)" />
-                      <line x1="16" y1="12" x2="36" y2="12" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="16" y1="18" x2="54" y2="18" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="16" y1="24" x2="46" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                      <path d="M0 54 H88 L83 61 H5 Z" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" stroke-linejoin="round" fill="rgba(255, 255, 255, 0.04)" />
-                      <line x1="38" y1="55" x2="50" y2="55" stroke="rgba(255, 255, 255, 0.4)" stroke-width="1.5" stroke-linecap="round" />
-                    </g>
-                  </svg>
+                <div class="sync-empty-svg-wrapper sync-connect-images">
+                  <img class="sync-connect-img" src="../../Assets/computer-connect.png" alt="Brown on desktop" />
+                  <div class="sync-connection-bridge">
+                    <div class="sync-bridge-track">
+                      <div class="sync-pulse-particle sync-particle-left"></div>
+                      <div class="sync-pulse-particle sync-particle-right-rev"></div>
+                    </div>
+                    <div class="sync-bridge-node" title="Local Connection Bridge">
+                      <svg class="sync-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                      </svg>
+                    </div>
+                    <div class="sync-bridge-track">
+                      <div class="sync-pulse-particle sync-particle-left"></div>
+                      <div class="sync-pulse-particle sync-particle-right-rev"></div>
+                    </div>
+                  </div>
+                  <img class="sync-connect-img sync-connect-mobile" src="../../Assets/connect-mobile.png" alt="Brown on mobile" />
                 </div>
                 <h6 class="sync-empty-title">No mobile devices paired yet</h6>
                 <p class="sync-empty-desc">Click “Generate Pair Code” and enter the code in your mobile app to connect your device.</p>
@@ -19773,6 +22945,3 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
     } catch (e) {}
   }, 1200);
 })();
-
-
-

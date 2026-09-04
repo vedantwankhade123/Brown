@@ -9,9 +9,12 @@ marked.setOptions({
   breaks: true
 });
 
-contextBridge.exposeInMainWorld('ultronAPI', {
+const apiMethods = {
   // Markdown parser
   parseMarkdown: (text) => marked.parse(text),
+  // Theme change notify (titlebar overlay retint)
+  setAppTheme: (theme, user) => ipcRenderer.send('set-app-theme', { theme, user: !!user }),
+  splashDone: () => ipcRenderer.send('splash-done'),
   // Profiling & setup queries
   profileSystem: () => ipcRenderer.invoke('profile-system'),
   getSystemEnvironment: () => ipcRenderer.invoke('system-environment'),
@@ -39,8 +42,11 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   getLiveMetrics: () => ipcRenderer.invoke('get-live-metrics'),
   restoreFileBackup: (payload) => ipcRenderer.invoke('restore-file-backup', payload),
   searchWeb: (query, options) => ipcRenderer.invoke('search-web', query, options),
-  fetchWebPage: (url) => ipcRenderer.invoke('fetch-web-page', url),
   getMcpStatus: () => ipcRenderer.invoke('get-mcp-status'),
+  getMcpRegistry: () => ipcRenderer.invoke('get-mcp-registry'),
+  toggleMcpServer: (payload) => ipcRenderer.invoke('toggle-mcp-server', payload),
+  saveCustomMcpServer: (payload) => ipcRenderer.invoke('save-custom-mcp-server', payload),
+  deleteCustomMcpServer: (serverId) => ipcRenderer.invoke('delete-custom-mcp-server', serverId),
   mcpCallTool: (payload) => ipcRenderer.invoke('mcp-call-tool', payload),
   getInstalledApps: () => ipcRenderer.invoke('get-installed-apps'),
   downloadModel: (modelName) => ipcRenderer.invoke('download-model', modelName),
@@ -64,9 +70,11 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   loadConversations: () => ipcRenderer.invoke('load-conversations'),
   saveGeminiKey: (key) => ipcRenderer.invoke('save-gemini-key', key),
   loadGeminiKey: () => ipcRenderer.invoke('load-gemini-key'),
-  getOllamaAuthStatus: () => ipcRenderer.invoke('ollama-auth-status'),
-  ollamaSignin: () => ipcRenderer.invoke('ollama-signin'),
-  ollamaSignout: () => ipcRenderer.invoke('ollama-signout'),
+   getOllamaAuthStatus: () => ipcRenderer.invoke('ollama-auth-status'),
+   setOllamaAuthStatus: (signedIn, email) => ipcRenderer.invoke('set-ollama-auth-status', signedIn, email),
+   verifyOllamaCloudAuth: () => ipcRenderer.invoke('verify-ollama-cloud-auth'),
+   ollamaSignin: () => ipcRenderer.invoke('ollama-signin'),
+   ollamaSignout: () => ipcRenderer.invoke('ollama-signout'),
   installMcpWindowsUia: () => ipcRenderer.invoke('install-mcp-windows-uia'),
   checkMcpWindowsUia: () => ipcRenderer.invoke('check-mcp-windows-uia'),
   downloadKokoroOnboardingVoices: () => ipcRenderer.invoke('download-kokoro-onboarding-voices'),
@@ -232,4 +240,7 @@ contextBridge.exposeInMainWorld('ultronAPI', {
   windowsRestart: () => ipcRenderer.invoke('windows:restart'),
   windowsGetBrightness: () => ipcRenderer.invoke('windows:get-brightness'),
   windowsSetBrightness: (level) => ipcRenderer.invoke('windows:set-brightness', level),
-});
+};
+
+contextBridge.exposeInMainWorld('ultronAPI', apiMethods);
+contextBridge.exposeInMainWorld('brownAPI', apiMethods);

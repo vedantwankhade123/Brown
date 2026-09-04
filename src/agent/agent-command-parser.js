@@ -151,7 +151,7 @@
     if (!p) return null;
 
     if (/^show\s+logs?$/i.test(p)) {
-      return { type: 'EXECUTE', target: 'Get-Content -Tail 40 "$env:USERPROFILE\\Ultron-local\\logs\\ultron.log" -ErrorAction SilentlyContinue', _parsedBy: 'rule' };
+      return { type: 'EXECUTE', target: 'Get-Content -Tail 40 "$env:USERPROFILE\\brown-local\\logs\\ultron.log" -ErrorAction SilentlyContinue', _parsedBy: 'rule' };
     }
 
     const sendMsg = parseOpenAndSendMessage(p);
