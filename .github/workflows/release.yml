@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g. 1.0.8-beta.6 or 1.0.8)'
+        description: 'Version to publish (e.g. 1.0.8-beta.6 or 1.0.8). Leave empty to use package.json.'
         required: false
         default: ''
 
@@ -40,72 +40,84 @@ jobs:
         shell: pwsh
         run: |
           $inputVersion = "${{ github.event.inputs.version }}".Trim()
-          $currentPkgVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $currentPkgVersion = $pkg.version
 
           if ($inputVersion) {
-            $targetVersion = $inputVersion -replace '^v',''
+            $targetVersion = $inputVersion -replace '^v', ''
             Write-Host "Updating package.json version to $targetVersion"
-            # Avoid PowerShell ConvertTo-Json rewriting package.json structure
             node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version=process.argv[1]; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');" $targetVersion
           } else {
             $targetVersion = $currentPkgVersion
           }
 
           Write-Host "Target Version: $targetVersion"
+          echo "TARGET_VERSION=$targetVersion" >> $env:GITHUB_ENV
 
-          # electron-builder does NOT interpolate ${version} in releaseNotesFile.
-          # Always materialize a stable .release-notes.md path for publish.
           $versionedNotes = ".release-notes-v${targetVersion}.md"
           $stableNotes = ".release-notes.md"
 
           if (Test-Path $versionedNotes) {
-            Write-Host "Using versioned notes: $versionedNotes"
             Copy-Item -Force $versionedNotes $stableNotes
-          } elseif (Test-Path $stableNotes) {
-            Write-Host "Using existing $stableNotes"
-          } else {
-            Write-Host "No release notes file found. Generating changelog from git history..."
-            $gitNotes = git log -n 10 --oneline --no-merges
-            $notesContent = @"
-## Brown AI v${targetVersion} (Desktop & Mobile)
-
-### Recent Changes
-$($gitNotes -join "`n")
-"@
-            Set-Content -Path $stableNotes -Value $notesContent -Encoding utf8
+            Write-Host "Using $versionedNotes"
+          } elseif (-not (Test-Path $stableNotes)) {
+            $lines = git log -n 10 --oneline --no-merges
+            $body = @()
+            $body += "# Brown AI v${targetVersion} (Desktop & Mobile)"
+            $body += ""
+            $body += "## Recent Changes"
+            $body += $lines
+            $body += ""
+            $body += "## Download Assets"
+            $body += ""
+            $body += "### Windows Desktop (v${targetVersion})"
+            $body += "- **Setup Installer**: ``Brown-AI-Setup-v${targetVersion}.exe`` (Recommended)"
+            $body += "- **Portable Edition**: ``Brown-AI-v${targetVersion}.exe``"
+            $body += ""
+            $body += "### Android Mobile"
+            $body += "- **Direct APK**: ``Brown-AI-Mobile-v1.0.0.apk``"
+            $body | Set-Content -Path $stableNotes -Encoding utf8
+            Write-Host "Generated $stableNotes from git history"
           }
 
-          # Ensure unified download section is present for Brown-Releases visitors
-          $notesText = Get-Content -Raw $stableNotes
-          if ($notesText -notmatch 'Brown-AI-Mobile') {
-            $downloadSection = @"
-
-## Download Assets
-
-### Windows Desktop (v${targetVersion})
-- **Setup Installer**: ``Brown-AI-Setup-v${targetVersion}.exe`` (Recommended)
-- **Portable Edition**: ``Brown-AI-v${targetVersion}.exe``
-
-### Android Mobile
-- **Direct APK**: ``Brown-AI-Mobile-v1.0.0.apk`` (attach/upload separately if not already on this release)
-"@
-            Add-Content -Path $stableNotes -Value $downloadSection -Encoding utf8
-          }
-
-          Write-Host "Release notes prepared in $stableNotes"
-          Get-Item $stableNotes | Format-List FullName, Length
+          Write-Host "Release notes ready: $stableNotes"
 
       - name: Build & Publish to GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
         run: npm run release
 
+      - name: Update GitHub Release Title and Notes
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $version = $env:TARGET_VERSION
+          if (-not $version) {
+            $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          }
+          $tag = "v$version"
+          $notesFile = ".release-notes.md"
+          if (-not (Test-Path $notesFile)) {
+            $notesFile = ".release-notes-v${version}.md"
+          }
+          if (-not (Test-Path $notesFile)) {
+            Write-Host "No notes file found; skipping release edit."
+            exit 0
+          }
+
+          # Prefer RELEASE_TOKEN so we can edit vedantwankhade123/Brown-Releases
+          gh release edit $tag `
+            --repo vedantwankhade123/Brown-Releases `
+            --title "Brown AI v${version} (Desktop & Mobile)" `
+            --notes-file $notesFile
+          Write-Host "Updated release metadata for $tag"
+
       - name: Update release.json manifest for Website
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $tag = if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v$version" }
-          # GitHub release assets use hyphens (spaces are rewritten on upload)
           $relJson = @{
             version = $version
             tagName = $tag
@@ -133,4 +145,4 @@ $($gitNotes -join "`n")
           Write-Host "Successfully published Brown AI v$version to GitHub Releases!"
           Write-Host "Installer: Brown-AI-Setup-v$version.exe"
           Write-Host "Portable:  Brown-AI-v$version.exe"
-          Write-Host "Mobile:    Brown-AI-Mobile-v1.0.0.apk (unified release asset)"
+          Write-Host "Mobile:    Brown-AI-Mobile-v1.0.0.apk (keep attached on the same release)"
