@@ -30,8 +30,7 @@
       "releaseType": "release"
     },
     "releaseInfo": {
-      "releaseName": "Brown AI v${version} (Desktop & Mobile)",
-      "releaseNotesFile": ".release-notes.md"
+      "releaseName": "Brown AI v${version} (Desktop & Mobile)"
     },
     "compression": "store",
     "npmRebuild": false,
