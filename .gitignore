@@ -22,6 +22,9 @@ __pycache__/
 venv/
 ENV/
 
+# Generated at release time (electron-builder reads this stable path)
+.release-notes.md
+
 # Build & Release Artifacts
 dist/
 build/

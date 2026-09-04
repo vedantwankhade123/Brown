@@ -39,30 +39,61 @@ jobs:
       - name: Prepare Version and Release Notes
         shell: pwsh
         run: |
-          $inputVersion = "${{ github.event.inputs.version }}"
+          $inputVersion = "${{ github.event.inputs.version }}".Trim()
           $currentPkgVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
 
           if ($inputVersion) {
             $targetVersion = $inputVersion -replace '^v',''
             Write-Host "Updating package.json version to $targetVersion"
-            $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-            $pkg.version = $targetVersion
-            $pkg | ConvertTo-Json -Depth 10 | Set-Content package.json -Encoding UTF8
+            # Avoid PowerShell ConvertTo-Json rewriting package.json structure
+            node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version=process.argv[1]; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');" $targetVersion
           } else {
             $targetVersion = $currentPkgVersion
           }
 
           Write-Host "Target Version: $targetVersion"
 
-          # Check if specific release notes file exists, else generate git changelog
-          $releaseNotesFile = ".release-notes-v${targetVersion}.md"
-          if (-not (Test-Path $releaseNotesFile)) {
-            Write-Host "No $releaseNotesFile found. Generating release notes from git history..."
+          # electron-builder does NOT interpolate ${version} in releaseNotesFile.
+          # Always materialize a stable .release-notes.md path for publish.
+          $versionedNotes = ".release-notes-v${targetVersion}.md"
+          $stableNotes = ".release-notes.md"
+
+          if (Test-Path $versionedNotes) {
+            Write-Host "Using versioned notes: $versionedNotes"
+            Copy-Item -Force $versionedNotes $stableNotes
+          } elseif (Test-Path $stableNotes) {
+            Write-Host "Using existing $stableNotes"
+          } else {
+            Write-Host "No release notes file found. Generating changelog from git history..."
             $gitNotes = git log -n 10 --oneline --no-merges
-            $notesContent = "## Release Notes v${targetVersion}`n`n### Recent Changes:`n" + ($gitNotes -join "`n")
-            Set-Content -Path $releaseNotesFile -Value $notesContent -Encoding UTF8
+            $notesContent = @"
+## Brown AI v${targetVersion} (Desktop & Mobile)
+
+### Recent Changes
+$($gitNotes -join "`n")
+"@
+            Set-Content -Path $stableNotes -Value $notesContent -Encoding utf8
           }
-          Write-Host "Release notes prepared in $releaseNotesFile"
+
+          # Ensure unified download section is present for Brown-Releases visitors
+          $notesText = Get-Content -Raw $stableNotes
+          if ($notesText -notmatch 'Brown-AI-Mobile') {
+            $downloadSection = @"
+
+## Download Assets
+
+### Windows Desktop (v${targetVersion})
+- **Setup Installer**: ``Brown-AI-Setup-v${targetVersion}.exe`` (Recommended)
+- **Portable Edition**: ``Brown-AI-v${targetVersion}.exe``
+
+### Android Mobile
+- **Direct APK**: ``Brown-AI-Mobile-v1.0.0.apk`` (attach/upload separately if not already on this release)
+"@
+            Add-Content -Path $stableNotes -Value $downloadSection -Encoding utf8
+          }
+
+          Write-Host "Release notes prepared in $stableNotes"
+          Get-Item $stableNotes | Format-List FullName, Length
 
       - name: Build & Publish to GitHub Releases
         env:
@@ -73,15 +104,18 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $tag = if ($env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v$version" }
+          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v$version" }
+          # GitHub release assets use hyphens (spaces are rewritten on upload)
           $relJson = @{
             version = $version
             tagName = $tag
             releaseDate = (Get-Date -Format "yyyy-MM-dd")
-            setupUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown%20AI%20Setup%20v$version.exe"
-            portableUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown%20AI%20v$version.exe"
-            setupName = "Brown AI Setup v$version.exe"
-            portableName = "Brown AI v$version.exe"
+            setupUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Setup-v$version.exe"
+            portableUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-v$version.exe"
+            mobileApkUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Mobile-v1.0.0.apk"
+            setupName = "Brown-AI-Setup-v$version.exe"
+            portableName = "Brown-AI-v$version.exe"
+            mobileApkName = "Brown-AI-Mobile-v1.0.0.apk"
           }
           if (Test-Path "Ultron Website") {
             New-Item -ItemType Directory -Force -Path "Ultron Website/public" | Out-Null
@@ -97,5 +131,6 @@ jobs:
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           Write-Host "Successfully published Brown AI v$version to GitHub Releases!"
-          Write-Host "Installer: Brown AI Setup v$version.exe"
-          Write-Host "Portable:  Brown AI v$version.exe"
+          Write-Host "Installer: Brown-AI-Setup-v$version.exe"
+          Write-Host "Portable:  Brown-AI-v$version.exe"
+          Write-Host "Mobile:    Brown-AI-Mobile-v1.0.0.apk (unified release asset)"
