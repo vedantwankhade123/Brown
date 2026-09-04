@@ -102,7 +102,7 @@
       "uninstallDisplayName": "Brown AI",
       "installerIcon": "Assets/Brand-Assets/brown-logo.ico",
       "uninstallerIcon": "Assets/Brand-Assets/brown-logo.ico",
-      "installerHeaderIcon": "Assets/Brand-Assets/brown-logo.ico",
+      "installerHeaderIcon": "Assets/Brand-Assets/brown-black-logo.ico",
       "installerSidebar": "Assets/installerSidebar.bmp",
       "uninstallerSidebar": "Assets/installerSidebar.bmp",
       "installerHeader": "Assets/installerHeader.bmp",

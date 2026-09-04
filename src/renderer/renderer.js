@@ -14516,17 +14516,30 @@ if (typeof window !== 'undefined') {
 }
 
 async function checkAndRunFirstTimeOnboarding() {
-  let isCompleted = window.localStorage.getItem('ultron-setup-completed') === 'true';
-  if (!isCompleted && window.ultronAPI && window.ultronAPI.loadSetupStatus) {
+  // Main process returns { completed, deferred, forcedReset } — never treat the
+  // whole object as a boolean (objects are always truthy and skipped onboarding).
+  let status = null;
+  if (window.ultronAPI && window.ultronAPI.loadSetupStatus) {
     try {
-      isCompleted = await window.ultronAPI.loadSetupStatus();
-      if (isCompleted) {
-        window.localStorage.setItem('ultron-setup-completed', 'true');
-      }
+      status = await window.ultronAPI.loadSetupStatus();
     } catch (e) {}
   }
 
+  if (status && status.forcedReset) {
+    try { window.localStorage.removeItem('ultron-setup-completed'); } catch (e) {}
+  }
+
+  let isCompleted;
+  if (status && typeof status === 'object') {
+    isCompleted = Boolean(status.completed) && !status.forcedReset;
+  } else if (typeof status === 'boolean') {
+    isCompleted = status;
+  } else {
+    isCompleted = window.localStorage.getItem('ultron-setup-completed') === 'true';
+  }
+
   if (isCompleted) {
+    try { window.localStorage.setItem('ultron-setup-completed', 'true'); } catch (e) {}
     return;
   }
 
