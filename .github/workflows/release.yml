@@ -7,7 +7,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g. 1.0.8-beta.6 or 1.0.8). Leave empty to use package.json.'
+        description: 'Semver package version (e.g. 1.0.0). Leave empty to use package.json.'
+        required: false
+        default: ''
+      release_tag:
+        description: 'GitHub release tag (e.g. v1.0). Leave empty to use the push tag or v{version}.'
         required: false
         default: ''
 
@@ -40,113 +44,159 @@ jobs:
         shell: pwsh
         run: |
           $inputVersion = "${{ github.event.inputs.version }}".Trim()
+          $inputTag = "${{ github.event.inputs.release_tag }}".Trim()
           $pkg = Get-Content package.json -Raw | ConvertFrom-Json
           $currentPkgVersion = $pkg.version
 
           if ($inputVersion) {
             $targetVersion = $inputVersion -replace '^v', ''
+            # electron-builder requires full semver (x.y.z)
+            if ($targetVersion -notmatch '^\d+\.\d+\.\d+') {
+              if ($targetVersion -match '^\d+\.\d+$') { $targetVersion = "$targetVersion.0" }
+            }
             Write-Host "Updating package.json version to $targetVersion"
             node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version=process.argv[1]; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');" $targetVersion
           } else {
             $targetVersion = $currentPkgVersion
           }
 
-          Write-Host "Target Version: $targetVersion"
+          if ($inputTag) {
+            $releaseTag = if ($inputTag.StartsWith('v')) { $inputTag } else { "v$inputTag" }
+          } elseif ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) {
+            $releaseTag = $env:GITHUB_REF_NAME
+          } else {
+            # Prefer short marketing tag when package is x.y.0
+            if ($targetVersion -match '^(\d+\.\d+)\.0$') {
+              $releaseTag = "v$($Matches[1])"
+            } else {
+              $releaseTag = "v$targetVersion"
+            }
+          }
+
+          $marketingVersion = $releaseTag -replace '^v', ''
+
+          Write-Host "Package Version: $targetVersion"
+          Write-Host "Release Tag: $releaseTag"
+          Write-Host "Marketing Version: $marketingVersion"
+
           echo "TARGET_VERSION=$targetVersion" >> $env:GITHUB_ENV
+          echo "RELEASE_TAG=$releaseTag" >> $env:GITHUB_ENV
+          echo "MARKETING_VERSION=$marketingVersion" >> $env:GITHUB_ENV
 
-          $versionedNotes = ".release-notes-v${targetVersion}.md"
           $stableNotes = ".release-notes.md"
-
-          if (Test-Path $versionedNotes) {
-            Copy-Item -Force $versionedNotes $stableNotes
-            Write-Host "Using $versionedNotes"
-          } elseif (-not (Test-Path $stableNotes)) {
+          $candidates = @(
+            ".release-notes-v${marketingVersion}.md",
+            ".release-notes-v${targetVersion}.md",
+            $stableNotes
+          )
+          $found = $false
+          foreach ($c in $candidates) {
+            if (Test-Path $c) {
+              Copy-Item -Force $c $stableNotes
+              Write-Host "Using notes from $c"
+              $found = $true
+              break
+            }
+          }
+          if (-not $found) {
             $lines = git log -n 10 --oneline --no-merges
-            $body = @()
-            $body += "# Brown AI v${targetVersion} (Desktop & Mobile)"
-            $body += ""
-            $body += "## Recent Changes"
-            $body += $lines
-            $body += ""
-            $body += "## Download Assets"
-            $body += ""
-            $body += "### Windows Desktop (v${targetVersion})"
-            $body += "- **Setup Installer**: ``Brown-AI-Setup-v${targetVersion}.exe`` (Recommended)"
-            $body += "- **Portable Edition**: ``Brown-AI-v${targetVersion}.exe``"
-            $body += ""
-            $body += "### Android Mobile"
-            $body += "- **Direct APK**: ``Brown-AI-Mobile-v1.0.0.apk``"
-            $body | Set-Content -Path $stableNotes -Encoding utf8
+            @(
+              "# Brown AI v${marketingVersion} (Desktop & Mobile)",
+              "",
+              "## Recent Changes"
+            ) + $lines + @(
+              "",
+              "## Download Assets",
+              "",
+              "### Windows Desktop (v${marketingVersion})",
+              "- **Setup Installer**: ``Brown-AI-Setup-v${marketingVersion}.exe`` (Recommended)",
+              "- **Portable Edition**: ``Brown-AI-v${marketingVersion}.exe``",
+              "",
+              "### Android Mobile (v${marketingVersion})",
+              "- **Direct APK**: ``Brown-AI-Mobile-v${marketingVersion}.apk``"
+            ) | Set-Content -Path $stableNotes -Encoding utf8
             Write-Host "Generated $stableNotes from git history"
           }
 
-          Write-Host "Release notes ready: $stableNotes"
+      - name: Build Windows Installers
+        run: npm run dist:ci
 
-      - name: Build & Publish to GitHub Releases
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
-        run: npm run release
-
-      - name: Update GitHub Release Title and Notes
+      - name: Publish to Brown-Releases
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
-          $version = $env:TARGET_VERSION
-          if (-not $version) {
-            $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          }
-          $tag = "v$version"
-          $notesFile = ".release-notes.md"
-          if (-not (Test-Path $notesFile)) {
-            $notesFile = ".release-notes-v${version}.md"
-          }
-          if (-not (Test-Path $notesFile)) {
-            Write-Host "No notes file found; skipping release edit."
-            exit 0
+          $tag = $env:RELEASE_TAG
+          $mver = $env:MARKETING_VERSION
+          $notes = ".release-notes.md"
+          $setup = Get-ChildItem dist -Filter "Brown AI Setup v${mver}.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $portable = Get-ChildItem dist -Filter "Brown AI v${mver}.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $setup) { $setup = Get-ChildItem dist -Filter "*Setup*$mver*.exe" | Select-Object -First 1 }
+          if (-not $portable) { $portable = Get-ChildItem dist -Filter "*v$mver.exe" | Where-Object { $_.Name -notmatch 'Setup' } | Select-Object -First 1 }
+          if (-not $setup -or -not $portable) {
+            Write-Host "Built files in dist:"
+            Get-ChildItem dist -Filter *.exe | Format-Table Name, Length
+            throw "Could not find Setup/Portable EXEs for marketing version $mver"
           }
 
-          # Prefer RELEASE_TOKEN so we can edit vedantwankhade123/Brown-Releases
-          gh release edit $tag `
-            --repo vedantwankhade123/Brown-Releases `
-            --title "Brown AI v${version} (Desktop & Mobile)" `
-            --notes-file $notesFile
-          Write-Host "Updated release metadata for $tag"
+          # Rename to GitHub-safe hyphenated names before upload (spaces become dots/hyphens unpredictably)
+          $setupOut = "dist/Brown-AI-Setup-v${mver}.exe"
+          $portableOut = "dist/Brown-AI-v${mver}.exe"
+          Copy-Item -Force $setup.FullName $setupOut
+          Copy-Item -Force $portable.FullName $portableOut
+
+          $existing = gh release view $tag --repo vedantwankhade123/Brown-Releases 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $tag exists — uploading/replacing assets"
+            gh release upload $tag $setupOut $portableOut --repo vedantwankhade123/Brown-Releases --clobber
+            gh release edit $tag --repo vedantwankhade123/Brown-Releases --title "Brown AI v${mver} (Desktop & Mobile)" --notes-file $notes
+          } else {
+            Write-Host "Creating release $tag"
+            gh release create $tag $setupOut $portableOut `
+              --repo vedantwankhade123/Brown-Releases `
+              --title "Brown AI v${mver} (Desktop & Mobile)" `
+              --notes-file $notes
+          }
+
+          # Also publish latest.yml for electron-updater if present
+          $yml = Get-ChildItem dist -Filter "latest.yml" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($yml) {
+            gh release upload $tag $yml.FullName --repo vedantwankhade123/Brown-Releases --clobber
+          }
+
+          Write-Host "Published desktop assets to $tag"
 
       - name: Update release.json manifest for Website
         shell: pwsh
         run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) { $env:GITHUB_REF_NAME } else { "v$version" }
+          $version = $env:TARGET_VERSION
+          $tag = $env:RELEASE_TAG
+          $mver = $env:MARKETING_VERSION
           $relJson = @{
             version = $version
+            marketingVersion = $mver
             tagName = $tag
             releaseDate = (Get-Date -Format "yyyy-MM-dd")
-            setupUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Setup-v$version.exe"
-            portableUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-v$version.exe"
-            mobileApkUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Mobile-v$version.apk"
-            setupName = "Brown-AI-Setup-v$version.exe"
-            portableName = "Brown-AI-v$version.exe"
-            mobileApkName = "Brown-AI-Mobile-v$version.apk"
+            setupUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Setup-v$mver.exe"
+            portableUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-v$mver.exe"
+            mobileApkUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Mobile-v$mver.apk"
+            setupName = "Brown-AI-Setup-v$mver.exe"
+            portableName = "Brown-AI-v$mver.exe"
+            mobileApkName = "Brown-AI-Mobile-v$mver.apk"
           }
-          if (Test-Path "Ultron Website") {
-            New-Item -ItemType Directory -Force -Path "Ultron Website/public" | Out-Null
-            $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/public/release.json" -Encoding UTF8
-            $relJson | ConvertTo-Json -Depth 5 | Set-Content "Ultron Website/release.json" -Encoding UTF8
-            Write-Host "Updated website release.json for version $version"
-          } elseif (Test-Path "brown-website") {
-            New-Item -ItemType Directory -Force -Path "brown-website/public" | Out-Null
-            $relJson | ConvertTo-Json -Depth 5 | Set-Content "brown-website/public/release.json" -Encoding UTF8
-            Write-Host "Updated brown-website/public/release.json for version $version"
-          } else {
-            Write-Host "Website folder not in runner root, skipping release.json update."
+          $json = $relJson | ConvertTo-Json -Depth 5
+          Set-Content -Path "release.json" -Value $json -Encoding utf8
+          Write-Host $json
+          if (Test-Path "brown-website/public") {
+            Set-Content -Path "brown-website/public/release.json" -Value $json -Encoding utf8
           }
 
       - name: Summary
         shell: pwsh
         run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          Write-Host "Successfully published Brown AI v$version to GitHub Releases!"
-          Write-Host "Installer: Brown-AI-Setup-v$version.exe"
-          Write-Host "Portable:  Brown-AI-v$version.exe"
-          Write-Host "Mobile:    Brown-AI-Mobile-v$version.apk (attach after desktop publish if needed)"
+          $mver = $env:MARKETING_VERSION
+          $tag = $env:RELEASE_TAG
+          Write-Host "Successfully published Brown AI v$mver ($tag) to Brown-Releases!"
+          Write-Host "Installer: Brown-AI-Setup-v$mver.exe"
+          Write-Host "Portable:  Brown-AI-v$mver.exe"
+          Write-Host "Mobile:    Brown-AI-Mobile-v$mver.apk (upload separately if not already attached)"
