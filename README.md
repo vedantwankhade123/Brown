@@ -1,13 +1,13 @@
-# Brown AI: Autonomous Local-First AI Ecosystem
+﻿# Brown AI — Autonomous Local-First Windows AI Agent
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-BETA%20v1.0.16-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Releases/releases)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20%7C%20Android%20%7C%20Web-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown-Releases/releases)
+[![Release](https://img.shields.io/badge/Release-v1.0.16-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Releases/releases)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown-Releases/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 <p align="center">
   <a href="https://usebrown.online/">
-    <img src="Assets/brown-lg.png" alt="Brown AI Logo" width="160" />
+    <img src="Assets/Brand-Assets/brown-logo.png" alt="Brown AI Logo" width="160" />
   </a>
 </p>
 
@@ -15,148 +15,108 @@
   <strong><a href="https://usebrown.online/">usebrown.online</a></strong> — Official website with setup guides, docs, and direct downloads.
 </p>
 
-**Brown AI** is a production-grade, local-first, privacy-focused autonomous AI assistant ecosystem spanning **Windows Desktop**, **Mobile (Android/iOS)**, and **Web**. Combining local on-device quantized LLMs (via Ollama, GGUF, and Hugging Face) with hybrid cloud intelligence (Gemini 2.5/3, Claude 3.7, DeepSeek R1, OpenAI), Brown provides an autonomous desktop interface agent capable of workflow execution, system orchestration, local voice synthesis, and cross-device synchronization without compromising data privacy.
+**Brown AI** is an autonomous, privacy-first, local-first artificial intelligence assistant engineered for Windows. Powered by local on-device quantized LLMs (via Ollama, GGUF, and Hugging Face) and optional hybrid cloud intelligence (Gemini 2.5/3, Claude 3.7, DeepSeek R1, OpenAI), Brown executes system workflows, local code execution, document analysis, voice synthesis, and desktop orchestration with zero mandatory cloud telemetry.
 
 ---
 
-## 🏛️ Ecosystem & Monorepo Architecture
+## ⚡ Core Capabilities
 
-This monorepo houses all core projects and shared services:
+- **🔒 100% Offline & Private**: Chat history, vector indices, and inference prompts stay strictly local on your silicon.
+- **🧠 Autonomous Decision Engine**: Multi-step task planner (Analyze → Plan → Execute → Reflect), tool decomposition, and loop guard.
+- **🎛️ Dynamic Performance Controls**: Switch between **Auto Adaptive**, **GPU Priority** (maximum VRAM offload), and **CPU Only** for power-efficient conversation.
+- **🎙️ Sovereign Neural Voice**: Local Whisper STT and offline Kokoro TTS for ultra-low latency voice interaction without cloud endpoints.
+- **📂 Local Knowledge RAG**: Ingest PDFs, markdown, and local files with hybrid BM25 + dense vector semantic retrieval.
+- **📱 Companion Mobile Sync**: Pair securely with Brown Mobile over local Wi-Fi using PIN verification to sync sessions across devices.
+- **🎨 Modern Dark & Light Theming**: High-contrast, accessibility-focused cyberpunk dark mode and refined daylight theme.
+
+---
+
+## 💾 Downloads & Installation
+
+Official pre-compiled binaries are published in the **[Brown-Releases](https://github.com/vedantwankhade123/Brown-Releases/releases)** repository:
+
+| Build Type | File Name | Platform | Description |
+| :--- | :--- | :--- | :--- |
+| **Setup Installer** | [`Brown AI Setup v1.0.16.exe`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0.16/Brown%20AI%20Setup%20v1.0.16.exe) | Windows 10 / 11 (x64) | Standard guided installer with Start Menu & Desktop shortcuts. |
+| **Portable Binary** | [`Brown AI v1.0.16.exe`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0.16/Brown%20AI%20v1.0.16.exe) | Windows 10 / 11 (x64) | Standalone executable. Runs immediately without installation. |
+
+---
+
+## 🏛️ Monorepo Architecture
 
 ```
 d:/Ultron/
-├── src/                          # 🖥️ Project 1: Windows Desktop Electron Application
-├── mobile/                       # 📱 Project 2: Mobile Application (React Native / Expo)
-├── brown-website/                # 🌐 Project 3: Official Web Portal (React / Vite / Firebase)
+├── src/                          # 🖥️ Windows Desktop Electron Application
+│   ├── agent/                    # Autonomous agent engine, planner, memory & context
+│   ├── main/                     # Electron main process, IPC handlers, RAG & hardware
+│   ├── preload/                  # Secure IPC preload bridge
+│   └── renderer/                 # Responsive UI, Chat UI, Visual Engine & Artifacts
+├── mobile/                       # 📱 Mobile Companion App (React Native / Expo)
+├── brown-website/                # 🌐 Official Product Website (React / Vite)
+├── brown-releases/               # 📦 Release Hub for Windows and Android Binaries
 ├── python/                       # 🐍 Local Python Microservice (Inference & Scraping)
-├── Assets/                       # 🎨 Shared Brand Assets, Logos, Sounds & Installer Graphics
-├── docs/                         # 📚 Central Documentation Library
-│   ├── architecture/             # System Architecture & Technical Specifications
-│   ├── guides/                   # Operational, Distribution & Store Setup Guides
-│   ├── product/                  # PRD, Roadmap & Backlog
-│   ├── releases/                 # Release Notes & Changelogs
-│   ├── research/                 # Academic Papers & Evaluation Logs
-│   └── enhancements/             # Performance, Latency & Fix Guides
-├── scripts/                      # 🛠️ Build, Voice, and Maintenance Automation Scripts
-└── tests/                        # 🧪 Desktop Automated Test Suite
+├── Assets/                       # 🎨 Brand Assets, Vector Logos & App Icons
+├── docs/                         # 📚 System Architecture, PRD, Guides & Release Notes
+├── scripts/                      # 🛠️ Build, Release, and Automation Utilities
+└── tests/                        # 🧪 Desktop Automated Verification Test Suite
 ```
 
 ---
 
-## 🚀 Projects Quick Start
+## 🚀 Developer Quick Start
 
-### 1. 🖥️ Windows Desktop Application (`src/`)
-Built with Electron, CommonJS Preload Sandbox, and a local agent orchestration engine.
+### Prerequisites
+- **Node.js**: v20 or v22 LTS
+- **npm**: v10+
+- **Local LLM Runner (Optional for offline)**: [Ollama](https://ollama.com/) or LM Studio
 
+### Installation & Execution
 ```bash
-# Install dependencies
+# Clone the repository
+git clone https://github.com/vedantwankhade123/Brown.git
+cd Brown
+
+# Install desktop dependencies
 npm install
 
 # Run automated tests
 npm test
 
-# Launch in development mode
+# Launch desktop app in development mode
 npm start
 
-# Build Windows NSIS Installer & Portable Executable
+# Package Windows NSIS installer and portable binary
 npm run build:win
 ```
 
-### 2. 📱 Mobile Application (`mobile/`)
-Built with React Native, Expo, SQLite local storage, and on-device GGUF inference connectors.
+---
+
+## 🧪 Testing & Validation
 
 ```bash
-cd mobile
+# Run security, agent loop, RAG, and platform test suites
+npm test
 
-# Install mobile dependencies
-npm install
-
-# Run mobile test verification suite
-node tests/verify-mobile-suite.js
-
-# Start Expo development server
-npx expo start
-```
-
-### 3. 🌐 Official Web Portal (`Ultron Website/`)
-Built with React, Vite, and Firebase hosting/cloud services.
-
-```bash
-cd "Ultron Website"
-
-# Install web dependencies
-npm install
-
-# Start local Vite development server
-npm run dev
-
-# Build production bundle
-npm run build
-```
-
-### 4. 🐍 Python AI Microservice (`python/`)
-Local FastAPI loopback service (`127.0.0.1:8000`) for custom inference pipelines.
-
-```bash
-cd python
-pip install -r requirements.txt
-python server.py
+# Verify agent context engine and entity tracking
+node tests/verify-agent-pipeline.js
+node tests/verify-context-platform.test.js
 ```
 
 ---
 
-## 💾 Downloads & Binaries
-
-Pre-compiled Windows binaries are available directly from the official website and GitHub Releases:
-
-<table width="100%">
-  <thead>
-    <tr>
-      <th align="left" width="20%">Build Type</th>
-      <th align="left" width="35%">File Name</th>
-      <th align="left" width="45%">Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><b>Installer</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0.16/Brown%20AI%20Setup%20v1.0.16.exe"><code>Brown AI Setup v1.0.16.exe</code></a></td>
-      <td>Standard Windows setup wizard with Start Menu and Desktop shortcuts.</td>
-    </tr>
-    <tr>
-      <td><b>Portable</b></td>
-      <td><a href="https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0.16/Brown%20AI%20v1.0.16.exe"><code>Brown AI v1.0.16.exe</code></a></td>
-      <td>Standalone executable. Runs immediately on Windows without installation.</td>
-    </tr>
-  </tbody>
-</table>
-
----
-
-## 📚 Central Documentation
-
-For comprehensive technical guides and specifications, browse the **[Documentation Hub](docs/README.md)**:
+## 📚 Documentation Hub
 
 - **[System Architecture](docs/architecture/SYSTEM_ARCHITECTURE.md)**: Multi-process topology, security sandbox, and model connectors.
-- **[Technical Specifications](docs/architecture/DOCUMENTATION.md)**: Full IPC protocol, Kokoro TTS, Whisper STT, and sync specifications.
-- **[Windows Distribution Guide](docs/guides/WINDOWS_DISTRIBUTION_GUIDE.md)**: Packaging, NSIS installers, and portable binaries.
-- **[Microsoft Store Guide](docs/guides/MICROSOFT_STORE_GUIDE.md)**: MSIX/APPX packaging and Windows Store release process.
-- **[Roadmap & PRD](docs/product/ROADMAP_AND_PRD.md)**: Strategic product roadmap and requirements.
-- **[Research Paper](docs/research/RESEARCH_PAPER.md)**: Formal research paper on local agentic reasoning and on-device privacy.
-- **[Release Notes](docs/releases/RELEASE_NOTES.md)**: Complete changelog across all versions.
-
----
-
-## 🧪 Testing & Quality Assurance
-
-- **Desktop Test Suite**: Run `npm test` from root (covers Security Orchestration, Agent Loop, Multi-Provider Hub, Autonomy Upgrade, and RAG Engine).
-- **Mobile Test Suite**: Run `node mobile/tests/verify-mobile-suite.js` (covers Model Catalog, GGUF Quantization, Chat Repositories, Wi-Fi Companion Pairing, and SecureStore).
+- **[Technical Specifications](docs/architecture/DOCUMENTATION.md)**: IPC protocol, Kokoro TTS, Whisper STT, and sync specifications.
+- **[Release Notes](docs/releases/RELEASE_NOTES.md)**: Detailed changelog of all desktop and mobile releases.
+- **[Folder Structure & Data Paths](docs/guides/BROWN_INSTALL_AND_DATA_FOLDERS.md)**: Complete guide to app data and model cache locations.
 
 ---
 
 ## 📄 License & Intellectual Property
 
-Ultron and its associated codebases, architectures, and desktop/mobile applications are **Proprietary & Confidential Software**. All Rights Reserved.
+Brown AI and its desktop and mobile applications are **Proprietary & Confidential Software**. All Rights Reserved.
 
-- See the full [LICENSE](LICENSE) file for proprietary terms and conditions.
-- Copyright (c) 2026 Vedant Wankhade. Unauthorized copying, distribution, or decompilation is strictly prohibited.
+- Copyright (c) 2026 Vedant Wankhade.
+- Website: [https://usebrown.online](https://usebrown.online)
+- Inquiries: `contact@usebrown.online`
