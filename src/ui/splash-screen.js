@@ -23,49 +23,12 @@
     const splashHTML = `
       <div id="ultron-splash-screen" class="ultron-splash-overlay">
         <div class="ultron-splash-container">
-          <!-- Ultron Logo -->
+          <!-- Brown Logo -->
           <div class="ultron-logo-container">
-            <div class="ultron-logo-circle">
-              <svg class="ultron-logo-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                <!-- Outer ring -->
-                <circle cx="50" cy="50" r="45" fill="none" stroke="url(#logoGradient)" stroke-width="2" class="logo-ring-outer"/>
-                
-                <!-- Inner core -->
-                <circle cx="50" cy="50" r="25" fill="url(#logoGradient)" class="logo-core"/>
-                
-                <!-- AI brain pattern -->
-                <g class="logo-brain-pattern" opacity="0.8">
-                  <path d="M 30 40 Q 50 30 70 40" fill="none" stroke="#ffffff" stroke-width="1.5" class="brain-path-1"/>
-                  <path d="M 30 50 Q 50 40 70 50" fill="none" stroke="#ffffff" stroke-width="1.5" class="brain-path-2"/>
-                  <path d="M 30 60 Q 50 50 70 60" fill="none" stroke="#ffffff" stroke-width="1.5" class="brain-path-3"/>
-                </g>
-                
-                <!-- Central dot -->
-                <circle cx="50" cy="50" r="3" fill="#ffffff" class="logo-center-dot"/>
-                
-                <!-- Gradient definitions -->
-                <defs>
-                  <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" style="stop-color:#4f46e5;stop-opacity:1" />
-                    <stop offset="50%" style="stop-color:#7c3aed;stop-opacity:1" />
-                    <stop offset="100%" style="stop-color:#06b6d4;stop-opacity:1" />
-                  </linearGradient>
-                  
-                  <filter id="glow">
-                    <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
-                    <feMerge> 
-                      <feMergeNode in="coloredBlur"/>
-                      <feMergeNode in="SourceGraphic"/> 
-                    </feMerge>
-                  </filter>
-                </defs>
-              </svg>
+            <div class="ultron-logo-circle" style="background: transparent; border: none; box-shadow: none;">
+              <img src="../../Assets/brown-white-logo.png" alt="Brown" class="ultron-logo-img" style="max-width: 180px; height: auto; object-fit: contain; filter: drop-shadow(0 0 18px rgba(99,102,241,0.6));" onerror="this.src='../../Assets/brown-white-logo.png'" />
             </div>
           </div>
-
-          <!-- Ultron Text -->
-          <div class="ultron-text-container">
-            <h1 class="ultron-title">ULTRON</h1>
           </div>
         </div>
       </div>
@@ -125,7 +88,7 @@
           position: relative;
           width: 120px;
           height: 120px;
-          margin: 0 auto 40px;
+          margin: 0 auto 10px;
         }
 
         .ultron-logo-circle {

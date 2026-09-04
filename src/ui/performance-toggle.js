@@ -1,6 +1,7 @@
 /**
  * Performance Mode Toggle UI
  * Allows users to switch between CPU, GPU, and Auto performance modes
+ * from the Advanced Options settings tab
  */
 (function () {
   'use strict';
@@ -11,36 +12,7 @@
     CPU: 'cpu'
   };
 
-  const MODE_CONFIG = {
-    [PERFORMANCE_MODES.AUTO]: {
-      id: 'auto',
-      label: 'Auto',
-      title: 'Performance Mode: Auto (Adaptive)',
-      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`,
-      tag: 'Recommended',
-      color: '#38bdf8'
-    },
-    [PERFORMANCE_MODES.GPU]: {
-      id: 'gpu',
-      label: 'GPU',
-      title: 'Performance Mode: GPU Priority',
-      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`,
-      tag: 'Maximum Speed',
-      color: '#34d399'
-    },
-    [PERFORMANCE_MODES.CPU]: {
-      id: 'cpu',
-      label: 'CPU',
-      title: 'Performance Mode: CPU Only',
-      icon: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>`,
-      tag: 'Safe & Low Power',
-      color: '#fbbf24'
-    }
-  };
-
   let currentMode = PERFORMANCE_MODES.AUTO;
-  let btnToggle = null;
-  let dropdownMenu = null;
   let isInitialized = false;
 
   /**
@@ -75,16 +47,13 @@
 
     // Apply configuration to GPU module if present
     if (window.UltronGPUConfig) {
-      if (mode === PERFORMANCE_MODES.GPU) {
-        window.UltronGPUConfig.enable();
-      } else if (mode === PERFORMANCE_MODES.CPU) {
+      if (mode === PERFORMANCE_MODES.CPU) {
         window.UltronGPUConfig.disable();
       } else {
         window.UltronGPUConfig.enable();
       }
     }
 
-    // Update UI
     updateToggleUI();
 
     if (triggerEvent) {
@@ -102,37 +71,14 @@
    * UPDATE TOGGLE UI
    */
   function updateToggleUI() {
-    btnToggle = btnToggle || document.getElementById('btn-performance-mode');
-    dropdownMenu = dropdownMenu || document.getElementById('performance-mode-dropdown');
-
-    const config = MODE_CONFIG[currentMode] || MODE_CONFIG[PERFORMANCE_MODES.AUTO];
-
-    if (btnToggle) {
-      btnToggle.setAttribute('data-mode', config.id);
-      btnToggle.title = config.title;
-
-      const iconEl = document.getElementById('performance-mode-icon');
-      if (iconEl) iconEl.innerHTML = config.icon;
-
-      const labelEl = document.getElementById('performance-mode-label');
-      if (labelEl) labelEl.textContent = config.label;
-    }
-
-    if (dropdownMenu) {
-      const options = dropdownMenu.querySelectorAll('.perf-option-item');
-      options.forEach(opt => {
-        const mode = opt.getAttribute('data-mode');
-        if (mode === currentMode) {
-          opt.classList.add('active');
-        } else {
-          opt.classList.remove('active');
-        }
-      });
-    }
+    document.querySelectorAll('.perf-option-item').forEach(opt => {
+      const mode = opt.getAttribute('data-mode');
+      opt.classList.toggle('active', mode === currentMode);
+    });
   }
 
   /**
-   * UPDATE SYSTEM TELEMETRY IN DROPDOWN
+   * UPDATE SYSTEM TELEMETRY
    */
   async function updateTelemetry() {
     const gpuEl = document.getElementById('perf-gpu-telemetry');
@@ -173,76 +119,18 @@
   }
 
   /**
-   * DROPDOWN CONTROLS
-   */
-  function openDropdown() {
-    if (!dropdownMenu) dropdownMenu = document.getElementById('performance-mode-dropdown');
-    if (!btnToggle) btnToggle = document.getElementById('btn-performance-mode');
-    if (!dropdownMenu) return;
-
-    dropdownMenu.classList.remove('hidden');
-    if (btnToggle) btnToggle.setAttribute('aria-expanded', 'true');
-    updateTelemetry();
-  }
-
-  function closeDropdown() {
-    if (!dropdownMenu) dropdownMenu = document.getElementById('performance-mode-dropdown');
-    if (!btnToggle) btnToggle = document.getElementById('btn-performance-mode');
-    if (!dropdownMenu) return;
-
-    dropdownMenu.classList.add('hidden');
-    if (btnToggle) btnToggle.setAttribute('aria-expanded', 'false');
-  }
-
-  function toggleDropdown() {
-    if (!dropdownMenu) dropdownMenu = document.getElementById('performance-mode-dropdown');
-    if (dropdownMenu && !dropdownMenu.classList.contains('hidden')) {
-      closeDropdown();
-    } else {
-      openDropdown();
-    }
-  }
-
-  /**
    * SETUP EVENT LISTENERS
    */
   function setupEventListeners() {
-    btnToggle = document.getElementById('btn-performance-mode');
-    dropdownMenu = document.getElementById('performance-mode-dropdown');
-
-    if (btnToggle) {
-      btnToggle.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleDropdown();
+    document.querySelectorAll('.perf-option-item').forEach(opt => {
+      opt.addEventListener('click', () => {
+        const mode = opt.getAttribute('data-mode');
+        if (mode) setPerformanceMode(mode);
       });
-    }
-
-    if (dropdownMenu) {
-      const options = dropdownMenu.querySelectorAll('.perf-option-item');
-      options.forEach(opt => {
-        opt.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const mode = opt.getAttribute('data-mode');
-          if (mode) {
-            setPerformanceMode(mode);
-            closeDropdown();
-          }
-        });
-      });
-    }
-
-    document.addEventListener('click', (e) => {
-      const wrapper = document.getElementById('performance-toggle-wrapper');
-      if (wrapper && !wrapper.contains(e.target)) {
-        closeDropdown();
-      }
     });
 
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        closeDropdown();
-      }
-    });
+    document.querySelector('.settings-tab-btn[data-tab="performance"]')
+      ?.addEventListener('click', updateTelemetry);
   }
 
   /**
@@ -268,8 +156,6 @@
     getCurrentMode: () => currentMode,
     setMode: setPerformanceMode,
     getModes: () => ({ ...PERFORMANCE_MODES }),
-    open: openDropdown,
-    close: closeDropdown,
     updateTelemetry,
     isInitialized: () => isInitialized
   };

@@ -1,0 +1,9 @@
+# Built installers / APKs live here (inside the Ultron repo, not on C:\)
+*.apk
+*.aab
+*.exe
+
+# Keep signing materials local — never commit passwords
+signing/keystore.properties
+signing/*.keystore
+!signing/.gitkeep

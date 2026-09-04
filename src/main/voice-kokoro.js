@@ -32,7 +32,7 @@ function getKokoroCacheDir() {
     fs.mkdirSync(cacheDir, { recursive: true });
     return cacheDir;
   } catch (e) {
-    const fallback = path.join(process.cwd(), 'Ultron-local', 'models', 'tts-cache', KOKORO_ENGINE_KEY);
+    const fallback = path.join(process.cwd(), 'brown-local', 'models', 'tts-cache', KOKORO_ENGINE_KEY);
     fs.mkdirSync(fallback, { recursive: true });
     return fallback;
   }

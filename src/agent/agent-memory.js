@@ -326,7 +326,257 @@
     return Boolean(entry && entry.decision === 'deny');
   }
 
-  window.UltronAgentMemory = {
+  // ---------------------------------------------------------------
+  // User Preference & Long-Term Memory Vault
+  // ---------------------------------------------------------------
+  const PREFERENCES_KEY = 'ultron-agent-user-preferences';
+
+  function loadUserPreferences() {
+    try {
+      const saved = window.localStorage.getItem(PREFERENCES_KEY);
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return {
+      preferredLanguage: 'JavaScript/TypeScript & Python',
+      preferredFramework: 'React / Next.js',
+      themePreference: 'Dark',
+      customNotes: []
+    };
+  }
+
+  function saveUserPreference(key, value) {
+    const prefs = loadUserPreferences();
+    if (typeof key === 'object') {
+      Object.assign(prefs, key);
+    } else if (key) {
+      prefs[key] = value;
+    }
+    try {
+      window.localStorage.setItem(PREFERENCES_KEY, JSON.stringify(prefs));
+    } catch (e) {}
+    return prefs;
+  }
+
+  function appendPreferenceNote(note) {
+    const prefs = loadUserPreferences();
+    if (!Array.isArray(prefs.customNotes)) prefs.customNotes = [];
+    const text = String(note || '').trim();
+    if (text && !prefs.customNotes.includes(text)) {
+      prefs.customNotes.push(text);
+      try {
+        window.localStorage.setItem(PREFERENCES_KEY, JSON.stringify(prefs));
+      } catch (e) {}
+    }
+    return prefs;
+  }
+
+  function getFormattedPreferencesPrompt() {
+    const prefs = loadUserPreferences();
+    const items = [];
+    if (prefs.preferredLanguage) items.push(`- Preferred Languages: ${prefs.preferredLanguage}`);
+    if (prefs.preferredFramework) items.push(`- Preferred Frameworks: ${prefs.preferredFramework}`);
+    if (Array.isArray(prefs.customNotes) && prefs.customNotes.length > 0) {
+      prefs.customNotes.forEach(n => items.push(`- User Note: ${n}`));
+    }
+    if (!items.length) return '';
+    return `\n\nUSER PERSISTENT PREFERENCES (Memory Vault):\n${items.join('\n')}`;
+  }
+
+  function saveConversationState(sessionId, key, value) {
+    const sid = sessionId || defaultSessionId();
+    try {
+      const all = JSON.parse(window.localStorage.getItem('ultron-agent-conv-state') || '{}');
+      if (!all[sid]) all[sid] = {};
+      all[sid][key] = { value, ts: Date.now() };
+      window.localStorage.setItem('ultron-agent-conv-state', JSON.stringify(all));
+    } catch (e) {}
+  }
+  function getConversationState(sessionId, key) {
+    const sid = sessionId || defaultSessionId();
+    try {
+      const all = JSON.parse(window.localStorage.getItem('ultron-agent-conv-state') || '{}');
+      if (all[sid] && all[sid][key]) return all[sid][key].value;
+    } catch (e) {}
+    return null;
+  }
+  function getAllConversationState(sessionId) {
+    const sid = sessionId || defaultSessionId();
+    try {
+      const all = JSON.parse(window.localStorage.getItem('ultron-agent-conv-state') || '{}');
+      return all[sid] || {};
+    } catch (e) {}
+    return {};
+  }
+
+  const MAX_TOOL_EXECUTIONS = 30;
+  function saveToolExecution(sessionId, execution) {
+    const sid = sessionId || defaultSessionId();
+    try {
+      const all = JSON.parse(window.localStorage.getItem('ultron-agent-tool-exec') || '{}');
+      if (!all[sid]) all[sid] = [];
+      all[sid].push({
+        id: `te-${Date.now()}-${Math.random().toString(36).slice(2,5)}`,
+        tool: execution.tool || 'unknown',
+        input: String(execution.input || '').substring(0, 500),
+        output: String(execution.output || '').substring(0, 1000),
+        success: Boolean(execution.success),
+        ts: Date.now()
+      });
+      if (all[sid].length > MAX_TOOL_EXECUTIONS) all[sid].splice(0, all[sid].length - MAX_TOOL_EXECUTIONS);
+      window.localStorage.setItem('ultron-agent-tool-exec', JSON.stringify(all));
+    } catch (e) {}
+  }
+  function getToolExecutions(sessionId, limit = 10) {
+    const sid = sessionId || defaultSessionId();
+    try {
+      const all = JSON.parse(window.localStorage.getItem('ultron-agent-tool-exec') || '{}');
+      const list = all[sid] || [];
+      return list.slice(-limit);
+    } catch (e) {}
+    return [];
+  }
+  function getToolExecutionsSnippet(sessionId, limit = 5) {
+    const execs = getToolExecutions(sessionId, limit);
+    if (!execs.length) return '';
+    return execs.map(e => `[${e.tool}] ${e.success ? '✓' : '✗'} ${e.input.substring(0,80)}`).join('\n');
+  }
+
+  const MAX_SEARCH_RESULTS = 20;
+  function saveSearchResults(sessionId, searchData) {
+    const sid = sessionId || defaultSessionId();
+    try {
+      const all = JSON.parse(window.localStorage.getItem('ultron-agent-search-results') || '{}');
+      if (!all[sid]) all[sid] = [];
+      all[sid].push({
+        id: `sr-${Date.now()}-${Math.random().toString(36).slice(2,5)}`,
+        query: String(searchData.query || '').substring(0, 300),
+        results: (searchData.results || []).slice(0, 10).map(r => ({
+          title: String(r.title || '').substring(0, 150),
+          url: String(r.url || '').substring(0, 300),
+          snippet: String(r.snippet || '').substring(0, 200)
+        })),
+        source: searchData.source || 'web',
+        ts: Date.now()
+      });
+      if (all[sid].length > MAX_SEARCH_RESULTS) all[sid].splice(0, all[sid].length - MAX_SEARCH_RESULTS);
+      window.localStorage.setItem('ultron-agent-search-results', JSON.stringify(all));
+    } catch (e) {}
+  }
+  function getSearchResults(sessionId, limit = 5) {
+    const sid = sessionId || defaultSessionId();
+    try {
+      const all = JSON.parse(window.localStorage.getItem('ultron-agent-search-results') || '{}');
+      const list = all[sid] || [];
+      return list.slice(-limit);
+    } catch (e) {}
+    return [];
+  }
+  function getSearchResultsSnippet(sessionId, limit = 3) {
+    const results = getSearchResults(sessionId, limit);
+    if (!results.length) return '';
+    return results.map(sr =>
+      `Search: "${sr.query}"\n` + sr.results.slice(0,3).map(r => `  - ${r.title}: ${r.snippet}`).join('\n')
+    ).join('\n');
+  }
+
+  function saveConversationSummary(sessionId, summary) {
+    const sid = sessionId || defaultSessionId();
+    try {
+      const all = JSON.parse(window.localStorage.getItem('ultron-agent-conv-summary') || '{}');
+      all[sid] = {
+        text: String(summary || '').substring(0, 2000),
+        turnsCovered: (all[sid]?.turnsCovered || 0) + 1,
+        ts: Date.now()
+      };
+      window.localStorage.setItem('ultron-agent-conv-summary', JSON.stringify(all));
+    } catch (e) {}
+  }
+  function getConversationSummary(sessionId) {
+    const sid = sessionId || defaultSessionId();
+    try {
+      const all = JSON.parse(window.localStorage.getItem('ultron-agent-conv-summary') || '{}');
+      return all[sid] || null;
+    } catch (e) {}
+    return null;
+  }
+
+  function queryHistoricalMessages(sessionId, query, limit = 5) {
+    const sid = sessionId || defaultSessionId();
+    if (!query || typeof query !== 'string') return [];
+    try {
+      // Access the global conversationsStore if available
+      const store = (typeof window !== 'undefined' && window.conversationsStore) ? window.conversationsStore : {};
+      const session = store[sid];
+      if (!session || !Array.isArray(session.messages)) return [];
+      const queryLower = query.toLowerCase();
+      const terms = queryLower.split(/\s+/).filter(t => t.length > 2);
+      if (!terms.length) return [];
+      const scored = session.messages.map((msg, idx) => {
+        const text = String(msg.text || '').toLowerCase();
+        let score = 0;
+        for (const term of terms) {
+          if (text.includes(term)) score++;
+        }
+        return { msg, idx, score };
+      }).filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, limit);
+      return scored.map(s => ({
+        index: s.idx,
+        role: s.msg.isAi ? 'assistant' : 'user',
+        text: String(s.msg.text || '').substring(0, 500),
+        score: s.score
+      }));
+    } catch (e) {}
+    return [];
+  }
+
+  const MAX_DURABLE_MEMORIES = 100;
+  function saveDurableMemory(type, content, metadata = {}) {
+    try {
+      const list = JSON.parse(window.localStorage.getItem('ultron-agent-durable-memory') || '[]');
+      const entry = {
+        id: `dm-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
+        type: type || 'fact', // fact, preference, instruction, correction, user-info
+        content: String(content || '').substring(0, 500),
+        metadata: metadata || {},
+        ts: Date.now()
+      };
+      // Deduplicate by similar content
+      const contentLower = entry.content.toLowerCase();
+      const isDup = list.some(m => m.content.toLowerCase() === contentLower);
+      if (!isDup) {
+        list.push(entry);
+        if (list.length > MAX_DURABLE_MEMORIES) list.splice(0, list.length - MAX_DURABLE_MEMORIES);
+        window.localStorage.setItem('ultron-agent-durable-memory', JSON.stringify(list));
+      }
+      return entry;
+    } catch (e) {}
+    return null;
+  }
+  function queryDurableMemories(query, limit = 5) {
+    if (!query || typeof query !== 'string') return [];
+    try {
+      const list = JSON.parse(window.localStorage.getItem('ultron-agent-durable-memory') || '[]');
+      const queryLower = query.toLowerCase();
+      const terms = queryLower.split(/\s+/).filter(t => t.length > 2);
+      if (!terms.length) return list.slice(-limit);
+      return list.map(m => {
+        const text = m.content.toLowerCase();
+        let score = 0;
+        for (const term of terms) {
+          if (text.includes(term)) score++;
+        }
+        return { ...m, score };
+      }).filter(m => m.score > 0).sort((a, b) => b.score - a.score).slice(0, limit);
+    } catch (e) {}
+    return [];
+  }
+  function getDurableMemorySnippet(query, limit = 5) {
+    const memories = queryDurableMemories(query, limit);
+    if (!memories.length) return '';
+    return memories.map(m => `- [${m.type}] ${m.content}`).join('\n');
+  }
+
+  const memoryApi = {
     loadTaskMemory,
     saveTaskMemory,
     pushTaskMemory,
@@ -349,6 +599,32 @@
     savePermissionDecision,
     clearPermissionDecision,
     hasAlwaysAllow,
-    hasAlwaysDeny
+    hasAlwaysDeny,
+    loadUserPreferences,
+    saveUserPreference,
+    appendPreferenceNote,
+    getFormattedPreferencesPrompt,
+    saveConversationState,
+    getConversationState,
+    getAllConversationState,
+    saveToolExecution,
+    getToolExecutions,
+    getToolExecutionsSnippet,
+    saveSearchResults,
+    getSearchResults,
+    getSearchResultsSnippet,
+    saveConversationSummary,
+    getConversationSummary,
+    queryHistoricalMessages,
+    saveDurableMemory,
+    queryDurableMemories,
+    getDurableMemorySnippet
   };
+
+  if (typeof window !== 'undefined') {
+    window.UltronAgentMemory = memoryApi;
+  }
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = memoryApi;
+  }
 })();

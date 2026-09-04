@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ultron: Autonomous Local AI Agent</title>
+  <title>Brown: Autonomous Local AI Agent</title>
   <link rel="stylesheet" href="index.css">
   <link rel="stylesheet" href="canvas-artifacts.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,7 +12,7 @@
   <style>
     /* Critical initial boot rendering styles to prevent initial black screen */
     html, body {
-      background-color: #08090c !important;
+      background-color: #131314 !important;
       margin: 0;
       padding: 0;
     }
@@ -30,31 +30,182 @@
     .app-skeleton-overlay {
       position: fixed;
       inset: 0;
-      background-color: #08090c;
+      background-color: #131314;
       z-index: 999999;
       display: flex;
     }
   </style>
 </head>
-<body class="ultron-app" style="background-color: #08090c; color: #ffffff;">
+<body class="ultron-app">
 
-  <!-- Windows custom title bar: logo + app name -->
+  <!-- Windows custom title bar: Useful Settings shortcuts on left side -->
   <div class="app-window-titlebar">
-    <div class="app-titlebar-brand">
-      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="app-titlebar-logo" alt="">
-      <span class="app-titlebar-name">Ultron <span class="beta-badge-pill">BETA</span></span>
+    <div class="app-titlebar-actions">
+      <!-- Left: new chat + prev/next navigation -->
+      <button id="titlebar-btn-chat" class="titlebar-opt-btn" title="Chat" aria-label="Chat" disabled>Chat</button>
+      <button id="titlebar-btn-prev" class="titlebar-opt-btn" title="Previous" aria-label="Previous">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+      </button>
+      <button id="titlebar-btn-next" class="titlebar-opt-btn" title="Next" aria-label="Next">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+      </button>
+      <div class="titlebar-divider"></div>
+
+      <div class="titlebar-settings-wrap" style="position: relative;">
+        <button id="titlebar-btn-models" class="titlebar-opt-btn" title="AI Models & API Keys" aria-label="AI Models & API Keys">Models</button>
+        <div id="titlebar-models-dropdown" class="titlebar-settings-dropdown titlebar-dropdown-wide hidden" style="min-width: 360px; max-width: 390px;">
+          <div class="tmd-header">
+            <div class="tmd-header-title">AI Models &amp; Connectors</div>
+          </div>
+
+          <div class="tmd-scroll-area">
+            <div class="tmd-section-label">Connectors &amp; API Keys</div>
+            <div id="tmd-connectors-list" class="tmd-connectors-grid">
+              <!-- Dynamically populated connector cards (Gemini, OpenAI, Claude, DeepSeek, Groq, Custom, HF, Ollama) -->
+            </div>
+
+            <div class="tmd-section-label" style="margin-top: 12px;">Installed &amp; Active Models</div>
+            <div id="tmd-installed" class="tmd-models-list">
+              <!-- Dynamically populated with active state & 1-click switcher -->
+            </div>
+          </div>
+
+          <div class="tmd-footer">
+            <button type="button" class="tmd-footer-btn" id="tmd-go-download"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Download Models</span></button>
+            <button type="button" class="tmd-footer-btn tmd-footer-primary" id="tmd-go-settings"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg><span>Models Settings</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="titlebar-settings-wrap" style="position: relative;">
+        <button id="titlebar-btn-knowledge" class="titlebar-opt-btn" title="Knowledge Base & Documents" aria-label="Knowledge Base & Documents">Knowledge</button>
+        <div id="titlebar-knowledge-dropdown" class="titlebar-settings-dropdown hidden">
+          <div class="tsd-item" id="tkd-add-folder"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg><span>Add Folder</span></div>
+          <div class="tsd-item" id="tkd-reindex"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg><span>Re-index All</span></div>
+          <div class="tsd-item" id="tkd-go-settings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg><span>Go to Knowledge Settings</span></div>
+        </div>
+      </div>
+      <div class="titlebar-settings-wrap" style="position: relative;">
+        <button id="titlebar-btn-automation" class="titlebar-opt-btn" title="Desktop Automation & Controls" aria-label="Desktop Automation & Controls">Automation</button>
+        <div id="titlebar-automation-dropdown" class="titlebar-settings-dropdown hidden">
+          <div class="tsd-item" id="tad2-uia"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg><span>Windows UI Automation</span></div>
+          <div class="tsd-item" id="tad2-screen"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Screen capture & permissions</span></div>
+          <div class="tsd-item" id="tad2-go-settings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg><span>Go to Automation Settings</span></div>
+        </div>
+      </div>
+      <div class="titlebar-settings-wrap" style="position: relative;">
+        <button id="titlebar-btn-apps" class="titlebar-opt-btn" title="Apps & MCP Integrations" aria-label="Apps & MCP Integrations">Apps</button>
+        <div id="titlebar-apps-dropdown" class="titlebar-settings-dropdown titlebar-dropdown-wide hidden" style="min-width: 380px; max-width: 420px;">
+          <div class="tmd-header">
+            <div class="tmd-header-title">Applications &amp; Integrations</div>
+            <span id="tad-apps-count-badge" class="tad-count-badge">0 apps</span>
+          </div>
+
+          <div class="tad-toolbar">
+            <div class="tad-search-wrap">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <input type="text" id="tad-apps-search" class="tad-search-input" placeholder="Filter apps..." />
+            </div>
+            <label class="tad-mark-all-btn" id="tad-mark-all-label">
+              <input type="checkbox" id="tad-chk-mark-all" />
+              <span class="mark-all-dot" aria-hidden="true"></span>
+              <span class="tad-mark-all-text">Mark All</span>
+            </label>
+          </div>
+
+          <div class="tmd-scroll-area" style="max-height: 280px;">
+            <div id="tad-apps-list" class="tad-apps-list">
+              <!-- Dynamically populated app items with live toggle switches and icons -->
+            </div>
+          </div>
+
+          <div class="tmd-footer">
+            <div class="tmd-footer-meta" id="tad-mcp-status-preview">Desktop Integrations Active</div>
+            <button type="button" class="tmd-footer-btn tmd-footer-primary" id="tad-go-settings"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg><span>Manage Apps</span></button>
+          </div>
+        </div>
+      </div>
+      <div class="titlebar-divider"></div>
+      <div class="titlebar-settings-wrap" style="position: relative;">
+        <button id="titlebar-btn-sync" class="titlebar-opt-btn" title="Mobile Sync & Devices" aria-label="Mobile Sync & Devices">Sync</button>
+        <div id="titlebar-sync-dropdown" class="titlebar-settings-dropdown hidden" style="width: 290px; min-width: 290px; max-width: 290px; padding: 14px 16px;">
+          <div class="tsd-sync-head">
+            <div>
+              <div id="tsd-device-name" class="tsd-sync-device">This PC</div>
+              <div id="tsd-lan-ip" class="tsd-sync-ip">LAN IP: —</div>
+            </div>
+          </div>
+          <div id="tsd-pair-code" class="tsd-sync-code hidden">----</div>
+          <div class="tsd-sync-qr-wrap">
+            <canvas id="tsd-qr" class="tsd-sync-qr" width="160" height="160"></canvas>
+            <div id="tsd-qr-veil" class="tsd-qr-veil"></div>
+            <button id="tsd-qr-refresh" class="tsd-qr-refresh" title="Generate QR">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+            </button>
+          </div>
+          <div class="tsd-sync-actions">
+            <button id="tsd-generate-pair" class="tsd-sync-btn">Generate Pair Code</button>
+            <button id="tsd-regen-qr" class="tsd-sync-btn tsd-sync-btn-white">Generate QR</button>
+          </div>
+          <div id="tsd-sync-expiry" class="tsd-sync-expiry">Code expires in 30s</div>
+        </div>
+      </div>
+      <div class="titlebar-settings-wrap" style="position: relative;">
+        <button id="titlebar-btn-settings" class="titlebar-opt-btn" title="Settings" aria-label="Settings">Settings</button>
+        <div id="titlebar-settings-dropdown" class="titlebar-settings-dropdown hidden" style="min-width: 220px;">
+          <!-- Appearance dropdown -->
+          <div class="tsd-item open" id="tsd-appearance-toggle">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
+            <span>Appearance</span>
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: auto;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </div>
+          <div id="tsd-appearance-sub" class="tsd-sub">
+            <button type="button" class="tsd-theme" data-theme-choice="system"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line></svg><span>System Default</span></button>
+            <button type="button" class="tsd-theme" data-theme-choice="light"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg><span>Light Mode</span></button>
+            <button type="button" class="tsd-theme" data-theme-choice="dark"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg><span>Dark Mode</span></button>
+          </div>
+
+          <div class="tsd-divider"></div>
+          <div class="tsd-item" id="tsd-go-all-settings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg><span>All Settings</span></div>
+          <div class="tsd-item" id="tsd-about"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg><span>About Brown</span></div>
+        </div>
+      </div>
+      <div class="titlebar-settings-wrap" style="position: relative;">
+        <button id="titlebar-btn-help" class="titlebar-opt-btn" title="Help & Support" aria-label="Help & Support">Help</button>
+        <div id="titlebar-help-dropdown" class="titlebar-settings-dropdown hidden" style="min-width: 220px;">
+          <div class="tsd-item" id="thd-contact">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+            <span>Contact</span>
+          </div>
+          <div class="tsd-item" id="thd-docs">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+            <span>Documentation</span>
+          </div>
+          <div class="tsd-item" id="thd-blogs">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1m2 13a2 2 0 0 1-2-2V7m2 13a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z"></path></svg>
+            <span>Blogs &amp; Articles</span>
+          </div>
+          <div class="tsd-divider"></div>
+          <div class="tsd-item" id="thd-release-notes">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+            <span>Release Notes</span>
+          </div>
+          <div class="tsd-item" id="thd-website">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            <span>Visit Website</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- APP INTRO SPLASH SCREEN — logo + brand only (no status / dots) -->
+  <!-- APP INTRO SPLASH SCREEN — Brown logo with real-time status updates -->
   <div id="app-splash-screen" class="app-splash-screen">
     <div class="splash-card">
       <div class="splash-logo-container">
-        <div class="splash-logo-glow"></div>
-        <img src="../../Assets/Brand-Assets/ultron-logo.png" class="splash-logo-img" alt="Ultron Logo">
+        <img src="../../Assets/brown-white-logo.png" class="splash-logo-img" alt="Brown Logo" onerror="this.src='../../Assets/brown-white-logo.png'">
       </div>
-      <div class="splash-text-container">
-        <h1 class="splash-brand-title shiny-text">Ultron</h1>
+      <div class="splash-status-container" id="splash-status-container">
+        <span id="splash-status-text" class="splash-status-text">Starting up...</span>
       </div>
     </div>
   </div>
@@ -89,8 +240,7 @@
       <!-- Title Header -->
       <div class="brand-header">
         <div class="brand-left">
-          <img src="../../Assets/Brand-Assets/ultron-logo.png" class="brand-logo" alt="Ultron Logo">
-          <span class="brand-name">Ultron <span class="beta-badge-pill">BETA</span></span>
+          <img src="../../Assets/brown-white-logo.png" class="brand-logo" alt="Brown Logo" onerror="this.src='../../Assets/brown-white-logo.png'">
         </div>
         <button id="btn-toggle-left-sidebar" class="btn-toggle-left-sidebar" title="Collapse navigation">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
@@ -158,107 +308,57 @@
       </div>
 
       <div class="chat-header-actions">
-        <!-- Top Performance Mode Selector (CPU / GPU / AUTO) -->
-        <div id="performance-toggle-wrapper" class="performance-toggle-wrapper">
-          <button type="button" id="btn-performance-mode" class="btn-performance-mode" aria-haspopup="true" aria-expanded="false" title="Performance Mode: Auto (Adaptive)">
-            <span id="performance-mode-icon" class="performance-mode-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+        <!-- Top Update Button + Dropdown (Right Side) -->
+        <div id="top-update-wrap" class="top-update-wrap">
+          <button id="top-btn-update" class="btn-top-update state-checking" title="Updates" aria-haspopup="true" aria-expanded="false">
+            <span class="top-update-icon-wrap">
+              <svg class="top-update-ring" viewBox="0 0 36 36" aria-hidden="true">
+                <circle class="tur-ring-track" cx="18" cy="18" r="15"></circle>
+                <circle id="top-update-ring-fill" class="tur-ring-fill" cx="18" cy="18" r="15"></circle>
               </svg>
+              <svg id="top-update-icon-spin" class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+              <svg id="top-update-icon-download" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <svg id="top-update-icon-restart" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
             </span>
-            <span id="performance-mode-label" class="performance-mode-label">Auto</span>
-            <svg class="performance-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="11" height="11">
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
+            <span id="top-update-label">Checking for updates</span>
           </button>
 
-          <!-- Performance Dropdown Menu -->
-          <div id="performance-mode-dropdown" class="performance-mode-dropdown hidden" role="menu">
-            <div class="perf-dropdown-header">
-              <span class="perf-dropdown-title">Performance Engine</span>
-              <span class="perf-dropdown-subtitle">Hardware acceleration mode</span>
+          <div id="top-update-dropdown" class="top-update-dropdown hidden">
+            <div class="tud-header">
+              <div id="tud-title" class="tud-title">New Update Available</div>
+              <div id="tud-subtitle" class="tud-subtitle">Version details</div>
             </div>
-            <div class="perf-dropdown-options">
-              <!-- Auto Mode -->
-              <button type="button" class="perf-option-item active" data-mode="auto" role="menuitem">
-                <div class="perf-option-icon icon-auto">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                  </svg>
-                </div>
-                <div class="perf-option-text">
-                  <div class="perf-option-title-row">
-                    <span class="perf-option-title">Auto Adaptive</span>
-                    <span class="perf-tag-recommended">Recommended</span>
-                  </div>
-                  <span class="perf-option-desc">Auto-detects hardware & balances memory dynamically</span>
-                </div>
-                <span class="perf-option-check">✓</span>
-              </button>
-
-              <!-- GPU Priority Mode -->
-              <button type="button" class="perf-option-item" data-mode="gpu" role="menuitem">
-                <div class="perf-option-icon icon-gpu">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-                  </svg>
-                </div>
-                <div class="perf-option-text">
-                  <div class="perf-option-title-row">
-                    <span class="perf-option-title">GPU Priority</span>
-                    <span class="perf-tag-speed">Maximum Speed</span>
-                  </div>
-                  <span class="perf-option-desc">Force maximum GPU acceleration for AI generation</span>
-                </div>
-                <span class="perf-option-check">✓</span>
-              </button>
-
-              <!-- CPU Only Mode -->
-              <button type="button" class="perf-option-item" data-mode="cpu" role="menuitem">
-                <div class="perf-option-icon icon-cpu">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-                    <rect x="4" y="4" width="16" height="16" rx="2"/>
-                    <rect x="9" y="9" width="6" height="6"/>
-                    <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
-                  </svg>
-                </div>
-                <div class="perf-option-text">
-                  <div class="perf-option-title-row">
-                    <span class="perf-option-title">CPU Only</span>
-                    <span class="perf-tag-eco">Safe & Low Power</span>
-                  </div>
-                  <span class="perf-option-desc">Pure CPU processing to eliminate VRAM locks & save battery</span>
-                </div>
-                <span class="perf-option-check">✓</span>
-              </button>
+            <div id="tud-notes" class="tud-notes">Release notes</div>
+            <div id="tud-progress" class="tud-progress hidden">
+              <div class="tud-ring-wrap">
+                <svg class="tud-ring" viewBox="0 0 72 72" aria-hidden="true">
+                  <circle class="tur-ring-track" cx="36" cy="36" r="31"></circle>
+                  <circle id="tud-ring-fill" class="tur-ring-fill" cx="36" cy="36" r="31"></circle>
+                </svg>
+                <span id="tud-progress-pct" class="tud-progress-pct">0%</span>
+              </div>
+              <div class="tud-stats">
+                <div class="tud-stat-row"><span>Downloaded</span><span id="tud-stat-size">--</span></div>
+                <div class="tud-stat-row"><span>Speed</span><span id="tud-stat-speed">--</span></div>
+                <div class="tud-stat-row"><span>Time remaining</span><span id="tud-stat-eta">--</span></div>
+              </div>
             </div>
-            <div class="perf-dropdown-footer">
-              <div class="perf-telemetry-row">
-                <span class="perf-telemetry-label">Active GPU:</span>
-                <span id="perf-gpu-telemetry" class="perf-telemetry-val">Detecting...</span>
-              </div>
-              <div class="perf-telemetry-row">
-                <span class="perf-telemetry-label">Memory:</span>
-                <span id="perf-mem-telemetry" class="perf-telemetry-val">--</span>
-              </div>
+            <div id="tud-finished" class="tud-finished hidden">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+              <span>Download finished</span>
+            </div>
+            <div class="tud-actions">
+              <button id="tud-btn-update" class="tud-btn tud-btn-primary" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>Update</span>
+              </button>
+              <button id="tud-btn-restart" class="tud-btn tud-btn-restart hidden" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                <span>Restart</span>
+              </button>
+              <button id="tud-btn-later" class="tud-btn tud-btn-ghost hidden" type="button"><span>Do it later</span></button>
             </div>
           </div>
-        </div>
-
-        <!-- Top Update Bar (Right Side) -->
-        <div id="top-update-bar" class="top-update-bar" style="display: flex; align-items: center; gap: 8px;">
-          <button id="top-btn-check-update" class="btn-top-update" title="Check for software updates">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-            <span>Check for Updates</span>
-          </button>
-          <button id="top-btn-download-update" class="btn-top-update btn-update-green hidden" title="Download latest update">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            <span id="top-download-text">Download Update</span>
-          </button>
-          <button id="top-btn-restart-install" class="btn-top-update btn-update-red hidden" title="Restart app to install update">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-            <span>Restart & Install</span>
-          </button>
         </div>
 
         <button id="btn-toggle-right-sidebar-open" class="btn-toggle-right-sidebar" title="Expand metrics panel">
@@ -288,21 +388,6 @@
       </div>
     </div>
 
-    <!-- Finish setup (Setup Later) — non-blocking Kokoro prompt -->
-    <div id="finish-setup-banner" class="notification-banner warning hidden">
-      <div class="notification-content">
-        <svg class="notification-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
-          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-          <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
-        </svg>
-        <span class="notification-message">Finish setup: download Kokoro neural voices for offline TTS.</span>
-      </div>
-      <div class="notification-actions">
-        <button type="button" id="btn-finish-setup-voices" class="btn-banner-action">Download Voices</button>
-        <button type="button" id="btn-finish-setup-dismiss" class="btn-banner-close">✕</button>
-      </div>
-    </div>
-
 
     <!-- Voice Mode Stage — full-screen mesh gradient -->
     <div id="voice-mode-stage" class="voice-mode-stage hidden" aria-hidden="true" data-orb-state="idle">
@@ -318,7 +403,7 @@
               <span></span>
               <span></span>
             </div>
-            <img src="../../Assets/Brand-Assets/ultron-logo.png" class="voice-mode-logo" alt="Ultron">
+            <img src="../../Assets/brown-white-logo.png" class="voice-mode-logo" alt="Brown">
           </div>
           <p id="voice-mode-caption" class="voice-mode-caption" aria-hidden="true" data-role=""></p>
           <button type="button" id="voice-mode-status" class="voice-mode-status">Tap to start listening</button>
@@ -382,9 +467,9 @@
     <div id="chat-pane-column" class="chat-pane-column">
       <!-- WELCOME SCREEN -->
       <div id="welcome-screen" class="welcome-screen">
-      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="welcome-logo" alt="Ultron Logo">
+      <img src="../../Assets/brown-white-logo.png" class="welcome-logo" alt="Brown Logo">
       <h1 id="welcome-title" class="welcome-title">Good evening, User</h1>
-      <p class="welcome-subtitle">How can Ultron assist you today?</p>
+      <p class="welcome-subtitle">How can Brown assist you today?</p>
     </div>
 
     <!-- Chat Area -->
@@ -525,16 +610,13 @@
               </svg>
             </button>
 
-            <!-- Permission Mode Dropdown Card (Ultron Action Authorization) -->
+            <!-- Permission Mode Dropdown Card (Brown Action Authorization) -->
             <div id="perm-mode-dropdown" class="perm-mode-dropdown hidden" role="menu">
-              <div class="perm-popover-header">
-                <span class="perm-popover-title">Ultron Action Authorization</span>
-              </div>
               <div class="perm-popover-list">
                 <!-- Option 1: Review Mode -->
                 <button type="button" class="perm-popover-item mode-option" data-mode="Review" role="menuitem">
                   <div class="perm-item-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
                       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                       <path d="M9 12l2 2 4-4"></path>
                     </svg>
@@ -591,7 +673,7 @@
         <input type="file" id="hidden-file-input" multiple style="display: none;" />
 
         <!-- Main Prompt Input -->
-        <textarea id="chat-input" placeholder="Ask Ultron to execute local tasks..." class="chat-input-field" rows="1"></textarea>
+        <textarea id="chat-input" placeholder="Ask Brown to execute local tasks..." class="chat-input-field" rows="1"></textarea>
 
         <!-- Actions Row at Bottom -->
         <div class="input-pill-actions">
@@ -616,7 +698,6 @@
                   <span id="model-capability-badge" class="model-capability-badge badge-text">Text</span>
                 </button>
                 <div class="plus-menu-divider"></div>
-                <div class="plus-menu-section-label">Agent options</div>
                 <button type="button" class="plus-menu-item toggle-option" id="plus-toggle-agent-tools" role="menuitemcheckbox" aria-checked="true">
                   <span class="plus-menu-option-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -666,21 +747,79 @@
                 </svg>
               </button>
               <div id="model-dropdown" class="model-dropdown hidden">
-                <div id="model-dropdown-list" class="model-dropdown-list" style="padding-top: 4px;">
+                <div class="model-dropdown-search-container">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <input type="text" id="model-dropdown-search-input" class="model-dropdown-search-input" placeholder="Search models" autocomplete="off" />
+                </div>
+                <div id="model-dropdown-list" class="model-dropdown-list">
                   <!-- populated dynamically -->
                 </div>
-                <div id="btn-dropdown-download-models" class="model-dropdown-download-item" style="padding: 8px 12px; margin-bottom: 8px; border-top: 1px solid rgba(255, 255, 255, 0.08); color: #ffffff; cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: 500; font-size: 12px; transition: background 0.2s;">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <line x1="12" y1="8" x2="12" y2="16"></line>
-                    <line x1="8" y1="12" x2="16" y2="12"></line>
+                <div id="btn-dropdown-download-models" class="model-dropdown-footer-action">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+                    <line x1="4" y1="21" x2="4" y2="14"></line>
+                    <line x1="4" y1="10" x2="4" y2="3"></line>
+                    <line x1="12" y1="21" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12" y2="3"></line>
+                    <line x1="20" y1="21" x2="20" y2="16"></line>
+                    <line x1="20" y1="12" x2="20" y2="3"></line>
+                    <line x1="1" y1="14" x2="7" y2="14"></line>
+                    <line x1="9" y1="8" x2="15" y2="8"></line>
+                    <line x1="17" y1="16" x2="23" y2="16"></line>
                   </svg>
-                  <span>Download Models...</span>
+                  <span>Manage models</span>
+                </div>
+                <!-- Flyout details panel positioned next to hovered model item -->
+                <div id="model-details-flyout" class="model-details-flyout hidden">
+                  <div class="model-flyout-row">
+                    <span class="model-flyout-label">Model</span>
+                    <span class="model-flyout-val" id="flyout-val-model">--</span>
+                  </div>
+                  <div class="model-flyout-row">
+                    <span class="model-flyout-label">Provider</span>
+                    <span class="model-flyout-val" id="flyout-val-provider">--</span>
+                  </div>
+                  <div class="model-flyout-row">
+                    <span class="model-flyout-label">Inputs</span>
+                    <span class="model-flyout-val" id="flyout-val-inputs">--</span>
+                  </div>
+                  <div class="model-flyout-row">
+                    <span class="model-flyout-label">Reasoning</span>
+                    <span class="model-flyout-val" id="flyout-val-reasoning">--</span>
+                  </div>
+                  <div class="model-flyout-row">
+                    <span class="model-flyout-label">Context</span>
+                    <span class="model-flyout-val" id="flyout-val-context">--</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
           <div class="input-actions-right">
+            <!-- Compact recording capsule (appears in place of the mic button). -->
+            <div id="voice-recording-pill" class="voice-recording-pill hidden">
+              <button id="voice-btn-done" class="voice-pill-btn voice-btn-circle voice-btn-stop" title="Stop & convert audio to text">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="13" height="13" aria-hidden="true">
+                  <rect x="7" y="6" width="3.6" height="12" rx="1.6"></rect>
+                  <rect x="13.4" y="6" width="3.6" height="12" rx="1.6"></rect>
+                </svg>
+              </button>
+              <div class="voice-visualizer-wrapper">
+                <canvas id="voice-waveform-canvas" class="voice-waveform-canvas" width="300" height="28"></canvas>
+                <span id="voice-live-transcript" class="voice-live-transcript" aria-live="polite"></span>
+              </div>
+              <div class="voice-pill-right">
+                <span id="voice-recording-timer" class="voice-timer">0:00</span>
+                <button id="voice-btn-cancel" class="voice-pill-btn voice-btn-icon" title="Cancel recording">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
+                </button>
+              </div>
+            </div>
             <button id="btn-mic" class="input-action-btn" title="Voice input (free — uses your microphone, no API key)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -699,43 +838,6 @@
               </svg>
             </button>
           </div>
-        </div>
-      </div>
-
-      <!-- Voice Recording Capsule Pill (Shown when mic is active, matching image reference) -->
-      <div id="voice-recording-pill" class="voice-recording-pill hidden">
-        <!-- Left Plus Button -->
-        <button id="voice-btn-add" class="voice-pill-btn voice-btn-circle" title="Add attachment">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-        </button>
-
-        <!-- Center Audio Waveform + live transcript -->
-        <div class="voice-visualizer-wrapper">
-          <canvas id="voice-waveform-canvas" class="voice-waveform-canvas" width="600" height="32"></canvas>
-          <span id="voice-live-transcript" class="voice-live-transcript" aria-live="polite"></span>
-        </div>
-
-        <!-- Right Controls & Timer -->
-        <div class="voice-pill-right">
-          <span id="voice-recording-timer" class="voice-timer">0:00</span>
-          
-          <!-- Cancel Button (X) -->
-          <button id="voice-btn-cancel" class="voice-pill-btn voice-btn-icon" title="Cancel recording">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-
-          <!-- Done Button (Checkmark) -->
-          <button id="voice-btn-done" class="voice-pill-btn voice-btn-icon voice-btn-check" title="Done & convert audio to text">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-          </button>
         </div>
       </div>
     </div>
@@ -780,7 +882,7 @@
           <button type="button" id="btn-canvas-download" class="canvas-btn" title="Download project file">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           </button>
-          <button type="button" id="btn-canvas-save-disk" class="canvas-btn" title="Save all workspace files to disk (Documents\Ultron Projects)">
+          <button type="button" id="btn-canvas-save-disk" class="canvas-btn" title="Save all workspace files to disk (Documents\Brown Projects)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
           </button>
           <button type="button" id="btn-canvas-fullscreen" class="canvas-btn" title="Toggle Fullscreen Canvas">
@@ -835,12 +937,40 @@
               <button type="button" id="btn-clear-terminal" class="btn-clear-terminal" title="Clear terminal output">Clear</button>
             </div>
             <div id="terminal-output-area" class="terminal-output-area">
-              <div class="terminal-line system-line">[Ultron Agent Workspace Terminal v1.0] Ready.</div>
+              <div class="terminal-line system-line">[Brown Agent Workspace Terminal v1.0] Ready.</div>
             </div>
             <div class="terminal-input-row">
               <span class="terminal-prompt">$</span>
               <input type="text" id="terminal-command-input" class="terminal-command-input" placeholder="Run command in workspace..." />
             </div>
+          </div>
+        </div>
+
+        <!-- 5. Interactive Visual & Diagram Inspector View (with Infinite X & Y Pan, 2D Scroll, and Zoom) -->
+        <div id="canvas-visual-pane" class="canvas-view-pane hidden">
+          <div class="visual-inspector-topbar">
+            <div class="visual-inspector-left">
+              <span id="visual-inspector-badge" class="visual-inspector-badge">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect></svg>
+                <span id="visual-inspector-title">Visual Diagram Inspector</span>
+              </span>
+            </div>
+            <div class="visual-inspector-zoom-controls">
+              <button type="button" id="btn-visual-zoom-out" class="visual-zoom-btn" title="Zoom Out (Ctrl + Scroll Down)">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <span id="visual-zoom-level" class="visual-zoom-level" title="Current Zoom Level">100%</span>
+              <button type="button" id="btn-visual-zoom-in" class="visual-zoom-btn" title="Zoom In (Ctrl + Scroll Up)">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+              <button type="button" id="btn-visual-zoom-reset" class="visual-zoom-btn visual-zoom-reset" title="Reset Zoom / Fit to Screen">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
+                <span>Fit</span>
+              </button>
+            </div>
+          </div>
+          <div id="canvas-visual-viewport" class="canvas-visual-viewport" title="Drag to pan across X and Y, Scroll or Pinch to zoom">
+            <div id="canvas-visual-content" class="canvas-visual-content"></div>
           </div>
         </div>
 
@@ -865,7 +995,14 @@
         <!-- Settings Sidebar (Left side of modal) -->
         <aside class="settings-sidebar">
           <div class="settings-sidebar-header">
-            <h3 class="settings-sidebar-title">Settings</h3>
+            <div class="settings-sidebar-title-row" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;">
+              <h3 class="settings-sidebar-title" style="margin: 0;">Settings</h3>
+              <button type="button" id="btn-settings-back-to-chat" class="btn-settings-back-chat" title="Back to chat" aria-label="Back to chat">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+              </button>
+            </div>
             <div class="settings-search">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
               <input type="text" id="settings-search-input" placeholder="Search" autocomplete="off" aria-label="Search settings" />
@@ -890,7 +1027,7 @@
               <rect x="14" y="8" width="8" height="13" rx="1.5"></rect>
               <line x1="17" y1="18" x2="19" y2="18"></line>
             </svg>
-            Mobile Sync
+            Connection
           </div>
           <div class="settings-tab-btn" data-tab="desktop">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
@@ -919,6 +1056,10 @@
           <div class="settings-tab-btn" data-tab="updates">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
             Software Updates
+          </div>
+          <div class="settings-tab-btn" data-tab="appearance">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
+            Appearance
           </div>
           <div class="settings-tab-btn" data-tab="about">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -1003,16 +1144,58 @@
               </div>
               <p id="setting-location-status" class="text-xs text-muted account-location-status"></p>
             </div>
-            
-            <p class="text-xs text-muted account-footer-note">Google OAuth authentication will be connected here for secure loopbacks.</p>
           </div>
           
           <!-- Models Tab -->
           <div id="tab-models" class="tab-pane hidden">
-            <h4>Connectors & Weights</h4>
+            <div class="models-tab-header-row">
+              <h4 style="margin: 0;">Connectors &amp; Weights</h4>
+              
+              <!-- Download Activity Tracker in Top-Right -->
+              <div id="models-download-tracker" class="models-download-tracker hidden">
+                <button type="button" id="btn-models-download-indicator" class="btn-models-download-indicator" title="Active Model Downloads" aria-label="Model Downloads">
+                  <svg class="download-circular-progress" viewBox="0 0 36 36" width="32" height="32">
+                    <circle class="progress-ring-bg" cx="18" cy="18" r="14"></circle>
+                    <circle id="download-progress-ring" class="progress-ring-fill" cx="18" cy="18" r="14"></circle>
+                  </svg>
+                  <div class="download-icon-inner">
+                    <svg class="lottie-download-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                      <line class="lottie-download-beam" x1="12" y1="2" x2="12" y2="13" stroke="#22c55e" stroke-width="1.8"></line>
+                      <g class="lottie-download-arrow">
+                        <line class="lottie-download-stem" x1="12" y1="4" x2="12" y2="13"></line>
+                        <polyline points="8 9.5 12 13.5 16 9.5"></polyline>
+                      </g>
+                      <path class="lottie-download-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+                    </svg>
+                  </div>
+                  <span id="download-active-badge" class="download-active-badge hidden">1</span>
+                </button>
+
+                <!-- Dropdown Popover on Click -->
+                <div id="models-download-popover" class="models-download-popover hidden">
+                  <div class="download-popover-header">
+                    <div class="download-popover-title">
+                      <svg class="lottie-download-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#22c55e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <g class="lottie-download-arrow">
+                          <line x1="12" y1="4" x2="12" y2="13"></line>
+                          <polyline points="8 9.5 12 13.5 16 9.5"></polyline>
+                        </g>
+                        <path class="lottie-download-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+                      </svg>
+                      <span>Model Downloads</span>
+                    </div>
+                    <span id="download-popover-status-summary" class="download-popover-status-summary">Downloading</span>
+                  </div>
+
+                  <div id="download-popover-items" class="download-popover-items">
+                    <!-- Populated dynamically -->
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <!-- Google Gemini Cloud API Connector -->
-            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+            <div class="connector-row" style="margin-bottom: 16px; border: 1px solid var(--border-color); background: #131314; padding: 16px; border-radius: 12px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 14px;">
                   <img src="../../Assets/Brand-Assets/gemini-logo.png" alt="Gemini Logo" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
@@ -1046,7 +1229,7 @@
             </div>
 
             <!-- OpenAI API Connector -->
-            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+            <div class="connector-row" style="margin-bottom: 16px; border: 1px solid var(--border-color); background: #131314; padding: 16px; border-radius: 12px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 14px;">
                   <img src="../../Assets/Brand-Assets/openai-black-logo.png" alt="OpenAI" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
@@ -1077,7 +1260,7 @@
             </div>
 
             <!-- Anthropic Claude API Connector -->
-            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+            <div class="connector-row" style="margin-bottom: 16px; border: 1px solid var(--border-color); background: #131314; padding: 16px; border-radius: 12px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 14px;">
                   <img src="../../Assets/Brand-Assets/claude-logo.png" alt="Claude" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
@@ -1108,7 +1291,7 @@
             </div>
 
             <!-- DeepSeek API Connector -->
-            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+            <div class="connector-row" style="margin-bottom: 16px; border: 1px solid var(--border-color); background: #131314; padding: 16px; border-radius: 12px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 14px;">
                   <img src="../../Assets/Brand-Assets/deepseek-blue-logo.png" alt="DeepSeek" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
@@ -1139,7 +1322,7 @@
             </div>
 
             <!-- Groq Cloud Connector -->
-            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+            <div class="connector-row" style="margin-bottom: 16px; border: 1px solid var(--border-color); background: #131314; padding: 16px; border-radius: 12px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 14px;">
                   <img src="../../Assets/Brand-Assets/groq-black-logo.png" alt="Groq" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
@@ -1170,7 +1353,7 @@
             </div>
 
             <!-- Custom Models Server Connector -->
-            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+            <div class="connector-row" style="margin-bottom: 16px; border: 1px solid var(--border-color); background: #131314; padding: 16px; border-radius: 12px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 14px;">
                   <div class="custom-models-logo-stack" title="LM Studio, vLLM & OpenRouter">
@@ -1216,7 +1399,7 @@
             </div>
 
             <!-- Hugging Face Hub Connector -->
-            <div class="connector-row" style="margin-bottom: 20px; border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); padding: 14px; border-radius: 8px;">
+            <div class="connector-row" style="margin-bottom: 16px; border: 1px solid var(--border-color); background: #131314; padding: 16px; border-radius: 12px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 14px;">
                   <img src="../../Assets/Brand-Assets/hf-logo.png" alt="Hugging Face" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
@@ -1234,12 +1417,45 @@
               </p>
             </div>
 
-            <div class="connector-row">
+            <!-- Ollama Cloud Connector -->
+            <div class="connector-row" style="margin-bottom: 16px; border: 1px solid var(--border-color); background: #131314; padding: 16px; border-radius: 12px;">
+              <div class="connector-info-wrapper" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 14px;">
+                  <img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama Cloud" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #12151e !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
+                  <div style="display: flex; flex-direction: column;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-weight: 600; font-size: 14px; color: #ffffff;">Ollama Cloud</span>
+                      <span id="ollama-cloud-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Not connected</span>
+                    </div>
+                    <p id="ollama-cloud-subtitle" class="text-xs text-muted" style="margin: 2px 0 0 0;">Endpoint: https://ollama.com • Official Cloud Models</p>
+                  </div>
+                </div>
+              </div>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
+                Connect your Ollama account to use high-capacity cloud models (<b>GPT-OSS 20B/120B</b>, <b>DeepSeek v3.1</b>, <b>Qwen 3 Coder</b>, <b>MiniMax</b>) running on Ollama's official servers. Free tier available — no GPU VRAM required.
+              </p>
+              <div id="ollama-cloud-trigger-container" style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
+                <button type="button" id="btn-toggle-ollama-cloud-connect" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+                  <svg class="lottie-cloud-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
+                    <path class="lottie-cloud-body" d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+                    <g class="lottie-cloud-arrows">
+                      <polyline points="12 12.5 14 14.5 12 16.5"></polyline>
+                      <polyline points="12 16.5 10 14.5 12 12.5"></polyline>
+                    </g>
+                  </svg>
+                  <span id="ollama-cloud-btn-text">Connect Ollama Cloud</span>
+                </button>
+                <button type="button" id="btn-disconnect-ollama-cloud" class="hidden" style="height: 36px; padding: 0 14px; font-size: 12px; border-radius: 6px; cursor: pointer; background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.25); font-weight: 500; display: none;">Disconnect</button>
+              </div>
+            </div>
+
+            <!-- Local Ollama Connector -->
+            <div class="connector-row" style="margin-bottom: 16px; border: 1px solid var(--border-color); background: #131314; padding: 16px; border-radius: 12px;">
               <div class="connector-info-wrapper" style="display: flex; align-items: center; gap: 14px; margin-bottom: 12px;">
                 <img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama Logo" class="connector-logo-img" style="width: 34px; height: 34px; object-fit: contain; background: #ffffff !important; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; padding: 4px; box-sizing: border-box; box-shadow: 0 2px 8px rgba(0,0,0,0.25);" />
                 <div style="display: flex; flex-direction: column;">
                   <div class="connector-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 0;">
-                    <span id="ollama-connector-title" class="connector-title" style="font-weight: 600; font-size: 14px;">Connect Ollama</span>
+                    <span id="ollama-connector-title" class="connector-title" style="font-weight: 600; font-size: 14px;">Ollama (Local Engine)</span>
                     <span id="ollama-status-badge" class="badge-active">Detecting...</span>
                     <button id="btn-refresh-ollama" class="btn-icon" style="background: transparent; border: none; padding: 4px; cursor: pointer; color: #a1a1aa; display: flex; align-items: center; justify-content: center; transition: color 0.2s;" title="Refresh Ollama status">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
@@ -1252,20 +1468,10 @@
                 </div>
               </div>
               <p class="text-xs text-muted" style="margin-bottom: 10px; line-height: 1.4;">
-                Ollama runs models locally on your machine. Visit
+                Ollama runs models locally on your machine GPU/CPU. Visit
                 <a href="https://ollama.com" target="_blank" class="ollama-link" style="color: #60a5fa; text-decoration: underline; font-weight: 500;">ollama.com</a>
                 to install manually.
               </p>
-              <div id="ollama-cloud-auth-row" class="ollama-cloud-auth-card">
-                <div class="ollama-cloud-auth-main">
-                  <div class="ollama-cloud-auth-title-row">
-                    <span class="ollama-cloud-auth-title">Ollama Cloud</span>
-                    <span id="ollama-cloud-auth-badge" class="ollama-cloud-auth-badge is-checking">Checking…</span>
-                  </div>
-                  <p class="ollama-cloud-auth-desc">Sign in once, then pull <code>-cloud</code> models below — free tier, runs on Ollama servers.</p>
-                </div>
-                <button type="button" id="btn-ollama-signin" class="btn-primary-sm ollama-cloud-signin-btn">Sign in</button>
-              </div>
               <button id="btn-install-ollama" class="btn-primary-sm hidden" style="height: 36px; box-sizing: border-box;">Download & Install Ollama</button>
             </div>
             
@@ -1353,7 +1559,7 @@
 
           <!-- Agent Sounds Tab -->
           <div id="tab-sounds" class="tab-pane hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 16px;">
               <div style="display: flex; align-items: center; gap: 10px;">
                 <h4 style="margin: 0;">Agent Sounds</h4>
                 <span class="models-sound-badge">Audio feedback</span>
@@ -1364,7 +1570,7 @@
               </label>
             </div>
 
-            <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.45;">Play audio when tasks complete, permissions are needed, or Ultron asks a clarifying question. Use the default sounds in Assets/sounds/ or pick a custom file for each event.</p>
+            <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.45;">Play audio when tasks complete, permissions are needed, or Brown asks a clarifying question. Use the default sounds in Assets/sounds/ or pick a custom file for each event.</p>
 
             <div class="models-sound-grid">
               <div class="models-sound-row">
@@ -1444,7 +1650,7 @@
 
               <div class="models-sound-row voice-model-row">
                 <div class="voice-model-row-info">
-                  <span class="voice-model-name">Ultron Speech (Windows)</span>
+                  <span class="voice-model-name">Brown Speech (Windows)</span>
                   <span id="voice-model-size-label" class="text-xs text-muted">Built-in · no download required</span>
                 </div>
                 <div class="models-sound-row-actions" id="voice-input-row-actions">
@@ -1475,22 +1681,24 @@
                   </div>
                 </div>
               </div>
-              <div class="models-sound-row voice-model-row">
-                <div class="voice-model-row-info">
-                  <span class="voice-model-name">Input device</span>
-                  <span class="text-xs text-muted">Choose the microphone Ultron records from</span>
+              <div class="models-sound-grid">
+                <div class="models-sound-row voice-model-row">
+                  <div class="voice-model-row-info">
+                    <span class="voice-model-name">Input device</span>
+                    <span class="text-xs text-muted">Choose the microphone Brown records from</span>
+                  </div>
+                  <select id="setting-voice-input-device" class="tts-select"></select>
                 </div>
-                <select id="setting-voice-input-device" class="tts-select"></select>
-              </div>
-              <div class="models-sound-volume-row">
-                <span class="text-xs text-muted">Voice sensitivity</span>
-                <input type="range" id="setting-voice-sensitivity" min="2.4" max="5" step="0.1" value="3.6">
-                <span id="setting-voice-sensitivity-label" class="text-xs text-muted">Balanced</span>
-              </div>
-              <div class="models-sound-volume-row">
-                <span class="text-xs text-muted">Pause before send</span>
-                <input type="range" id="setting-voice-pause" min="500" max="2000" step="100" value="700">
-                <span id="setting-voice-pause-label" class="text-xs text-muted">0.7s</span>
+                <div class="models-sound-volume-row" style="margin: 0;">
+                  <span class="text-xs text-muted" style="min-width: 120px; font-weight: 500;">Voice sensitivity</span>
+                  <input type="range" id="setting-voice-sensitivity" min="2.4" max="5" step="0.1" value="3.6">
+                  <span id="setting-voice-sensitivity-label" class="text-xs text-muted" style="min-width: 65px; text-align: right; font-weight: 500;">Balanced</span>
+                </div>
+                <div class="models-sound-volume-row" style="margin: 0;">
+                  <span class="text-xs text-muted" style="min-width: 120px; font-weight: 500;">Pause before send</span>
+                  <input type="range" id="setting-voice-pause" min="500" max="2000" step="100" value="700">
+                  <span id="setting-voice-pause-label" class="text-xs text-muted" style="min-width: 65px; text-align: right; font-weight: 500;">0.7s</span>
+                </div>
               </div>
             </div>
 
@@ -1536,25 +1744,28 @@
                     <option value="">Auto (persona)</option>
                   </select>
                 </div>
-              </div>
-
-              <div class="models-sound-volume-row">
-                <span class="text-xs text-muted">Speech rate</span>
-                <input type="range" id="setting-tts-rate" min="0.7" max="1.4" step="0.05" value="1">
-                <span id="setting-tts-rate-label" class="text-xs text-muted">1.0×</span>
-              </div>
-
-              <div class="models-sound-row voice-model-row" style="margin-top: 8px;">
-                <div class="voice-model-row-info">
-                  <span class="voice-model-name">Preview voice</span>
-                  <span class="text-xs text-muted">"Hello, I'm Ultron."</span>
+                <div class="models-sound-volume-row" style="margin: 0;">
+                  <span class="text-xs text-muted" style="min-width: 90px; font-weight: 500;">Speech rate</span>
+                  <input type="range" id="setting-tts-rate" min="0.7" max="1.4" step="0.05" value="1">
+                  <span id="setting-tts-rate-label" class="text-xs text-muted" style="min-width: 36px; text-align: right; font-weight: 500;">1.0×</span>
                 </div>
-                <div class="models-sound-row-actions">
-                  <button type="button" id="btn-preview-tts" class="sound-preview-btn">Preview</button>
+                <div class="models-sound-row voice-model-row">
+                  <div class="voice-model-row-info">
+                    <span class="voice-model-name">Preview voice</span>
+                    <span class="text-xs text-muted">"Hello, I'm Brown."</span>
+                  </div>
+                  <div class="models-sound-row-actions">
+                    <button type="button" id="btn-preview-tts" class="sound-preview-btn">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                      </svg>
+                      <span>Preview</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <div class="models-sound-section voice-model-section" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color);">
+              <div class="models-sound-section voice-model-section" style="margin-top: 16px; padding-top: 16px; border-top: none;">
                 <div class="voice-model-section-header">
                   <div class="voice-model-section-title">
                     <span class="models-sound-icon" aria-hidden="true">
@@ -1584,23 +1795,6 @@
                   <div id="tts-model-progress-detail" class="connector-download-progress-speed">Preparing…</div>
                 </div>
 
-                <div class="voice-model-section-header" style="margin-top: 20px;">
-                  <div class="voice-model-section-title">
-                    <span class="models-sound-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                        <line x1="12" x2="12" y1="19" y2="22"></line>
-                      </svg>
-                    </span>
-                    <div>
-                      <h5 class="voice-model-heading">Gemini Live cloud voices</h5>
-                      <p class="text-xs text-muted voice-model-desc">Online only — requires internet + Gemini API key. Optional upgrade over the offline voices above.</p>
-                    </div>
-                  </div>
-                  <span id="tts-cloud-status-badge" class="voice-model-status-badge">Checking…</span>
-                </div>
-                <div id="tts-cloud-models-list" class="tts-models-list"></div>
                 <p id="tts-model-feedback" class="text-xs text-muted connector-feedback" style="margin-top: 8px;"></p>
               </div>
             </div>
@@ -1608,14 +1802,14 @@
 
           <!-- Knowledge Base (Local Vector RAG) Tab -->
           <div id="tab-knowledge" class="tab-pane hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 12px;">
               <div style="display: flex; align-items: center; gap: 10px;">
                 <h4 style="margin: 0;">Knowledge Base (Local Vector RAG)</h4>
                 <span class="models-sound-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3);">100% Offline</span>
               </div>
             </div>
             <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.5;">
-              Index local folders, project notes, PDFs, and code files into a local semantic vector database. Ultron retrieves relevant excerpts automatically during chat and agent workflows with zero cloud data transmission.
+              Index local folders, project notes, PDFs, and code files into a local semantic vector database. Brown retrieves relevant excerpts automatically during chat and agent workflows with zero cloud data transmission.
             </p>
 
             <!-- Auto-learn toggle: zero-setup mode for non-technical users -->
@@ -1623,7 +1817,7 @@
               <input type="checkbox" id="rag-auto-toggle" checked style="margin-top: 2px; accent-color: #3b82f6; width: 15px; height: 15px; cursor: pointer; flex-shrink: 0;" />
               <div>
                 <div style="font-size: 13px; font-weight: 600; color: #ffffff;">Auto-learn from your activity</div>
-                <div style="font-size: 11.5px; color: #a1a1aa; margin-top: 3px; line-height: 1.5;">Ultron quietly indexes projects you open and files it works on, then recalls relevant notes automatically during chat. Everything stays on this PC. Turn off anytime.</div>
+                <div style="font-size: 11.5px; color: #a1a1aa; margin-top: 3px; line-height: 1.5;">Brown quietly indexes projects you open and files it works on, then recalls relevant notes automatically during chat. Everything stays on this PC. Turn off anytime.</div>
               </div>
             </div>
 
@@ -1653,34 +1847,34 @@
 
             <!-- Stats Grid -->
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px;">
-              <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+              <div class="settings-dark-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px;">
                 <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Indexed Sources</div>
                 <div id="rag-stat-sources" style="font-size: 18px; font-weight: 700; color: #ffffff; margin-top: 4px;">0</div>
               </div>
-              <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+              <div class="settings-dark-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px;">
                 <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Vector Chunks</div>
                 <div id="rag-stat-chunks" style="font-size: 18px; font-weight: 700; color: #60a5fa; margin-top: 4px;">0</div>
               </div>
-              <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px;">
+              <div class="settings-dark-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px;">
                 <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Search Engine</div>
                 <div style="font-size: 13px; font-weight: 600; color: #10b981; margin-top: 6px;">Cosine Vector Space</div>
               </div>
             </div>
 
             <!-- Sources List -->
-            <div style="margin-bottom: 24px;">
+            <div style="margin-bottom: 16px;">
               <h5 style="margin: 0 0 10px 0;">Indexed Folders &amp; Documents</h5>
               <div id="rag-sources-list" style="display: flex; flex-direction: column; gap: 8px;">
-                <div style="padding: 16px; text-align: center; color: #6b7280; font-size: 13px; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px dashed var(--border-color);">
-                  No folders or documents added yet. With Auto-learn on, projects you open and files Ultron works on appear here automatically — or click "Add Folder" to add any folder.
+                <div class="settings-dark-card" style="padding: 16px; text-align: center; color: #6b7280; font-size: 13px; background: #131314; border-radius: 12px; border: 1px dashed var(--border-color);">
+                  No folders or documents added yet. With Auto-learn on, projects you open and files Brown works on appear here automatically — or click "Add Folder" to add any folder.
                 </div>
               </div>
             </div>
 
             <!-- Test Query Sandbox -->
-            <div style="border-top: 1px solid var(--border-color); padding-top: 16px;">
+            <div class="settings-dark-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
               <h5 style="margin: 0 0 8px 0;">Semantic Query Test</h5>
-              <p class="text-xs text-muted" style="margin: 0 0 10px 0;">Test how Ultron matches natural language queries against your indexed document vector chunks.</p>
+              <p class="text-xs text-muted" style="margin: 0 0 10px 0;">Test how Brown matches natural language queries against your indexed document vector chunks.</p>
               <div style="display: flex; gap: 8px;">
                 <input type="text" id="input-rag-test-query" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; font-size: 12px;" placeholder="e.g. Find database connection config or API endpoints..." />
                 <button id="btn-rag-test-search" class="btn-faint" style="height: 36px; padding: 0 16px; font-size: 12px;">Search Index</button>
@@ -1691,7 +1885,7 @@
 
           <!-- Mobile Sync & LAN Companion Tab -->
           <div id="tab-sync" class="tab-pane hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 12px;">
               <div style="display: flex; align-items: center; gap: 10px;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20" style="color: #60a5fa; flex-shrink: 0;">
                   <path d="M4 6h10v8H4z"></path>
@@ -1699,16 +1893,16 @@
                   <rect x="14" y="8" width="8" height="13" rx="1.5"></rect>
                   <line x1="17" y1="18" x2="19" y2="18"></line>
                 </svg>
-                <h4 style="margin: 0;">Mobile Sync &amp; Companion</h4>
+                <h4 style="margin: 0;">Connection</h4>
                 <span class="models-sound-badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3);">LAN Port 49200</span>
               </div>
             </div>
             <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.5;">
-              Pair your Android device running the <b>Ultron Mobile</b> app with this PC over your local home/office Wi-Fi. Query desktop models, sync chats, and share API configurations privately.
+              Pair your Android device running the <b>Brown Mobile</b> app with this PC over your local home/office Wi-Fi. Query desktop models, sync chats, and share API configurations privately.
             </p>
 
             <!-- Sync Info Card -->
-            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 16px; margin-bottom: 16px;">
+            <div style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
               <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: center; gap: 14px;">
                   <div style="display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0 4px 0 0;">
@@ -1721,24 +1915,25 @@
                   </div>
                   <div>
                     <div style="display: flex; align-items: center; gap: 8px;">
-                      <span id="sync-desktop-id" style="font-weight: 700; font-size: 15px; color: #ffffff; font-family: 'JetBrains Mono', monospace;">ULTRON-WIN-DETECTING</span>
+                      <span id="sync-desktop-id" style="font-weight: 700; font-size: 15px; color: #ffffff; font-family: 'JetBrains Mono', monospace;">BROWN-WIN-DETECTING</span>
                       <span id="sync-status-badge" style="font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">● Ready for Pairing</span>
                     </div>
-                    <p id="sync-lan-endpoint" class="text-xs text-muted" style="margin: 2px 0 0 0;">LAN Endpoint: 0.0.0.0:49200</p>
-                    <div style="display: flex; align-items: center; gap: 14px; margin-top: 5px;">
-                      <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 500; color: #94a3b8;">
-                        <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 13px; height: 13px; object-fit: contain;" /> Android
-                      </span>
+                    <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">
+                      LAN IP: <span id="sync-desktop-ip" style="color: #cbd5e1; font-family: 'JetBrains Mono', monospace;">127.0.0.1:49200</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #34d399; margin-top: 4px;">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993s-.4483.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993s-.4482.9997-.9993.9997m11.4045-6.02l1.996-3.4572c.1558-.27.0634-.6144-.2066-.7702-.27-.1562-.6144-.0638-.7702.2062l-2.024 3.5056C15.305 8.197 13.69 7.8 12 7.8c-1.69 0-3.305.397-4.8767 1.0058L5.0993 5.3c-.1558-.27-.5002-.3624-.7702-.2062-.27.1558-.3624.5002-.2066.7702l1.996 3.4572C2.6845 11.2396.4 15.0118.4 19.4h23.2c0-4.3882-2.2845-8.1604-5.7195-10.0786"/></svg>
+                      <span>Android Companion Protocol Enabled</span>
                     </div>
                   </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 8px;">
-                  <button id="btn-refresh-sync-stats" class="btn-secondary-sm" title="Refresh Live State" style="height: 36px; width: 36px; padding: 0; display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px; color: #ffffff; cursor: pointer; transition: all 0.2s ease;">
+                  <button id="btn-refresh-sync-stats" class="btn-secondary-sm" title="Refresh Live State" style="height: 36px; width: 36px; padding: 0; display: flex; align-items: center; justify-content: center; background: transparent !important; border: none !important; border-radius: 50%; color: #94a3b8; cursor: pointer; transition: all 0.2s ease;">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
                     </svg>
                   </button>
-                  <button id="btn-generate-pair-code" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; background: #6366f1 !important; color: #ffffff !important; font-weight: 600;">
+                  <button id="btn-generate-pair-code" class="btn-primary-sm" style="height: 36px; padding: 0 18px; font-size: 12px; background: #6366f1 !important; color: #ffffff !important; font-weight: 600; border-radius: 9999px !important; border: none; cursor: pointer; box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35); transition: all 0.2s ease;">
                     Generate Pair Code
                   </button>
                 </div>
@@ -1746,7 +1941,7 @@
 
               <!-- Pair Code Display Banner (Hidden until generated) -->
               <div id="sync-pair-code-banner" class="hidden" style="background: rgba(66, 133, 244, 0.08); border: 1px dashed rgba(66, 133, 244, 0.35); border-radius: 8px; padding: 12px; text-align: center; margin-top: 10px;">
-                <p style="margin: 0 0 6px 0; font-size: 12px; color: #93c5fd;">Enter this 4-letter code in your Ultron Mobile app:</p>
+                <p style="margin: 0 0 6px 0; font-size: 12px; color: #93c5fd;">Enter this 4-letter code in your Brown Mobile app:</p>
                 <div id="sync-pair-code-display" style="font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 800; letter-spacing: 10px; color: #60a5fa;">----</div>
                 <p id="sync-pair-code-timer" style="margin: 6px 0 0 0; font-size: 11px; color: #a1a1aa;">Code expires in 60s</p>
               </div>
@@ -1765,68 +1960,24 @@
               </div>
               <div id="sync-paired-devices-container" style="display: flex; flex-direction: column; gap: 8px;">
                 <div class="sync-empty-state-card">
-                  <div class="sync-empty-svg-wrapper">
-                    <svg class="sync-empty-illustration" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
-                      <defs>
-                        <filter id="sync-subtle-glow" x="-20%" y="-20%" width="140%" height="140%">
-                          <feGaussianBlur stdDeviation="1.5" result="blur" />
-                          <feMerge>
-                            <feMergeNode in="blur" />
-                            <feMergeNode in="SourceGraphic" />
-                          </feMerge>
-                        </filter>
-                        <linearGradient id="sync-ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stop-color="rgba(96, 165, 250, 0.18)" />
-                          <stop offset="100%" stop-color="rgba(255, 255, 255, 0.04)" />
-                        </linearGradient>
-                      </defs>
-
-                      <!-- Connection Lines -->
-                      <line x1="88" y1="60" x2="138" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="182" y1="60" x2="232" y2="60" stroke="rgba(255, 255, 255, 0.08)" stroke-width="1.5" stroke-linecap="round" />
-                      <line x1="88" y1="60" x2="138" y2="60" class="connection-left" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
-                      <line x1="182" y1="60" x2="232" y2="60" class="connection-right" stroke="rgba(255, 255, 255, 0.35)" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 4" />
-
-                      <!-- Traveling Data Pulses -->
-                      <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-phone-to-laptop" fill="#ffffff" filter="url(#sync-subtle-glow)" />
-                      <circle cx="0" cy="60" r="2.5" class="data-pulse pulse-laptop-to-phone" fill="#ffffff" filter="url(#sync-subtle-glow)" />
-
-                      <!-- Smartphone (Left) -->
-                      <g class="phone" transform="translate(42, 22)">
-                        <rect x="0" y="0" width="46" height="76" rx="8" ry="8" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
-                        <rect x="4" y="7" width="38" height="62" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
-                        <rect x="16" y="3" width="14" height="2.5" rx="1.2" fill="rgba(255, 255, 255, 0.6)" />
-                        <line x1="9" y1="18" x2="25" y2="18" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
-                        <line x1="9" y1="24" x2="35" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                        <line x1="9" y1="30" x2="29" y2="30" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                        <circle cx="23" cy="50" r="4" stroke="rgba(96, 165, 250, 0.7)" stroke-width="1" fill="rgba(96, 165, 250, 0.15)" />
-                        <circle cx="23" cy="50" r="1.5" fill="#60a5fa" />
-                        <line x1="16" y1="72" x2="30" y2="72" stroke="rgba(255, 255, 255, 0.5)" stroke-width="1.5" stroke-linecap="round" />
-                      </g>
-
-                      <!-- Sync Symbol (Center) -->
-                      <g class="sync-container">
-                        <circle cx="160" cy="60" r="18" stroke="rgba(255, 255, 255, 0.12)" stroke-width="1" fill="url(#sync-ring-grad)" />
-                        <g class="sync-icon">
-                          <path d="M 152 54 A 10 10 0 0 1 168 57" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
-                          <path d="M 165 55 L 168 57 L 166 60" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                          <path d="M 168 66 A 10 10 0 0 1 152 63" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" fill="none" />
-                          <path d="M 155 65 L 152 63 L 154 60" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none" />
-                        </g>
-                      </g>
-
-                      <!-- Laptop Screen (Right) -->
-                      <g class="laptop" transform="translate(232, 26)">
-                        <rect x="6" y="0" width="76" height="52" rx="4" ry="4" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" fill="rgba(255, 255, 255, 0.02)" />
-                        <rect x="10" y="4" width="68" height="42" rx="2" ry="2" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1" fill="none" />
-                        <circle cx="44" cy="2" r="0.8" fill="rgba(255, 255, 255, 0.5)" />
-                        <line x1="16" y1="12" x2="36" y2="12" stroke="rgba(255, 255, 255, 0.3)" stroke-width="1.5" stroke-linecap="round" />
-                        <line x1="16" y1="18" x2="54" y2="18" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                        <line x1="16" y1="24" x2="46" y2="24" stroke="rgba(255, 255, 255, 0.15)" stroke-width="1.5" stroke-linecap="round" />
-                        <path d="M0 54 H88 L83 61 H5 Z" stroke="rgba(255, 255, 255, 0.85)" stroke-width="1.5" stroke-linejoin="round" fill="rgba(255, 255, 255, 0.04)" />
-                        <line x1="38" y1="55" x2="50" y2="55" stroke="rgba(255, 255, 255, 0.4)" stroke-width="1.5" stroke-linecap="round" />
-                      </g>
-                    </svg>
+                  <div class="sync-empty-svg-wrapper sync-connect-images">
+                    <img class="sync-connect-img" src="../../Assets/computer-connect.png" alt="Brown on desktop" />
+                    <div class="sync-connection-bridge">
+                      <div class="sync-bridge-track">
+                        <div class="sync-pulse-particle sync-particle-left"></div>
+                        <div class="sync-pulse-particle sync-particle-right-rev"></div>
+                      </div>
+                      <div class="sync-bridge-node" title="Local Connection Bridge">
+                        <svg class="sync-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                        </svg>
+                      </div>
+                      <div class="sync-bridge-track">
+                        <div class="sync-pulse-particle sync-particle-left"></div>
+                        <div class="sync-pulse-particle sync-particle-right-rev"></div>
+                      </div>
+                    </div>
+                    <img class="sync-connect-img sync-connect-mobile" src="../../Assets/connect-mobile.png" alt="Brown on mobile" />
                   </div>
                   <h6 class="sync-empty-title">No mobile devices paired yet</h6>
                   <p class="sync-empty-desc">Click “Generate Pair Code” and enter the code in your mobile app to connect your device.</p>
@@ -1837,21 +1988,90 @@
 
           <!-- Advanced Options Tab -->
           <div id="tab-performance" class="tab-pane hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 8px;">
               <div style="display: flex; align-items: center; gap: 10px;">
                 <h4 style="margin: 0;">Advanced Options</h4>
                 <span class="models-sound-badge">Hardware &amp; Runtime</span>
               </div>
             </div>
+            <p class="text-xs text-muted settings-section-intro" style="margin: 0 0 16px 0; line-height: 1.5;">Configure system resource usage, background automation throttling, and runtime optimization profiles.</p>
 
-            <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">Configure system resource usage, background automation throttling, and runtime optimization profiles.</p>
+            <div class="models-sound-section voice-model-section" style="margin-top: 0; margin-bottom: 14px;">
+              <div class="voice-model-section-header">
+                <div class="voice-model-section-title">
+                  <div>
+                    <h5 class="voice-model-heading">Performance Engine</h5>
+                    <p class="text-xs text-muted voice-model-desc">Hardware acceleration mode for AI generation &amp; rendering.</p>
+                  </div>
+                </div>
+              </div>
+              <div class="perf-settings-options">
+                <button type="button" class="perf-option-item active" data-mode="auto">
+                  <div class="perf-option-icon icon-auto">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                  </div>
+                  <div class="perf-option-text">
+                    <div class="perf-option-title-row">
+                      <span class="perf-option-title">Auto Adaptive</span>
+                      <span class="perf-tag-recommended">Recommended</span>
+                    </div>
+                    <span class="perf-option-desc">Auto-detects hardware & balances memory dynamically</span>
+                  </div>
+                  <span class="perf-option-check">✓</span>
+                </button>
+                <button type="button" class="perf-option-item" data-mode="gpu">
+                  <div class="perf-option-icon icon-gpu">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                  </div>
+                  <div class="perf-option-text">
+                    <div class="perf-option-title-row">
+                      <span class="perf-option-title">GPU Priority</span>
+                      <span class="perf-tag-speed">Maximum Speed</span>
+                    </div>
+                    <span class="perf-option-desc">Force maximum GPU acceleration for AI generation</span>
+                  </div>
+                  <span class="perf-option-check">✓</span>
+                </button>
+                <button type="button" class="perf-option-item" data-mode="cpu">
+                  <div class="perf-option-icon icon-cpu">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                      <rect x="4" y="4" width="16" height="16" rx="2"/>
+                      <rect x="9" y="9" width="6" height="6"/>
+                      <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
+                    </svg>
+                  </div>
+                  <div class="perf-option-text">
+                    <div class="perf-option-title-row">
+                      <span class="perf-option-title">CPU Only</span>
+                      <span class="perf-tag-eco">Safe & Low Power</span>
+                    </div>
+                    <span class="perf-option-desc">Pure CPU processing to eliminate VRAM locks & save battery</span>
+                  </div>
+                  <span class="perf-option-check">✓</span>
+                </button>
+              </div>
+              <div class="perf-settings-telemetry">
+                <div class="perf-telemetry-row">
+                  <span class="perf-telemetry-label">Active GPU:</span>
+                  <span id="perf-gpu-telemetry" class="perf-telemetry-val">Detecting...</span>
+                </div>
+                <div class="perf-telemetry-row">
+                  <span class="perf-telemetry-label">Memory:</span>
+                  <span id="perf-mem-telemetry" class="perf-telemetry-val">--</span>
+                </div>
+              </div>
+            </div>
 
-            <div class="models-sound-section voice-model-section" style="margin-top: 6px; padding-top: 0; border-top: none;">
+            <div class="models-sound-section voice-model-section" style="margin-top: 0; margin-bottom: 14px;">
               <div class="voice-model-section-header">
                 <div class="voice-model-section-title">
                   <div>
                     <h5 class="voice-model-heading">Runtime Profile</h5>
-                    <p class="text-xs text-muted voice-model-desc">Choose how much background work, AI execution threads, and visual activity Ultron uses.</p>
+                    <p class="text-xs text-muted voice-model-desc">Choose how much background work, AI execution threads, and visual activity Brown uses.</p>
                   </div>
                 </div>
               </div>
@@ -1860,15 +2080,23 @@
                   <span class="voice-model-name">Optimization preset</span>
                   <span id="setting-performance-profile-note" class="text-xs text-muted">Balanced daily use</span>
                 </div>
-                <select id="setting-performance-profile" class="tts-select">
-                  <option value="battery">Battery Saver</option>
-                  <option value="balanced" selected>Balanced</option>
-                  <option value="performance">High Performance</option>
-                </select>
+                <div id="perf-profile-select" class="custom-select">
+                  <button type="button" id="perf-profile-btn" class="custom-select-btn" aria-haspopup="listbox" aria-expanded="false">
+                    <span id="perf-profile-label">Balanced</span>
+                    <svg class="custom-select-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </button>
+                  <div id="perf-profile-menu" class="custom-select-menu hidden" role="listbox">
+                    <button type="button" class="custom-select-option" data-value="battery" role="option">Battery Saver</button>
+                    <button type="button" class="custom-select-option" data-value="balanced" role="option">Balanced</button>
+                    <button type="button" class="custom-select-option" data-value="performance" role="option">High Performance</button>
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div class="models-sound-section voice-model-section">
+            <div class="models-sound-section voice-model-section" style="margin-bottom: 14px;">
               <div class="voice-model-section-header">
                 <div class="voice-model-section-title">
                   <div>
@@ -1889,12 +2117,12 @@
               </div>
             </div>
 
-            <div class="models-sound-section voice-model-section">
+            <div class="models-sound-section voice-model-section" style="margin-bottom: 14px;">
               <div class="voice-model-section-header">
                 <div class="voice-model-section-title">
                   <div>
                     <h5 class="voice-model-heading">Background Execution</h5>
-                    <p class="text-xs text-muted voice-model-desc">Allow autonomous desktop workflows to proceed when Ultron is minimized.</p>
+                    <p class="text-xs text-muted voice-model-desc">Allow autonomous desktop workflows to proceed when Brown is minimized.</p>
                   </div>
                 </div>
               </div>
@@ -1909,38 +2137,16 @@
                 </label>
               </div>
             </div>
-
-            <div class="models-sound-section voice-model-section">
-              <div class="voice-model-section-header">
-                <div class="voice-model-section-title">
-                  <div>
-                    <h5 class="voice-model-heading">UI Controls &amp; Desktop Companion</h5>
-                    <p class="text-xs text-muted voice-model-desc">Configure floating companion bar behavior when Ultron is minimized.</p>
-                  </div>
-                </div>
-              </div>
-              <div class="models-sound-row voice-model-row">
-                <div class="voice-model-row-info">
-                  <span class="voice-model-name">Show "Ask Ultron" Mini Pill on Minimize</span>
-                  <span class="text-xs text-muted">Displays compact pill widget above taskbar for instant companion access</span>
-                </div>
-                <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
-                  <input type="checkbox" id="setting-show-mini-pill" checked style="opacity: 0; width: 0; height: 0;">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-            </div>
-
           </div>
 
           <!-- Desktop Automation Tab -->
           <div id="tab-desktop" class="tab-pane hidden">
             <h4>Desktop Automation</h4>
             <p class="text-xs text-muted settings-section-intro">
-              Connectors that let Ultron open apps, read/write files, click UI elements, and navigate File Explorer. Install and connect all three for the most reliable desktop tasks.
+              Connectors that let Brown open apps, read/write files, click UI elements, and navigate File Explorer. Install and connect all three for the most reliable desktop tasks.
             </p>
 
-            <div id="windows-uia-connector" class="connector-row" style="border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); border-radius: 8px;">
+            <div id="windows-uia-connector" class="connector-row" style="border: 1px solid var(--border-color); background: #131314; border-radius: 12px; margin-bottom: 14px;">
               <div class="connector-title-row" style="display: flex; align-items: center; justify-content: space-between;">
                 <div>
                   <div style="display: flex; align-items: center; gap: 8px;">
@@ -1983,7 +2189,7 @@
               <p id="windows-uia-feedback" class="text-xs text-muted connector-feedback" style="margin: 4px 0 0;"></p>
             </div>
 
-            <div id="windows-mcp-connector" class="connector-row" style="border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); border-radius: 8px;">
+            <div id="windows-mcp-connector" class="connector-row" style="border: 1px solid var(--border-color); background: #131314; border-radius: 12px; margin-bottom: 14px;">
               <div class="connector-title-row" style="display: flex; align-items: center; gap: 8px;">
                 <span class="connector-name">Windows-MCP (CursorTouch)</span>
                 <span id="windows-mcp-status-badge" class="connector-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Checking…</span>
@@ -1992,7 +2198,7 @@
               <p id="windows-mcp-feedback" class="text-xs text-muted" style="margin: 4px 0 0;"></p>
             </div>
 
-            <div id="filesystem-mcp-connector" class="connector-row" style="border: 1px solid var(--border-color); background: rgba(255, 255, 255, 0.02); border-radius: 8px;">
+            <div id="filesystem-mcp-connector" class="connector-row" style="border: 1px solid var(--border-color); background: #131314; border-radius: 12px; margin-bottom: 14px;">
               <div class="connector-title-row" style="display: flex; align-items: center; gap: 8px;">
                 <span class="connector-name">File &amp; Web Access</span>
                 <span id="filesystem-mcp-status-badge" class="connector-status-badge" style="background: rgba(161, 161, 170, 0.12); color: #a1a1aa; border: 1px solid rgba(161, 161, 170, 0.25); font-size: 10px; padding: 2px 8px; border-radius: 4px;">Checking…</span>
@@ -2001,7 +2207,7 @@
               <p id="filesystem-mcp-feedback" class="text-xs text-muted" style="margin: 4px 0 0;"></p>
             </div>
 
-            <div class="setting-item desktop-footer-section" style="border-top: 1px solid var(--border-color);">
+            <div class="setting-item desktop-footer-section" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; border-top: none;">
               <p class="text-xs text-muted desktop-footer-note">
                 <strong style="color: #ffffff; font-weight: 600;">Priority order:</strong> UI Automation → Windows-MCP → native PowerShell / IPC fallback.
               </p>
@@ -2027,13 +2233,13 @@
                   <span>Add</span>
                 </button>
               </div>
-              <p class="text-xs text-muted settings-section-intro">Multi-step routines Ultron can run on command. Say <em>run morning routine</em> or <em>save workflow called Backup: LIST_DIR Downloads then OPEN_APP Explorer</em>.</p>
+              <p class="text-xs text-muted settings-section-intro">Multi-step routines Brown can run on command. Say <em>run morning routine</em> or <em>save workflow called Backup: LIST_DIR Downloads then OPEN_APP Explorer</em>.</p>
               <div id="workflows-list" class="workflows-list"></div>
             </div>
 
             <div class="automation-section">
               <h5 class="automation-section-title">Scheduled workflows</h5>
-              <p class="text-xs text-muted settings-section-intro">Run a saved workflow automatically at a set time (checks every minute while Ultron is open).</p>
+              <p class="text-xs text-muted settings-section-intro">Run a saved workflow automatically at a set time (checks every minute while Brown is open).</p>
               <div id="schedules-list" class="workflows-list"></div>
               <div class="schedule-add-row">
                 <select id="schedule-workflow-pick" class="tts-select" style="flex:1; max-width:none;"></select>
@@ -2048,7 +2254,7 @@
           
           <!-- Storage & Memory Tab -->
           <div id="tab-storage" class="tab-pane hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 16px;">
               <h4 style="margin: 0;">Storage Locations</h4>
               <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0;">
                 <input type="checkbox" id="setting-memory-toggle" style="opacity: 0; width: 0; height: 0;">
@@ -2062,58 +2268,58 @@
             <p id="storage-ultron-root-label" class="text-xs text-muted" style="margin: 0 0 6px 0; line-height: 1.45; font-weight: 600; color: rgba(255,255,255,0.82);"></p>
             <p id="storage-install-root-label" class="text-xs text-muted" style="margin: 0 0 14px 0; line-height: 1.45;"></p>
 
-            <div class="setting-item" style="margin-top: 4px;">
+            <div class="setting-item" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 14px;">
               <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Agent Storage &amp; Memory</label>
               <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. %LOCALAPPDATA%\UltronData\data">
-                <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
-                <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
+                <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. %LOCALAPPDATA%\BrownData\data">
+                <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 0 18px; font-size: 12px; height: 36px; border-radius: 9999px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
+                <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 0 18px; font-size: 12px; height: 36px; border-radius: 9999px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
               </div>
               <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                Conversations, agent memory, and session data. Defaults to <code style="font-size:11px;">%LOCALAPPDATA%\UltronData\data</code>.
+                Conversations, agent memory, and session data. Defaults to <code style="font-size:11px;">%LOCALAPPDATA%\BrownData\data</code>.
               </p>
             </div>
 
-            <div class="setting-item" style="margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+            <div class="setting-item" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 14px;">
               <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Connectors &amp; Downloads</label>
               <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="setting-connectors-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. D:\Ultron\connectors">
-                <button id="btn-browse-connectors" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
-                <button id="btn-reset-connectors" class="btn-primary-sm" style="padding: 0 14px; font-size: 12px; height: 36px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
+                <input type="text" id="setting-connectors-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. D:\Brown\connectors">
+                <button id="btn-browse-connectors" class="btn-primary-sm" style="padding: 0 18px; font-size: 12px; height: 36px; border-radius: 9999px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
+                <button id="btn-reset-connectors" class="btn-primary-sm" style="padding: 0 18px; font-size: 12px; height: 36px; border-radius: 9999px; cursor: pointer; flex-shrink: 0; background-color: #6366f1 !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
               </div>
               <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                Desktop automation connectors (UI Automation, MCP servers). Defaults to <code style="font-size:11px;">{Ultron-local or Ultron-AI}\connectors</code>.
+                Desktop automation connectors (UI Automation, MCP servers). Defaults to <code style="font-size:11px;">{Brown-local or Brown-AI}\connectors</code>.
               </p>
             </div>
 
-            <div class="setting-item" style="margin-top: 18px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+            <div class="setting-item" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 14px;">
               <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Ollama Models</label>
-              <input type="text" id="setting-ollama-models-dir" class="override-input" readonly style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); color: rgba(255,255,255,0.55); font-size: 12px; box-sizing: border-box; cursor: default;" placeholder="Detecting Ollama…">
+              <input type="text" id="setting-ollama-models-dir" class="override-input" readonly style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); color: rgba(255,255,0.55); font-size: 12px; box-sizing: border-box; cursor: default;" placeholder="Detecting Ollama…">
               <p id="setting-ollama-install-note" class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                Stored in <code style="font-size:11px;">{Ultron-local or Ultron-AI}\models</code>. Created when Ollama is installed.
+                Stored in <code style="font-size:11px;">{Brown-local or Brown-AI}\models</code>. Created when Ollama is installed.
               </p>
             </div>
             
-            <div class="setting-item storage-clear-section">
+            <div class="setting-item storage-clear-section" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 14px;">
               <label class="account-section-label">Clear Data</label>
               <div class="storage-clear-row">
                 <span class="text-xs text-muted storage-clear-copy">Permanently delete all conversations, chat history, and message logs from storage.</span>
-                <button id="btn-clear-chats" type="button" class="btn-primary-sm storage-clear-btn">Clear All Chats</button>
+                <button id="btn-clear-chats" type="button" class="btn-primary-sm storage-clear-btn" style="border-radius: 9999px;">Clear All Chats</button>
               </div>
             </div>
           </div>
           
           <!-- Permissions Tab -->
           <div id="tab-permissions" class="tab-pane hidden">
-            <div style="margin-bottom: 24px;">
-              <h4 style="margin: 0 0 6px 0;">Ultron Action Authorization</h4>
+            <div style="margin-bottom: 16px;">
+              <h4 style="margin: 0 0 6px 0;">Brown Action Authorization</h4>
               <p class="text-xs text-muted" style="margin: 0 0 14px 0; line-height: 1.4;">Configure execution safety boundaries for file edits, terminal commands, web research, and autonomous tools.</p>
               
-              <div class="perm-popover-list settings-perm-list" style="display: flex; flex-direction: column; gap: 8px; max-width: 580px;">
+              <div class="perm-popover-list settings-perm-list" style="display: flex; flex-direction: column; gap: 8px; width: 100%;">
                 <!-- Option 1: Prompt Every Action -->
-                <button type="button" class="perm-popover-item mode-option" data-mode="Review" role="button" style="padding: 12px 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; cursor: pointer; transition: all 0.15s ease;">
+                <button type="button" class="perm-popover-item mode-option" data-mode="Review" role="button" style="padding: 12px 14px; background: #131314; border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; transition: all 0.15s ease;">
                   <div class="perm-item-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
                       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                       <path d="M9 12l2 2 4-4"></path>
                     </svg>
@@ -2128,7 +2334,7 @@
                 </button>
 
                 <!-- Option 2: Smart Auto-Approval (Default) -->
-                <button type="button" class="perm-popover-item mode-option" data-mode="Adaptive" role="button" style="padding: 12px 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; cursor: pointer; transition: all 0.15s ease;">
+                <button type="button" class="perm-popover-item mode-option" data-mode="Adaptive" role="button" style="padding: 12px 14px; background: #131314; border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; transition: all 0.15s ease;">
                   <div class="perm-item-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
                       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
@@ -2145,7 +2351,7 @@
                 </button>
 
                 <!-- Option 3: Full Autonomous Mode -->
-                <button type="button" class="perm-popover-item mode-option item-full-access" data-mode="Trusted" role="button" style="padding: 12px 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; cursor: pointer; transition: all 0.15s ease;">
+                <button type="button" class="perm-popover-item mode-option item-full-access" data-mode="Trusted" role="button" style="padding: 12px 14px; background: #131314; border: 1px solid var(--border-color); border-radius: 12px; cursor: pointer; transition: all 0.15s ease;">
                   <div class="perm-item-icon warning-icon">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
                       <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path>
@@ -2177,11 +2383,11 @@
               <div id="audit-log-list" class="audit-log-list"></div>
             </div>
 
-            <div class="setting-item" style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+            <div class="setting-item" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-top: 14px; border-top: none;">
               <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
                 <div>
                   <label style="display: block; margin-bottom: 4px;">Live Screen Capture</label>
-                  <p class="text-xs text-muted" style="margin: 0; line-height: 1.4;">Allow Ultron to capture desktop screenshots during agent tasks for visual verification and UI understanding. Only screenshots needed for the task are analyzed.</p>
+                  <p class="text-xs text-muted" style="margin: 0; line-height: 1.4;">Allow Brown to capture desktop screenshots during agent tasks for visual verification and UI understanding. Only screenshots needed for the task are analyzed.</p>
                 </div>
                 <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
                   <input type="checkbox" id="setting-screen-capture-toggle" style="opacity: 0; width: 0; height: 0;">
@@ -2197,7 +2403,7 @@
           <div id="tab-apps" class="tab-pane hidden">
             <div class="apps-settings-header">
               <h4>Applications</h4>
-              <p class="text-xs text-muted settings-section-intro">Select which local applications Ultron is authorized to interact with, launch, or read configurations from.</p>
+              <p class="text-xs text-muted settings-section-intro">Select which local applications Brown is authorized to interact with, launch, or read configurations from.</p>
             </div>
 
             <div class="apps-toolbar">
@@ -2234,15 +2440,15 @@
           <!-- Software Updates Tab -->
           <div id="tab-updates" class="tab-pane hidden">
             <h4 style="margin: 0 0 16px 0;">Software Updates</h4>
-            <div class="update-card" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+            <div class="update-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
               <div style="display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center; gap: 12px;">
                   <div class="update-status-icon-wrapper" style="width: 42px; height: 42px; border-radius: 10px; background: rgba(66, 133, 244, 0.15); display: flex; align-items: center; justify-content: center; color: #4285f4;">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
                   </div>
                   <div>
-                    <h5 id="update-status-title" style="margin: 0; font-size: 15px; font-weight: 600; color: #fff;">Ultron is up to date</h5>
-                    <p id="update-status-subtitle" style="margin: 4px 0 0 0; font-size: 12px; color: #a1a1aa;">Current Version: v1.0.13</p>
+                    <h5 id="update-status-title" style="margin: 0; font-size: 15px; font-weight: 600; color: #fff;">Brown is up to date</h5>
+                    <p id="update-status-subtitle" style="margin: 4px 0 0 0; font-size: 12px; color: #a1a1aa;">Current Version: v1.0.14</p>
                   </div>
                 </div>
                 <button id="btn-check-updates" style="background: #4285f4; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background 0.2s;">
@@ -2263,63 +2469,125 @@
             </div>
           </div>
 
+          <!-- Appearance Tab -->
+          <div id="tab-appearance" class="tab-pane hidden">
+            <div class="developer-settings-card about-settings-card" style="background: transparent; border: none; padding: 0; gap: 4px;">
+              <h4 style="margin: 0 0 4px 0;">Appearance</h4>
+              <p class="text-xs text-muted" style="margin: 0 0 12px 0;">Choose how Brown looks. “System” follows your OS color scheme.</p>
+              <div class="appearance-cards">
+                <button type="button" class="theme-card" data-theme-choice="system">
+                  <span class="theme-card-preview">
+                    <img src="../../Assets/default-theme.png" alt="System Theme" class="theme-card-img">
+                  </span>
+                  <span class="theme-card-label">System Theme
+                    <span class="theme-card-checkbox">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </span>
+                  </span>
+                </button>
+                <button type="button" class="theme-card" data-theme-choice="light">
+                  <span class="theme-card-preview">
+                    <img src="../../Assets/light-theme.png" alt="Light Theme" class="theme-card-img">
+                  </span>
+                  <span class="theme-card-label">Light Theme
+                    <span class="theme-card-checkbox">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </span>
+                  </span>
+                </button>
+                <button type="button" class="theme-card" data-theme-choice="dark">
+                  <span class="theme-card-preview">
+                    <img src="../../Assets/dark-theme.png" alt="Dark Theme" class="theme-card-img">
+                  </span>
+                  <span class="theme-card-label">Dark Theme
+                    <span class="theme-card-checkbox">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    </span>
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- About Tab -->
           <div id="tab-about" class="tab-pane hidden">
-            <div class="developer-settings-card about-settings-card">
-              <div class="about-app-intro">
-                <div class="about-app-brand">
-                  <img src="../../Assets/Brand-Assets/ultron-logo.png" class="about-app-logo" alt="Ultron">
-                  <div>
-                    <h4 class="about-app-title">Ultron <span class="about-app-version-badge" style="font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); vertical-align: middle; margin-left: 6px;">BETA v1.0.0</span></h4>
-                    <p class="developer-tagline">Local &amp; Offline Windows AI Agent</p>
+            <div class="developer-settings-card about-settings-card" style="background: transparent; border: none; padding: 0;">
+              <div class="about-app-intro" style="gap: 16px;">
+                <!-- Top Brand Banner with Logo, Version/Platform Badges, Tagline, and Social Icons -->
+                <div class="about-app-brand" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
+                  <div style="display: flex; align-items: center; gap: 16px;">
+                    <img src="../../Assets/brown-b-white-logo.png" class="about-app-logo" alt="Brown" style="width: 60px; height: 60px; object-fit: contain; flex-shrink: 0;" />
+                    <div>
+                      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <h4 class="about-app-title" style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">Brown</h4>
+                        <span class="about-app-version-badge" style="font-size: 11.5px; padding: 2px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.18); font-weight: 600;">BETA v1.0.16</span>
+                        <span class="about-app-platform-badge" style="font-size: 11.5px; padding: 2px 8px; border-radius: 6px; background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.25); font-weight: 600;">Windows (x64)</span>
+                      </div>
+                      <p class="developer-tagline" style="margin: 4px 0 0 0; font-size: 12.5px; color: #9ca3af;">Local &amp; Offline Windows AI Agent</p>
+                    </div>
+                  </div>
+
+                  <!-- Social Media Icons (Working links) -->
+                  <div class="about-social-icons-row" style="display: flex; align-items: center; gap: 8px;">
+                    <a href="https://github.com/vedantwankhade123/Brown-Releases" target="_blank" rel="noopener noreferrer" class="about-social-icon-btn" title="GitHub Releases Repository">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+                    </a>
+                    <a href="https://www.instagram.com/usebrown.online" target="_blank" rel="noopener noreferrer" class="about-social-icon-btn" title="Instagram (@usebrown.online)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                    </a>
+                    <a href="mailto:contact@usebrown.online" class="about-social-icon-btn" title="Email (contact@usebrown.online)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                    </a>
+                    <a href="https://usebrown.online" target="_blank" rel="noopener noreferrer" class="about-social-icon-btn" title="Official Website (usebrown.online)">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                    </a>
                   </div>
                 </div>
-                <h5 class="developer-section-subtitle">About Ultron</h5>
-                <p class="developer-bio-text">
-                  Ultron is an advanced, privacy-first AI agent designed exclusively for Windows. It operates locally on your machine, interacts naturally via text and speech, and assists with intelligent chat, code execution, file management, system diagnostics, and desktop automation — without sending your data to external clouds by default.
-                </p>
-                <p class="developer-bio-text" style="margin-top: 8px;">
-                  Powered by local Ollama neural models with seamless fallback to Google Gemini cloud intelligence when requested, Ultron delivers fast, autonomous capabilities while keeping you in complete control.
-                </p>
 
-                <div class="about-specs-grid" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 16px;">
-                  <div class="about-spec-item">
-                    <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Version</div>
-                    <div style="font-size: 14px; color: #f3f4f6; font-weight: 600; margin-top: 4px;">BETA v1.0.0</div>
-                  </div>
-                  <div class="about-spec-item">
-                    <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Platform</div>
-                    <div style="font-size: 14px; color: #f3f4f6; font-weight: 600; margin-top: 4px;">Windows (x64)</div>
-                  </div>
+                <!-- About Brown Description Card -->
+                <div style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 18px 20px;">
+                  <h5 class="developer-section-subtitle" style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: #ffffff;">About Brown</h5>
+                  <p class="developer-bio-text" style="margin: 0 0 8px 0; font-size: 13px; line-height: 1.6; color: #d1d5db;">
+                    Brown is an advanced, privacy-first AI agent designed exclusively for Windows. It operates locally on your machine, interacts naturally via text and speech, and assists with intelligent chat, code execution, file management, system diagnostics, and desktop automation — without sending your data to external clouds by default.
+                  </p>
+                  <p class="developer-bio-text" style="margin: 0; font-size: 13px; line-height: 1.6; color: #d1d5db;">
+                    Powered by local Ollama neural models with seamless fallback to Google Gemini cloud intelligence when requested, Brown delivers fast, autonomous capabilities while keeping you in complete control.
+                  </p>
                 </div>
 
                 <!-- Feedback & Community Section -->
-                <div class="settings-feedback-card" style="margin-top: 20px; padding: 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);">
-                  <h5 style="margin: 0 0 6px 0; font-size: 13px; color: #fff;">Feedback &amp; Community</h5>
-                  <p style="margin: 0 0 12px 0; font-size: 12px; color: #9ca3af;">Have a suggestion, bug report, or feature request? We'd love to connect with you!</p>
-                  <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                    <a href="https://www.instagram.com/ultron_offline" id="btn-settings-instagram" class="btn-instagram-feedback" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); color: #fff; text-decoration: none; font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px rgba(220, 39, 67, 0.3);">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-                      <span>Instagram (@ultron_offline)</span>
+                <div class="settings-feedback-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 18px 20px;">
+                  <h5 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600; color: #ffffff;">Feedback &amp; Community</h5>
+                  <p style="margin: 0 0 14px 0; font-size: 12.5px; color: #9ca3af;">Have a suggestion, bug report, or feature request? We'd love to connect with you!</p>
+                  <div style="display: flex; gap: 12px; align-items: center; justify-content: flex-start; flex-wrap: wrap;">
+                    <a href="https://usebrown.online/#contact" target="_blank" rel="noopener noreferrer" class="about-feedback-option-btn" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); color: #ffffff; text-decoration: none; font-size: 12.5px; font-weight: 500; transition: all 0.15s ease;">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+                      <span>Website Contact Form</span>
                     </a>
-                    <a href="mailto:vedantwankhade47@gmail.com" id="btn-settings-email" class="btn-email-feedback" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; text-decoration: none; font-size: 12px; font-weight: 500;">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-                      <span>vedantwankhade47@gmail.com</span>
+                    <a href="https://www.instagram.com/usebrown.online" id="btn-settings-instagram" class="about-feedback-option-btn" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); color: #ffffff; text-decoration: none; font-size: 12.5px; font-weight: 500; transition: all 0.15s ease;">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                      <span>Instagram (@usebrown.online)</span>
+                    </a>
+                    <a href="mailto:contact@usebrown.online" id="btn-settings-email" class="about-feedback-option-btn" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); color: #ffffff; text-decoration: none; font-size: 12.5px; font-weight: 500; transition: all 0.15s ease;">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                      <span>contact@usebrown.online</span>
                     </a>
                   </div>
                 </div>
 
-                <div class="developer-links-container" style="margin-top: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px;">
-                  <button type="button" id="btn-open-release-notes" class="btn-faint" style="display: inline-flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(59, 130, 246, 0.25); color: #60a5fa; font-size: 12px; font-weight: 600; cursor: pointer;">
-                    📋 View BETA v1 Release Notes
+                <!-- Footer Quick Links -->
+                <div class="developer-links-container" style="margin-top: 6px; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;">
+                  <button type="button" id="btn-open-release-notes" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 22px; border-radius: 9999px; background: #ffffff !important; border: none; color: #000000 !important; font-size: 12.5px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s, opacity 0.15s;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
+                    <span style="color: #000000 !important;">View Release Notes</span>
                   </button>
-                  <a href="https://ultron.dev/download?platform=android" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 26px; background: #ffffff; border: none; border-radius: 9999px; color: #0a0a0a; text-decoration: none; font-size: 13px; font-weight: 700; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s;">
+                  <a href="https://usebrown.online/#download" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 22px; background: #ffffff !important; border: none; border-radius: 9999px; color: #000000 !important; text-decoration: none; font-size: 12.5px; font-weight: 700; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s, opacity 0.15s;">
                     <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 16px; height: 16px; object-fit: contain;" />
-                    <span>Download For Android</span>
+                    <span style="color: #000000 !important;">Download For Android</span>
                   </a>
-                  <a href="https://github.com/vedantwankhade123/Ultron/releases" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #a1a1aa; text-decoration: none; font-size: 12px; transition: color 0.15s;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    <span>Releases &amp; Changelog</span>
+                  <a href="https://github.com/vedantwankhade123/Brown-Releases/releases" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 22px; background: #ffffff !important; border: none; border-radius: 9999px; color: #000000 !important; text-decoration: none; font-size: 12.5px; font-weight: 700; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s, opacity 0.15s;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    <span style="color: #000000 !important;">Releases &amp; Changelog</span>
                   </a>
                 </div>
               </div>
@@ -2355,7 +2623,7 @@
     <!-- Session pane: tasks, files changed, artifacts and uploads of the active chat -->
     <div id="sidebar-session-pane" class="sidebar-session-pane">
       <div id="session-panel-empty" class="session-panel-empty">
-        No session activity yet.<br>Files Ultron creates, opens or reads — and the task plan — will appear here.
+        No session activity yet.<br>Files Brown creates, opens or reads — and the task plan — will appear here.
       </div>
       <div id="session-panel-content" class="session-panel-content"></div>
     </div>
@@ -2387,28 +2655,47 @@
 
   <!-- First-Time Setup & Onboarding View (Cursor-inspired) -->
   <div id="onboarding-screen" class="onboarding-screen hidden">
+    <!-- Top-left voice guide narrator toggle (Michael voice) -->
+    <button id="btn-onboard-voice-guide" class="onboard-voice-toggle-btn" type="button" aria-label="Toggle Voice Guide" title="Voice Guide (Michael) — Click to Mute / Play">
+      <svg class="voice-icon-idle" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+      </svg>
+      <svg class="voice-icon-muted hidden" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+        <line x1="23" y1="9" x2="17" y2="15"></line>
+        <line x1="17" y1="9" x2="23" y2="15"></line>
+      </svg>
+      <span class="voice-wave-container hidden">
+        <span class="voice-wave-bar"></span>
+        <span class="voice-wave-bar"></span>
+        <span class="voice-wave-bar"></span>
+      </span>
+      <span class="onboard-voice-label">Voice Guide</span>
+    </button>
+
     <div class="onboarding-container">
-      <img src="../../Assets/Brand-Assets/ultron-logo.png" class="onboarding-logo-img" alt="Ultron Logo" />
+      <img src="../../Assets/brown-white-logo.png" class="onboarding-logo-img" alt="Brown Logo" />
 
       <!-- Step 0: Welcome -->
       <div id="onboard-step-0" class="onboard-step onboard-welcome">
-        <h1 class="onboarding-title">Welcome to Ultron AI</h1>
+        <h1 class="onboarding-title">Welcome to Brown AI</h1>
         <p class="onboarding-tagline">The Autonomous AI Agent for Windows</p>
         <div class="onboard-btn-stack">
-          <button id="btn-onboard-start" type="button" class="btn-onboard-primary btn-onboard-full">Get Started</button>
+          <button id="btn-onboard-start" type="button" class="btn-onboard-primary btn-onboard-start">Get Started</button>
         </div>
       </div>
 
       <!-- Steps 1–4: Profile + engine setup -->
       <div id="onboard-form-shell" class="onboard-form-shell hidden">
-        <h2 id="onboard-step-heading" class="onboard-step-heading">Your profile</h2>
+        <h2 id="onboard-step-heading" class="onboard-step-heading">Your Name</h2>
 
         <div class="onboard-step-body">
           <div id="onboard-step-1" class="onboard-step hidden">
             <div class="onboard-form-group">
               <div class="onboard-field">
-                <input type="text" id="onboard-full-name" class="onboard-input" placeholder=" " autocomplete="name" />
-                <label for="onboard-full-name">Name</label>
+                <input type="text" id="onboard-full-name" class="onboard-input" placeholder=" " autocomplete="name" aria-label="Name" />
               </div>
             </div>
             <div id="onboard-step-1-error" class="onboard-error-msg hidden">Please enter your name.</div>
@@ -2417,8 +2704,7 @@
           <div id="onboard-step-2" class="onboard-step hidden">
             <div class="onboard-form-group">
               <div class="onboard-field onboard-date-field" id="onboard-date-field-container">
-                <input type="text" id="onboard-birthdate" class="onboard-input onboard-date-input" placeholder=" " autocomplete="off" />
-                <label for="onboard-birthdate">Date of birth</label>
+                <input type="text" id="onboard-birthdate" class="onboard-input onboard-date-input" placeholder=" " autocomplete="off" aria-label="Date of birth" />
                 <button type="button" id="onboard-date-toggle" class="onboard-date-toggle-btn" aria-label="Toggle date picker" tabindex="-1">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
@@ -2468,8 +2754,7 @@
           <div id="onboard-step-3" class="onboard-step hidden">
             <div class="onboard-form-group">
               <div class="onboard-field">
-                <input type="email" id="onboard-email" class="onboard-input" placeholder=" " autocomplete="email" />
-                <label for="onboard-email">Email</label>
+                <input type="email" id="onboard-email" class="onboard-input" placeholder=" " autocomplete="email" aria-label="Email" />
               </div>
             </div>
             <div id="onboard-step-3-error" class="onboard-error-msg hidden">Please enter a valid email address.</div>
@@ -2477,78 +2762,75 @@
 
           <div id="onboard-step-4" class="onboard-step hidden">
             <div class="onboard-requirements-container">
-              <p class="onboard-requirements-desc">Configure core AI components for your PC. Download them now for full offline capabilities, or skip and set up anytime in Settings.</p>
+              <p class="onboard-requirements-desc">Configure core AI components for your PC for full offline capabilities.</p>
               
               <div class="onboard-components-grid">
                 <!-- Card 1: Ollama Local LLM -->
                 <div class="onboard-comp-card" id="onboard-card-ollama">
-                  <div class="onboard-comp-header">
+                  <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
                     </div>
                     <div class="onboard-comp-titles">
-                      <h4 class="onboard-comp-name">Local AI Engine (Ollama)</h4>
-                      <span class="onboard-comp-sub">Offline neural language models &amp; agent reasoning</span>
-                    </div>
-                    <span id="onboard-badge-ollama" class="onboard-comp-badge checking">Checking...</span>
-                  </div>
-                  <div class="onboard-comp-body">
-                    <p id="onboard-desc-ollama" class="onboard-comp-status-text">Verifying local Ollama service...</p>
-                    <div id="onboard-progress-ollama" class="onboard-comp-progress-wrap hidden">
-                      <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
-                      <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      <div class="onboard-comp-heading-row">
+                        <h4 class="onboard-comp-name">Local AI Engine (Ollama)</h4>
+                        <span id="onboard-badge-ollama" class="onboard-comp-badge checking" aria-hidden="true"></span>
+                      </div>
+                      <p id="onboard-desc-ollama" class="onboard-comp-status-text">Verifying local Ollama service...</p>
+                      <div id="onboard-progress-ollama" class="onboard-comp-progress-wrap hidden">
+                        <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
+                        <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      </div>
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-ollama" class="btn-onboard-comp-action">Install Ollama</button>
+                    <button type="button" id="btn-onboard-action-ollama" class="btn-onboard-comp-action" aria-label="Install or start Ollama" title="Install or start Ollama"></button>
                   </div>
                 </div>
 
                 <!-- Card 2: Windows UI Automation -->
                 <div class="onboard-comp-card" id="onboard-card-uia">
-                  <div class="onboard-comp-header">
+                  <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
                     </div>
                     <div class="onboard-comp-titles">
-                      <h4 class="onboard-comp-name">Windows UI Automation MCP</h4>
-                      <span class="onboard-comp-sub">Native Windows accessibility tree &amp; desktop control</span>
-                    </div>
-                    <span id="onboard-badge-uia" class="onboard-comp-badge checking">Checking...</span>
-                  </div>
-                  <div class="onboard-comp-body">
-                    <p id="onboard-desc-uia" class="onboard-comp-status-text">Checking Windows automation server...</p>
-                    <div id="onboard-progress-uia" class="onboard-comp-progress-wrap hidden">
-                      <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
-                      <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      <div class="onboard-comp-heading-row">
+                        <h4 class="onboard-comp-name">Windows UI Automation MCP</h4>
+                        <span id="onboard-badge-uia" class="onboard-comp-badge checking" aria-hidden="true"></span>
+                      </div>
+                      <p id="onboard-desc-uia" class="onboard-comp-status-text">Checking Windows automation server...</p>
+                      <div id="onboard-progress-uia" class="onboard-comp-progress-wrap hidden">
+                        <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
+                        <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      </div>
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-uia" class="btn-onboard-comp-action">Setup Automation</button>
+                    <button type="button" id="btn-onboard-action-uia" class="btn-onboard-comp-action" aria-label="Set up Windows UI Automation" title="Set up Windows UI Automation"></button>
                   </div>
                 </div>
 
                 <!-- Card 3: Kokoro Neural Voices -->
                 <div class="onboard-comp-card" id="onboard-card-kokoro">
-                  <div class="onboard-comp-header">
+                  <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path></svg>
                     </div>
                     <div class="onboard-comp-titles">
-                      <h4 class="onboard-comp-name">Kokoro Neural Voice Engine</h4>
-                      <span class="onboard-comp-sub">Offline TTS · Includes Heart (Female) &amp; Michael (Male)</span>
-                    </div>
-                    <span id="onboard-badge-kokoro" class="onboard-comp-badge checking">Checking...</span>
-                  </div>
-                  <div class="onboard-comp-body">
-                    <p id="onboard-desc-kokoro" class="onboard-comp-status-text">Checking offline voice synthesizer...</p>
-                    <div id="onboard-progress-kokoro" class="onboard-comp-progress-wrap hidden">
-                      <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
-                      <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      <div class="onboard-comp-heading-row">
+                        <h4 class="onboard-comp-name">Kokoro Neural Voice Engine</h4>
+                        <span id="onboard-badge-kokoro" class="onboard-comp-badge checking" aria-hidden="true"></span>
+                      </div>
+                      <p id="onboard-desc-kokoro" class="onboard-comp-status-text">Checking offline voice synthesizer...</p>
+                      <div id="onboard-progress-kokoro" class="onboard-comp-progress-wrap hidden">
+                        <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
+                        <span class="onboard-comp-progress-lbl">Downloading...</span>
+                      </div>
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action">Download Voices</button>
+                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action" aria-label="Download voice models" title="Download voice models"></button>
                   </div>
                 </div>
               </div>
@@ -2556,10 +2838,10 @@
               <!-- Overall batch action bar -->
               <div class="onboard-req-batch-bar">
                 <button type="button" id="btn-onboard-download-all" class="btn-onboard-primary btn-onboard-batch">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   Download &amp; Setup All Requirements
                 </button>
-                <button type="button" id="btn-onboard-skip-later" class="btn-onboard-skip">
+                <button type="button" id="btn-onboard-skip-later" class="btn-onboard-skip hidden">
                   Skip &amp; Setup Later
                 </button>
               </div>
@@ -2567,7 +2849,7 @@
           </div>
 
           <div id="onboard-step-5" class="onboard-step onboard-ready-step hidden">
-            <h2 class="onboard-ready-title">Ultron is ready</h2>
+            <h2 class="onboard-ready-title">Brown is ready</h2>
             <p class="onboard-ready-subtitle">Your profile is configured and your workspace is online.</p>
             <div class="onboard-ready-pills">
               <span class="onboard-ready-pill">
@@ -2583,14 +2865,38 @@
                 Agent Online
               </span>
             </div>
+
+            <!-- Privacy Policy & Terms Acceptance -->
+            <div class="onboard-privacy-acceptance-card" style="margin: 18px auto 8px; max-width: 440px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 12px 16px; text-align: left;">
+              <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
+                <input type="checkbox" id="onboard-privacy-checkbox" checked style="margin-top: 3px; accent-color: #3b82f6; width: 16px; height: 16px; cursor: pointer;" />
+                <span style="font-size: 12px; color: #cbd5e1; line-height: 1.45;">
+                  I accept the <a href="https://usebrown.online/#privacy" target="_blank" style="color: #60a5fa; text-decoration: underline;">Privacy Policy</a> and <a href="https://usebrown.online/#privacy" target="_blank" style="color: #60a5fa; text-decoration: underline;">Terms of Service</a> for Brown AI.
+                </span>
+              </label>
+              <div id="onboard-privacy-error" class="onboard-error-msg hidden" style="margin-top: 6px; font-size: 11.5px; color: #f87171;">
+                Please accept the Privacy Policy &amp; Terms to finish setup.
+              </div>
+            </div>
+
             <p class="onboard-ready-redirect">Opening your agent workspace...</p>
           </div>
         </div>
 
         <div id="onboard-footer-actions" class="onboard-footer-actions">
-          <button id="btn-onboard-next" type="button" class="btn-onboard-primary btn-onboard-full">Continue</button>
-          <button id="btn-onboard-finish" type="button" class="btn-onboard-primary btn-onboard-full hidden">Finish</button>
-          <button id="btn-onboard-back" type="button" class="btn-onboard-link hidden">Back</button>
+          <button id="btn-onboard-next" type="button" class="btn-onboard-primary btn-onboard-action-btn">Continue</button>
+          <button id="btn-onboard-finish" type="button" class="btn-onboard-primary btn-onboard-action-btn hidden">Finish</button>
+          <button id="btn-onboard-back" type="button" class="btn-onboard-link hidden">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 5px; flex-shrink: 0;">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            <span>Back</span>
+          </button>
+          <div id="onboard-email-note" class="onboard-email-note hidden">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            <span>This email will be used for personalized recommendations, security updates, and in-app notifications.</span>
+          </div>
         </div>
       </div>
 
@@ -2625,7 +2931,7 @@
     <div class="mobile-pair-backdrop"></div>
     <div class="mobile-pair-card">
       <div class="mobile-pair-glow"></div>
-      <p class="mobile-pair-kicker">Ultron Mobile</p>
+      <p class="mobile-pair-kicker">Brown Mobile</p>
       <h3 id="mobile-chat-consent-title" class="mobile-pair-title">Allow chat transfer?</h3>
       <p id="mobile-chat-consent-detail" class="mobile-pair-device">Your phone is requesting to sync conversations with this PC.</p>
       <p id="mobile-chat-consent-timer" class="mobile-pair-timer">Request expires in 60s</p>
@@ -2694,11 +3000,11 @@
       <!-- Header -->
       <div class="settings-panel-header" style="padding: 16px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between; background: rgba(0, 0, 0, 0.15);">
         <div style="display: flex; align-items: center; gap: 12px;">
-          <img src="../../Assets/Brand-Assets/ultron-logo.png" style="width: 26px; height: 26px; object-fit: contain;" alt="Ultron">
+          <img src="../../Assets/brown-white-logo.png" class="release-notes-brand-logo" style="height: 24px; width: auto; object-fit: contain;" alt="Brown">
           <div>
             <div style="display: flex; align-items: center; gap: 8px;">
-              <h3 id="release-notes-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">Ultron Release Notes</h3>
-              <span style="font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 5px; background: rgba(59, 130, 246, 0.18); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">BETA v1.0.0</span>
+              <h3 id="release-notes-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">Brown Release Notes</h3>
+              <span style="font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 5px; background: rgba(59, 130, 246, 0.18); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">BETA v1.0.16</span>
             </div>
           </div>
         </div>
@@ -2749,7 +3055,7 @@
 
         <!-- Editorial Intro -->
         <p style="margin: 0; font-size: 13.5px; color: #d1d5db; line-height: 1.65;">
-          For the past three years, the tech industry has treated the cloud as the default runtime for Artificial Intelligence. Every query, codebase snippet, meeting note, and sensitive document was routinely dispatched over the wire to distant servers. Ultron was engineered to restore sovereign computing: an intelligent agent running directly on your Windows hardware with zero mandatory subscriptions, zero telemetry, and complete offline capability.
+          For the past three years, the tech industry has treated the cloud as the default runtime for Artificial Intelligence. Every query, codebase snippet, meeting note, and sensitive document was routinely dispatched over the wire to distant servers. Brown was engineered to restore sovereign computing: an intelligent agent running directly on your Windows hardware with zero mandatory subscriptions, zero telemetry, and complete offline capability.
         </p>
 
         <!-- Detailed Feature 1: Performance Engine -->
@@ -2761,7 +3067,7 @@
             <h4 style="margin: 0; font-size: 15.5px; font-weight: 700; color: #ffffff;">Smart Dynamic GPU / CPU Performance Engine</h4>
           </div>
           <p style="margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.6;">
-            A toggle button in the top-right header lets you choose between <strong>Auto Adaptive</strong>, <strong>GPU Priority</strong>, and <strong>CPU Only</strong>. In Auto Adaptive mode, lightweight conversational chat automatically executes on the CPU with minimal memory overhead, preventing unnecessary VRAM consumption and thermal throttling. When you initiate demanding workloads—such as code generation, deep research, or vision analysis—Ultron dynamically engages your dedicated GPU with maximum layer offload.
+            A toggle button in the top-right header lets you choose between <strong>Auto Adaptive</strong>, <strong>GPU Priority</strong>, and <strong>CPU Only</strong>. In Auto Adaptive mode, lightweight conversational chat automatically executes on the CPU with minimal memory overhead, preventing unnecessary VRAM consumption and thermal throttling. When you initiate demanding workloads—such as code generation, deep research, or vision analysis—Brown dynamically engages your dedicated GPU with maximum layer offload.
           </p>
         </div>
 
@@ -2789,7 +3095,7 @@
             <h4 style="margin: 0; font-size: 15.5px; font-weight: 700; color: #ffffff;">Sovereign Autonomous Agent &amp; Cognitive Operating Environment</h4>
           </div>
           <p style="margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.6;">
-            Ultron is more than a chatbot—it is a full cognitive agent. Equipped with an autonomous Loop Guard, tool decomposition planner, contextual memory architecture, and local vector RAG document engine. The 3-tier Action Authorization selector (<em>Review Mode</em>, <em>Approve for me</em>, and <em>Always Approve</em>) allows you to calibrate execution autonomy while retaining total command over terminal execution, file system writes, and MCP extensions.
+            Brown is more than a chatbot—it is a full cognitive agent. Equipped with an autonomous Loop Guard, tool decomposition planner, contextual memory architecture, and local vector RAG document engine. The 3-tier Action Authorization selector (<em>Review Mode</em>, <em>Approve for me</em>, and <em>Always Approve</em>) allows you to calibrate execution autonomy while retaining total command over terminal execution, file system writes, and MCP extensions.
           </p>
         </div>
 
@@ -2817,7 +3123,7 @@
             <h4 style="margin: 0; font-size: 15.5px; font-weight: 700; color: #ffffff;">Desktop Sync &amp; Mobile Companion Pairing</h4>
           </div>
           <p style="margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.6;">
-            Ultron Mobile seamlessly pairs with your Windows machine using secure peer-to-peer PIN verification over your local area network. Keep your sovereign agent state unified, import chat sessions, and command your workstation securely from your phone.
+            Brown Mobile seamlessly pairs with your Windows machine using secure peer-to-peer PIN verification over your local area network. Keep your sovereign agent state unified, import chat sessions, and command your workstation securely from your phone.
           </p>
         </div>
 
@@ -2827,14 +3133,14 @@
             <div style="font-size: 13px; font-weight: 700; color: #ffffff;">Join the Official Community &amp; Direct Feedback</div>
             <div style="font-size: 11.5px; color: #9ca3af; margin-top: 2px;">Connect directly with the creator, share suggestions, and request new capabilities.</div>
           </div>
-          <div style="display: flex; gap: 10px; align-items: center;">
-            <a href="https://www.instagram.com/ultron_offline" id="btn-rn-instagram" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%); color: #fff; text-decoration: none; font-size: 12px; font-weight: 600;">
+          <div style="display: flex; gap: 16px; align-items: center;">
+            <a href="https://www.instagram.com/usebrown.online" id="btn-rn-instagram" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #e11d48; text-decoration: none; font-size: 12.5px; font-weight: 600;">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-              <span>@ultron_offline</span>
+              <span>@usebrown.online</span>
             </a>
-            <a href="mailto:vedantwankhade47@gmail.com" id="btn-rn-email" style="display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #fff; text-decoration: none; font-size: 12px; font-weight: 500;">
+            <a href="mailto:contact@usebrown.online" id="btn-rn-email" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #94a3b8; text-decoration: none; font-size: 12.5px; font-weight: 500;">
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#ef4444" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-              <span>vedantwankhade47@gmail.com</span>
+              <span>contact@usebrown.online</span>
             </a>
           </div>
         </div>
@@ -2863,9 +3169,12 @@
   <script src="../agent/agent-loop-guard.js"></script>
   <script src="../agent/agent-skills.js"></script>
   <script src="../agent/location-context.js"></script>
+  <script src="../agent/agent-entity-extractor.js"></script>
   <script src="../agent/agent-research.js"></script>
   <script src="../agent/agent-mcp-tools.js"></script>
   <script src="../agent/agent-memory.js"></script>
+  <script src="../agent/agent-entity-tracker.js"></script>
+  <script src="../agent/agent-context-engine.js"></script>
   <script src="../agent/agent-planner.js"></script>
   <script src="../agent/agent-executor.js"></script>
   <script src="../agent/agent-prompt.js"></script>
@@ -2874,9 +3183,9 @@
   <script src="../ui/performance-toggle.js"></script>
   <script src="canvas-artifacts.js"></script>
   <script src="clipboard-manager.js"></script>
-  <!-- Stackable model / connection toasts -->
+  <script src="../../node_modules/mermaid/dist/mermaid.min.js"></script>
+  <script src="visual-engine.js"></script>
   <div id="ultron-toast-stack" class="ultron-toast-stack" aria-live="polite" aria-relevant="additions"></div>
-
   <script src="renderer.js"></script>
 </body>
 </html>

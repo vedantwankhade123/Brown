@@ -1,50 +1,69 @@
+# ==============================================================================
+# Ultron Monorepo Git Exclusions (.gitignore)
+# Covers: Windows Desktop App, Mobile App (Expo), Website (Firebase), & Python
+# ==============================================================================
+
+# OS & Workspace files
+.DS_Store
+Thumbs.db
+*.tmp
+*.bak
+*.swp
+*~
+
+# Dependencies
 node_modules/
+.pnp
+.pnp.js
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Build & Release Artifacts
 dist/
+build/
+web-build/
+.expo/
+.expo-shared/
+*.exe
+*.appx
+*.msix
+*.dmg
+*.apk
+*.aab
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local Development Runtimes & Caches (Models, Blobs, Manifests)
+Ultron-local/
+brown-local/
+UltronDataDev-migrated-from-C/
+"Downloadable Files"/
+Downloadable Files/
 .system_generated/
 .gemini/
 .agents/
 .qoder/
-.git/
-CVS/
-.DS_Store
-memory/
-Assets/*
-!Assets/Brand-Assets/
-!Assets/Brand-Assets/**
-!Assets/landing.png
-!Assets/landing-page.png
-!Assets/UltronWebsite.png
-!Assets/ollama-logo.png
-!Assets/ultron-logo.png
-!Assets/ultron-logo.ico
-!Assets/gemini-logo.png
-!Assets/installerSidebar.bmp
-!Assets/installerHeader.bmp
-!Assets/ultron-app.png
-!Assets/apple.png
-!Assets/android.png
-!Assets/hf-logo.png
-__pycache__/
-*.pyc
-mobile/
-.expo/
-
-# Local development / testing data (models, caches, experiments)
-Ultron-local/
-kokoro-cpu-result.txt
 .research/
-portfolio-builder/
 
-# Markdown documentation files
-*.md
-!README.md
-!ROADMAP_AND_PRD.md
-!RESEARCH_PROGRESS.md
-!RESEARCH_PAPER.md
-!FEATURES_AND_IMPROVEMENTS.md
-!DOCUMENTATION.md
-!RELEASE_NOTES.md
-!progress-file.md
-.agent-docs/
+# Secrets & Sensitive Keys
+.env
+.env.*
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+*.pfx
+*.jks
+*.keystore
+secrets/
 
+# Sibling project checkouts (separate repos)
+brown-website/
+brown-releases/

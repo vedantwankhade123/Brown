@@ -114,16 +114,27 @@
   function detectProviderForModel(modelName) {
     if (!modelName || typeof modelName !== 'string') return 'ollama';
     const m = modelName.toLowerCase();
+
+    // 1. Ollama Cloud models (*-cloud) and open-weights models (gpt-oss, etc.)
+    if (m.endsWith('-cloud') || m.startsWith('gpt-oss') || m.startsWith('gptoss')) return 'ollama';
+
+    // 2. Hugging Face GGUF models
+    if (m.startsWith('hf.co/') || m.startsWith('huggingface/')) return 'huggingface';
+
+    // 3. Google Gemini
     if (m.startsWith('gemini')) return 'gemini';
-    if (m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('chatgpt')) return 'openai';
+
+    // 4. Anthropic Claude
     if (m.startsWith('claude')) return 'anthropic';
+
+    // 5. Groq Cloud
     if (m.endsWith('(groq)') || m.startsWith('groq/') || m === 'llama-3.3-70b-versatile' || m.includes('distill-llama') || m === 'mixtral-8x7b-32768' || m === 'gemma2-9b-it') return 'groq';
+
+    // 6. DeepSeek API
     if (m.includes('deepseek-reasoner') || m.includes('deepseek-chat') || (m.startsWith('deepseek') && !m.includes(':'))) return 'deepseek';
 
-    // Hugging Face GGUF IDs (hf.co/...) are pulled and served by local Ollama — not a separate HTTP API.
-    if (m.startsWith('hf.co/') || m.startsWith('huggingface/')) return 'ollama';
-    // Ollama Cloud remote models still talk to the local Ollama daemon.
-    if (m.endsWith('-cloud')) return 'ollama';
+    // 7. OpenAI API (official OpenAI models)
+    if (m.startsWith('gpt-') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('o4') || m.startsWith('chatgpt')) return 'openai';
 
     if (discoveredModelsCache) {
       for (const [pId, models] of Object.entries(discoveredModelsCache)) {
@@ -139,7 +150,8 @@
   }
 
   function isOllamaBackedModel(modelName) {
-    return detectProviderForModel(modelName) === 'ollama';
+    const p = detectProviderForModel(modelName);
+    return p === 'ollama' || p === 'huggingface';
   }
 
   function getStoredApiKey(providerId) {
@@ -603,6 +615,60 @@
     const key = (apiKey || getStoredApiKey(providerId) || '').trim();
     const endpoint = (customUrl || getCustomEndpointUrl() || 'http://localhost:1234/v1').trim();
 
+    if (providerId === 'gemini') {
+      if (!key) throw new Error('Google Gemini API key is required');
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error?.message || `Google Gemini returned HTTP ${res.status}`);
+        }
+        const rawList = Array.isArray(data.models) ? data.models : [];
+        const chatModels = rawList.filter(m => {
+          const name = (m.name || '').replace(/^models\//, '').toLowerCase();
+          const methods = m.supportedGenerationMethods || [];
+          const isGenerate = methods.includes('generateContent');
+          return isGenerate && name.startsWith('gemini') && !name.includes('embedding') && !name.includes('aqa') && !name.includes('imagen');
+        });
+
+        chatModels.sort((a, b) => {
+          const nameA = (a.name || '').replace(/^models\//, '');
+          const nameB = (b.name || '').replace(/^models\//, '');
+          const order = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'];
+          const idxA = order.findIndex(p => nameA.startsWith(p));
+          const idxB = order.findIndex(p => nameB.startsWith(p));
+          if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+          if (idxA !== -1) return -1;
+          if (idxB !== -1) return 1;
+          return nameA.localeCompare(nameB);
+        });
+
+        const models = chatModels.map(m => {
+          const cleanId = (m.name || '').replace(/^models\//, '');
+          return {
+            id: cleanId,
+            name: cleanId,
+            displayName: m.displayName || formatModelDisplayName(cleanId),
+            provider: 'gemini',
+            tag: 'GEMINI',
+            speed: cleanId.includes('flash') ? 'Ultra-Fast' : 'High Precision'
+          };
+        });
+
+        if (models.length > 0) {
+          discoveredModelsCache.gemini = models;
+          saveDiscoveredModelsCache();
+          return models;
+        }
+      } catch (err) {
+        if (!key) throw err;
+      }
+
+      return (PROVIDERS.gemini.models || []).map(m => ({
+        id: m.id, name: m.id, displayName: m.name, provider: 'gemini', tag: 'GEMINI', speed: m.speed
+      }));
+    }
+
     if (providerId === 'openai') {
       if (!key) throw new Error('OpenAI API key is required');
       const res = await fetch('https://api.openai.com/v1/models', {
@@ -893,11 +959,75 @@
     return results;
   }
 
+  function isLocalProvider(providerId) {
+    if (!providerId) return true;
+    const p = String(providerId).toLowerCase().trim();
+    return p === 'ollama' || p === 'huggingface' || p === 'custom' || p === 'lmstudio' || p === 'local';
+  }
+
+  function getModelCapabilities(provider, modelId) {
+    const prov = (provider || detectProviderForModel(modelId) || 'ollama').toLowerCase();
+    const m = String(modelId || '').toLowerCase();
+    const isLocal = isLocalProvider(prov);
+
+    // 1. Vision support
+    const supportsVision = (
+      m.includes('vision') ||
+      m.includes('llava') ||
+      m.includes('bakllava') ||
+      m.includes('minicpm-v') ||
+      m.includes('qwen-vl') ||
+      m.includes('qwen2-vl') ||
+      m.includes('llama3.2-vision') ||
+      m.startsWith('gpt-4o') ||
+      m.startsWith('gemini') ||
+      m.startsWith('claude-3')
+    );
+
+    // 2. Tool calling support
+    const supportsTools = (
+      m.includes('llama3.1') ||
+      m.includes('llama3.2') ||
+      m.includes('llama3.3') ||
+      m.includes('qwen2.5') ||
+      m.includes('mistral') ||
+      m.includes('command-r') ||
+      m.startsWith('gpt-') ||
+      m.startsWith('gemini') ||
+      m.startsWith('claude-')
+    );
+
+    // 3. Context window estimation
+    let contextWindow = 8192;
+    if (m.includes('tinyllama') || m.includes('phi:2') || m.includes('gemma:2b')) {
+      contextWindow = 2048;
+    } else if (m.includes('phi3:mini') || m.includes('phi-2') || m.includes('stablelm')) {
+      contextWindow = 4096;
+    } else if (m.includes('qwen2.5') || m.includes('llama3.1') || m.includes('llama3.2') || m.includes('llama3.3') || m.includes('phi4') || m.includes('deepseek-r1')) {
+      contextWindow = 32768;
+    } else if (m.startsWith('gemini') || m.startsWith('gpt-4o') || m.startsWith('claude-3')) {
+      contextWindow = 128000;
+    }
+
+    return {
+      provider: prov,
+      model: modelId,
+      isLocal,
+      supportsVision,
+      supportsTools,
+      supportsJson: true,
+      supportsStreaming: true,
+      contextWindow
+    };
+  }
+
   const api = {
     PROVIDERS,
     getProviderCatalog,
     detectProviderForModel,
     isOllamaBackedModel,
+    isLocalProvider,
+    getModelCapabilities,
     isChatCapableModel,
     getStoredApiKey,
     setStoredApiKey,
