@@ -1,8 +1,6 @@
 const path = require('path');
 const fs = require('fs');
 
-const SPEAKER_EMBEDDINGS_URL = 'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/speaker_embeddings.bin';
-
 const TTS_MODEL_CATALOG = [
   {
     key: 'kokoro-heart',
@@ -36,10 +34,7 @@ const TTS_MODEL_CATALOG = [
 
 const DEFAULT_TTS_MODEL_KEY = 'kokoro-heart';
 
-const synthesizerPromises = new Map();
 const downloadState = new Map();
-let transformersPromise = null;
-let speakerEmbeddingsPromise = null;
 let activeModelKey = DEFAULT_TTS_MODEL_KEY;
 
 function getCatalogEntry(modelKey) {
@@ -93,13 +88,6 @@ function saveActiveModelKey(modelKey) {
 }
 
 loadActiveModelKey();
-
-async function loadTransformers() {
-  if (!transformersPromise) {
-    transformersPromise = import('@xenova/transformers');
-  }
-  return transformersPromise;
-}
 
 function formatBytes(bytes) {
   if (!bytes || bytes <= 0) return '0 MB';
@@ -173,84 +161,6 @@ function getDownloadState(modelKey) {
   return downloadState.get(modelKey) || { inProgress: false, cancelled: false };
 }
 
-async function configureTransformersEnv(modelKey, onProgress) {
-  const { env } = await loadTransformers();
-  const cacheDir = getModelCacheDir(modelKey);
-  fs.mkdirSync(cacheDir, { recursive: true });
-  env.cacheDir = cacheDir;
-  env.allowLocalModels = true;
-  env.useBrowserCache = false;
-  env.backends.onnx.wasm.numThreads = 1;
-  try {
-    require('onnxruntime-node');
-  } catch (e) {
-    console.warn('[voice-tts] onnxruntime-node unavailable:', e.message);
-  }
-  env.progress_callback = onProgress || null;
-  return env;
-}
-
-async function getSpeakerEmbeddings() {
-  if (!speakerEmbeddingsPromise) {
-    speakerEmbeddingsPromise = (async () => {
-      const sharedDir = path.join(getTtsCacheRoot(), '_shared');
-      fs.mkdirSync(sharedDir, { recursive: true });
-      const cachePath = path.join(sharedDir, 'speaker_embeddings.bin');
-      if (!fs.existsSync(cachePath)) {
-        const response = await fetch(SPEAKER_EMBEDDINGS_URL);
-        if (!response.ok) {
-          throw new Error('Failed to download SpeechT5 speaker embeddings.');
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        fs.writeFileSync(cachePath, Buffer.from(arrayBuffer));
-      }
-      const { Tensor } = await loadTransformers();
-      const data = new Float32Array(fs.readFileSync(cachePath).buffer);
-      return new Tensor('float32', data, [1, data.length]);
-    })();
-  }
-  return speakerEmbeddingsPromise;
-}
-
-async function getSynthesizer(modelKey, onProgress) {
-  const entry = getCatalogEntry(modelKey);
-  if (!entry) throw new Error('Unknown neural voice model.');
-
-  if (!synthesizerPromises.has(modelKey)) {
-    const promise = (async () => {
-      await configureTransformersEnv(modelKey, onProgress);
-      const { pipeline } = await loadTransformers();
-      return pipeline('text-to-speech', entry.modelId, entry.pipelineOptions || {});
-    })();
-    synthesizerPromises.set(modelKey, promise);
-  }
-  return synthesizerPromises.get(modelKey);
-}
-
-function float32ToWavBuffer(float32Array, sampleRate = 16000) {
-  const samples = float32Array instanceof Float32Array ? float32Array : new Float32Array(float32Array);
-  const numSamples = samples.length;
-  const buffer = Buffer.alloc(44 + numSamples * 2);
-  buffer.write('RIFF', 0);
-  buffer.writeUInt32LE(36 + numSamples * 2, 4);
-  buffer.write('WAVE', 8);
-  buffer.write('fmt ', 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
-  buffer.writeUInt16LE(1, 22);
-  buffer.writeUInt32LE(sampleRate, 24);
-  buffer.writeUInt32LE(sampleRate * 2, 28);
-  buffer.writeUInt16LE(2, 32);
-  buffer.writeUInt16LE(16, 34);
-  buffer.write('data', 36);
-  buffer.writeUInt32LE(numSamples * 2, 40);
-  for (let i = 0; i < numSamples; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    buffer.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
-  }
-  return buffer;
-}
-
 function chunkTextForTts(text, maxLen = 350) {
   const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
   if (!cleaned) return [];
@@ -310,50 +220,7 @@ async function synthesizeWithModel(modelKey, text, options = {}) {
     };
   }
 
-  try {
-    const synthesizer = await getSynthesizer(modelKey);
-    let speakerEmbeddings = null;
-    if (entry.needsSpeakerEmbeddings) {
-      speakerEmbeddings = await getSpeakerEmbeddings();
-    }
-
-    const audioParts = [];
-    let sampleRate = 16000;
-
-    for (const chunk of chunks.slice(0, 8)) {
-      const synthOptions = speakerEmbeddings ? { speaker_embeddings: speakerEmbeddings } : {};
-      const output = await synthesizer(chunk, synthOptions);
-      if (!output || !output.audio) continue;
-      sampleRate = output.sampling_rate || sampleRate;
-      audioParts.push(output.audio);
-    }
-
-    if (!audioParts.length) {
-      return { success: false, error: 'Speech synthesis produced no audio.' };
-    }
-
-    const totalLen = audioParts.reduce((sum, part) => sum + part.length, 0);
-    const merged = new Float32Array(totalLen);
-    let offset = 0;
-    for (const part of audioParts) {
-      merged.set(part, offset);
-      offset += part.length;
-    }
-
-    const wavBuffer = float32ToWavBuffer(merged, sampleRate);
-    return {
-      success: true,
-      wavBase64: wavBuffer.toString('base64'),
-      sampleRate,
-      mimeType: 'audio/wav',
-      modelKey,
-      modelLabel: entry.label
-    };
-  } catch (err) {
-    console.error(`[voice-tts] synthesizeSpeech error (${modelKey}):`, err);
-    synthesizerPromises.delete(modelKey);
-    return { success: false, error: err.message || 'Speech synthesis failed.' };
-  }
+  return { success: false, error: `Unsupported TTS engine for “${entry.label}”.` };
 }
 
 async function synthesizeSpeech(text, modelKey = activeModelKey, options = {}) {
@@ -434,79 +301,11 @@ async function downloadTtsModel(modelKey = DEFAULT_TTS_MODEL_KEY, sendProgress) 
     return { ...result, modelKey: entry.key };
   }
 
-  const state = getDownloadState(modelKey);
-  if (state.inProgress) {
-    return { success: false, error: 'This voice model is already downloading.' };
-  }
-
-  downloadState.set(modelKey, { inProgress: true, cancelled: false });
-  const emit = (payload) => {
-    if (typeof sendProgress === 'function') {
-      sendProgress({
-        modelKey: entry.key,
-        modelName: `tts-${entry.key}`,
-        ...payload
-      });
-    }
+  return {
+    success: false,
+    error: `Unsupported TTS engine for “${entry.label}”.`,
+    modelKey: entry.key
   };
-
-  emit({ phase: 'download', percent: 0, status: `Preparing ${entry.label}…` });
-
-  let envRef = null;
-  try {
-    envRef = await configureTransformersEnv(modelKey, (data) => {
-      const current = getDownloadState(modelKey);
-      if (current.cancelled || !data) return;
-
-      if (data.status === 'initiate') {
-        emit({
-          phase: 'download',
-          percent: 0,
-          status: `Fetching ${data.file || data.name || entry.label}…`
-        });
-        return;
-      }
-
-      if (data.status === 'progress' && data.total) {
-        const percent = Math.min(99, Math.round((data.loaded / data.total) * 100));
-        emit({
-          phase: 'download',
-          percent,
-          downloaded: formatBytes(data.loaded),
-          total: formatBytes(data.total),
-          status: `Downloading ${entry.label}…`
-        });
-        return;
-      }
-
-      if (data.status === 'done' || data.status === 'ready') {
-        emit({ phase: 'download', percent: 100, status: `Finalizing ${entry.label}…` });
-      }
-    });
-
-    synthesizerPromises.delete(modelKey);
-    await getSynthesizer(modelKey);
-
-    if (entry.needsSpeakerEmbeddings) {
-      emit({ phase: 'download', percent: 99, status: 'Loading speaker profile…' });
-      await getSpeakerEmbeddings();
-    }
-
-    emit({ phase: 'complete', percent: 100, status: `${entry.label} ready.` });
-    saveActiveModelKey(entry.key);
-    return { success: true, installed: true, modelKey: entry.key };
-  } catch (err) {
-    synthesizerPromises.delete(modelKey);
-    const current = getDownloadState(modelKey);
-    if (current.cancelled) {
-      return { success: false, cancelled: true, error: 'Download cancelled.' };
-    }
-    console.error('[voice-tts] download failed:', err);
-    return { success: false, error: err.message || 'Neural voice download failed.' };
-  } finally {
-    downloadState.set(modelKey, { inProgress: false, cancelled: false });
-    if (envRef) envRef.progress_callback = null;
-  }
 }
 
 function cancelTtsModelDownload(modelKey = null) {
@@ -522,16 +321,14 @@ function cancelTtsModelDownload(modelKey = null) {
       return { success: false, error: 'No download in progress for that model.' };
     }
     downloadState.set(modelKey, { inProgress: false, cancelled: true });
-    synthesizerPromises.delete(modelKey);
     return { success: true, cancelled: true, modelKey };
   }
 
-  for (const entry of TTS_MODEL_CATALOG) {
-    const state = getDownloadState(entry.key);
+  for (const catalogEntry of TTS_MODEL_CATALOG) {
+    const state = getDownloadState(catalogEntry.key);
     if (state.inProgress) {
-      downloadState.set(entry.key, { inProgress: false, cancelled: true });
-      synthesizerPromises.delete(entry.key);
-      return { success: true, cancelled: true, modelKey: entry.key };
+      downloadState.set(catalogEntry.key, { inProgress: false, cancelled: true });
+      return { success: true, cancelled: true, modelKey: catalogEntry.key };
     }
   }
   return { success: false, error: 'No neural voice download in progress.' };
@@ -547,7 +344,6 @@ function deleteTtsModel(modelKey = activeModelKey) {
   if (entry.engine === 'kokoro') {
     const { deleteKokoroEngine } = require('./voice-kokoro');
     const result = deleteKokoroEngine();
-    const remainingKokoro = false;
     if (result.success) {
       if (activeModelKey === entry.key || TTS_MODEL_CATALOG.some(v => v.key === activeModelKey && v.engine === 'kokoro')) {
         const fallback = TTS_MODEL_CATALOG.find(item => item.key !== entry.key && isModelInstalled(item.key));
@@ -557,7 +353,6 @@ function deleteTtsModel(modelKey = activeModelKey) {
     return { ...result, modelKey: entry.key };
   }
 
-  synthesizerPromises.delete(entry.key);
   const cacheDir = getModelCacheDir(getInstallKey(entry));
   try {
     if (fs.existsSync(cacheDir)) {
@@ -589,12 +384,7 @@ async function warmupTtsEngine(modelKey = activeModelKey) {
   if (!isModelInstalled(entry.key)) {
     return { success: false, error: 'Voice model not installed.' };
   }
-  try {
-    await getSynthesizer(entry.key);
-    return { success: true, warmed: true };
-  } catch (err) {
-    return { success: false, error: err.message || 'TTS warmup failed.' };
-  }
+  return { success: true, warmed: true };
 }
 
 module.exports = {

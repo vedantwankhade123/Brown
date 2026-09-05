@@ -112,14 +112,13 @@ function findKokoroModelOnnxPath() {
   const cacheDir = getKokoroCacheDir();
   if (!fs.existsSync(cacheDir)) return null;
 
-  // 1. Direct onnx models in cache
+  // Only accept a complete q8 ONNX (>= ~75 MB). Partial files must not look installed.
   const preferred = walkDir(cacheDir, (fp) => /model_quantized\.onnx$|model_q8\.onnx$|model\.onnx$/i.test(fp));
-  const validPreferred = preferred.find((fp) => isValidOnnxModelFile(fp));
+  const validPreferred = preferred.find((fp) => isValidOnnxModelFile(fp, KOKORO_MIN_MODEL_BYTES));
   if (validPreferred) return validPreferred;
 
-  // 2. Any onnx file >= 20MB in cache
   const allOnnx = walkDir(cacheDir, (fp) => /\.onnx$/i.test(fp));
-  return allOnnx.find((fp) => isValidOnnxModelFile(fp, 20 * 1024 * 1024)) || null;
+  return allOnnx.find((fp) => isValidOnnxModelFile(fp, KOKORO_MIN_MODEL_BYTES)) || null;
 }
 
 /**
