@@ -11248,7 +11248,7 @@ span.settings-action-btn.is-ready {
 .onboarding-screen {
   position: fixed;
   inset: 0;
-  z-index: 20000;
+  z-index: 1000001;
   display: flex;
   align-items: center;
   justify-content: center;

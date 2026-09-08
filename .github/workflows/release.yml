@@ -121,9 +121,9 @@ jobs:
       - name: Build Windows Installers
         run: npm run dist:ci
 
-      - name: Publish to Brown-Releases
+      - name: Publish to GitHub Releases
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
           $tag = $env:RELEASE_TAG
@@ -145,23 +145,22 @@ jobs:
           Copy-Item -Force $setup.FullName $setupOut
           Copy-Item -Force $portable.FullName $portableOut
 
-          $existing = gh release view $tag --repo vedantwankhade123/Brown-Releases 2>$null
+          $existing = gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) {
             Write-Host "Release $tag exists — uploading/replacing assets"
-            gh release upload $tag $setupOut $portableOut --repo vedantwankhade123/Brown-Releases --clobber
-            gh release edit $tag --repo vedantwankhade123/Brown-Releases --title "Brown AI v${mver} (Desktop & Mobile)" --notes-file $notes
+            gh release upload $tag $setupOut $portableOut --clobber
+            gh release edit $tag --title "Brown AI v${mver}" --notes-file $notes
           } else {
             Write-Host "Creating release $tag"
             gh release create $tag $setupOut $portableOut `
-              --repo vedantwankhade123/Brown-Releases `
-              --title "Brown AI v${mver} (Desktop & Mobile)" `
+              --title "Brown AI v${mver}" `
               --notes-file $notes
           }
 
           # Also publish latest.yml for electron-updater if present
           $yml = Get-ChildItem dist -Filter "latest.yml" -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($yml) {
-            gh release upload $tag $yml.FullName --repo vedantwankhade123/Brown-Releases --clobber
+            gh release upload $tag $yml.FullName --clobber
           }
 
           Write-Host "Published desktop assets to $tag"
@@ -177,9 +176,9 @@ jobs:
             marketingVersion = $mver
             tagName = $tag
             releaseDate = (Get-Date -Format "yyyy-MM-dd")
-            setupUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Setup-v$mver.exe"
-            portableUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-v$mver.exe"
-            mobileApkUrl = "https://github.com/vedantwankhade123/Brown-Releases/releases/download/$tag/Brown-AI-Mobile-v$mver.apk"
+            setupUrl = "https://github.com/vedantwankhade123/Brown/releases/download/$tag/Brown-AI-Setup-v$mver.exe"
+            portableUrl = "https://github.com/vedantwankhade123/Brown/releases/download/$tag/Brown-AI-v$mver.exe"
+            mobileApkUrl = "https://github.com/vedantwankhade123/Brown-Mobile/releases/download/v$mver/Brown-AI-Mobile-v$mver.apk"
             setupName = "Brown-AI-Setup-v$mver.exe"
             portableName = "Brown-AI-v$mver.exe"
             mobileApkName = "Brown-AI-Mobile-v$mver.apk"
@@ -196,7 +195,6 @@ jobs:
         run: |
           $mver = $env:MARKETING_VERSION
           $tag = $env:RELEASE_TAG
-          Write-Host "Successfully published Brown AI v$mver ($tag) to Brown-Releases!"
+          Write-Host "Successfully published Brown AI v$mver ($tag) to Brown repository!"
           Write-Host "Installer: Brown-AI-Setup-v$mver.exe"
           Write-Host "Portable:  Brown-AI-v$mver.exe"
-          Write-Host "Mobile:    Brown-AI-Mobile-v$mver.apk (upload separately if not already attached)"

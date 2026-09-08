@@ -1,6 +1,6 @@
 ## 🌟 Brown AI v1.0 (Latest)
 
-**Brown AI v1.0** is the first unified production release for Windows Desktop and Android Mobile — one public download feed on [Brown-Releases](https://github.com/vedantwankhade123/Brown-Releases/releases).
+**Brown AI v1.0** is the production release for Windows Desktop and Android Mobile with native GitHub releases and auto-updates.
 
 ### ✨ Highlights
 - Desktop setup installer + portable executable

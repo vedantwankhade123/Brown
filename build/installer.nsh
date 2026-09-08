@@ -8,6 +8,9 @@
   ; 1. Terminate any running Brown/Ultron processes before installing so no files are locked
   nsExec::Exec 'taskkill /F /IM "Brown AI.exe" /IM "Brown.exe" /IM "Ultron AI.exe" /IM "Ultron.exe" /IM "electron.exe" /T'
 
+  ; 1b. Delete first-run marker so reinstalls/upgrades re-trigger onboarding
+  Delete "$INSTDIR\.ultron-firstrun"
+
   ; 2. Clean up user desktop shortcuts
   Delete "$DESKTOP\Brown AI.lnk"
   Delete "$DESKTOP\Brown.lnk"
@@ -60,6 +63,9 @@
   ; 2. Set working directory to $INSTDIR for proper runtime context
   SetOutPath "$INSTDIR"
 
+  ; 2b. Ensure first-run marker is removed so fresh onboarding triggers on launch
+  Delete "$INSTDIR\.ultron-firstrun"
+
   ; 3. Create fresh Desktop shortcut pointing directly to the newly installed executable
   CreateShortcut "$DESKTOP\Brown AI.lnk" "$INSTDIR\Brown AI.exe" "" "$INSTDIR\Brown AI.exe" 0 "" "" "Brown AI - Autonomous Local AI Agent"
 
@@ -76,6 +82,9 @@
 !macro customUnInstall
   ; 1. Terminate running instances
   nsExec::Exec 'taskkill /F /IM "Brown AI.exe" /IM "Brown.exe" /IM "Ultron AI.exe" /IM "Ultron.exe" /IM "electron.exe" /T'
+
+  ; 1b. Delete first-run marker so future installs trigger onboarding
+  Delete "$INSTDIR\.ultron-firstrun"
 
   ; 2. Delete all desktop shortcuts
   Delete "$DESKTOP\Brown AI.lnk"
