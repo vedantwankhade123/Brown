@@ -425,8 +425,10 @@ function writeUltronConfigFile(config) {
 
 /**
  * Belt-and-suspenders after Fresh install: marker lives beside the exe.
- * Fresh wipes INSTDIR (marker gone). If UltronData somehow still says
- * setupCompleted, force onboarding once and recreate the marker.
+ * NSIS installer deletes the marker on reinstall. If the marker is missing
+ * but UltronData still says setupCompleted, force onboarding again.
+ * The marker is only written once onboarding actually completes (see
+ * save-setup-status handler) — never eagerly at startup.
  */
 function reconcileInstallFirstRunMarker() {
   installFirstRunForced = false;
@@ -445,18 +447,8 @@ function reconcileInstallFirstRunMarker() {
     config.setupDeferred = false;
     writeUltronConfigFile(config);
 
-    try {
-      fs.writeFileSync(
-        markerPath,
-        JSON.stringify({
-          createdAt: new Date().toISOString(),
-          version: typeof app.getVersion === 'function' ? app.getVersion() : null
-        }, null, 2),
-        'utf8'
-      );
-    } catch (markerErr) {
-      console.warn('[setup] Could not write install first-run marker:', markerErr.message);
-    }
+    // Do NOT write the marker here — it is only written when onboarding
+    // actually completes via the 'save-setup-status' IPC handler.
 
     installFirstRunForced = true;
     console.log('[setup] Install first-run marker missing — forcing onboarding');
@@ -2338,6 +2330,27 @@ function setupIpcHandlers() {
         config.setupCompleted = false;
       }
       writeUltronConfigFile(config);
+
+      // Write the first-run marker beside the exe ONLY when setup is complete.
+      // This marker is checked by reconcileInstallFirstRunMarker() on startup
+      // and deleted by the NSIS installer on reinstall/upgrade.
+      if (config.setupCompleted && app.isPackaged) {
+        try {
+          const { getInstallRoot } = require('./paths');
+          const markerPath = path.join(getInstallRoot(), INSTALL_FIRST_RUN_MARKER);
+          fs.writeFileSync(
+            markerPath,
+            JSON.stringify({
+              createdAt: new Date().toISOString(),
+              version: typeof app.getVersion === 'function' ? app.getVersion() : null
+            }, null, 2),
+            'utf8'
+          );
+        } catch (markerErr) {
+          console.warn('[setup] Could not write install first-run marker:', markerErr.message);
+        }
+      }
+
       return { success: true };
     } catch (err) {
       return { success: false, error: err.message };

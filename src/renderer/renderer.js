@@ -18983,7 +18983,7 @@ document.getElementById('thd-release-notes')?.addEventListener('click', (e) => {
   if (rnModal) {
     rnModal.classList.remove('hidden');
   } else if (window.ultronAPI?.openExternal) {
-    window.ultronAPI.openExternal('https://github.com/vedantwankhade123/Brown-Releases/releases');
+    window.ultronAPI.openExternal('https://github.com/vedantwankhade123/Brown/releases');
   }
 });
 
@@ -22949,8 +22949,11 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
   }
 
   // First-launch check: If this is the user's first launch after install/setup, show the release notes popup once
+  // Do NOT show during onboarding — the onboarding screen must remain unobscured.
   setTimeout(() => {
     try {
+      const setupDone = localStorage.getItem('ultron-setup-completed') === 'true';
+      if (!setupDone) return; // Onboarding is pending — suppress release notes
       const seen = localStorage.getItem(RELEASE_NOTES_KEY);
       if (!seen) {
         showReleaseNotesModal();

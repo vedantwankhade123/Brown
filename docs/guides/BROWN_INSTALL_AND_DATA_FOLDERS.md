@@ -10,7 +10,7 @@ with the code that owns each path. Environment variables: `%LOCALAPPDATA%` =
 |---|---|
 | `%LOCALAPPDATA%\Programs\Brown AI\` | Default per-user install dir (user can change during setup). Contains `Brown AI.exe`, app resources, uninstaller. |
 | `<install dir>\resources\app.asar` | Packaged app code. |
-| `<install dir>\app-update.yml` | electron-updater config; auto-update feed = GitHub `vedantwankhade123/Brown-Releases`. |
+| `<install dir>\app-update.yml` | electron-updater config; auto-update feed = GitHub `vedantwankhade123/Brown`. |
 
 In **production** the unified data root defaults to the install folder itself
 (data lives next to the binary). See §3.

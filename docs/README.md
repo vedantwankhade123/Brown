@@ -17,26 +17,18 @@ Welcome to the central documentation index for the **Brown AI Ecosystem** (Windo
 - **[Features & Improvements](guides/FEATURES_AND_IMPROVEMENTS.md)**: Comprehensive catalog of UI features, agent tools, connectors, and autonomy capabilities.
 
 ### 3. 🎯 [Product & Roadmap](product/)
-- **[Roadmap & PRD](product/ROADMAP_AND_PRD.md)**: Product Requirements Document, multi-phase milestone plan (Phase 1 Mobile, Phase 2 Windows Enhancements, Phase 3 Cross-Platform).
-- **[Progress Tracking](product/progress-file.md)**: Feature checklist, active backlog, and sprint tracking log.
-- **[Website Design Prompt](product/BROWN_WEBSITE_PROMPT.md)**: UI/UX prompt and design system specifications for the web landing page.
+- **[Roadmap & PRD](product/ROADMAP_AND_PRD.md)**: Product Requirements Document and multi-phase milestone plan (Phase 1 Mobile, Phase 2 Windows Enhancements, Phase 3 Cross-Platform).
 
 ### 4. 🚀 [Releases & Changelogs](releases/)
-- **[Release Notes](releases/RELEASE_NOTES.md)**: Full changelog across major and minor releases.
-- **[Release v1.0.13](releases/v1.0.13.md)**: Specific release highlights and upgrade instructions for v1.0.13.
+- **[Release Notes](releases/RELEASE_NOTES.md)**: Official release notes and distribution changelogs.
 
 ### 5. 🔬 [Research & Papers](research/)
 - **[Research Paper](research/RESEARCH_PAPER.md)**: Academic and technical paper on local agentic reasoning, constrained planning, and on-device privacy.
 - **[Research Paper PDF](research/Research%20Paper.pdf)**: Formatted PDF document of the published research paper.
 - **[Research Progress Log](research/RESEARCH_PROGRESS.md)**: Detailed historical experiment log, benchmark runs, and model evaluations.
 
-### 6. ⚡ [Enhancements & Optimization](enhancements/)
-- **[AI Enhancement Guide](enhancements/AI-ENHANCEMENT-GUIDE.md)**: Optimization strategies for latency reduction, context trimming, and vector RAG.
-- **[Performance Fixes](enhancements/PERFORMANCE-FIX.md)**: Diagnostics and benchmarks for memory management and GPU/CPU resource allocation.
-- **[Infinite Loop Fix](enhancements/INFINITE-LOOP-FIX.md)**: Guardrails, recursion breakers, and stateful loop detection.
-- **[Splash Screen Setup](enhancements/SPLASH-SCREEN-SETUP.md)**: Splash window rendering and smooth transition configurations.
-- **[Load Order Specification](enhancements/LOAD-ORDER.md)**: Module load order and initialization lifecycle.
-- **[Integration Examples](enhancements/INTEGRATION-EXAMPLE.md)**: Code snippets for adding new tools, providers, and voice engines.
+### 6. ⚡ [Enhancements & Architecture](enhancements/)
+- **[AI Enhancement Guide](enhancements/AI-ENHANCEMENT-GUIDE.md)**: Comprehensive architecture and implementation guide for the thinking engine, autonomous execution, loop guards, and multi-provider models.
 
 ---
 

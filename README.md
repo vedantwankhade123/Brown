@@ -1,8 +1,8 @@
-﻿# Brown AI — Autonomous Local-First Windows AI Agent
+# Brown AI — Autonomous Local-First Windows AI Agent
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-v1.0-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown-Releases/releases)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown-Releases/releases)
+[![Release](https://img.shields.io/badge/Release-v1.0-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown/releases)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 <p align="center">
@@ -33,13 +33,13 @@
 
 ## 💾 Downloads & Installation
 
-Official pre-compiled binaries are published in the **[Brown-Releases](https://github.com/vedantwankhade123/Brown-Releases/releases)** repository:
+Official pre-compiled binaries are published in their respective repositories:
 
-| Build Type | File Name | Platform | Description |
+| Build Type | Download | Platform | Description |
 | :--- | :--- | :--- | :--- |
-| **Setup Installer** | [`Brown-AI-Setup-v1.0.exe`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0/Brown-AI-Setup-v1.0.exe) | Windows 10 / 11 (x64) | Standard guided installer with Start Menu & Desktop shortcuts. |
-| **Portable Binary** | [`Brown-AI-v1.0.exe`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0/Brown-AI-v1.0.exe) | Windows 10 / 11 (x64) | Standalone executable. Runs immediately without installation. |
-| **Android APK** | [`Brown-AI-Mobile-v1.0.apk`](https://github.com/vedantwankhade123/Brown-Releases/releases/download/v1.0/Brown-AI-Mobile-v1.0.apk) | Android 11+ | Direct APK install for phones and tablets. |
+| **Setup Installer** | [`Brown-AI-Setup-v1.0.exe`](https://github.com/vedantwankhade123/Brown/releases/latest) | Windows 10 / 11 (x64) | Standard guided installer with Start Menu & Desktop shortcuts. |
+| **Portable Binary** | [`Brown-AI-v1.0.exe`](https://github.com/vedantwankhade123/Brown/releases/latest) | Windows 10 / 11 (x64) | Standalone executable. Runs immediately without installation. |
+| **Android APK** | [`Brown-AI-Mobile-v1.0.apk`](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest) | Android 11+ | Direct APK install for phones and tablets. |
 
 ---
 
@@ -54,7 +54,6 @@ d:/Ultron/
 │   └── renderer/                 # Responsive UI, Chat UI, Visual Engine & Artifacts
 ├── mobile/                       # 📱 Mobile Companion App (React Native / Expo)
 ├── brown-website/                # 🌐 Official Product Website (React / Vite)
-├── brown-releases/               # 📦 Release Hub for Windows and Android Binaries
 ├── python/                       # 🐍 Local Python Microservice (Inference & Scraping)
 ├── Assets/                       # 🎨 Brand Assets, Vector Logos & App Icons
 ├── docs/                         # 📚 System Architecture, PRD, Guides & Release Notes

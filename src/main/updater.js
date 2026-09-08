@@ -39,7 +39,7 @@ function initAutoUpdater(mainWindow) {
     autoUpdater.setFeedURL({
       provider: 'github',
       owner: 'vedantwankhade123',
-      repo: 'Brown-Releases',
+      repo: 'Brown',
       releaseType: 'release'
     });
   } catch (e) {
@@ -97,7 +97,7 @@ function initAutoUpdater(mainWindow) {
     try {
       const https = require('https');
       return await new Promise((resolve) => {
-        const req = https.get('https://api.github.com/repos/vedantwankhade123/Brown-Releases/releases/latest', {
+        const req = https.get('https://api.github.com/repos/vedantwankhade123/Brown/releases/latest', {
           headers: { 'User-Agent': 'Brown-AI-Desktop-App' },
           timeout: 8000
         }, (res) => {
