@@ -1,4 +1,4 @@
-name: Build & Release (Desktop & Mobile)
+name: Release Windows Desktop App
 
 on:
   push:
@@ -19,65 +19,10 @@ permissions:
   contents: write
 
 jobs:
-  # ==========================================
-  # 0. RESOLVE VERSION & RELEASE METADATA
-  # ==========================================
-  prepare:
-    name: Prepare Release Metadata
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.meta.outputs.version }}
-      tag: ${{ steps.meta.outputs.tag }}
-      marketing_version: ${{ steps.meta.outputs.marketing_version }}
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Resolve Version & Tag
-        id: meta
-        run: |
-          INPUT_VER="${{ github.event.inputs.version }}"
-          INPUT_TAG="${{ github.event.inputs.release_tag }}"
-          PKG_VER=$(node -p "require('./package.json').version")
-
-          if [ -n "$INPUT_VER" ]; then
-            TARGET_VER=$(echo "$INPUT_VER" | sed 's/^v//')
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            TARGET_VER="${GITHUB_REF#refs/tags/v}"
-          else
-            TARGET_VER="$PKG_VER"
-          fi
-
-          if [ -n "$INPUT_TAG" ]; then
-            TAG="$INPUT_TAG"
-            [[ "$TAG" =~ ^v ]] || TAG="v$TAG"
-          else
-            TAG="v$TARGET_VER"
-          fi
-
-          MKT_VER=$(echo "$TAG" | sed 's/^v//')
-
-          echo "Resolved target version: $TARGET_VER"
-          echo "Resolved release tag:   $TAG"
-          echo "Marketing version:      $MKT_VER"
-
-          echo "version=$TARGET_VER" >> $GITHUB_OUTPUT
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "marketing_version=$MKT_VER" >> $GITHUB_OUTPUT
-
-  # ==========================================
-  # 1. BUILD WINDOWS DESKTOP INSTALLERS (Parallel)
-  # ==========================================
-  build-desktop:
-    name: Build Windows Desktop
-    needs: prepare
+  release-desktop:
+    name: Build & Release Windows Desktop
     runs-on: windows-latest
-    env:
-      TARGET_VERSION: ${{ needs.prepare.outputs.version }}
-      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-      MARKETING_VERSION: ${{ needs.prepare.outputs.marketing_version }}
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -90,260 +35,132 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Sync package.json Version
-        shell: pwsh
-        run: |
-          $ver = $env:TARGET_VERSION
-          if ($ver) {
-            Write-Host "Setting package.json version to $ver"
-            node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version=process.argv[1]; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');" $ver
-          }
-
       - name: Install Dependencies
         run: npm ci
 
-      - name: Run Desktop Tests
+      - name: Run Tests
         run: npm test
+
+      - name: Prepare Version and Release Metadata
+        shell: pwsh
+        run: |
+          $inputVersion = "${{ github.event.inputs.version }}".Trim()
+          $inputTag = "${{ github.event.inputs.release_tag }}".Trim()
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $currentPkgVersion = $pkg.version
+
+          if ($inputVersion) {
+            $targetVersion = $inputVersion -replace '^v', ''
+            if ($targetVersion -notmatch '^\d+\.\d+\.\d+') {
+              if ($targetVersion -match '^\d+\.\d+$') { $targetVersion = "$targetVersion.0" }
+            }
+            Write-Host "Updating package.json version to $targetVersion"
+            node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version=process.argv[1]; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');" $targetVersion
+          } else {
+            $targetVersion = $currentPkgVersion
+          }
+
+          if ($inputTag) {
+            $releaseTag = if ($inputTag.StartsWith('v')) { $inputTag } else { "v$inputTag" }
+          } elseif ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) {
+            $releaseTag = $env:GITHUB_REF_NAME
+          } else {
+            if ($targetVersion -match '^(\d+\.\d+)\.0$') {
+              $releaseTag = "v$($Matches[1])"
+            } else {
+              $releaseTag = "v$targetVersion"
+            }
+          }
+
+          $marketingVersion = $releaseTag -replace '^v', ''
+
+          Write-Host "Package Version: $targetVersion"
+          Write-Host "Release Tag: $releaseTag"
+          Write-Host "Marketing Version: $marketingVersion"
+
+          echo "TARGET_VERSION=$targetVersion" >> $env:GITHUB_ENV
+          echo "RELEASE_TAG=$releaseTag" >> $env:GITHUB_ENV
+          echo "MARKETING_VERSION=$marketingVersion" >> $env:GITHUB_ENV
+
+          # Prepare release notes
+          $notes = ".release-notes.md"
+          $candidates = @(
+            ".release-notes-v${marketingVersion}.md",
+            ".release-notes-v${targetVersion}.md",
+            $notes
+          )
+          $found = $false
+          foreach ($c in $candidates) {
+            if (Test-Path $c) {
+              Copy-Item -Force $c $notes
+              Write-Host "Using notes from $c"
+              $found = $true
+              break
+            }
+          }
+          if (-not $found) {
+            $lines = git log -n 10 --oneline --no-merges
+            @(
+              "# Brown AI Desktop v${marketingVersion}",
+              "",
+              "## Downloads (Windows)",
+              "- **Setup Installer**: \`Brown-AI-Setup-v${marketingVersion}.exe\` (Recommended)",
+              "- **Portable Edition**: \`Brown-AI-v${marketingVersion}.exe\`",
+              "- **Direct Latest Link**: [\`Brown-AI-Setup.exe\`](https://github.com/vedantwankhade123/Brown/releases/latest/download/Brown-AI-Setup.exe)",
+              "",
+              "## Recent Changes"
+            ) + $lines | Set-Content -Path $notes -Encoding utf8
+            Write-Host "Generated $notes from git history"
+          }
 
       - name: Build Windows Installers
         run: npm run dist:ci
 
-      - name: Stage Windows Output Assets
+      - name: Publish to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
+          $tag = $env:RELEASE_TAG
           $mver = $env:MARKETING_VERSION
-          New-Item -ItemType Directory -Force -Path "staging-desktop" | Out-Null
-
+          $notes = ".release-notes.md"
           $setup = Get-ChildItem dist -Filter "*Setup*.exe" | Select-Object -First 1
           $portable = Get-ChildItem dist -Filter "*.exe" | Where-Object { $_.Name -notmatch 'Setup' } | Select-Object -First 1
 
           if (-not $setup -or -not $portable) {
-            Write-Host "dist directory contents:"
-            Get-ChildItem dist | Format-Table Name, Length
-            throw "Failed to locate generated Setup or Portable EXE files in dist."
+            Write-Host "Built files in dist:"
+            Get-ChildItem dist -Filter *.exe | Format-Table Name, Length
+            throw "Could not find Setup/Portable EXEs for version $mver"
           }
 
-          Write-Host "Found Setup: $($setup.FullName)"
-          Write-Host "Found Portable: $($portable.FullName)"
+          # Prepare standardized and permanent asset names
+          $setupVer = "dist/Brown-AI-Setup-v${mver}.exe"
+          $portableVer = "dist/Brown-AI-v${mver}.exe"
+          $setupLatest = "dist/Brown-AI-Setup.exe"
+          $portableLatest = "dist/Brown-AI-Portable.exe"
 
-          # Versioned assets
-          Copy-Item -Force $setup.FullName "staging-desktop/Brown-AI-Setup-v${mver}.exe"
-          Copy-Item -Force $portable.FullName "staging-desktop/Brown-AI-v${mver}.exe"
+          Copy-Item -Force $setup.FullName $setupVer
+          Copy-Item -Force $portable.FullName $portableVer
+          Copy-Item -Force $setup.FullName $setupLatest
+          Copy-Item -Force $portable.FullName $portableLatest
 
-          # Permanent static URLs for website & direct links
-          Copy-Item -Force $setup.FullName "staging-desktop/Brown-AI-Setup.exe"
-          Copy-Item -Force $portable.FullName "staging-desktop/Brown-AI-Portable.exe"
+          $uploadFiles = @($setupVer, $portableVer, $setupLatest, $portableLatest)
+          $yml = Get-ChildItem dist -Filter "latest.yml" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($yml) { $uploadFiles += $yml.FullName }
 
-          # Auto-update manifest for electron-updater
-          if (Test-Path "dist/latest.yml") {
-            Copy-Item -Force "dist/latest.yml" "staging-desktop/latest.yml"
+          Write-Host "Uploading files to release $tag :"
+          $uploadFiles | ForEach-Object { Write-Host "  $_" }
+
+          $existing = gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $tag exists — uploading/replacing assets"
+            gh release upload $tag $uploadFiles --clobber
+            gh release edit $tag --title "Brown AI Desktop v${mver}" --notes-file $notes
+          } else {
+            Write-Host "Creating release $tag"
+            gh release create $tag $uploadFiles `
+              --title "Brown AI Desktop v${mver}" `
+              --notes-file $notes
           }
 
-          Write-Host "Staged desktop files:"
-          Get-ChildItem staging-desktop | Format-Table Name, Length
-
-      - name: Upload Desktop Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-assets
-          path: staging-desktop/*
-          retention-days: 1
-
-  # ==========================================
-  # 2. BUILD ANDROID MOBILE APK (Parallel)
-  # ==========================================
-  build-mobile:
-    name: Build Android APK
-    needs: prepare
-    runs-on: ubuntu-latest
-    env:
-      TARGET_VERSION: ${{ needs.prepare.outputs.version }}
-      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-      MARKETING_VERSION: ${{ needs.prepare.outputs.marketing_version }}
-    steps:
-      - name: Checkout Code with Submodules
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-
-      - name: Setup Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: mobile/package-lock.json
-
-      - name: Setup Java 17 (Temurin)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-          cache: 'gradle'
-
-      - name: Setup Android SDK & NDK
-        run: |
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/26.1.10909125" >> $GITHUB_ENV
-          if [ ! -d "$ANDROID_SDK_ROOT/ndk/26.1.10909125" ]; then
-            echo "Installing NDK 26.1.10909125..."
-            yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --install "ndk;26.1.10909125"
-          else
-            echo "NDK 26.1.10909125 is already available."
-          fi
-
-      - name: Install Mobile Dependencies
-        run: |
-          cd mobile
-          npm ci
-
-      - name: Run Mobile Tests & Verification
-        run: |
-          cd mobile
-          npm test
-
-      - name: Build Android Release APK
-        run: |
-          cd mobile/android
-          chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon -Dorg.gradle.jvmargs="-Xmx3072m -XX:MaxMetaspaceSize=512m"
-
-      - name: Stage Android Output Assets
-        run: |
-          mkdir -p staging-mobile
-          MVER="${{ env.MARKETING_VERSION }}"
-          APK_PATH=$(find mobile/android/app/build/outputs/apk/release -type f -name "*.apk" | head -n 1)
-
-          if [ -z "$APK_PATH" ]; then
-            echo "::error::No APK found under mobile/android/app/build/outputs/apk/release"
-            exit 1
-          fi
-
-          echo "Found release APK at: $APK_PATH"
-          # Versioned APK
-          cp "$APK_PATH" "staging-mobile/Brown-AI-Mobile-v${MVER}.apk"
-          # Permanent static APK for website & direct links
-          cp "$APK_PATH" "staging-mobile/Brown-AI-Mobile.apk"
-
-          ls -lh staging-mobile/
-
-      - name: Upload Mobile Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: mobile-assets
-          path: staging-mobile/*
-          retention-days: 1
-
-  # ==========================================
-  # 3. PUBLISH UNIFIED GITHUB RELEASE
-  # ==========================================
-  publish-release:
-    name: Publish Unified GitHub Release
-    needs: [prepare, build-desktop, build-mobile]
-    runs-on: ubuntu-latest
-    env:
-      TARGET_VERSION: ${{ needs.prepare.outputs.version }}
-      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-      MARKETING_VERSION: ${{ needs.prepare.outputs.marketing_version }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download Desktop Assets
-        uses: actions/download-artifact@v4
-        with:
-          name: desktop-assets
-          path: release-assets
-
-      - name: Download Mobile Assets
-        uses: actions/download-artifact@v4
-        with:
-          name: mobile-assets
-          path: release-assets
-
-      - name: Prepare Release Notes
-        run: |
-          MVER="${{ env.MARKETING_VERSION }}"
-          NOTES_FILE=".release-notes.md"
-          CANDIDATES=(
-            ".release-notes-v${MVER}.md"
-            ".release-notes-v${{ env.TARGET_VERSION }}.md"
-            "$NOTES_FILE"
-          )
-
-          FOUND=false
-          for c in "${CANDIDATES[@]}"; do
-            if [ -f "$c" ]; then
-              cp "$c" "$NOTES_FILE"
-              echo "Using existing notes from $c"
-              FOUND=true
-              break
-            fi
-          done
-
-          if [ "$FOUND" = false ]; then
-            echo "Generating release notes from git history..."
-            cat <<EOF > "$NOTES_FILE"
-# Brown AI v${MVER} (Desktop & Mobile)
-
-## Downloads
-
-### Windows Desktop (v${MVER})
-- **Setup Installer**: \`Brown-AI-Setup-v${MVER}.exe\` (Recommended)
-- **Portable Edition**: \`Brown-AI-v${MVER}.exe\`
-- **Permanent Direct Link**: [\`Brown-AI-Setup.exe\`](https://github.com/vedantwankhade123/Brown/releases/latest/download/Brown-AI-Setup.exe)
-
-### Android Mobile (v${MVER})
-- **Direct APK**: \`Brown-AI-Mobile-v${MVER}.apk\`
-- **Permanent Direct Link**: [\`Brown-AI-Mobile.apk\`](https://github.com/vedantwankhade123/Brown/releases/latest/download/Brown-AI-Mobile.apk)
-
-## Changes in this Release
-$(git log -n 10 --oneline --no-merges)
-EOF
-          fi
-
-          cat "$NOTES_FILE"
-
-      - name: Publish to GitHub Releases
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: Brown AI ${{ env.RELEASE_TAG }} (Desktop & Mobile)
-          body_path: .release-notes.md
-          files: release-assets/*
-          draft: false
-          prerelease: false
-
-      - name: Generate release.json manifest
-        run: |
-          TAG="${{ env.RELEASE_TAG }}"
-          MVER="${{ env.MARKETING_VERSION }}"
-          VER="${{ env.TARGET_VERSION }}"
-          DATE=$(date +'%Y-%m-%d')
-
-          cat <<EOF > release.json
-{
-  "version": "$VER",
-  "marketingVersion": "$MVER",
-  "tagName": "$TAG",
-  "releaseDate": "$DATE",
-  "setupUrl": "https://github.com/vedantwankhade123/Brown/releases/download/$TAG/Brown-AI-Setup-v$MVER.exe",
-  "portableUrl": "https://github.com/vedantwankhade123/Brown/releases/download/$TAG/Brown-AI-v$MVER.exe",
-  "mobileApkUrl": "https://github.com/vedantwankhade123/Brown/releases/download/$TAG/Brown-AI-Mobile-v$MVER.apk",
-  "setupName": "Brown-AI-Setup-v$MVER.exe",
-  "portableName": "Brown-AI-v$MVER.exe",
-  "mobileApkName": "Brown-AI-Mobile-v$MVER.apk"
-}
-EOF
-          cat release.json
-
-      - name: Summary
-        run: |
-          echo "===================================================="
-          echo "Successfully published Brown AI ${{ env.RELEASE_TAG }} to GitHub Releases!"
-          echo "Assets available in release:"
-          ls -lh release-assets/
-          echo "===================================================="
+          Write-Host "Successfully published Windows Desktop assets to $tag!"
