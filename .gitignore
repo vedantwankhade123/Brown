@@ -70,3 +70,8 @@ secrets/
 # Sibling project checkouts (separate repos)
 brown-website/
 brown-releases/
+
+# Private documentation & internal guides (never commit or push)
+docs/guides/
+guides/
+guide/
