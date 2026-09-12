@@ -15,7 +15,9 @@
   <strong><a href="https://usebrown.online/">usebrown.online</a></strong> — Official website with setup guides, docs, and direct downloads.
 </p>
 
-**Brown AI** is an autonomous, privacy-first, local-first artificial intelligence assistant engineered for Windows. Powered by local on-device quantized LLMs (via Ollama, GGUF, and Hugging Face) and optional hybrid cloud intelligence (Gemini 2.5/3, Claude 3.7, DeepSeek R1, OpenAI), Brown executes system workflows, local code execution, document analysis, voice synthesis, and desktop orchestration with zero mandatory cloud telemetry.
+**Brown AI** is an autonomous, privacy-first, local-first artificial intelligence assistant engineered exclusively for **Windows** and **Android**. Powered by local on-device quantized LLMs (via Ollama, GGUF, and Hugging Face) and optional hybrid cloud intelligence (Gemini 2.5/3, Claude 3.7, DeepSeek R1, OpenAI), Brown executes system workflows, local code execution, document analysis, voice synthesis, and desktop orchestration with zero mandatory cloud telemetry.
+
+> **Note on Platform Support**: Brown AI is designed and optimized strictly for **Windows (Windows 10 & 11, 64-bit)** and **Android (Android 10+)**. macOS, iOS, or other platforms are not supported.
 
 ---
 
@@ -26,7 +28,7 @@
 - **🎛️ Dynamic Performance Controls**: Switch between **Auto Adaptive**, **GPU Priority** (maximum VRAM offload), and **CPU Only** for power-efficient conversation.
 - **🎙️ Sovereign Neural Voice**: Local Whisper STT and offline Kokoro TTS for ultra-low latency voice interaction without cloud endpoints.
 - **📂 Local Knowledge RAG**: Ingest PDFs, markdown, and local files with hybrid BM25 + dense vector semantic retrieval.
-- **📱 Companion Mobile Sync**: Pair securely with Brown Mobile over local Wi-Fi using PIN verification to sync sessions across devices.
+- **📱 Companion Mobile Sync**: Pair securely with Brown Mobile (Android) over local Wi-Fi using PIN verification to sync sessions across devices.
 - **🎨 Modern Dark & Light Theming**: High-contrast, accessibility-focused cyberpunk dark mode and refined daylight theme.
 
 ---
@@ -37,9 +39,9 @@ Official pre-compiled binaries are published in their respective repositories:
 
 | Build Type | Download | Platform | Description |
 | :--- | :--- | :--- | :--- |
-| **Setup Installer** | [`Brown-AI-Setup-v1.0.exe`](https://github.com/vedantwankhade123/Brown/releases/latest) | Windows 10 / 11 (x64) | Standard guided installer with Start Menu & Desktop shortcuts. |
-| **Portable Binary** | [`Brown-AI-v1.0.exe`](https://github.com/vedantwankhade123/Brown/releases/latest) | Windows 10 / 11 (x64) | Standalone executable. Runs immediately without installation. |
-| **Android APK** | [`Brown-AI-Mobile-v1.0.apk`](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest) | Android 11+ | Direct APK install for phones and tablets. |
+| **Setup Installer** | [`Brown-AI-Setup-v1.0.1.exe`](https://github.com/vedantwankhade123/Brown/releases/latest) | Windows 10 / 11 (x64) | Standard guided installer with Start Menu & Desktop shortcuts. |
+| **Portable Binary** | [`Brown-AI-v1.0.1.exe`](https://github.com/vedantwankhade123/Brown/releases/latest) | Windows 10 / 11 (x64) | Standalone executable. Runs immediately without installation. |
+| **Android APK** | [`Brown-AI-Mobile.apk`](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest) | Android 11+ | Direct APK install for phones and tablets. |
 
 ---
 
@@ -52,11 +54,11 @@ d:/Ultron/
 │   ├── main/                     # Electron main process, IPC handlers, RAG & hardware
 │   ├── preload/                  # Secure IPC preload bridge
 │   └── renderer/                 # Responsive UI, Chat UI, Visual Engine & Artifacts
-├── mobile/                       # 📱 Mobile Companion App (React Native / Expo)
+├── mobile/                       # 📱 Mobile Companion App (React Native / Android)
 ├── brown-website/                # 🌐 Official Product Website (React / Vite)
 ├── python/                       # 🐍 Local Python Microservice (Inference & Scraping)
 ├── Assets/                       # 🎨 Brand Assets, Vector Logos & App Icons
-├── docs/                         # 📚 System Architecture, PRD, Guides & Release Notes
+├── docs/                         # 📚 System Architecture, PRD & Release Notes
 ├── scripts/                      # 🛠️ Build, Release, and Automation Utilities
 └── tests/                        # 🧪 Desktop Automated Verification Test Suite
 ```
@@ -109,14 +111,23 @@ node tests/verify-context-platform.test.js
 - **[System Architecture](docs/architecture/SYSTEM_ARCHITECTURE.md)**: Multi-process topology, security sandbox, and model connectors.
 - **[Technical Specifications](docs/architecture/DOCUMENTATION.md)**: IPC protocol, Kokoro TTS, Whisper STT, and sync specifications.
 - **[Release Notes](docs/releases/RELEASE_NOTES.md)**: Detailed changelog of all desktop and mobile releases.
-- **[Folder Structure & Data Paths](docs/guides/BROWN_INSTALL_AND_DATA_FOLDERS.md)**: Complete guide to app data and model cache locations.
+
+---
+
+## 👨‍💻 Developer & Ownership
+
+- **Lead Architect & Developer**: **Vedant Wankhade** (Full Stack Developer)
+- **Portfolio**: [https://vedantwankhade.netlify.app/](https://vedantwankhade.netlify.app/)
+- **LinkedIn**: [https://www.linkedin.com/in/vedant-wankhade123](https://www.linkedin.com/in/vedant-wankhade123)
+- **GitHub Profile**: [https://github.com/vedantwankhade123](https://github.com/vedantwankhade123)
+- **Email**: `vedantwankhade47@gmail.com`
 
 ---
 
 ## 📄 License & Intellectual Property
 
-Brown AI and its desktop and mobile applications are **Proprietary & Confidential Software**. All Rights Reserved.
+Brown AI and its applications are **Proprietary & Confidential Software**. All Rights Reserved.
 
 - Copyright (c) 2026 Vedant Wankhade.
 - Website: [https://usebrown.online](https://usebrown.online)
-- Inquiries: `contact@usebrown.online`
+- Official Support & Inquiries: `contact@usebrown.online`
