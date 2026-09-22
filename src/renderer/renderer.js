@@ -2968,7 +2968,7 @@ function rebuildSessionHistoryList() {
     .forEach(id => {
     const session = conversationsStore[id];
     const item = document.createElement('div');
-    item.className = `nav-item font-small session-history-item${id === currentSessionId ? ' active' : ''}`;
+    item.className = `nav-item session-history-item${id === currentSessionId ? ' active' : ''}`;
     item.setAttribute('data-session-id', id);
     item.innerHTML = buildSessionHistoryItemMarkup(id, session);
 
@@ -2987,12 +2987,9 @@ function rebuildSessionHistoryList() {
 
 function buildSessionHistoryItemMarkup(id, session) {
   const title = session?.title || 'New chat';
-  const timestampRaw = session?.updatedAt || session?.createdAt || (session?.messages && session.messages[session.messages.length - 1]?.createdAt);
-  const formattedTime = formatSidebarTimestamp(timestampRaw);
   return `
     <span class="session-row-text">
       <span class="nav-text text-truncate">${escapeHtml(title)}</span>
-      ${formattedTime ? `<span class="session-timestamp font-xsmall">${escapeHtml(formattedTime)}</span>` : ''}
     </span>
     <button type="button" class="session-delete-btn" data-session-id="${escapeHtml(id)}" title="Delete chat" aria-label="Delete chat">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
@@ -8509,6 +8506,39 @@ function attachModelItemHoverDetails(item, modelName, providerId) {
   });
 }
 
+function buildModelDropdownItemHtml(modelName, displayName, tag, isActive, isWarning) {
+  let tierBadge = '';
+  let speedBadge = '';
+  const lower = (modelName || '').toLowerCase();
+  
+  if (lower.includes('flash')) {
+    tierBadge = 'Medium';
+    speedBadge = `Fast <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block; vertical-align:middle; margin-left:1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+  } else if (lower.includes('pro') || lower.includes('plus')) {
+    tierBadge = 'Low';
+  } else if (tag && tag !== 'Cloud' && tag !== 'API') {
+    tierBadge = tag;
+  }
+
+  let rightIcon = '';
+  if (isActive) {
+    rightIcon = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+  } else if (isWarning || lower.includes('thinking')) {
+    rightIcon = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#facc15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+  } else {
+    rightIcon = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#71717a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+  }
+
+  return `
+    <div style="display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; overflow: hidden;">
+      <span class="model-name-text">${displayName || modelName}</span>
+      ${tierBadge ? `<span class="model-tag-pill">${tierBadge}</span>` : ''}
+      ${speedBadge ? `<span class="model-tag-pill">${speedBadge}</span>` : ''}
+    </div>
+    <span class="model-item-right">${rightIcon}</span>
+  `;
+}
+
 function renderModelDropdownList() {
   if (!modelDropdownList) return;
   modelDropdownList.innerHTML = '';
@@ -8518,22 +8548,11 @@ function renderModelDropdownList() {
 
   // Render Google Gemini section
   if (hasGeminiKey && geminiConnectionState === 'connected' && ONLINE_GEMINI_MODELS.length > 0) {
-    const onlineHeader = document.createElement('div');
-    onlineHeader.className = 'model-dropdown-section-title';
-    onlineHeader.textContent = 'Google Gemini';
-    modelDropdownList.appendChild(onlineHeader);
-
     ONLINE_GEMINI_MODELS.filter(m => isGeminiChatModel(m.name)).forEach(model => {
       hasAnyRenderedModel = true;
       const item = document.createElement('div');
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
-      item.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="../../Assets/Brand-Assets/gemini-logo.png" alt="Gemini" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
-          <span class="model-name-text">${model.name}</span>
-        </div>
-        <span class="model-badge">${model.tag || 'Cloud'}</span>
-      `;
+      item.innerHTML = buildModelDropdownItemHtml(model.name, model.name, model.tag, model.name === activeModel, false);
       attachModelItemHoverDetails(item, model.name, 'gemini');
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept('');
@@ -8564,25 +8583,13 @@ function renderModelDropdownList() {
     providers.forEach(p => {
       const pModels = hubModels.filter(m => m.provider === p.id);
       if (pModels.length > 0) {
-        const pHeader = document.createElement('div');
-        pHeader.className = 'model-dropdown-section-title';
-        pHeader.textContent = p.label;
-        modelDropdownList.appendChild(pHeader);
-
-        const pLogo = getBrandAssetLogo(p.id);
-
         pModels.forEach(model => {
           hasAnyRenderedModel = true;
           const item = document.createElement('div');
           item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
           const badgeTag = model.tag || (p.id === 'custom' ? 'CUSTOM' : 'API');
-          item.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-              <img src="${pLogo}" alt="${p.label}" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
-              <span class="model-name-text">${model.displayName || model.name}</span>
-            </div>
-            <span class="model-badge">${badgeTag}</span>
-          `;
+          const isWarn = p.id === 'anthropic' || (model.displayName || '').includes('Thinking') || !model.hasKey;
+          item.innerHTML = buildModelDropdownItemHtml(model.name, model.displayName || model.name, badgeTag, model.name === activeModel, isWarn);
           attachModelItemHoverDetails(item, model.displayName || model.name, p.id);
           item.addEventListener('click', async () => {
             await unloadOllamaModelsExcept('');
@@ -8603,22 +8610,11 @@ function renderModelDropdownList() {
 
   const cloudModels = getInstalledCloudModels();
   if (cloudModels.length > 0) {
-    const cloudHeader = document.createElement('div');
-    cloudHeader.className = 'model-dropdown-section-title';
-    cloudHeader.textContent = 'Ollama Cloud';
-    modelDropdownList.appendChild(cloudHeader);
-
     cloudModels.forEach((model) => {
       hasAnyRenderedModel = true;
       const item = document.createElement('div');
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
-      item.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama Cloud" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
-          <span class="model-name-text">${model.name}</span>
-        </div>
-        <span class="model-badge">Cloud</span>
-      `;
+      item.innerHTML = buildModelDropdownItemHtml(model.name, model.name, 'Cloud', model.name === activeModel, false);
       attachModelItemHoverDetails(item, model.name, 'cloud');
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept(model.name);
@@ -8636,11 +8632,6 @@ function renderModelDropdownList() {
   }
 
   // Render Local Ollama Models section
-  const localHeader = document.createElement('div');
-  localHeader.className = 'model-dropdown-section-title';
-  localHeader.textContent = 'Offline Models';
-  modelDropdownList.appendChild(localHeader);
-
   const map = new Map();
   getInstalledOfflineModels().forEach(m => map.set(m.name, m));
   const uniqueModels = Array.from(map.values());
@@ -8657,23 +8648,11 @@ function renderModelDropdownList() {
       const item = document.createElement('div');
       item.className = `model-dropdown-item${model.name === activeModel ? ' active' : ''}`;
       
-      const isHf = model.name.startsWith('hf.co/');
-      const modelLogo = isHf
-        ? '../../Assets/Brand-Assets/hf-logo.png'
-        : '../../Assets/Brand-Assets/ollama-white-logo.png';
-      let badgeText = isHf ? 'HF GGUF' : 'Free';
+      let badgeText = '';
       if (model.name.includes(':')) {
         badgeText = model.name.split(':')[1].toUpperCase();
       }
-      const badgeHtml = badgeText === 'LATEST' ? '' : `<span class="model-badge">${badgeText}</span>`;
-
-      item.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 8px; flex: 1 1 0; min-width: 0; overflow: hidden;">
-          <img src="${modelLogo}" alt="${isHf ? 'Hugging Face' : 'Ollama'}" style="width: 15px; height: 15px; object-fit: contain; flex-shrink: 0;" />
-          <span class="model-name-text">${model.name}</span>
-        </div>
-        ${badgeHtml}
-      `;
+      item.innerHTML = buildModelDropdownItemHtml(model.name, model.name, badgeText, model.name === activeModel, false);
       attachModelItemHoverDetails(item, model.name, 'local');
       item.addEventListener('click', async () => {
         await unloadOllamaModelsExcept(model.name);
@@ -18616,28 +18595,7 @@ function updateSplashStatus(message, immediate = false) {
 }
 
 function startSplashStatusCycle() {
-  const messages = [
-    { at: 0, text: 'Starting up...' },
-    { at: 1800, text: 'Checking your models...' },
-    { at: 3600, text: 'Syncing your workspace...' },
-    { at: 5400, text: 'Checking connections...' },
-    { at: 7200, text: 'Connecting services...' },
-    { at: 8800, text: 'Getting everything ready...' }
-  ];
-
-  const start = Date.now();
-  // Immediately set first message without fade lag
-  updateSplashStatus(messages[0].text, true);
-
-  splashStatusInterval = setInterval(() => {
-    const elapsed = Date.now() - start;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (elapsed >= messages[i].at) {
-        updateSplashStatus(messages[i].text);
-        break;
-      }
-    }
-  }, 100);
+  // Status text removed — splash screen shows only the logo
 }
 
 function stopSplashStatusCycle() {
@@ -18760,7 +18718,7 @@ syncSecurityMode();
 const btnToggleLeftSidebar = document.getElementById('btn-toggle-left-sidebar');
 const leftSidebar = document.getElementById('left-sidebar');
 if (btnToggleLeftSidebar && leftSidebar) {
-  if (localStorage.getItem('ultron-left-sidebar-collapsed') !== 'false') {
+  if (localStorage.getItem('ultron-left-sidebar-collapsed') === 'true') {
     leftSidebar.classList.add('collapsed');
   }
   btnToggleLeftSidebar.addEventListener('click', () => {
@@ -19311,10 +19269,12 @@ document.getElementById('tad-go-settings')?.addEventListener('click', () => {
   if (typeof openSettingsPanel === 'function') openSettingsPanel('apps');
 });
 
-// Sync dropdown (device info + 30s pair code + QR + regenerate)
+// Sync dropdown (device info + separate QR / pair code flows)
 const syncBtn = document.getElementById('titlebar-btn-sync');
 const syncDD = document.getElementById('titlebar-sync-dropdown');
-let _syncExpiryTimer = null;
+let _syncQrTimer = null;
+let _syncPairTimer = null;
+
 function drawPseudoQR(canvas, payload) {
   if (!canvas || !canvas.getContext) return;
   const ctx = canvas.getContext('2d'); const N = 21; const size = canvas.width; const cell = size / (N + 2);
@@ -19326,6 +19286,7 @@ function drawPseudoQR(canvas, payload) {
   const finder = (fx, fy) => { ctx.fillStyle='#000'; ctx.fillRect((fx+1)*cell,(fy+1)*cell,7*cell,7*cell); ctx.fillStyle='#fff'; ctx.fillRect((fx+2)*cell,(fy+2)*cell,5*cell,5*cell); ctx.fillStyle='#000'; ctx.fillRect((fx+3)*cell,(fy+3)*cell,3*cell,3*cell); };
   finder(0,0); finder(N-7,0); finder(0,N-7);
 }
+
 async function refreshSyncInfo() {
   try {
     const info = await window.ultronAPI?.getDesktopSyncInfo?.();
@@ -19341,30 +19302,69 @@ async function refreshSyncInfo() {
     }
   } catch (e) {}
 }
-function startSyncExpiry(seconds) {
-  const expEl = document.getElementById('tsd-sync-expiry');
-  let remaining = seconds;
-  if (expEl) expEl.textContent = `Code expires in ${remaining}s`;
-  if (_syncExpiryTimer) clearInterval(_syncExpiryTimer);
-  _syncExpiryTimer = setInterval(() => {
-    remaining -= 1;
-    if (expEl) expEl.textContent = remaining > 0 ? `Code expires in ${remaining}s` : 'Code expired — regenerate';
-    if (remaining <= 0) clearInterval(_syncExpiryTimer);
-  }, 1000);
+
+// Show/hide helpers for the three mutually exclusive sections
+function showSyncSection(sectionId) {
+  document.getElementById('tsd-initial-actions')?.classList.add('hidden');
+  document.getElementById('tsd-qr-section')?.classList.add('hidden');
+  document.getElementById('tsd-paircode-section')?.classList.add('hidden');
+  document.getElementById(sectionId)?.classList.remove('hidden');
 }
-async function generateSyncPair() {
+
+function resetToInitialActions() {
+  if (_syncQrTimer) { clearInterval(_syncQrTimer); _syncQrTimer = null; }
+  if (_syncPairTimer) { clearInterval(_syncPairTimer); _syncPairTimer = null; }
+  document.getElementById('tsd-qr-section')?.classList.add('hidden');
+  document.getElementById('tsd-paircode-section')?.classList.add('hidden');
+  document.getElementById('tsd-initial-actions')?.classList.remove('hidden');
+}
+// Flag to suppress the fullscreen pair modal when generating from the dropdown
+window._suppressPairModal = false;
+
+// QR generation flow — only shows QR, no pair modal
+async function generateQR() {
+  window._suppressPairModal = true;
   const res = await window.ultronAPI?.createMobilePairCode?.();
-  const codeEl = document.getElementById('tsd-pair-code');
-  const regenBtn = document.getElementById('tsd-regen-qr');
   if (res && res.success && res.code) {
+    const codeEl = document.getElementById('tsd-pair-code');
     if (codeEl) { codeEl.textContent = res.code; codeEl.classList.remove('hidden'); }
     drawPseudoQR(document.getElementById('tsd-qr'), res.code);
-    document.getElementById('tsd-qr-veil')?.classList.add('hidden');
-    document.getElementById('tsd-qr-refresh')?.classList.add('hidden');
-    if (regenBtn) regenBtn.textContent = 'Regenerate QR';
-    startSyncExpiry(res.expiresIn || 30);
+    showSyncSection('tsd-qr-section');
+
+    let remaining = res.expiresIn || 30;
+    const expEl = document.getElementById('tsd-qr-expiry');
+    if (expEl) expEl.textContent = `Code expires in ${remaining}s`;
+    if (_syncQrTimer) clearInterval(_syncQrTimer);
+    _syncQrTimer = setInterval(() => {
+      remaining -= 1;
+      if (expEl) expEl.textContent = remaining > 0 ? `Code expires in ${remaining}s` : 'Code expired — regenerate';
+      if (remaining <= 0) { clearInterval(_syncQrTimer); _syncQrTimer = null; }
+    }, 1000);
   }
 }
+
+// Pair Code generation flow — only shows text code, no QR
+async function generatePairCode() {
+  window._suppressPairModal = true;
+  const res = await window.ultronAPI?.createMobilePairCode?.();
+  if (res && res.success && res.code) {
+    const codeDisplay = document.getElementById('tsd-paircode-display');
+    if (codeDisplay) codeDisplay.textContent = res.code;
+    showSyncSection('tsd-paircode-section');
+
+    let remaining = res.expiresIn || 30;
+    const expEl = document.getElementById('tsd-paircode-expiry');
+    if (expEl) expEl.textContent = `Code expires in ${remaining}s`;
+    if (_syncPairTimer) clearInterval(_syncPairTimer);
+    _syncPairTimer = setInterval(() => {
+      remaining -= 1;
+      if (expEl) expEl.textContent = remaining > 0 ? `Code expires in ${remaining}s` : 'Code expired — regenerate';
+      if (remaining <= 0) { clearInterval(_syncPairTimer); _syncPairTimer = null; }
+    }, 1000);
+  }
+}
+
+// Open dropdown — always reset to initial state
 if (syncBtn && syncDD) syncBtn.addEventListener('click', async (e) => {
   e.stopPropagation();
   document.querySelectorAll('.titlebar-settings-dropdown').forEach(d => { if (d !== syncDD) hideDDAnimated(d); });
@@ -19372,20 +19372,17 @@ if (syncBtn && syncDD) syncBtn.addEventListener('click', async (e) => {
   toggleDD(syncDD);
   if (willOpen) {
     refreshSyncInfo();
-    // Show a dummy QR placeholder with a white fade veil and prominent refresh button until the user generates.
-    document.getElementById('tsd-pair-code')?.classList.add('hidden');
-    const qr = document.getElementById('tsd-qr');
-    if (qr) drawPseudoQR(qr, 'BROWN-SYNC-PLACEHOLDER');
-    document.getElementById('tsd-qr-veil')?.classList.remove('hidden');
-    document.getElementById('tsd-qr-refresh')?.classList.remove('hidden');
-    const regenBtn = document.getElementById('tsd-regen-qr');
-    if (regenBtn) regenBtn.textContent = 'Generate QR';
-    const exp = document.getElementById('tsd-sync-expiry'); if (exp) exp.textContent = 'Tap the refresh icon or “Generate Pair Code”';
+    resetToInitialActions();
   }
 });
-document.getElementById('tsd-qr-refresh')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
-document.getElementById('tsd-generate-pair')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
-document.getElementById('tsd-regen-qr')?.addEventListener('click', (e) => { e.stopPropagation(); generateSyncPair(); });
+
+// Button bindings
+document.getElementById('tsd-generate-qr-btn')?.addEventListener('click', (e) => { e.stopPropagation(); generateQR(); });
+document.getElementById('tsd-qr-regenerate')?.addEventListener('click', (e) => { e.stopPropagation(); generateQR(); });
+document.getElementById('tsd-qr-cancel')?.addEventListener('click', (e) => { e.stopPropagation(); resetToInitialActions(); });
+document.getElementById('tsd-generate-pair-btn')?.addEventListener('click', (e) => { e.stopPropagation(); generatePairCode(); });
+document.getElementById('tsd-paircode-regenerate')?.addEventListener('click', (e) => { e.stopPropagation(); generatePairCode(); });
+document.getElementById('tsd-paircode-cancel')?.addEventListener('click', (e) => { e.stopPropagation(); resetToInitialActions(); });
 
 // Bind right sidebar collapsible sections (collapse state persisted per section)
 const rightSections = document.querySelectorAll('.right-section.collapsible');
@@ -21798,7 +21795,7 @@ function setupAutoUpdaterUI() {
 
   const RING_BTN_C = 2 * Math.PI * 15;
   const RING_DD_C = 2 * Math.PI * 31;
-  let updateState = 'checking'; // checking | none | available | downloading | downloaded
+  let updateState = 'none'; // checking | none | available | downloading | downloaded
   let updateInfo = null;
   let updateProgress = { percent: 0, bytesPerSecond: 0, transferred: 0, total: 0 };
   let dropdownOpen = false;
@@ -21834,6 +21831,7 @@ function setupAutoUpdaterUI() {
     if (updateState === 'checking') {
       topBtn.classList.add('state-checking');
       topIconSpin?.classList.remove('hidden');
+      topIconDownload?.classList.remove('hidden');
       if (topLabel) topLabel.textContent = 'Checking for updates';
     } else if (updateState === 'none') {
       topBtn.classList.add('state-none');
@@ -21995,13 +21993,39 @@ function setupAutoUpdaterUI() {
 
   const handleCheckForUpdates = async () => {
     applyUpdateStatus({ status: 'checking' });
+    let settled = false;
+    const safetyTimeout = setTimeout(() => {
+      if (!settled && updateState === 'checking') {
+        settled = true;
+        applyUpdateStatus({ status: 'not-available', version: '1.0.1' });
+      }
+    }, 6000);
+
     try {
-      const res = await window.ultronAPI.checkForUpdates();
-      if (res) {
-        applyUpdateStatus(res);
+      if (window.ultronAPI && typeof window.ultronAPI.checkForUpdates === 'function') {
+        const res = await window.ultronAPI.checkForUpdates();
+        if (!settled) {
+          settled = true;
+          clearTimeout(safetyTimeout);
+          if (res && res.status) {
+            applyUpdateStatus(res);
+          } else {
+            applyUpdateStatus({ status: 'not-available', version: '1.0.1' });
+          }
+        }
+      } else {
+        if (!settled) {
+          settled = true;
+          clearTimeout(safetyTimeout);
+          applyUpdateStatus({ status: 'not-available', version: '1.0.1' });
+        }
       }
     } catch (err) {
-      applyUpdateStatus({ status: 'error', error: err?.message || 'Check failed' });
+      if (!settled) {
+        settled = true;
+        clearTimeout(safetyTimeout);
+        applyUpdateStatus({ status: 'not-available', version: '1.0.1' });
+      }
     }
   };
 
@@ -22055,6 +22079,9 @@ function setupAutoUpdaterUI() {
   window.ultronAPI.onUpdateStatus((data) => {
     applyUpdateStatus(data);
   });
+
+  renderTopButton();
+  setTimeout(handleCheckForUpdates, 2000);
 }
 
 setupAutoUpdaterUI();
@@ -22170,6 +22197,11 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
   }
 
   function showPairModal(payload) {
+    // Skip showing the fullscreen modal if the user generated from the dropdown
+    if (window._suppressPairModal) {
+      window._suppressPairModal = false;
+      return;
+    }
     const rawCode = (payload && payload.code) || '————';
     const cleanCode = String(rawCode).replace(/\s+/g, '');
     const seconds = payload && payload.expiresIn ? payload.expiresIn : 60;
