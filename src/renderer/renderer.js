@@ -21828,6 +21828,14 @@ function setupAutoUpdaterUI() {
     topIconSpin?.classList.add('hidden');
     topIconDownload?.classList.add('hidden');
     topIconRestart?.classList.add('hidden');
+    const ringEl = document.getElementById('top-update-ring');
+    if (ringEl) {
+      if (updateState === 'downloading') {
+        ringEl.classList.remove('hidden');
+      } else {
+        ringEl.classList.add('hidden');
+      }
+    }
     if (updateState === 'checking') {
       topBtn.classList.add('state-checking');
       topIconSpin?.classList.remove('hidden');
