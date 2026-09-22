@@ -16836,6 +16836,7 @@ html[data-theme="light"],
 }
 
 .top-update-ring {
+  display: none !important;
   position: absolute;
   left: 50%;
   top: 50%;
@@ -16844,10 +16845,18 @@ html[data-theme="light"],
   margin: -12px 0 0 -12px;
   transform: rotate(-90deg);
   opacity: 0;
-  transition: opacity 0.2s ease;
   pointer-events: none;
 }
-.btn-top-update.ring-visible .top-update-ring { opacity: 1; }
+.btn-top-update.state-downloading .top-update-ring,
+.btn-top-update.ring-visible .top-update-ring {
+  display: block !important;
+  opacity: 1 !important;
+}
+.btn-top-update:not(.state-downloading) .top-update-ring {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
 
 .tur-ring-track { fill: none; stroke: rgba(255, 255, 255, 0.25); stroke-width: 3; }
 .tur-ring-fill {
