@@ -16827,9 +16827,10 @@ html[data-theme="light"],
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 50%;
-  background: transparent !important;
+  border-radius: 50% !important;
+  background: rgba(19, 19, 20, 0.75) !important;
   border: none !important;
+  outline: none !important;
   box-shadow: none !important;
   flex-shrink: 0;
   transition: background-color 0.2s ease;
@@ -16876,8 +16877,10 @@ html[data-theme="light"],
   cursor: progress;
 }
 .btn-top-update.state-checking .top-update-icon-wrap {
-  background: transparent !important;
+  background: rgba(19, 19, 20, 0.75) !important;
+  border-radius: 50% !important;
   border: none !important;
+  outline: none !important;
   box-shadow: none !important;
 }
 .btn-top-update.state-checking svg {
@@ -16906,8 +16909,10 @@ html[data-theme="light"],
   box-shadow: none !important;
 }
 .btn-top-update.state-none .top-update-icon-wrap {
-  background: transparent !important;
+  background: rgba(19, 19, 20, 0.75) !important;
+  border-radius: 50% !important;
   border: none !important;
+  outline: none !important;
   box-shadow: none !important;
 }
 .btn-top-update.state-none svg {
