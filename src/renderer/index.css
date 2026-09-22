@@ -16828,7 +16828,7 @@ html[data-theme="light"],
   width: 22px;
   height: 22px;
   border-radius: 50% !important;
-  background: rgba(19, 19, 20, 0.75) !important;
+  background: #131314 !important;
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
@@ -16877,7 +16877,7 @@ html[data-theme="light"],
   cursor: progress;
 }
 .btn-top-update.state-checking .top-update-icon-wrap {
-  background: rgba(19, 19, 20, 0.75) !important;
+  background: #131314 !important;
   border-radius: 50% !important;
   border: none !important;
   outline: none !important;
@@ -16909,7 +16909,7 @@ html[data-theme="light"],
   box-shadow: none !important;
 }
 .btn-top-update.state-none .top-update-icon-wrap {
-  background: rgba(19, 19, 20, 0.75) !important;
+  background: #131314 !important;
   border-radius: 50% !important;
   border: none !important;
   outline: none !important;
