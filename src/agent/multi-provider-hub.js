@@ -275,11 +275,14 @@
     const contents = [];
     if (Array.isArray(messages) && messages.length > 0) {
       messages.forEach(m => {
-        if (m.content || m.text) {
-          contents.push({
-            role: m.role === 'assistant' || m.role === 'model' || m.isAi ? 'model' : 'user',
-            parts: [{ text: m.content || m.text }]
-          });
+        const text = m.content || m.text;
+        if (text) {
+          const role = (m.role === 'assistant' || m.role === 'model' || m.isAi) ? 'model' : 'user';
+          if (contents.length > 0 && contents[contents.length - 1].role === role) {
+            contents[contents.length - 1].parts[0].text += `\n\n${text}`;
+          } else {
+            contents.push({ role, parts: [{ text }] });
+          }
         }
       });
     }
@@ -295,7 +298,23 @@
         });
       });
     }
-    contents.push({ role: 'user', parts: currentParts });
+
+    const lastItem = contents.length > 0 ? contents[contents.length - 1] : null;
+    if (lastItem && lastItem.role === 'user' && lastItem.parts && lastItem.parts[0]?.text?.trim() === prompt.trim()) {
+      if (visionImages.length > 0) {
+        lastItem.parts = currentParts;
+      }
+    } else {
+      if (lastItem && lastItem.role === 'user') {
+        contents.pop();
+      }
+      contents.push({ role: 'user', parts: currentParts });
+    }
+
+    // Gemini requires the first turn in contents to have role 'user'
+    while (contents.length > 0 && contents[0].role === 'model') {
+      contents.shift();
+    }
 
     const payload = {
       contents,

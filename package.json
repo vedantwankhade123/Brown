@@ -128,9 +128,11 @@
     }
   },
   "dependencies": {
+    "@ai-sdk/openai": "^4.0.75",
+    "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server-filesystem": "^2026.7.10",
-    "@huggingface/transformers": "^3.8.1",
+    "ai": "^7.0.114",
     "electron-updater": "^6.3.9",
     "kokoro-js": "^1.2.1",
     "marked": "^18.0.6",
@@ -139,8 +141,10 @@
     "onnxruntime-common": "1.21.0",
     "onnxruntime-node": "1.21.0",
     "pdf-parse": "^2.4.5",
+    "qrcode": "^1.5.4",
     "systeminformation": "^5.23.5",
-    "ws": "^8.21.1"
+    "ws": "^8.21.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "electron": "^31.0.0",

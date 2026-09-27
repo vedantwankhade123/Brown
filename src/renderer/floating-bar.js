@@ -44,7 +44,7 @@
   const plusActionAttach = document.getElementById('plus-action-attach');
 
   // State
-  let activeModel = 'phi3:latest';
+  let activeModel = 'llava:latest';
   let activeApprovalMode = 'smart';
   let isRecording = false;
   let mediaRecorder = null;

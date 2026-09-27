@@ -94,9 +94,21 @@
   function purgeMermaidErrorArtifacts() {
     try {
       if (typeof document !== 'undefined') {
-        document.querySelectorAll('body > [id^="dmermaid"], body > .error-icon, body > svg[id^="mermaid-"], body > .mermaid[id^="d"]').forEach(el => el.remove());
+        document.querySelectorAll('body > [id^="dmermaid"], body > [id^="dbdiag"], body > .error-icon, body > svg[id^="mermaid-"], body > .mermaid[id^="d"]').forEach(el => el.remove());
       }
     } catch (_) {}
+  }
+
+  // A successful mermaid render embeds a `.error-icon{...}` CSS rule in its <style>
+  // block, so a naive substring check for "error-icon" rejects every valid SVG.
+  // Only genuine parse failures surface `aria-roledescription="error"`, a
+  // "Syntax error in text" message, or a "mermaid version" error banner.
+  function isMermaidSvgValid(svg) {
+    if (!svg || typeof svg !== 'string') return false;
+    if (svg.includes('aria-roledescription="error"')) return false;
+    if (/>\s*Syntax error in text/i.test(svg)) return false;
+    if (/mermaid version/i.test(svg)) return false;
+    return true;
   }
 
   function getDiagramTypeTag(code) {
@@ -108,6 +120,17 @@
     if (c.startsWith('statediagram') || c.includes('\nstatediagram')) return 'State Machine Diagram';
     if (c.startsWith('gantt') || c.includes('\ngantt')) return 'Gantt Timeline';
     if (c.startsWith('pie') || c.includes('\npie')) return 'Pie Chart';
+    if (c.startsWith('journey') || c.includes('\njourney')) return 'User Journey Map';
+    if (c.includes('quadrantchart')) return 'Quadrant Chart';
+    if (c.includes('xychart')) return 'XY Bar/Line Chart';
+    if (c.startsWith('timeline') || c.includes('\ntimeline')) return 'Timeline';
+    if (c.includes('sankey')) return 'Sankey Flow';
+    if (c.includes('radar')) return 'Radar Chart';
+    if (c.includes('gitgraph')) return 'Git Graph';
+    if (c.includes('requirementdiagram')) return 'Requirement Diagram';
+    if (c.includes('packettree')) return 'Packet Diagram';
+    if (c.startsWith('block') || c.includes('\nblock-beta')) return 'Block Diagram';
+    if (c.includes('architecture-beta')) return 'Architecture Diagram';
     if (/\b(architecture|microservice|gateway|load balancer|client layer)\b/i.test(c)) return 'System Architecture Diagram';
     if (/\bsubgraph\b/i.test(c) && (c.match(/-->/g) || []).length >= 4) return 'System Architecture Diagram';
     return 'Flowchart Diagram';
@@ -345,11 +368,23 @@
   /**
    * Render Mermaid code into SVG container with fallback to Generative UI visual engine
    */
-  async function renderMermaidDiagram(code, idPrefix = 'mermaid_') {
+  function stripMermaidFences(code) {
+    return String(code || '')
+      .trim()
+      .replace(/^```(?:mermaid|flowchart|graph)?\s*\n?/i, '')
+      .replace(/\n?```\s*$/i, '')
+      .trim();
+  }
+
+  // NOTE: the render id prefix must NOT start with "mermaid" — mermaid creates
+  // its off-DOM measurement element as #d<renderId>, and index.css hides
+  // `body > [id^="dmermaid"]` (stray error containers), which would collapse
+  // every diagram's text measurement to 0x0.
+  async function renderMermaidDiagram(code, idPrefix = 'bdiag_') {
     purgeMermaidErrorArtifacts();
     await initMermaid();
-    let cleanCode = sanitizeAndRepairMermaid(code || '');
-    if (!cleanCode) return '<div class="chart-empty">No diagram content provided</div>';
+    const rawCode = stripMermaidFences(code);
+    if (!rawCode) return '<div class="chart-empty">No diagram content provided</div>';
 
     const diagId = `${idPrefix}${Date.now()}_${Math.floor(Math.random() * 1000)}`;
     const m = (typeof window !== 'undefined' && (window.mermaid?.default || window.mermaid || (window.__esbuild_esm_mermaid_nm?.mermaid))) || (typeof mermaid !== 'undefined' && (mermaid.default || mermaid));
@@ -361,7 +396,7 @@
         const res = await m.render(renderId, src);
         purgeMermaidErrorArtifacts();
         const svg = res && res.svg ? res.svg : res;
-        if (svg && typeof svg === 'string' && !svg.includes('Syntax error') && !svg.includes('error-icon') && !/mermaid version/i.test(svg)) {
+        if (svg && typeof svg === 'string' && isMermaidSvgValid(svg)) {
           return svg;
         }
       } catch (err) {
@@ -371,7 +406,18 @@
       return null;
     }
 
-    let svg = await tryRender(cleanCode);
+    // Try the model's original code first — the repair pass is destructive
+    // (it can mangle valid labels), so only use it when the raw diagram fails to parse.
+    let cleanCode = rawCode;
+    let svg = await tryRender(rawCode);
+
+    if (!svg) {
+      const repaired = sanitizeAndRepairMermaid(code || '');
+      if (repaired && repaired !== rawCode) {
+        cleanCode = repaired;
+        svg = await tryRender(repaired);
+      }
+    }
 
     // Retry with a flat flowchart (no subgraphs/styling) — common fix for broken model output
     if (!svg && /^(flowchart|graph)\b/im.test(cleanCode)) {
@@ -398,7 +444,7 @@
             </span>
           </div>
           <div class="diagram-toolbar-right">
-            <button class="btn-diagram-tool btn-diagram-expand" title="Expand to Side Split-View with 2D Pan & Zoom">
+            <button class="btn-diagram-tool btn-diagram-expand" title="Expand in Popup with Zoom & Pan">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
               <span>Expand</span>
             </button>
@@ -909,13 +955,15 @@
   }
 
   /**
-   * Parse simple custom chart specification:
-   * type: bar | line | pie | donut
-   * title: Sales by Quarter
-   * Q1: 450
-   * Q2: 890
-   * Q3: 620
-   * Q4: 1100
+   * Parse custom chart specification.
+   * Line format (single series):
+   *   type: bar | line | pie | donut | scatter | histogram | boxplot | radar | stacked-bar
+   *   title: Sales by Quarter
+   *   Q1: 450
+   * JSON format (multi-series / advanced):
+   *   { "type": "line", "title": "...", "unit": "kWh", "labels": [...],
+   *     "series": [{ "name": "2025", "values": [1,2,3] }, ...],
+   *     "points": [[x,y], ...], "trend": true, "values": [raw numbers for histogram/boxplot] }
    */
   function parseChartData(rawText) {
     const lines = String(rawText || '').split('\n').map(l => l.trim()).filter(Boolean);
@@ -924,25 +972,49 @@
       title: '',
       labels: [],
       values: [],
+      series: null,
+      points: null,
+      trend: false,
       unit: ''
     };
 
     if (rawText.trim().startsWith('{')) {
       try {
         const json = JSON.parse(rawText);
+        const labels = json.labels || (Array.isArray(json.data) ? json.data.map(d => d.label ?? d.name ?? '') : []);
+        const values = json.values || (Array.isArray(json.data) ? json.data.map(d => Number(d.value ?? d.val ?? 0)) : []);
+        let series = null;
+        if (Array.isArray(json.series)) {
+          series = json.series
+            .map((s, i) => ({
+              name: s.name || s.label || `Series ${i + 1}`,
+              values: (s.values || s.data || []).map(Number)
+            }))
+            .filter(s => s.values.length && s.values.every(v => !isNaN(v)));
+          if (!series.length) series = null;
+        }
+        const points = Array.isArray(json.points)
+          ? json.points
+              .filter(p => Array.isArray(p) && p.length >= 2)
+              .map(p => [Number(p[0]), Number(p[1])])
+              .filter(p => !isNaN(p[0]) && !isNaN(p[1]))
+          : null;
         return {
           type: json.type || 'bar',
           title: json.title || '',
-          labels: json.labels || (json.data ? json.data.map(d => d.label || d.name) : []),
-          values: json.values || (json.data ? json.data.map(d => Number(d.value || d.val || 0)) : []),
+          labels: series && !labels.length ? series[0].values.map((_, i) => String(i + 1)) : labels,
+          values: values.map(Number).filter(v => !isNaN(v)),
+          series,
+          points: points && points.length ? points : null,
+          trend: Boolean(json.trend),
           unit: json.unit || ''
         };
       } catch (e) {}
     }
 
     for (const line of lines) {
-      if (/^type\s*:\s*(\w+)/i.test(line)) {
-        data.type = line.match(/^type\s*:\s*(\w+)/i)[1].toLowerCase();
+      if (/^type\s*:\s*([\w-]+)/i.test(line)) {
+        data.type = line.match(/^type\s*:\s*([\w-]+)/i)[1].toLowerCase();
       } else if (/^title\s*:\s*(.+)/i.test(line)) {
         data.title = line.match(/^title\s*:\s*(.+)/i)[1].trim();
       } else if (/^unit\s*:\s*(.+)/i.test(line)) {
@@ -961,6 +1033,108 @@
     }
 
     return data;
+  }
+
+  // ---- Shared chart helpers (grid, scales, stats, card chrome) ----
+
+  function chartNiceMax(v) {
+    if (!(v > 0)) return 1;
+    const mag = Math.pow(10, Math.floor(Math.log10(v)));
+    const norm = v / mag;
+    let nice;
+    if (norm <= 1) nice = 1;
+    else if (norm <= 2) nice = 2;
+    else if (norm <= 2.5) nice = 2.5;
+    else if (norm <= 5) nice = 5;
+    else nice = 10;
+    return nice * mag;
+  }
+
+  function chartFmt(v, unit) {
+    const abs = Math.abs(v);
+    const s = abs >= 1000
+      ? v.toLocaleString(undefined, { maximumFractionDigits: 1 })
+      : String(Math.round(v * 100) / 100);
+    return unit ? `${s} ${unit}` : s;
+  }
+
+  function chartSeriesList(data) {
+    if (data.series && data.series.length) return data.series;
+    if (data.values && data.values.length) return [{ name: '', values: data.values }];
+    return [];
+  }
+
+  function chartCard(title, icon, innerSvg, legendHtml) {
+    return `
+      <div class="visual-chart-card">
+        <div class="chart-card-header">
+          <div class="chart-header-left">
+            <span class="chart-icon">${icon}</span>
+            <span class="chart-card-title">${escapeHtml(title)}</span>
+          </div>
+        </div>
+        <div class="chart-svg-container">${innerSvg}</div>
+        ${legendHtml || ''}
+      </div>
+    `;
+  }
+
+  function chartLegendHtml(names) {
+    const items = names.filter(Boolean).map((name, i) =>
+      `<span class="chart-legend-item"><span class="chart-legend-swatch" style="background:${COLOR_PALETTE[i % COLOR_PALETTE.length]}"></span>${escapeHtml(name)}</span>`
+    ).join('');
+    return items ? `<div class="chart-legend-row">${items}</div>` : '';
+  }
+
+  // Horizontal gridlines + y-axis tick labels for value scales
+  function chartYGrid(maxV, left, right, topY, baseY) {
+    let g = '';
+    const steps = 4;
+    for (let i = 1; i <= steps; i++) {
+      const y = baseY - (baseY - topY) * (i / steps);
+      const val = maxV * (i / steps);
+      g += `<line class="chart-grid-line" x1="${left}" y1="${y.toFixed(1)}" x2="${right}" y2="${y.toFixed(1)}" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="3 4" />`;
+      g += `<text class="chart-tick-label" x="${left - 8}" y="${(y + 3.5).toFixed(1)}" text-anchor="end" fill="#94a3b8" font-size="10">${escapeHtml(chartFmt(val))}</text>`;
+    }
+    return g;
+  }
+
+  function chartQuantile(sorted, q) {
+    if (!sorted.length) return 0;
+    const pos = (sorted.length - 1) * q;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    return sorted[base + 1] !== undefined
+      ? sorted[base] + rest * (sorted[base + 1] - sorted[base])
+      : sorted[base];
+  }
+
+  function chartStats(values) {
+    const nums = values.map(Number).filter(v => !isNaN(v));
+    if (!nums.length) return null;
+    const sorted = [...nums].sort((a, b) => a - b);
+    const n = sorted.length;
+    const mean = nums.reduce((s, v) => s + v, 0) / n;
+    const variance = nums.reduce((s, v) => s + (v - mean) * (v - mean), 0) / n;
+    return {
+      n,
+      min: sorted[0],
+      max: sorted[n - 1],
+      mean,
+      median: chartQuantile(sorted, 0.5),
+      q1: chartQuantile(sorted, 0.25),
+      q3: chartQuantile(sorted, 0.75),
+      std: Math.sqrt(variance)
+    };
+  }
+
+  function chartStatsHtml(rows) {
+    const valid = rows.filter(Boolean);
+    if (!valid.length) return '';
+    const cells = valid.map(r =>
+      `<span class="chart-stat-chip"><strong>${escapeHtml(r.name || 'n=' + r.n)}</strong> μ ${chartFmt(r.mean)} · M ${chartFmt(r.median)} · σ ${chartFmt(r.std)}</span>`
+    ).join('');
+    return `<div class="chart-stats-row">${cells}</div>`;
   }
 
   /**
@@ -1158,22 +1332,373 @@
   }
 
   /**
+   * Multi-series bar chart (grouped or stacked). Backwards compatible with single series.
+   */
+  function renderSvgMultiBarChart(data, stacked = false) {
+    const seriesList = chartSeriesList(data);
+    if (!seriesList.length) return '<div class="chart-empty">No chart data provided</div>';
+
+    const labels = data.labels.length ? data.labels : seriesList[0].values.map((_, i) => String(i + 1));
+    const n = Math.max(labels.length, ...seriesList.map(s => s.values.length));
+    if (!n) return '<div class="chart-empty">No chart data provided</div>';
+
+    const allVals = seriesList.flatMap(s => s.values);
+    const maxV = stacked
+      ? chartNiceMax(Math.max(...labels.map((_, i) => seriesList.reduce((sum, s) => sum + (Number(s.values[i]) || 0), 0)), 0))
+      : chartNiceMax(Math.max(...allVals.map(v => Number(v) || 0), 0));
+
+    const W = 520, H = 230, left = 50, right = W - 20, topY = 22, baseY = 175;
+    const groupW = (right - left) / n;
+    const sCount = seriesList.length;
+    const barW = stacked ? Math.min(46, groupW * 0.6) : Math.max(8, Math.min(34, (groupW * 0.72) / sCount));
+
+    let bars = '';
+    for (let i = 0; i < n; i++) {
+      const gx = left + i * groupW;
+      let stackTop = baseY;
+      seriesList.forEach((s, si) => {
+        const val = Number(s.values[i]) || 0;
+        const h = Math.max(2, Math.round((val / maxV) * (baseY - topY)));
+        const x = stacked
+          ? gx + (groupW - barW) / 2
+          : gx + groupW / 2 - (sCount * barW + (sCount - 1) * 3) / 2 + si * (barW + 3);
+        const y = stacked ? stackTop - h : baseY - h;
+        if (stacked) stackTop = y;
+        const color = sCount === 1 ? COLOR_PALETTE[i % COLOR_PALETTE.length] : COLOR_PALETTE[si % COLOR_PALETTE.length];
+        const display = `${chartFmt(val, data.unit)}${s.name ? ` (${s.name})` : ''}`;
+        bars += `
+          <g class="chart-bar-group" tabindex="0">
+            <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h}" rx="4" fill="${color}" opacity="0.9">
+              <animate attributeName="height" from="0" to="${h}" dur="0.45s" fill="freeze" />
+              <animate attributeName="y" from="${baseY}" to="${y.toFixed(1)}" dur="0.45s" fill="freeze" />
+            </rect>
+            ${sCount === 1 && n <= 8 ? `<text class="chart-value-label" x="${(x + barW / 2).toFixed(1)}" y="${(y - 7).toFixed(1)}" text-anchor="middle" fill="#f8fafc" font-size="11" font-weight="600">${escapeHtml(chartFmt(val, data.unit))}</text>` : ''}
+            <title>${escapeHtml(labels[i] || `Item ${i + 1}`)}${sCount > 1 ? ` — ${escapeHtml(s.name)}` : ''}: ${escapeHtml(display)}</title>
+          </g>`;
+      });
+      const lbl = labels[i] || '';
+      bars += `<text class="chart-tick-label" x="${(gx + groupW / 2).toFixed(1)}" y="194" text-anchor="middle" fill="#94a3b8" font-size="11">${escapeHtml(lbl.length > 12 ? lbl.slice(0, 10) + '…' : lbl)}</text>`;
+    }
+
+    const svg = `
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMidYMid meet">
+        ${chartYGrid(maxV, left, right, topY, baseY)}
+        <line x1="${left}" y1="${baseY}" x2="${right}" y2="${baseY}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" />
+        ${bars}
+      </svg>`;
+    return chartCard(data.title || (stacked ? 'Stacked Comparison Chart' : 'Data Comparison Chart'), '📊', svg, sCount > 1 ? chartLegendHtml(seriesList.map(s => s.name)) : '');
+  }
+
+  /**
+   * Multi-series line / area chart.
+   */
+  function renderSvgMultiLineChart(data, fill = false) {
+    const seriesList = chartSeriesList(data);
+    if (!seriesList.length) return '<div class="chart-empty">No chart data provided</div>';
+    const maxLen = Math.max(...seriesList.map(s => s.values.length));
+    if (maxLen < 2) return renderSvgMultiBarChart(data, false);
+
+    const labels = data.labels.length ? data.labels : seriesList[0].values.map((_, i) => String(i + 1));
+    const allVals = seriesList.flatMap(s => s.values.map(v => Number(v) || 0));
+    const maxV = chartNiceMax(Math.max(...allVals, 0));
+    const minV = Math.min(0, Math.min(...allVals));
+    const range = (maxV - minV) || 1;
+
+    const W = 520, H = 230, left = 50, right = W - 20, topY = 22, baseY = 175;
+    const stepX = (right - left) / (maxLen - 1);
+    const yOf = v => baseY - ((v - minV) / range) * (baseY - topY);
+    const xOf = i => left + i * stepX;
+
+    let paths = '';
+    let defs = '';
+    seriesList.forEach((s, si) => {
+      const color = COLOR_PALETTE[si % COLOR_PALETTE.length];
+      const pts = s.values.map((raw, i) => ({ x: xOf(i), y: yOf(Number(raw) || 0), val: Number(raw) || 0 }));
+      const d = pts.reduce((acc, pt, i) => {
+        if (i === 0) return `M ${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
+        const prev = pts[i - 1];
+        const cp = (prev.x + pt.x) / 2;
+        return `${acc} C ${cp.toFixed(1)},${prev.y.toFixed(1)} ${cp.toFixed(1)},${pt.y.toFixed(1)} ${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
+      }, '');
+      if (fill) {
+        defs += `<linearGradient id="areaGrad${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.32" /><stop offset="100%" stop-color="${color}" stop-opacity="0" /></linearGradient>`;
+        paths += `<path d="${d} L ${pts[pts.length - 1].x.toFixed(1)},${baseY} L ${pts[0].x.toFixed(1)},${baseY} Z" fill="url(#areaGrad${si})" />`;
+      }
+      paths += `<path d="${d}" fill="none" stroke="${color}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" />`;
+      if (seriesList.length === 1 && pts.length <= 12) {
+        pts.forEach(pt => {
+          paths += `
+            <g class="chart-point-group">
+              <circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="4.5" fill="#0f172a" stroke="${color}" stroke-width="2.5" />
+              <text class="chart-value-label" x="${pt.x.toFixed(1)}" y="${(pt.y - 10).toFixed(1)}" text-anchor="middle" fill="#f8fafc" font-size="10.5" font-weight="600">${escapeHtml(chartFmt(pt.val, data.unit))}</text>
+              <title>${escapeHtml(chartFmt(pt.val, data.unit))}</title>
+            </g>`;
+        });
+      } else {
+        pts.forEach((pt, i) => {
+          paths += `<circle cx="${pt.x.toFixed(1)}" cy="${pt.y.toFixed(1)}" r="3" fill="${color}"><title>${escapeHtml(labels[i] || `#${i + 1}`)}${s.name ? ` — ${escapeHtml(s.name)}` : ''}: ${escapeHtml(chartFmt(pt.val, data.unit))}</title></circle>`;
+        });
+      }
+    });
+
+    let xLabels = '';
+    const every = Math.max(1, Math.ceil(maxLen / 8));
+    for (let i = 0; i < maxLen; i++) {
+      if (i % every !== 0 && i !== maxLen - 1) continue;
+      const lbl = labels[i] || `${i + 1}`;
+      xLabels += `<text class="chart-tick-label" x="${xOf(i).toFixed(1)}" y="194" text-anchor="middle" fill="#94a3b8" font-size="11">${escapeHtml(lbl.length > 10 ? lbl.slice(0, 8) + '…' : lbl)}</text>`;
+    }
+
+    const svg = `
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMidYMid meet">
+        <defs>${defs}</defs>
+        ${chartYGrid(maxV, left, right, topY, baseY)}
+        <line x1="${left}" y1="${baseY}" x2="${right}" y2="${baseY}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" />
+        ${paths}${xLabels}
+      </svg>`;
+    return chartCard(data.title || (fill ? 'Area Trend Chart' : 'Trend Line Graph'), '📈', svg, seriesList.length > 1 ? chartLegendHtml(seriesList.map(s => s.name)) : '');
+  }
+
+  /**
+   * Scatter plot with optional least-squares trend line.
+   */
+  function renderSvgScatterChart(data) {
+    let pts = data.points;
+    if (!pts && data.values.length && data.labels.length === data.values.length) {
+      pts = data.values.map((v, i) => [i + 1, v]);
+    }
+    if (!pts || pts.length < 2) return '<div class="chart-empty">Scatter needs at least 2 [x, y] points</div>';
+
+    const xs = pts.map(p => p[0]);
+    const ys = pts.map(p => p[1]);
+    const xMin = Math.min(...xs), xMaxV = chartNiceMax(Math.max(...xs));
+    const xLo = Math.min(0, xMin);
+    const yMaxV = chartNiceMax(Math.max(...ys));
+    const yMin = Math.min(0, ...ys);
+    const yRange = (yMaxV - yMin) || 1;
+    const xRange = (xMaxV - xLo) || 1;
+
+    const W = 520, H = 230, left = 50, right = W - 20, topY = 22, baseY = 175;
+    const px = x => left + ((x - xLo) / xRange) * (right - left);
+    const py = y => baseY - ((y - yMin) / yRange) * (baseY - topY);
+
+    let dots = pts.map(([x, y]) =>
+      `<circle cx="${px(x).toFixed(1)}" cy="${py(y).toFixed(1)}" r="4.5" fill="#38bdf8" opacity="0.82" stroke="#0c1222" stroke-width="1"><title>(${chartFmt(x)}, ${chartFmt(y, data.unit)})</title></circle>`
+    ).join('');
+
+    let trendSvg = '';
+    if (data.trend && pts.length >= 2) {
+      const n = pts.length;
+      const mx = xs.reduce((s, v) => s + v, 0) / n;
+      const my = ys.reduce((s, v) => s + v, 0) / n;
+      let num = 0, den = 0;
+      for (let i = 0; i < n; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; }
+      if (den !== 0) {
+        const slope = num / den;
+        const intercept = my - slope * mx;
+        const y1 = slope * xLo + intercept, y2 = slope * xMaxV + intercept;
+        trendSvg = `<line x1="${px(xLo).toFixed(1)}" y1="${py(y1).toFixed(1)}" x2="${px(xMaxV).toFixed(1)}" y2="${py(y2).toFixed(1)}" stroke="#f472b6" stroke-width="2" stroke-dasharray="6 5" opacity="0.9" />`;
+      }
+    }
+
+    let ticks = '';
+    for (let i = 0; i <= 4; i++) {
+      const xv = xLo + (xRange * i) / 4;
+      const yv = yMin + (yRange * i) / 4;
+      ticks += `<text class="chart-tick-label" x="${px(xv).toFixed(1)}" y="194" text-anchor="middle" fill="#94a3b8" font-size="10">${escapeHtml(chartFmt(xv))}</text>`;
+      ticks += `<text class="chart-tick-label" x="${left - 8}" y="${py(yv).toFixed(1)}" text-anchor="end" fill="#94a3b8" font-size="10">${escapeHtml(chartFmt(yv))}</text>`;
+      ticks += `<line x1="${left}" y1="${py(yv).toFixed(1)}" x2="${right}" y2="${py(yv).toFixed(1)}" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="3 4" />`;
+    }
+
+    const svg = `
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMidYMid meet">
+        ${ticks}
+        <line x1="${left}" y1="${baseY}" x2="${right}" y2="${baseY}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" />
+        <line x1="${left}" y1="${topY}" x2="${left}" y2="${baseY}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" />
+        ${trendSvg}${dots}
+      </svg>`;
+    return chartCard(data.title || 'Scatter Plot', '🔵', svg);
+  }
+
+  /**
+   * Histogram from raw values (auto-binned, Sturges rule capped at 12 bins).
+   */
+  function renderSvgHistogramChart(data) {
+    const nums = (data.values || []).map(Number).filter(v => !isNaN(v));
+    if (nums.length < 2) return '<div class="chart-empty">Histogram needs raw numeric values</div>';
+
+    const min = Math.min(...nums), max = Math.max(...nums);
+    const bins = Math.min(12, Math.max(4, Math.ceil(Math.log2(nums.length) + 1)));
+    const binW = ((max - min) || 1) / bins;
+    const counts = new Array(bins).fill(0);
+    nums.forEach(v => {
+      let b = Math.floor((v - min) / binW);
+      if (b >= bins) b = bins - 1;
+      counts[b]++;
+    });
+
+    const maxC = chartNiceMax(Math.max(...counts));
+    const W = 520, H = 230, left = 50, right = W - 20, topY = 22, baseY = 175;
+    const groupW = (right - left) / bins;
+
+    let bars = '', xLabels = '';
+    counts.forEach((c, i) => {
+      const h = Math.max(2, Math.round((c / maxC) * (baseY - topY)));
+      const x = left + i * groupW;
+      bars += `
+        <g class="chart-bar-group">
+          <rect x="${(x + 1.5).toFixed(1)}" y="${(baseY - h).toFixed(1)}" width="${(groupW - 3).toFixed(1)}" height="${h}" rx="3" fill="#818cf8" opacity="0.88">
+            <animate attributeName="height" from="0" to="${h}" dur="0.45s" fill="freeze" />
+            <animate attributeName="y" from="${baseY}" to="${(baseY - h).toFixed(1)}" dur="0.45s" fill="freeze" />
+          </rect>
+          <text class="chart-value-label" x="${(x + groupW / 2).toFixed(1)}" y="${(baseY - h - 6).toFixed(1)}" text-anchor="middle" fill="#f8fafc" font-size="10.5" font-weight="600">${c}</text>
+          <title>${chartFmt(min + i * binW)}–${chartFmt(min + (i + 1) * binW)}: ${c}</title>
+        </g>`;
+      xLabels += `<text class="chart-tick-label" x="${(x + groupW / 2).toFixed(1)}" y="194" text-anchor="middle" fill="#94a3b8" font-size="10">${escapeHtml(chartFmt(min + i * binW))}</text>`;
+    });
+
+    const svg = `
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMidYMid meet">
+        ${chartYGrid(maxC, left, right, topY, baseY)}
+        <line x1="${left}" y1="${baseY}" x2="${right}" y2="${baseY}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" />
+        ${bars}${xLabels}
+      </svg>`;
+    const st = chartStats(nums);
+    return chartCard(data.title || 'Distribution Histogram', '📊', svg, chartStatsHtml([{ name: `n=${st.n}`, ...st }]));
+  }
+
+  /**
+   * Box-and-whisker plot from raw values (one box per series).
+   */
+  function renderSvgBoxPlotChart(data) {
+    const seriesList = chartSeriesList(data);
+    const usable = seriesList.filter(s => s.values.length >= 4);
+    if (!usable.length) return '<div class="chart-empty">Box plot needs at least 4 raw values per series</div>';
+
+    const allNums = usable.flatMap(s => s.values.map(Number));
+    const maxV = chartNiceMax(Math.max(...allNums, 0));
+    const minV = Math.min(0, Math.min(...allNums));
+    const range = (maxV - minV) || 1;
+
+    const W = 520, H = 230, left = 50, right = W - 20, topY = 22, baseY = 175;
+    const slot = (right - left) / usable.length;
+    const boxW = Math.min(64, slot * 0.45);
+    const yOf = v => baseY - ((v - minV) / range) * (baseY - topY);
+
+    let boxes = '', stats = [];
+    usable.forEach((s, si) => {
+      const st = chartStats(s.values);
+      stats.push({ name: s.name || `Series ${si + 1}`, ...st });
+      const iqr = st.q3 - st.q1;
+      const loFence = st.q1 - 1.5 * iqr, hiFence = st.q3 + 1.5 * iqr;
+      const sorted = [...s.values].sort((a, b) => a - b);
+      const whiskLo = sorted.find(v => v >= loFence) ?? st.min;
+      const whiskHi = [...sorted].reverse().find(v => v <= hiFence) ?? st.max;
+      const outliers = sorted.filter(v => v < loFence || v > hiFence);
+      const cx = left + slot * si + slot / 2;
+      const color = COLOR_PALETTE[si % COLOR_PALETTE.length];
+
+      boxes += `
+        <g class="chart-box-group">
+          <line x1="${cx.toFixed(1)}" y1="${yOf(whiskHi).toFixed(1)}" x2="${cx.toFixed(1)}" y2="${yOf(whiskLo).toFixed(1)}" stroke="${color}" stroke-width="1.6" />
+          <line x1="${(cx - boxW / 3).toFixed(1)}" y1="${yOf(whiskHi).toFixed(1)}" x2="${(cx + boxW / 3).toFixed(1)}" y2="${yOf(whiskHi).toFixed(1)}" stroke="${color}" stroke-width="1.6" />
+          <line x1="${(cx - boxW / 3).toFixed(1)}" y1="${yOf(whiskLo).toFixed(1)}" x2="${(cx + boxW / 3).toFixed(1)}" y2="${yOf(whiskLo).toFixed(1)}" stroke="${color}" stroke-width="1.6" />
+          <rect x="${(cx - boxW / 2).toFixed(1)}" y="${yOf(st.q3).toFixed(1)}" width="${boxW.toFixed(1)}" height="${Math.max(2, yOf(st.q1) - yOf(st.q3)).toFixed(1)}" rx="4" fill="${color}" fill-opacity="0.22" stroke="${color}" stroke-width="1.8" />
+          <line x1="${(cx - boxW / 2).toFixed(1)}" y1="${yOf(st.median).toFixed(1)}" x2="${(cx + boxW / 2).toFixed(1)}" y2="${yOf(st.median).toFixed(1)}" stroke="#f8fafc" stroke-width="2.2" />
+          ${outliers.map(o => `<circle cx="${cx.toFixed(1)}" cy="${yOf(o).toFixed(1)}" r="3" fill="none" stroke="${color}" stroke-width="1.4"><title>outlier: ${escapeHtml(chartFmt(o, data.unit))}</title></circle>`).join('')}
+          <title>${escapeHtml(s.name || 'Series')}: min ${chartFmt(st.min)}, Q1 ${chartFmt(st.q1)}, median ${chartFmt(st.median)}, Q3 ${chartFmt(st.q3)}, max ${chartFmt(st.max)}</title>
+        </g>`;
+      const lbl = s.name || data.labels[si] || `Series ${si + 1}`;
+      boxes += `<text class="chart-tick-label" x="${cx.toFixed(1)}" y="194" text-anchor="middle" fill="#94a3b8" font-size="11">${escapeHtml(lbl.length > 14 ? lbl.slice(0, 12) + '…' : lbl)}</text>`;
+    });
+
+    const svg = `
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="xMidYMid meet">
+        ${chartYGrid(maxV, left, right, topY, baseY)}
+        <line x1="${left}" y1="${baseY}" x2="${right}" y2="${baseY}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" />
+        ${boxes}
+      </svg>`;
+    return chartCard(data.title || 'Box Plot (Quartile Spread)', '📦', svg, chartStatsHtml(stats));
+  }
+
+  /**
+   * Radar chart: labels = axes, one polygon per series.
+   */
+  function renderSvgRadarChart(data) {
+    const seriesList = chartSeriesList(data);
+    const axes = data.labels.slice(0, 8);
+    if (!seriesList.length || axes.length < 3) return '<div class="chart-empty">Radar needs 3+ labels and value series</div>';
+
+    const maxV = chartNiceMax(Math.max(...seriesList.flatMap(s => s.values.map(v => Number(v) || 0)), 0));
+    const cx = 260, cy = 118, R = 88;
+    const angleOf = i => -Math.PI / 2 + (i * 2 * Math.PI) / axes.length;
+    const ptOf = (i, v) => {
+      const rr = (Math.max(0, Number(v) || 0) / maxV) * R;
+      return [cx + rr * Math.cos(angleOf(i)), cy + rr * Math.sin(angleOf(i))];
+    };
+
+    let rings = '';
+    [0.25, 0.5, 0.75, 1].forEach(f => {
+      const pts = axes.map((_, i) => ptOf(i, maxV * f).map(n => n.toFixed(1)).join(',')).join(' ');
+      rings += `<polygon points="${pts}" fill="none" stroke="rgba(255,255,255,0.09)" stroke-width="1" />`;
+    });
+    let spokes = '', axisLabels = '';
+    axes.forEach((lbl, i) => {
+      const [ex, ey] = ptOf(i, maxV);
+      spokes += `<line x1="${cx}" y1="${cy}" x2="${ex.toFixed(1)}" y2="${ey.toFixed(1)}" stroke="rgba(255,255,255,0.1)" stroke-width="1" />`;
+      const [lx, ly] = [cx + (R + 16) * Math.cos(angleOf(i)), cy + (R + 16) * Math.sin(angleOf(i))];
+      axisLabels += `<text class="chart-tick-label" x="${lx.toFixed(1)}" y="${(ly + 3.5).toFixed(1)}" text-anchor="middle" fill="#94a3b8" font-size="10.5" font-weight="500">${escapeHtml(String(lbl).length > 12 ? String(lbl).slice(0, 10) + '…' : lbl)}</text>`;
+    });
+
+    let polys = '';
+    seriesList.forEach((s, si) => {
+      const color = COLOR_PALETTE[si % COLOR_PALETTE.length];
+      const pts = axes.map((_, i) => ptOf(i, s.values[i]).map(n => n.toFixed(1)).join(',')).join(' ');
+      polys += `<polygon points="${pts}" fill="${color}" fill-opacity="0.16" stroke="${color}" stroke-width="2" stroke-linejoin="round" />`;
+      axes.forEach((_, i) => {
+        const [x, y] = ptOf(i, s.values[i]);
+        polys += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${color}"><title>${escapeHtml(axes[i])}${s.name ? ` — ${escapeHtml(s.name)}` : ''}: ${escapeHtml(chartFmt(Number(s.values[i]) || 0, data.unit))}</title></circle>`;
+      });
+    });
+
+    const svg = `
+      <svg viewBox="0 0 520 236" width="100%" height="236" preserveAspectRatio="xMidYMid meet">
+        ${rings}${spokes}${polys}${axisLabels}
+      </svg>`;
+    return chartCard(data.title || 'Radar Comparison', '🕸️', svg, seriesList.length > 1 ? chartLegendHtml(seriesList.map(s => s.name)) : '');
+  }
+
+  /**
    * Dispatcher for Chart rendering
    */
   function renderChart(rawText) {
     const data = parseChartData(rawText);
     switch (data.type) {
       case 'line':
+        return renderSvgMultiLineChart(data, false);
       case 'area':
-        return renderSvgLineChart(data);
+        return renderSvgMultiLineChart(data, true);
       case 'pie':
         return renderSvgPieChart(data, false);
       case 'donut':
       case 'doughnut':
         return renderSvgPieChart(data, true);
+      case 'scatter':
+        return renderSvgScatterChart(data);
+      case 'histogram':
+        return renderSvgHistogramChart(data);
+      case 'box':
+      case 'boxplot':
+        return renderSvgBoxPlotChart(data);
+      case 'radar':
+        return renderSvgRadarChart(data);
+      case 'stacked-bar':
+      case 'stackedbar':
+      case 'stacked':
+        return renderSvgMultiBarChart(data, true);
       case 'bar':
       default:
-        return renderSvgBarChart(data);
+        return data.series && data.series.length > 1 ? renderSvgMultiBarChart(data, false) : renderSvgBarChart(data);
     }
   }
 
@@ -1392,7 +1917,7 @@
             <span class="gen-ui-title">${escapeHtml(title)}</span>
           </div>
           <div class="gen-ui-toolbar-right">
-            <button class="btn-gen-ui-tool btn-gen-ui-expand" title="Expand to Side Split-View Live Preview" type="button">
+            <button class="btn-gen-ui-tool btn-gen-ui-expand" title="Expand in Popup" type="button">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
               <span>Expand</span>
             </button>
@@ -1429,6 +1954,132 @@
       .replace(/"/g, '&quot;');
   }
 
+  // Big centered popup for expanding diagrams/widgets (replaces the side split-view inspector)
+  let _diagramPopupEl = null;
+  let _diagramPopupKeyHandler = null;
+
+  function closeDiagramPopup() {
+    if (_diagramPopupEl) {
+      _diagramPopupEl.remove();
+      _diagramPopupEl = null;
+    }
+    if (_diagramPopupKeyHandler) {
+      document.removeEventListener('keydown', _diagramPopupKeyHandler, true);
+      _diagramPopupKeyHandler = null;
+    }
+  }
+
+  function openDiagramPopup({ title = 'Visual Diagram', svgContent = '', rawCode = '', isWidget = false, fullHtml = '' } = {}) {
+    if (typeof document === 'undefined') return;
+    closeDiagramPopup();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'diagram-popup-overlay';
+
+    const bodyHtml = (isWidget && fullHtml)
+      ? `<iframe class="diagram-popup-iframe" srcdoc="${escapeHtml(fullHtml)}" sandbox="allow-scripts allow-forms allow-modals"></iframe>`
+      : (svgContent || `<pre class="diagram-popup-code-only">${escapeHtml(rawCode)}</pre>`);
+
+    overlay.innerHTML = `
+      <div class="diagram-popup" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+        <div class="diagram-popup-header">
+          <div class="diagram-popup-title">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect></svg>
+            <span>${escapeHtml(title)}</span>
+          </div>
+          <div class="diagram-popup-tools">
+            <button class="diagram-popup-btn" data-act="zoom-out" title="Zoom out">&minus;</button>
+            <span class="diagram-popup-zoom-label">100%</span>
+            <button class="diagram-popup-btn" data-act="zoom-in" title="Zoom in">+</button>
+            <button class="diagram-popup-btn" data-act="reset" title="Reset view">Reset</button>
+            ${rawCode ? `
+            <button class="diagram-popup-btn" data-act="toggle-code" title="Toggle code">Code</button>
+            <button class="diagram-popup-btn" data-act="copy" title="Copy code">Copy</button>` : ''}
+            <button class="diagram-popup-btn diagram-popup-close" data-act="close" title="Close (Esc)">&#10005;</button>
+          </div>
+        </div>
+        <div class="diagram-popup-viewport">
+          <div class="diagram-popup-canvas">${bodyHtml}</div>
+        </div>
+        ${rawCode ? `<pre class="diagram-popup-rawcode" style="display:none;"><code>${escapeHtml(rawCode)}</code></pre>` : ''}
+      </div>`;
+
+    document.body.appendChild(overlay);
+    _diagramPopupEl = overlay;
+
+    const viewport = overlay.querySelector('.diagram-popup-viewport');
+    const canvas = overlay.querySelector('.diagram-popup-canvas');
+    const zoomLabel = overlay.querySelector('.diagram-popup-zoom-label');
+    const rawCodeEl = overlay.querySelector('.diagram-popup-rawcode');
+    let scale = 1;
+    let tx = 0;
+    let ty = 0;
+
+    function applyTransform() {
+      canvas.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+      if (zoomLabel) zoomLabel.textContent = `${Math.round(scale * 100)}%`;
+    }
+
+    function setScale(next) {
+      scale = Math.min(6, Math.max(0.2, next));
+      applyTransform();
+    }
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) { closeDiagramPopup(); return; }
+      const btn = e.target.closest('.diagram-popup-btn');
+      if (!btn) return;
+      const act = btn.dataset.act;
+      if (act === 'close') closeDiagramPopup();
+      else if (act === 'zoom-in') setScale(scale + 0.2);
+      else if (act === 'zoom-out') setScale(scale - 0.2);
+      else if (act === 'reset') { scale = 1; tx = 0; ty = 0; applyTransform(); }
+      else if (act === 'toggle-code' && rawCodeEl) {
+        const showingCode = rawCodeEl.style.display !== 'none';
+        rawCodeEl.style.display = showingCode ? 'none' : 'block';
+        viewport.style.display = showingCode ? 'flex' : 'none';
+        btn.textContent = showingCode ? 'Code' : 'Diagram';
+      } else if (act === 'copy' && rawCode) {
+        navigator.clipboard.writeText(rawCode).then(() => {
+          btn.textContent = 'Copied!';
+          setTimeout(() => { btn.textContent = 'Copy'; }, 1600);
+        }).catch(() => {});
+      }
+    });
+
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      setScale(scale + (e.deltaY < 0 ? 0.15 : -0.15));
+    }, { passive: false });
+
+    let dragging = false;
+    let dragStart = { x: 0, y: 0 };
+    viewport.addEventListener('mousedown', (e) => {
+      dragging = true;
+      dragStart = { x: e.clientX - tx, y: e.clientY - ty };
+      viewport.classList.add('dragging');
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging || !_diagramPopupEl) return;
+      tx = e.clientX - dragStart.x;
+      ty = e.clientY - dragStart.y;
+      applyTransform();
+    });
+    window.addEventListener('mouseup', () => {
+      dragging = false;
+      if (viewport) viewport.classList.remove('dragging');
+    });
+    viewport.addEventListener('dblclick', () => { scale = 1; tx = 0; ty = 0; applyTransform(); });
+
+    _diagramPopupKeyHandler = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        closeDiagramPopup();
+      }
+    };
+    document.addEventListener('keydown', _diagramPopupKeyHandler, true);
+  }
+
   // Global Event Delegation for all Diagram and Generative UI action buttons (Expand, Code, Copy, Canvas)
   if (typeof document !== 'undefined') {
     document.addEventListener('click', (e) => {
@@ -1444,7 +2095,6 @@
         const tagEl = card.querySelector('.diagram-tag, .gen-ui-badge');
         const titleEl = card.querySelector('.gen-ui-title, .chart-card-title');
         const title = (titleEl ? titleEl.textContent : (tagEl ? tagEl.textContent : (isWidget ? 'Interactive Widget' : 'Visual Diagram'))).trim();
-        const type = isWidget ? 'Widget' : 'Diagram';
         const svgEl = card.querySelector('.diagram-svg-viewport');
         const svgContent = svgEl ? svgEl.innerHTML : '';
         const iframe = card.querySelector('iframe');
@@ -1452,16 +2102,13 @@
         const rawCodeEl = card.querySelector('.diagram-raw-code code, .gen-ui-raw-code code, code');
         const rawCode = rawCodeEl ? rawCodeEl.textContent : '';
 
-        if (window.UltronCanvas && typeof window.UltronCanvas.openVisualInspector === 'function') {
-          window.UltronCanvas.openVisualInspector({
-            title,
-            type,
-            svgContent,
-            rawCode,
-            isWidget,
-            fullHtml
-          });
-        }
+        openDiagramPopup({
+          title,
+          svgContent,
+          rawCode,
+          isWidget,
+          fullHtml
+        });
         return;
       }
 
@@ -1542,11 +2189,20 @@
     initMermaid,
     renderMermaidDiagram,
     renderChart,
+    parseChartData,
     renderSvgBarChart,
     renderSvgLineChart,
     renderSvgPieChart,
+    renderSvgMultiBarChart,
+    renderSvgMultiLineChart,
+    renderSvgScatterChart,
+    renderSvgHistogramChart,
+    renderSvgBoxPlotChart,
+    renderSvgRadarChart,
     renderGenerativeUiWidget,
-    detectVisualOpportunities
+    detectVisualOpportunities,
+    openDiagramPopup,
+    closeDiagramPopup
   };
 
   // Auto-init
