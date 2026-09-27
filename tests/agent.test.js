@@ -388,6 +388,18 @@ Action Input: Notepad`);
   const visualMatches = findSkillsForPrompt('create a flowchart diagram for the authentication pipeline');
   assert.ok(visualMatches.some(s => s.id === 'visual-diagram-chart-creator'), 'Should match visual-diagram-chart-creator');
 
+  const tableMatches = findSkillsForPrompt('create a structured markdown comparison table comparing regex and vercel ai sdk');
+  assert.ok(tableMatches.some(s => s.id === 'structured-comparison-table-master'), 'Should match structured-comparison-table-master');
+
+  const gitMatches = findSkillsForPrompt('git commit and branch workflow for pull request');
+  assert.ok(gitMatches.some(s => s.id === 'git-and-github-version-control'), 'Should match git-and-github-version-control');
+
+  const dockerMatches = findSkillsForPrompt('build dockerfile and docker compose container');
+  assert.ok(dockerMatches.some(s => s.id === 'docker-and-container-devops'), 'Should match docker-and-container-devops');
+
+  const mcpMatches = findSkillsForPrompt('how does model context protocol mcp and vercel ai sdk function calling work');
+  assert.ok(mcpMatches.some(s => s.id === 'agent-harness-and-mcp-integration'), 'Should match agent-harness-and-mcp-integration');
+
   console.log('✓ Specialized Agent Skills catalog tests passed.');
 
   // Test Long-Term Memory Vault and Preferences

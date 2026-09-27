@@ -10,8 +10,8 @@ marked.setOptions({
 });
 
 const apiMethods = {
-  // Markdown parser
-  parseMarkdown: (text) => marked.parse(text),
+  // Markdown parser — supports ==highlight== in addition to standard GFM
+  parseMarkdown: (text) => marked.parse(String(text ?? '').replace(/==([^=\n]+)==/g, '<mark>$1</mark>')),
   // Theme change notify (titlebar overlay retint)
   setAppTheme: (theme, user) => ipcRenderer.send('set-app-theme', { theme, user: !!user }),
   splashDone: () => ipcRenderer.send('splash-done'),
@@ -48,6 +48,19 @@ const apiMethods = {
   saveCustomMcpServer: (payload) => ipcRenderer.invoke('save-custom-mcp-server', payload),
   deleteCustomMcpServer: (serverId) => ipcRenderer.invoke('delete-custom-mcp-server', serverId),
   mcpCallTool: (payload) => ipcRenderer.invoke('mcp-call-tool', payload),
+  runAgentHarness: (payload) => ipcRenderer.invoke('agent:run-harness', payload),
+  abortAgentHarness: (payload) => ipcRenderer.invoke('agent:abort-harness', payload),
+  browserCommand: (payload) => ipcRenderer.invoke('browser:command', payload),
+  onBrowserEvent: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('browser:event', handler);
+    return () => ipcRenderer.removeListener('browser:event', handler);
+  },
+  onAgentHarnessEvent: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('agent:harness-event', handler);
+    return () => ipcRenderer.removeListener('agent:harness-event', handler);
+  },
   getInstalledApps: () => ipcRenderer.invoke('get-installed-apps'),
   downloadModel: (modelName) => ipcRenderer.invoke('download-model', modelName),
   cancelDownloadModel: (modelName) => ipcRenderer.invoke('cancel-download-model', modelName),

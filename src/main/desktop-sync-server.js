@@ -1,6 +1,6 @@
 /**
  * LAN pairing bridge for Ultron Desktop <-> Ultron Mobile.
- * HTTP on 0.0.0.0:49200 (WhatsApp-style pairing code).
+ * HTTP on 0.0.0.0:49200+ (WhatsApp-style pairing code + real scannable QR).
  */
 const http = require('http');
 const os = require('os');
@@ -10,9 +10,13 @@ const path = require('path');
 const { app } = require('electron');
 
 const SYNC_PORT = 49200;
-const PAIR_TTL_MS = 30 * 1000;
+const PORT_FALLBACKS = [SYNC_PORT, 49201, 49202, 49203];
+const PAIR_TTL_MS = 120 * 1000;
+const PAIR_TTL_S = PAIR_TTL_MS / 1000;
+const MAX_VERIFY_ATTEMPTS = 6;
 
 let server = null;
+let activePort = SYNC_PORT;
 let syncId = '';
 let pendingPair = null;
 let pendingChatConsent = null;
@@ -40,7 +44,7 @@ function saveConfigPatch(patch) {
 function generateSyncId() {
   const host = (os.hostname() || 'PC').replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toUpperCase() || 'PC';
   const n = (crypto.randomBytes(2).readUInt16BE(0) % 9000) + 1000;
-  return `ULTRON-WIN-${n}`;
+  return `ULTRON-${host}-${n}`;
 }
 
 function generatePairCode() {
@@ -289,7 +293,7 @@ function requestChatConsent({ direction, title, detail, sessionCount, messageCou
       detail,
       sessionCount: sessionCount || 0,
       messageCount: messageCount || 0,
-      expiresIn: 30,
+      expiresIn: 60,
     }, { focus: true });
   });
 }
@@ -311,10 +315,39 @@ function discoverPayload() {
     syncId,
     name: `${os.hostname() || 'Ultron-PC'} (Ultron Desktop)`,
     version: app.getVersion ? app.getVersion() : '1.0.0',
-    port: SYNC_PORT,
+    port: activePort,
     addresses: getLanAddresses(),
     ollama: 'http://127.0.0.1:11434',
   };
+}
+
+function pairQrPayload(code) {
+  const ips = getLanAddresses();
+  return JSON.stringify({
+    v: 1,
+    type: 'brown-pair',
+    name: `${os.hostname() || 'Ultron-PC'} (Ultron Desktop)`,
+    ip: ips[0] || '127.0.0.1',
+    ips,
+    port: activePort,
+    code,
+    syncId,
+  });
+}
+
+async function generatePairQrDataUrl(code) {
+  try {
+    const QRCode = require('qrcode');
+    return await QRCode.toDataURL(pairQrPayload(code), {
+      errorCorrectionLevel: 'M',
+      margin: 2,
+      width: 480,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+  } catch (err) {
+    console.warn('[desktop-sync] QR generation failed:', err.message);
+    return null;
+  }
 }
 
 async function handleRequest(req, res) {
@@ -346,14 +379,15 @@ async function handleRequest(req, res) {
       code,
       deviceName: clientDevice,
       expiresAt: Date.now() + PAIR_TTL_MS,
+      attempts: 0,
     };
     notifyRenderer('mobile-pair-request', {
       requestId,
       code,
       deviceName: pendingPair.deviceName,
-      expiresIn: 30,
+      expiresIn: PAIR_TTL_S,
     }, { focus: true });
-    json(res, 200, { ok: true, requestId, expiresIn: 30, syncId, deviceName: pendingPair.deviceName });
+    json(res, 200, { ok: true, requestId, expiresIn: PAIR_TTL_S, syncId, deviceName: pendingPair.deviceName });
     return;
   }
 
@@ -361,7 +395,12 @@ async function handleRequest(req, res) {
     const body = await readBody(req);
     const code = String(body.code || '').trim().toUpperCase();
     const requestId = String(body.requestId || '');
-    if (!pendingPair || pendingPair.requestId !== requestId) {
+    if (!pendingPair) {
+      json(res, 400, { ok: false, error: 'No active pairing request' });
+      return;
+    }
+    // QR scans carry only the code; manual pairing carries requestId too.
+    if (requestId && pendingPair.requestId !== requestId) {
       json(res, 400, { ok: false, error: 'No active pairing request' });
       return;
     }
@@ -371,6 +410,13 @@ async function handleRequest(req, res) {
       return;
     }
     if (code !== pendingPair.code) {
+      pendingPair.attempts = (pendingPair.attempts || 0) + 1;
+      if (pendingPair.attempts >= MAX_VERIFY_ATTEMPTS) {
+        pendingPair = null;
+        notifyRenderer('mobile-pair-dismissed', {});
+        json(res, 429, { ok: false, error: 'Too many failed attempts — generate a new code on the PC' });
+        return;
+      }
       json(res, 401, { ok: false, error: 'Invalid pairing code' });
       return;
     }
@@ -420,6 +466,7 @@ async function handleRequest(req, res) {
     route.startsWith('/ollama') ||
     route.startsWith('/gemini') ||
     route.startsWith('/sync') ||
+    route.startsWith('/stt') ||
     route === '/profile' ||
     route === '/chats' ||
     route === '/session';
@@ -585,6 +632,59 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // Whisper STT proxy — the phone records PCM WAV and borrows the PC's engine.
+  if (req.method === 'GET' && route === '/stt/status') {
+    try {
+      const { isWhisperReady } = require('./voice-whisper');
+      json(res, 200, { ok: true, ready: isWhisperReady() });
+    } catch (err) {
+      json(res, 500, { ok: false, error: err.message });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && route === '/stt/warmup') {
+    try {
+      const { warmupWhisper } = require('./voice-whisper');
+      warmupWhisper().then((r) => {
+        if (!r?.success) console.warn('[desktop-sync] whisper warmup failed:', r?.error);
+      });
+      json(res, 200, { ok: true, started: true });
+    } catch (err) {
+      json(res, 500, { ok: false, error: err.message });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && route === '/stt') {
+    const body = await readBody(req);
+    const b64 = String(body.audio || '');
+    if (!b64) {
+      json(res, 400, { ok: false, error: 'No audio received' });
+      return;
+    }
+    // ~30s of 16kHz mono 16-bit PCM in base64 ≈ 2 MB; reject anything absurd.
+    if (b64.length > 8 * 1024 * 1024) {
+      json(res, 413, { ok: false, error: 'Recording too long (max ~30 seconds)' });
+      return;
+    }
+    try {
+      const { transcribeWhisperWavBuffer } = require('./voice-whisper');
+      const wav = Buffer.from(b64, 'base64');
+      const result = await transcribeWhisperWavBuffer(wav);
+      if (result?.success && result.text) {
+        json(res, 200, { ok: true, text: result.text });
+      } else if (result?.busy) {
+        json(res, 429, { ok: false, error: 'Whisper is busy with another recording — try again in a second' });
+      } else {
+        json(res, 502, { ok: false, error: result?.error || 'Whisper could not transcribe the recording' });
+      }
+    } catch (err) {
+      json(res, 502, { ok: false, error: err.message || 'Whisper transcription failed' });
+    }
+    return;
+  }
+
   json(res, 404, { ok: false, error: 'Not found' });
 }
 
@@ -599,17 +699,33 @@ function startDesktopSyncServer(opts = {}) {
   server = http.createServer((req, res) => {
     handleRequest(req, res).catch((err) => {
       console.warn('[desktop-sync]', err.message);
-      json(res, 500, { ok: false, error: 'Internal error' });
+      try {
+        json(res, 500, { ok: false, error: 'Internal error' });
+      } catch {}
     });
   });
 
-  server.on('error', (err) => {
-    console.warn('[desktop-sync] server error:', err.message);
-  });
+  const listenOn = (ports) => {
+    const [port, ...rest] = ports;
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE' && rest.length > 0) {
+        console.warn(`[desktop-sync] port ${port} busy, trying ${rest[0]}...`);
+        try { server.close(); } catch {}
+        listenOn(rest);
+      } else if (err.code === 'EADDRINUSE') {
+        console.error('[desktop-sync] all sync ports are in use — mobile pairing disabled');
+        server = null;
+      } else {
+        console.warn('[desktop-sync] server error:', err.message);
+      }
+    });
+    server.listen(port, '0.0.0.0', () => {
+      activePort = port;
+      console.log(`[desktop-sync] listening on 0.0.0.0:${port} id=${syncId}`);
+    });
+  };
 
-  server.listen(SYNC_PORT, '0.0.0.0', () => {
-    console.log(`[desktop-sync] listening on 0.0.0.0:${SYNC_PORT} id=${syncId}`);
-  });
+  listenOn(PORT_FALLBACKS);
 
   return getSyncInfo();
 }
@@ -668,7 +784,7 @@ function getSyncInfo() {
 
   return {
     syncId,
-    port: SYNC_PORT,
+    port: activePort,
     addresses: getLanAddresses(),
     activeDevices,
     previousDevices,
@@ -709,7 +825,7 @@ function revokePairedDevice(idOrPrefix) {
   return { success: true, devices: listPairedDevices() };
 }
 
-function createDesktopPairCode() {
+async function createDesktopPairCode() {
   const requestId = crypto.randomBytes(8).toString('hex');
   const code = generatePairCode();
   pendingPair = {
@@ -717,20 +833,24 @@ function createDesktopPairCode() {
     code,
     deviceName: 'Ultron Mobile Companion',
     expiresAt: Date.now() + PAIR_TTL_MS,
+    attempts: 0,
   };
   notifyRenderer('mobile-pair-request', {
     requestId,
     code,
     deviceName: pendingPair.deviceName,
-    expiresIn: 30,
+    expiresIn: PAIR_TTL_S,
   });
+  const qrDataUrl = await generatePairQrDataUrl(code);
   return {
     success: true,
     code,
     requestId,
-    expiresIn: 30,
+    qrDataUrl,
+    qrPayload: pairQrPayload(code),
+    expiresIn: PAIR_TTL_S,
     syncId,
-    port: SYNC_PORT,
+    port: activePort,
     addresses: getLanAddresses(),
   };
 }

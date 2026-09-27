@@ -576,6 +576,53 @@
     return memories.map(m => `- [${m.type}] ${m.content}`).join('\n');
   }
 
+  function getRecentDurableMemories(limit = 4) {
+    try {
+      const list = JSON.parse(window.localStorage.getItem('ultron-agent-durable-memory') || '[]');
+      return Array.isArray(list) ? list.slice(-limit) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function ingestUserUtterance(text) {
+    const t = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!t || t.length < 8) return [];
+    const saved = [];
+
+    const rememberMatch = t.match(/\bremember (?:that |this )?(?:i |my )?(.+)$/i);
+    if (rememberMatch && rememberMatch[1].length < 220) {
+      const entry = saveDurableMemory('instruction', rememberMatch[1].trim());
+      if (entry) saved.push(entry);
+    }
+
+    const nameMatch = t.match(/\bmy name is ([a-z][a-z\s.'-]{1,40})/i);
+    if (nameMatch) {
+      const name = nameMatch[1].trim().replace(/[.,!?]+$/, '');
+      const entry = saveDurableMemory('user-info', `The user's name is ${name}`);
+      if (entry) saved.push(entry);
+      saveUserPreference('userName', name);
+    }
+
+    const liveMatch = t.match(/\bi (?:live|am based|'m based|work) in ([a-z0-9\s,.-]{2,48})/i);
+    if (liveMatch) {
+      const place = liveMatch[1].trim().replace(/[.,!?]+$/, '');
+      const entry = saveDurableMemory('user-info', `The user lives or works in ${place}`);
+      if (entry) saved.push(entry);
+      try { window.localStorage.setItem('ultron-user-location', place); } catch (e) {}
+    }
+
+    const preferMatch = t.match(/\bi (?:prefer|usually want|always want you to) (.+)$/i);
+    if (preferMatch && preferMatch[1].length < 160) {
+      const note = preferMatch[1].trim().replace(/[.,!?]+$/, '');
+      const entry = saveDurableMemory('preference', note);
+      if (entry) saved.push(entry);
+      appendPreferenceNote(note);
+    }
+
+    return saved;
+  }
+
   const memoryApi = {
     loadTaskMemory,
     saveTaskMemory,
@@ -618,7 +665,9 @@
     queryHistoricalMessages,
     saveDurableMemory,
     queryDurableMemories,
-    getDurableMemorySnippet
+    getDurableMemorySnippet,
+    getRecentDurableMemories,
+    ingestUserUtterance
   };
 
   if (typeof window !== 'undefined') {

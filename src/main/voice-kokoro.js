@@ -551,6 +551,50 @@ function deleteKokoroEngine() {
   return { success: true };
 }
 
+function ensureKokoroVoiceFiles() {
+  try {
+    let voicesSrcDir = null;
+    try {
+      const kokoroPkg = require.resolve('kokoro-js');
+      voicesSrcDir = path.join(path.dirname(kokoroPkg), '..', 'voices');
+    } catch (e) { /* ignore */ }
+
+    if (!voicesSrcDir || !fs.existsSync(voicesSrcDir)) return;
+    const voiceFiles = fs.readdirSync(voicesSrcDir).filter((f) => f.endsWith('.bin'));
+    if (!voiceFiles.length) return;
+
+    const targets = new Set();
+    try {
+      const cwdRoot = path.parse(process.cwd()).root;
+      if (cwdRoot) targets.add(path.join(cwdRoot, 'voices'));
+    } catch (e) { /* ignore */ }
+    try {
+      const dirRoot = path.parse(__dirname).root;
+      if (dirRoot) targets.add(path.join(dirRoot, 'voices'));
+    } catch (e) { /* ignore */ }
+    targets.add(path.join(process.cwd(), 'voices'));
+    targets.add(path.join(getKokoroCacheDir(), 'voices'));
+
+    for (const targetDir of targets) {
+      try {
+        fs.mkdirSync(targetDir, { recursive: true });
+        for (const file of voiceFiles) {
+          const dest = path.join(targetDir, file);
+          if (!fs.existsSync(dest)) {
+            fs.copyFileSync(path.join(voicesSrcDir, file), dest);
+          }
+        }
+      } catch (e) { /* ignore */ }
+    }
+  } catch (err) {
+    console.warn('[voice-kokoro] ensureKokoroVoiceFiles warning:', err.message);
+  }
+}
+
+try {
+  ensureKokoroVoiceFiles();
+} catch (e) { /* ignore */ }
+
 async function synthesizeKokoroSpeech(text, voiceId = 'af_heart') {
   if (!isKokoroEngineInstalled()) {
     return {
@@ -564,28 +608,37 @@ async function synthesizeKokoroSpeech(text, voiceId = 'af_heart') {
   if (!cleaned) return { success: false, error: 'No text to speak.' };
 
   try {
-    const tts = await getKokoroTts();
-    const parts = splitKokoroTextParts(cleaned);
-    const segments = [];
-    for (const part of parts) {
-      const seg = await tts.generate(part, { voice: voiceId, speed: 1 });
-      if (extractKokoroSamples(seg).length < 1) {
-        throw new Error('Kokoro returned empty audio.');
+    ensureKokoroVoiceFiles();
+    const synthPromise = (async () => {
+      const tts = await getKokoroTts();
+      const parts = splitKokoroTextParts(cleaned);
+      const segments = [];
+      for (const part of parts) {
+        const seg = await tts.generate(part, { voice: voiceId, speed: 1 });
+        if (extractKokoroSamples(seg).length < 1) {
+          throw new Error('Kokoro returned empty audio.');
+        }
+        segments.push(seg);
       }
-      segments.push(seg);
-    }
 
-    const merged = mergeKokoroAudioSegments(segments);
-    const wavBuffer = rawAudioToWavBuffer(merged, 24000);
-    return {
-      success: true,
-      wavBase64: wavBuffer.toString('base64'),
-      sampleRate: 24000,
-      mimeType: 'audio/wav',
-      engine: 'kokoro',
-      voiceId,
-      device: kokoroLoadedDevice || getKokoroDevicePreference()
-    };
+      const merged = mergeKokoroAudioSegments(segments);
+      const wavBuffer = rawAudioToWavBuffer(merged, 24000);
+      return {
+        success: true,
+        wavBase64: wavBuffer.toString('base64'),
+        sampleRate: 24000,
+        mimeType: 'audio/wav',
+        engine: 'kokoro',
+        voiceId,
+        device: kokoroLoadedDevice || getKokoroDevicePreference()
+      };
+    })();
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Kokoro synthesis timed out after 5s.')), 5000)
+    );
+
+    return await Promise.race([synthPromise, timeoutPromise]);
   } catch (err) {
     const msg = err.message || '';
 
@@ -619,5 +672,6 @@ module.exports = {
   warmupKokoroEngine,
   cancelKokoroDownload,
   deleteKokoroEngine,
-  synthesizeKokoroSpeech
+  synthesizeKokoroSpeech,
+  ensureKokoroVoiceFiles
 };

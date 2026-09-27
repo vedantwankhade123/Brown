@@ -2,6 +2,8 @@ const { runAll } = require('./security.test');
 const { runAgentTests, runAsyncAgentTests } = require('./agent.test');
 const { runPhase2Tests } = require('./phase2.test');
 const { runAutonomyTests } = require('./autonomy.test');
+const { runBrowserTests } = require('./agent-browser.test');
+const { runSessionSidebarTests } = require('./session-sidebar.test');
 
 console.log('=============================================');
 console.log('Ultron Security Orchestration Test Suite');
@@ -16,6 +18,7 @@ console.log('=============================================\n');
 runAgentTests();
 
 (async () => {
+  await runSessionSidebarTests();
   if (typeof runAsyncAgentTests === 'function') {
     await runAsyncAgentTests();
   }
@@ -34,6 +37,7 @@ runAgentTests();
   console.log('=============================================\n');
 
   await runAutonomyTests();
+  await runBrowserTests();
   console.log('\n=============================================');
   console.log('Verification Success: Autonomy Upgrade Active & Tested');
   console.log('=============================================');

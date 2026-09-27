@@ -287,13 +287,20 @@
     }
 
     // 5. Named entity match in prompt (e.g. user mentions partial name of previously found restaurant)
-    for (const ent of allEntities) {
-      if (ent.name && ent.name.length >= 4) {
-        const entLower = ent.name.toLowerCase();
-        if (lower.includes(entLower) && !matchedEntities.some(e => e.id === ent.id)) {
-          matchedEntities.push(ent);
-          explanations.push(`Explicitly mentions previously tracked entity: ${ent.name}`);
-          break;
+    // Guard: Do NOT match on standalone conceptual queries ("what is react", "who is elon musk", "define recursion")
+    const isGenericConceptQuery = /^(what\s+(is|are|was|were)|who\s+(is|was)|define|meaning\s+of|how\s+does\s+[a-z0-9\s]+\s+work)\b/i.test(lower)
+      && !/\b(in\s+my|in\s+our|in\s+this|in\s+the|from\s+earlier|you\s+made|we\s+created|the\s+file)\b/i.test(lower);
+
+    if (!isGenericConceptQuery) {
+      for (const ent of allEntities) {
+        if (ent.name && ent.name.length >= 4) {
+          const entLower = ent.name.toLowerCase();
+          const wordBoundaryRe = new RegExp(`\\b${entLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+          if (wordBoundaryRe.test(lower) && !matchedEntities.some(e => e.id === ent.id)) {
+            matchedEntities.push(ent);
+            explanations.push(`Explicitly mentions previously tracked entity: ${ent.name}`);
+            break;
+          }
         }
       }
     }

@@ -1,0 +1,636 @@
+/* Independent of the disabled canvas workspace. Native content uses CSS-pixel bounds. */
+.agent-browser-pane,
+.agent-browser-toggle,
+.agent-browser-tabs,
+.agent-browser-transcript {
+  --browser-bg: #131314;
+  --browser-surface: #1c1c1e;
+  --browser-hover: #272729;
+  --browser-border: #303034;
+  --browser-text: #efeff1;
+  --browser-muted: #a4a4ad;
+  --browser-blue: #8bb8ff;
+  --browser-blue-bg: #1c2b44;
+  --browser-error: #ffb4ab;
+  --browser-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  font-family: 'Outfit', sans-serif;
+  color: var(--browser-text);
+}
+
+[data-theme="light"] .agent-browser-pane,
+[data-theme="light"] .agent-browser-toggle,
+[data-theme="light"] .agent-browser-tabs,
+[data-theme="light"] .agent-browser-transcript {
+  --browser-bg: #fafafa;
+  --browser-surface: #f1f1f3;
+  --browser-hover: #e8e8eb;
+  --browser-border: #dcdce1;
+  --browser-text: #252529;
+  --browser-muted: #64646e;
+  --browser-blue: #2359ac;
+  --browser-blue-bg: #e7effc;
+  --browser-error: #a62b24;
+  --browser-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+}
+
+/* Specificity intentionally beats the canvas full-width !important defaults. */
+#chat-view.agent-browser-open > #chat-pane-column {
+  flex: 0 0 calc(var(--agent-chat-share, 50%) - 5px) !important;
+  width: calc(var(--agent-chat-share, 50%) - 5px) !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  transition: none !important;
+}
+
+#agent-browser-pane {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin: 16px 16px 16px 0;
+  overflow: hidden;
+  background: var(--browser-bg);
+  border: 1px solid var(--browser-border);
+  border-radius: 20px;
+  box-shadow: var(--browser-shadow);
+  box-sizing: border-box;
+}
+
+#agent-browser-pane[hidden],
+#agent-browser-splitter[hidden],
+.agent-browser-tabs[hidden],
+.agent-browser-pane [hidden] {
+  display: none !important;
+}
+
+/* With the browser open the pane owns the full height of the black area,
+   so the header (Browser toggle + update checker) steps out of the way. */
+.chat-main:has(#chat-view.agent-browser-open) > .chat-header {
+  display: none;
+}
+
+.agent-browser-pane *,
+.agent-browser-tabs * {
+  box-sizing: border-box;
+}
+
+.agent-browser-pane svg,
+.agent-browser-toggle svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
+}
+
+.agent-browser-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--browser-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--browser-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.agent-browser-button:hover:not(:disabled) {
+  background: var(--browser-hover);
+}
+
+.agent-browser-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.agent-browser-button:focus-visible,
+.agent-browser-transcript > summary:focus-visible {
+  outline: 2px solid var(--browser-blue);
+  outline-offset: 3px;
+}
+
+.agent-browser-toggle {
+  flex: 0 0 auto;
+  min-height: 32px;
+  background: var(--browser-bg);
+}
+
+/* Globe sits on the same round chip as the update button's arrow icon */
+.agent-browser-toggle svg {
+  width: 22px;
+  height: 22px;
+  padding: 4px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14) !important;
+}
+
+[data-theme="light"] .agent-browser-toggle svg {
+  background: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Both header pills hug their content */
+.agent-browser-toggle {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 4px 12px 4px 4px;
+  white-space: nowrap;
+}
+
+.agent-browser-toggle[aria-pressed="true"],
+.agent-browser-primary,
+.agent-browser-tabs [aria-selected="true"] {
+  border-color: var(--browser-blue);
+  background: var(--browser-blue-bg);
+  color: var(--browser-blue);
+}
+
+.agent-browser-toggle.agent-browser-needs-review::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--browser-blue);
+}
+
+.agent-browser-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 14px 12px;
+  border-bottom: 1px solid var(--browser-border);
+}
+
+.agent-browser-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-browser-heading > svg {
+  color: var(--browser-muted);
+}
+
+.agent-browser-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-browser-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  color: var(--browser-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.agent-browser-status[data-mode="running"],
+.agent-browser-status[data-mode="review"] {
+  color: var(--browser-blue);
+}
+
+.agent-browser-close {
+  color: var(--browser-muted);
+  border-color: transparent;
+  padding-inline: 8px;
+}
+
+.agent-browser-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  min-width: 0;
+}
+
+.agent-browser-icon-button {
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 50%;
+  color: var(--browser-muted);
+  font-size: 0;
+}
+
+.agent-browser-icon-button svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+}
+
+.agent-browser-icon-button:hover:not(:disabled) {
+  background: var(--browser-hover);
+  color: var(--browser-text);
+}
+
+.agent-browser-address {
+  display: flex;
+  align-items: center;
+  flex: 1 1 155px;
+  min-width: 0;
+  gap: 4px;
+  padding: 3px 4px 3px 12px;
+  border: 1px solid var(--browser-border);
+  border-radius: 999px;
+  background: var(--browser-surface);
+}
+
+.agent-browser-address:focus-within {
+  border-color: var(--browser-blue);
+  outline: 1px solid var(--browser-blue);
+}
+
+#agent-browser-url {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--browser-text);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+#agent-browser-url::placeholder {
+  color: var(--browser-muted);
+}
+
+.agent-browser-address .agent-browser-button {
+  min-height: 25px;
+  padding: 3px 9px;
+  border-color: transparent;
+  color: var(--browser-muted);
+}
+
+.agent-browser-controls,
+.agent-browser-decisions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-browser-takeover {
+  margin-left: auto;
+}
+
+#agent-browser-viewport {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  /* No padding/border/transform: this exact rectangle hosts the native view. */
+  background: var(--browser-bg);
+}
+
+.agent-browser-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+  color: var(--browser-muted);
+}
+
+.agent-browser-empty svg {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 6px;
+  stroke-width: 1;
+}
+
+.agent-browser-empty h3,
+.agent-browser-approval h3 {
+  margin: 0;
+  color: var(--browser-text);
+  font-size: 19px;
+  line-height: 1.3;
+  font-weight: 500;
+  letter-spacing: -0.35px;
+}
+
+.agent-browser-empty p {
+  max-width: 245px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.agent-browser-guidance {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--browser-border);
+  color: var(--browser-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.agent-browser-error {
+  flex: 0 0 auto;
+  max-height: 96px;
+  overflow: auto;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--browser-border);
+  color: var(--browser-error);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.agent-browser-approval {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 32px 22px;
+  outline: none;
+}
+
+.agent-browser-approval:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--browser-blue);
+}
+
+.agent-browser-approval-card {
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+.agent-browser-eyebrow {
+  display: block;
+  margin-bottom: 14px;
+  color: var(--browser-blue);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+}
+
+.agent-browser-approval h3,
+.agent-browser-approval-detail {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-browser-approval-detail {
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--browser-border);
+  border-radius: 12px;
+  background: var(--browser-surface);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.agent-browser-approval-hint {
+  margin: 0 0 20px;
+  color: var(--browser-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.agent-browser-decisions {
+  justify-content: flex-end;
+}
+
+#agent-browser-splitter {
+  position: relative;
+  flex: 0 0 10px;
+  height: 100%;
+  touch-action: none;
+  cursor: col-resize;
+  outline-offset: -2px;
+}
+
+#agent-browser-splitter::after {
+  content: '';
+  position: absolute;
+  top: calc(50% - 20px);
+  left: 4px;
+  width: 2px;
+  height: 40px;
+  border-radius: 99px;
+  background: var(--text-muted, #a4a4ad);
+  opacity: 0.35;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+
+#agent-browser-splitter:hover::after,
+#agent-browser-splitter:focus-visible::after,
+.agent-browser-dragging #agent-browser-splitter::after {
+  background: var(--accent-blue, #3b82f6);
+  opacity: 1;
+}
+
+#agent-browser-splitter:focus-visible {
+  outline: 2px solid var(--accent-blue, #3b82f6);
+}
+
+#chat-view.agent-browser-dragging,
+#chat-view.agent-browser-dragging * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+.agent-browser-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 5px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--browser-border);
+  background: var(--browser-bg);
+}
+
+.agent-browser-tabs .agent-browser-button {
+  min-width: 90px;
+}
+
+#chat-view.agent-browser-open.agent-browser-narrow {
+  flex-direction: column !important;
+}
+
+#chat-view.agent-browser-narrow > .agent-browser-tabs {
+  order: -1;
+}
+
+#chat-view.agent-browser-open.agent-browser-narrow > #chat-pane-column {
+  flex: 1 1 0 !important;
+  width: 100% !important;
+  height: auto !important;
+}
+
+#chat-view.agent-browser-narrow > #agent-browser-pane {
+  flex: 1 1 0 !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 16px 16px !important;
+}
+
+#chat-view.agent-browser-narrow[data-browser-tab="browser"] > #chat-pane-column,
+#chat-view.agent-browser-narrow[data-browser-tab="chat"] > #agent-browser-pane {
+  display: none !important;
+}
+
+.agent-browser-transcript {
+  margin: 0 0 16px;
+  border: 1px solid var(--browser-border);
+  border-radius: 14px;
+  background: var(--browser-bg);
+  overflow: hidden;
+}
+
+.agent-browser-transcript > summary {
+  padding: 12px 14px;
+  color: var(--browser-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.agent-browser-transcript > summary::marker {
+  color: var(--browser-blue);
+}
+
+.agent-browser-transcript .agent-browser-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 260px;
+  overflow: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0 14px 8px;
+}
+
+.agent-browser-actions .agent-browser-action {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--browser-border);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.agent-browser-action-status {
+  flex: 0 0 66px;
+  color: var(--browser-muted);
+  font-size: 10px;
+  text-transform: capitalize;
+}
+
+.agent-browser-action-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-browser-action[data-status="running"] .agent-browser-action-status {
+  color: var(--browser-blue);
+}
+
+.agent-browser-action[data-status="failed"] .agent-browser-action-status {
+  color: var(--browser-error);
+}
+
+.agent-browser-answer {
+  min-width: 0;
+}
+
+.agent-browser-screenshot {
+  margin: 12px 14px;
+}
+
+.agent-browser-screenshot img {
+  display: block;
+  width: 100%;
+  border-radius: 8px;
+}
+
+.agent-browser-screenshot figcaption {
+  margin-top: 6px;
+  color: var(--browser-muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-browser-button,
+  #agent-browser-splitter::after {
+    transition: none;
+  }
+  #chat-view.agent-browser-opening > #agent-browser-pane,
+  #chat-view.agent-browser-closing > #agent-browser-pane {
+    animation: none;
+  }
+}
+
+@keyframes agent-browser-pane-in {
+  from { opacity: 0; transform: translateX(32px); }
+  to { opacity: 1; transform: none; }
+}
+
+#chat-view.agent-browser-opening > #agent-browser-pane {
+  animation: agent-browser-pane-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#chat-view.agent-browser-closing > #agent-browser-pane {
+  animation: agent-browser-pane-in 0.26s ease reverse forwards;
+}
+
+/* Watch-style flat pills; index.css paints the background via the shared token */
+#agent-browser-pane .agent-browser-button:hover:not(:disabled) {
+  background: var(--brown-btn-gradient);
+  filter: brightness(1.35);
+}
+
+#agent-browser-pane .agent-browser-tabs [aria-selected="true"] {
+  background: var(--browser-blue-bg);
+  border-color: var(--browser-blue);
+  color: var(--browser-blue);
+}
+
+[data-theme="light"] #agent-browser-pane .agent-browser-button.agent-browser-go {
+  background: var(--brown-btn-gradient-light);
+  color: #1f2937;
+}
+
+[data-theme="light"] #agent-browser-pane .agent-browser-button.agent-browser-go:hover:not(:disabled) {
+  background: var(--brown-btn-gradient-light);
+}

@@ -83,7 +83,7 @@ function resampleFloat32To16k(samples, sourceRate = 16000) {
   for (let i = 0; i < newLength; i++) {
     const srcIndex = i * ratio;
     const indexLow = Math.floor(srcIndex);
-    const indexHigh = Math.min(srcIndex + 1, src.length - 1);
+    const indexHigh = Math.min(indexLow + 1, src.length - 1);
     const weight = srcIndex - indexLow;
     result[i] = src[indexLow] * (1 - weight) + src[indexHigh] * weight;
   }

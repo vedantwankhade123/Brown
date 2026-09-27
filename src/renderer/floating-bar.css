@@ -426,7 +426,7 @@ html, body {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
-  width: 320px;
+  width: 280px;
   max-height: 300px;
   display: flex;
   flex-direction: column;

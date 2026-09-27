@@ -2850,6 +2850,103 @@ function getInstallationDefaultDataDir() {
     return isValidResultUrl(wikiUrl) ? wikiUrl : '';
   }
 
+  function expandSearchQueries(query) {
+    const q = String(query || '').replace(/\s+/g, ' ').trim();
+    if (!q) return [];
+    const queries = [q];
+    const stripped = q
+      .replace(/^(please\s+)?(can you |could you )?(tell me about|what is|what are|who is|where is|explain|define)\s+(the\s+)?/i, '')
+      .replace(/[?!.]+$/g, '')
+      .trim();
+    if (stripped && stripped.toLowerCase() !== q.toLowerCase()) queries.push(stripped);
+
+    const stateOf = stripped.match(/^state of\s+(.+)$/i);
+    if (stateOf) {
+      queries.push(`strait of ${stateOf[1]}`);
+      queries.push(stateOf[1]);
+    }
+
+    return [...new Set(queries.map(item => item.replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, 4);
+  }
+
+  async function fetchWikipediaSummaries(query) {
+    const results = [];
+    const queries = expandSearchQueries(query);
+    try {
+      const openSearches = await Promise.all(queries.map(async (q) => {
+        try {
+          const osUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(q)}&limit=5&namespace=0&format=json&origin=*`;
+          const osRes = await fetch(osUrl, {
+            headers: { 'User-Agent': 'UltronDesktop/1.0 (local assistant; Wikipedia lookup)' },
+            signal: AbortSignal.timeout(4500)
+          });
+          if (!osRes.ok) return [];
+          const osData = await osRes.json();
+          const titles = Array.isArray(osData[1]) ? osData[1] : [];
+          const snippets = Array.isArray(osData[2]) ? osData[2] : [];
+          const urls = Array.isArray(osData[3]) ? osData[3] : [];
+          return titles.map((title, i) => ({ title, snippet: snippets[i] || '', url: urls[i] || '' }));
+        } catch (e) {
+          return [];
+        }
+      }));
+
+      const seenTitles = new Set();
+      const candidates = [];
+      for (const list of openSearches) {
+        for (const item of list) {
+          const key = String(item.title || '').toLowerCase();
+          if (!key || seenTitles.has(key)) continue;
+          seenTitles.add(key);
+          candidates.push(item);
+          if (candidates.length >= 4) break;
+        }
+        if (candidates.length >= 4) break;
+      }
+
+      await Promise.all(candidates.slice(0, 3).map(async (item) => {
+        const title = item.title;
+        const restUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, '_'))}`;
+        try {
+          const sRes = await fetch(restUrl, {
+            headers: { 'Api-User-Agent': 'UltronDesktop/1.0 (local assistant; Wikipedia lookup)' },
+            signal: AbortSignal.timeout(4500)
+          });
+          if (sRes.ok) {
+            const data = await sRes.json();
+            if (data.type === 'disambiguation') return;
+            const pageUrl = data.content_urls?.desktop?.page || buildWikipediaUrl(data.title || title);
+            if (!pageUrl || !isValidResultUrl(pageUrl)) return;
+            results.push({
+              title: `Wikipedia: ${data.title || title}`,
+              url: pageUrl,
+              snippet: decodeHTMLEntities(data.extract || item.snippet || ''),
+              source: 'wikipedia.org',
+              image: data.thumbnail?.source || data.originalimage?.source || '',
+              type: 'article',
+              pageContent: decodeHTMLEntities(data.extract || '')
+            });
+            return;
+          }
+        } catch (e) { /* fall through to opensearch snippet */ }
+
+        const wikiUrl = item.url || buildWikipediaUrl(title);
+        if (wikiUrl && isValidResultUrl(wikiUrl)) {
+          results.push({
+            title: `Wikipedia: ${title}`,
+            url: wikiUrl,
+            snippet: decodeHTMLEntities(item.snippet || ''),
+            source: 'wikipedia.org',
+            type: 'article'
+          });
+        }
+      }));
+    } catch (e) {
+      console.error('Wikipedia search error:', e.message);
+    }
+    return results;
+  }
+
   function normalizeDdgUrl(rawUrl) {
     if (!rawUrl) return '';
     const decoded = decodeHTMLEntities(String(rawUrl).trim());
@@ -3088,6 +3185,58 @@ function getInstallationDefaultDataDir() {
     }
   }
 
+  async function fetchDdgLiteOrganicResults(query) {
+    try {
+      const res = await fetch('https://lite.duckduckgo.com/lite/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        },
+        body: `q=${encodeURIComponent(query)}`,
+        signal: AbortSignal.timeout(6500)
+      });
+      if (!res.ok) return [];
+      const html = await res.text();
+      const results = [];
+      const linkRegex = /<a[^>]+class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>/gi;
+      const snippetRegex = /<td[^>]+class=['"]result-snippet['"][^>]*>([\s\S]*?)<\/td>/gi;
+
+      const links = [];
+      let match;
+      while ((match = linkRegex.exec(html)) !== null) {
+        const fullTag = match[0];
+        const title = stripTags(match[1]);
+        const hrefMatch = fullTag.match(/href=['"]([^'"]+)['"]/i);
+        const rawUrl = hrefMatch ? hrefMatch[1] : '';
+        const url = normalizeDdgUrl(rawUrl);
+        if (title && url && isValidResultUrl(url)) {
+          links.push({ title, url });
+        }
+      }
+
+      const snippets = [];
+      while ((match = snippetRegex.exec(html)) !== null) {
+        snippets.push(stripTags(match[1]));
+      }
+
+      links.forEach((item, i) => {
+        results.push({
+          title: item.title,
+          url: item.url,
+          snippet: snippets[i] || '',
+          source: getHostname(item.url),
+          type: item.url.includes('youtube.com') ? 'video' : 'web'
+        });
+      });
+
+      return results;
+    } catch (e) {
+      console.error('DDG Lite error:', e.message);
+      return [];
+    }
+  }
+
   // Robust multi-source Web Search handler (DuckDuckGo API + Wiki API + DDG Organic POST + Video + Cache)
   ipcMain.handle('search-web', async (event, query, options = {}) => {
     let cleanQuery = query ? query.replace(/["']/g, '').trim() : '';
@@ -3112,71 +3261,55 @@ function getInstallationDefaultDataDir() {
 
     const resultBlocks = [];
     const isVideoQuery = isVideoOrTutorialQuery(cleanQuery);
+    const searchQueries = expandSearchQueries(cleanQuery);
+    const primarySearchQuery = searchQueries[0] || cleanQuery;
 
-    // Parallel multi-source fetch: DDG API + Wikipedia + YouTube (if relevant)
+    // Parallel multi-source fetch: DDG Instant Answer + Wikipedia OpenSearch/REST + YouTube
     const parallelTasks = [
       (async () => {
         try {
-          const ddgApiUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(cleanQuery)}&format=json&no_html=1&skip_disambig=1`;
-          const res = await fetch(ddgApiUrl, { signal: AbortSignal.timeout(4500) });
-          if (!res.ok) return;
-          const data = await res.json();
-          if (data.AbstractText && data.AbstractURL && isValidResultUrl(data.AbstractURL)) {
-            resultBlocks.push({
-              title: data.Heading || cleanQuery,
-              url: data.AbstractURL,
-              snippet: decodeHTMLEntities(data.AbstractText),
-              source: getHostname(data.AbstractURL),
-              image: data.Image ? normalizeAbsoluteUrl(data.Image, data.AbstractURL) : '',
-              type: 'article'
-            });
-          } else if (data.RelatedTopics && data.RelatedTopics.length > 0) {
-            data.RelatedTopics
-              .flatMap(t => t.Topics || [t])
-              .filter(t => t.Text && t.FirstURL && isValidResultUrl(t.FirstURL))
-              .slice(0, 4)
-              .forEach((topic) => {
-                resultBlocks.push({
-                  title: topic.Text.split(' - ')[0] || cleanQuery,
-                  url: topic.FirstURL,
-                  snippet: decodeHTMLEntities(topic.Text),
-                  source: getHostname(topic.FirstURL),
-                  image: topic.Icon?.URL ? normalizeAbsoluteUrl(topic.Icon.URL, 'https://duckduckgo.com') : '',
-                  type: 'article'
-                });
+          for (const q of searchQueries) {
+            const ddgApiUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`;
+            const res = await fetch(ddgApiUrl, { signal: AbortSignal.timeout(4500) });
+            if (!res.ok) continue;
+            const data = await res.json();
+            if (data.AbstractText && data.AbstractURL && isValidResultUrl(data.AbstractURL)) {
+              resultBlocks.push({
+                title: data.Heading || q,
+                url: data.AbstractURL,
+                snippet: decodeHTMLEntities(data.AbstractText),
+                source: getHostname(data.AbstractURL),
+                image: data.Image ? normalizeAbsoluteUrl(data.Image, data.AbstractURL) : '',
+                type: 'article',
+                pageContent: decodeHTMLEntities(data.AbstractText)
               });
+              break;
+            }
+            if (data.RelatedTopics && data.RelatedTopics.length > 0) {
+              data.RelatedTopics
+                .flatMap(t => t.Topics || [t])
+                .filter(t => t.Text && t.FirstURL && isValidResultUrl(t.FirstURL))
+                .slice(0, 4)
+                .forEach((topic) => {
+                  resultBlocks.push({
+                    title: topic.Text.split(' - ')[0] || q,
+                    url: topic.FirstURL,
+                    snippet: decodeHTMLEntities(topic.Text),
+                    source: getHostname(topic.FirstURL),
+                    image: topic.Icon?.URL ? normalizeAbsoluteUrl(topic.Icon.URL, 'https://duckduckgo.com') : '',
+                    type: 'article'
+                  });
+                });
+              if (resultBlocks.length) break;
+            }
           }
         } catch (e) {
           console.error('DDG API error:', e.message);
         }
       })(),
       (async () => {
-        try {
-          const wikiUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts|pageimages&exintro=1&explaintext=1&pithumbsize=600&titles=${encodeURIComponent(cleanQuery)}&format=json&origin=*`;
-          const wikiRes = await fetch(wikiUrl, { signal: AbortSignal.timeout(4500) });
-          if (!wikiRes.ok) return;
-          const wikiData = await wikiRes.json();
-          const pages = wikiData.query ? wikiData.query.pages : null;
-          if (!pages) return;
-          const pageId = Object.keys(pages)[0];
-          if (pageId !== '-1' && pages[pageId].extract) {
-            const wikiText = pages[pageId].extract.substring(0, 450);
-            const builtWikiUrl = buildWikipediaUrl(pages[pageId].title);
-            const wikiThumb = pages[pageId].thumbnail?.source || '';
-            if (builtWikiUrl) {
-              resultBlocks.push({
-                title: `Wikipedia: ${pages[pageId].title}`,
-                url: builtWikiUrl,
-                snippet: `${decodeHTMLEntities(wikiText)}...`,
-                source: 'wikipedia.org',
-                image: wikiThumb,
-                type: 'article'
-              });
-            }
-          }
-        } catch (e) {
-          console.error('Wikipedia API error:', e.message);
-        }
+        const wikiResults = await fetchWikipediaSummaries(primarySearchQuery);
+        wikiResults.forEach((item) => resultBlocks.push(item));
       })()
     ];
 
@@ -3245,6 +3378,20 @@ function getInstallationDefaultDataDir() {
         }
       } catch (e) {
         console.error('DDG HTML error:', e.message);
+      }
+    }
+
+    // Secondary fallback: DuckDuckGo Lite open HTML organic results (high reliability, low rate limiting)
+    if (resultBlocks.length < 6) {
+      try {
+        const liteItems = await fetchDdgLiteOrganicResults(cleanQuery);
+        for (const item of liteItems) {
+          if (!resultBlocks.some(r => r.url === item.url) && resultBlocks.length < 12) {
+            resultBlocks.push(item);
+          }
+        }
+      } catch (e) {
+        console.error('DDG Lite organic error:', e.message);
       }
     }
 
@@ -3346,7 +3493,7 @@ function getInstallationDefaultDataDir() {
       products,
       videos: videoResults,
       answerContext,
-      searchProvider: 'duckduckgo+wiki+hybrid',
+      searchProvider: 'wikipedia+duckduckgo+hybrid',
       needsClarification: results.length === 0 || !hasRichResult,
       clarification: results.length === 0
         ? `I could not find web results for "${cleanQuery}". Try adding a brand, location, budget, or date range.`
@@ -3415,6 +3562,63 @@ function getInstallationDefaultDataDir() {
     } catch (err) {
       return { success: false, error: err.message || 'MCP tool call failed.' };
     }
+  });
+
+  const { streamAgentHarness } = require('./agent-harness-engine');
+  const { resolveAgentLanguageModel } = require('./agent-harness-provider');
+  const { getBrowser, registerBrowserIpc, assertBrowserSender, BROWSER_POLICY } = require('./agent-browser');
+  registerBrowserIpc(() => mainWindow);
+  const activeHarnessRuns = new Map();
+
+  ipcMain.handle('agent:run-harness', async (event, payload = {}) => {
+    assertBrowserSender(event, mainWindow);
+    const runId = payload.runId || `run_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    if (activeHarnessRuns.has(runId)) throw new Error('Duplicate agent run.');
+    const controller = new AbortController();
+    activeHarnessRuns.set(runId, { controller, sender: event.sender });
+    const onEvent = data => {
+      if (!event.sender.isDestroyed()) event.sender.send('agent:harness-event', { runId, ...data });
+    };
+    let browser;
+    try {
+      if (payload.browserMode === true) {
+        browser = getBrowser(mainWindow);
+        const provider = payload.providerConfig?.provider || 'ollama';
+        if (!['ollama', 'lmstudio', 'localai', 'vllm', 'gemini', 'groq', 'deepseek', 'openai', 'custom'].includes(provider)) {
+          throw new Error('This provider is not supported by the browser tool harness yet. Select a supported tool-capable model.');
+        }
+        const resolved = await resolveAgentLanguageModel(payload.providerConfig || {});
+        const host = new URL(resolved.baseURL).hostname;
+        const remote = !['127.0.0.1', 'localhost', '[::1]'].includes(host) || /cloud/i.test(resolved.modelId);
+        await browser.beginRun({ id: runId, controller, onEvent, remote });
+      }
+      const summary = await streamAgentHarness({
+        prompt: payload.prompt,
+        history: payload.history || [],
+        systemPrompt: browser ? BROWSER_POLICY : payload.systemPrompt,
+        providerConfig: payload.providerConfig || {},
+        maxSteps: payload.maxSteps || 10,
+        abortSignal: controller.signal,
+        browser,
+        onEvent
+      });
+      return { runId, ...summary };
+    } catch (err) {
+      return { runId, success: false, error: controller.signal.aborted ? 'Browser task stopped.' : err.message };
+    } finally {
+      browser?.endRun(runId);
+      activeHarnessRuns.delete(runId);
+    }
+  });
+
+  ipcMain.handle('agent:abort-harness', async (event, payload = {}) => {
+    const runId = payload?.runId;
+    const run = activeHarnessRuns.get(runId);
+    if (run && run.sender === event.sender) {
+      run.controller.abort();
+      return { success: true, runId };
+    }
+    return { success: false, error: 'Run not found or already completed.' };
   });
 
   // Floating Bar IPC Handlers
@@ -3597,7 +3801,7 @@ function getInstallationDefaultDataDir() {
   ipcMain.handle('desktop-sync:create-pair-code', async () => {
     try {
       const { createDesktopPairCode } = require('./desktop-sync-server');
-      return createDesktopPairCode();
+      return await createDesktopPairCode();
     } catch (err) {
       return { success: false, error: err.message };
     }
