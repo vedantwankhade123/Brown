@@ -42,6 +42,22 @@ function applyWinTitleBarOverlay(win) {
   }
 }
 
+function resolveWindowIcon() {
+  const roots = [
+    path.join(__dirname, '..', '..', 'Assets', 'Brand-Assets'),
+    path.join(__dirname, '..', '..', 'Assets'),
+  ];
+  // White logo reads best on the dark Windows taskbar; fall back to the .ico.
+  const names = ['Brown-white.png', 'Brown.ico'];
+  for (const dir of roots) {
+    for (const name of names) {
+      const full = path.join(dir, name);
+      if (fs.existsSync(full)) return full;
+    }
+  }
+  return undefined;
+}
+
 function createWindow() {
   const isWin32 = process.platform === 'win32';
   mainWindow = new BrowserWindow({
@@ -50,9 +66,7 @@ function createWindow() {
     show: false,
     backgroundColor: isWin32 ? TITLE_BAR_COLOR : WINDOW_BG,
     title: 'Brown: Autonomous Local AI Agent',
-    icon: fs.existsSync(path.join(__dirname, '..', '..', 'Assets', 'Brand-Assets', isWin32 ? 'brown-logo.ico' : 'brown-lg.png'))
-      ? path.join(__dirname, '..', '..', 'Assets', 'Brand-Assets', isWin32 ? 'brown-logo.ico' : 'brown-lg.png')
-      : path.join(__dirname, '..', '..', 'Assets', isWin32 ? 'brown-logo.ico' : 'brown-lg.png'),
+    icon: resolveWindowIcon(isWin32),
     ...(isWin32
       ? {
           titleBarStyle: 'hidden',

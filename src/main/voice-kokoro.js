@@ -18,11 +18,20 @@ const KOKORO_ENGINE_KEY = 'kokoro-engine';
 const KOKORO_MARKER = '.kokoro-installed';
 /** q8 Kokoro ONNX is ~88–92 MB; reject partial downloads below this threshold. */
 const KOKORO_MIN_MODEL_BYTES = 75 * 1024 * 1024;
+/** Voices shipped inside the installer — no per-voice download needed. */
+const KOKORO_BUNDLED_VOICES = ['af_heart', 'am_michael', 'bm_george', 'bm_lewis'];
 
 let kokoroPromise = null;
 let kokoroLoadedDevice = null;
 let kokoroDownloadState = { inProgress: false, cancelled: false };
 let transformersEnvConfigured = false;
+let kokoroModelPathCache;
+let kokoroVoiceFilesReady = false;
+
+/** Model layout on disk only changes on install/reset, so the walk is cached. */
+function invalidateKokoroModelPathCache() {
+  kokoroModelPathCache = undefined;
+}
 
 function getKokoroCacheDir() {
   try {
@@ -91,12 +100,8 @@ function markVoiceInstalled(voiceId) {
 
 function isKokoroVoiceInstalled(voiceId) {
   if (!isKokoroEngineInstalled()) return false;
-  const installed = loadInstalledVoices();
-  // If base engine is installed and installed list is empty, default voices are available
-  if (installed.length === 0 && (voiceId === 'af_heart' || voiceId === 'am_michael')) {
-    return true;
-  }
-  return installed.includes(voiceId);
+  if (KOKORO_BUNDLED_VOICES.includes(voiceId)) return true;
+  return loadInstalledVoices().includes(voiceId);
 }
 
 function isValidOnnxModelFile(filePath, minBytes = 10 * 1024 * 1024) {
@@ -109,16 +114,24 @@ function isValidOnnxModelFile(filePath, minBytes = 10 * 1024 * 1024) {
 }
 
 function findKokoroModelOnnxPath() {
+  if (kokoroModelPathCache !== undefined) return kokoroModelPathCache;
   const cacheDir = getKokoroCacheDir();
-  if (!fs.existsSync(cacheDir)) return null;
+  if (!fs.existsSync(cacheDir)) {
+    kokoroModelPathCache = null;
+    return null;
+  }
 
   // Only accept a complete q8 ONNX (>= ~75 MB). Partial files must not look installed.
   const preferred = walkDir(cacheDir, (fp) => /model_quantized\.onnx$|model_q8\.onnx$|model\.onnx$/i.test(fp));
   const validPreferred = preferred.find((fp) => isValidOnnxModelFile(fp, KOKORO_MIN_MODEL_BYTES));
-  if (validPreferred) return validPreferred;
+  if (validPreferred) {
+    kokoroModelPathCache = validPreferred;
+    return validPreferred;
+  }
 
   const allOnnx = walkDir(cacheDir, (fp) => /\.onnx$/i.test(fp));
-  return allOnnx.find((fp) => isValidOnnxModelFile(fp, KOKORO_MIN_MODEL_BYTES)) || null;
+  kokoroModelPathCache = allOnnx.find((fp) => isValidOnnxModelFile(fp, KOKORO_MIN_MODEL_BYTES)) || null;
+  return kokoroModelPathCache;
 }
 
 /**
@@ -160,6 +173,7 @@ function migrateStrayKokoroModel() {
         try { fs.copyFileSync(filePath, outPath); } catch (e) { /* ignore locked */ }
       }
       console.log('[voice-kokoro] migrated stray Kokoro cache from', modelRoot, 'to', destModelRoot);
+      invalidateKokoroModelPathCache();
       return hasCompleteKokoroModel();
     } catch (err) {
       console.warn('[voice-kokoro] stray model migrate failed:', err.message);
@@ -200,11 +214,14 @@ function writeKokoroInstalledMarker() {
     }, null, 2),
     'utf8'
   );
+  invalidateKokoroModelPathCache();
 }
 
 function removeIncompleteKokoroCache() {
   kokoroPromise = null;
   kokoroLoadedDevice = null;
+  invalidateKokoroModelPathCache();
+  kokoroVoiceFilesReady = false;
   const cacheDir = getKokoroCacheDir();
   try {
     if (fs.existsSync(cacheDir)) {
@@ -315,9 +332,15 @@ function extractKokoroSamples(rawAudio) {
 function rawAudioToWavBuffer(rawAudio, sampleRate = 24000) {
   const samples = extractKokoroSamples(rawAudio);
   const numSamples = samples.length;
-  const buffer = Buffer.alloc(44 + numSamples * 2);
+  const pcm = new Int16Array(numSamples);
+  for (let i = 0; i < numSamples; i++) {
+    const s = samples[i];
+    pcm[i] = s >= 1 ? 32767 : s <= -1 ? -32768 : (s * 32767) | 0;
+  }
+
+  const buffer = Buffer.allocUnsafe(44 + pcm.byteLength);
   buffer.write('RIFF', 0);
-  buffer.writeUInt32LE(36 + numSamples * 2, 4);
+  buffer.writeUInt32LE(36 + pcm.byteLength, 4);
   buffer.write('WAVE', 8);
   buffer.write('fmt ', 12);
   buffer.writeUInt32LE(16, 16);
@@ -328,11 +351,10 @@ function rawAudioToWavBuffer(rawAudio, sampleRate = 24000) {
   buffer.writeUInt16LE(2, 32);
   buffer.writeUInt16LE(16, 34);
   buffer.write('data', 36);
-  buffer.writeUInt32LE(numSamples * 2, 40);
-  for (let i = 0; i < numSamples; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    buffer.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
-  }
+  buffer.writeUInt32LE(pcm.byteLength, 40);
+  new Uint8Array(buffer.buffer, buffer.byteOffset + 44, pcm.byteLength).set(
+    new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength)
+  );
   return buffer;
 }
 
@@ -391,6 +413,7 @@ async function downloadKokoroEngine(sendProgress) {
   try {
     kokoroPromise = null;
     kokoroLoadedDevice = null;
+    invalidateKokoroModelPathCache();
     await getKokoroTts((data) => {
       if (kokoroDownloadState.cancelled || !data) return;
       if (data.status === 'progress' && data.total) {
@@ -552,6 +575,7 @@ function deleteKokoroEngine() {
 }
 
 function ensureKokoroVoiceFiles() {
+  if (kokoroVoiceFilesReady) return;
   try {
     let voicesSrcDir = null;
     try {
@@ -559,9 +583,15 @@ function ensureKokoroVoiceFiles() {
       voicesSrcDir = path.join(path.dirname(kokoroPkg), '..', 'voices');
     } catch (e) { /* ignore */ }
 
-    if (!voicesSrcDir || !fs.existsSync(voicesSrcDir)) return;
+    if (!voicesSrcDir || !fs.existsSync(voicesSrcDir)) {
+      kokoroVoiceFilesReady = true;
+      return;
+    }
     const voiceFiles = fs.readdirSync(voicesSrcDir).filter((f) => f.endsWith('.bin'));
-    if (!voiceFiles.length) return;
+    if (!voiceFiles.length) {
+      kokoroVoiceFilesReady = true;
+      return;
+    }
 
     const targets = new Set();
     try {
@@ -586,6 +616,7 @@ function ensureKokoroVoiceFiles() {
         }
       } catch (e) { /* ignore */ }
     }
+    kokoroVoiceFilesReady = true;
   } catch (err) {
     console.warn('[voice-kokoro] ensureKokoroVoiceFiles warning:', err.message);
   }
@@ -595,7 +626,8 @@ try {
   ensureKokoroVoiceFiles();
 } catch (e) { /* ignore */ }
 
-async function synthesizeKokoroSpeech(text, voiceId = 'af_heart') {
+async function synthesizeKokoroSpeech(text, voiceId = 'af_heart', { speed = 1 } = {}) {
+  const speechRate = Number.isFinite(Number(speed)) ? Math.max(0.5, Math.min(2, Number(speed))) : 1;
   if (!isKokoroEngineInstalled()) {
     return {
       success: false,
@@ -614,11 +646,14 @@ async function synthesizeKokoroSpeech(text, voiceId = 'af_heart') {
       const parts = splitKokoroTextParts(cleaned);
       const segments = [];
       for (const part of parts) {
-        const seg = await tts.generate(part, { voice: voiceId, speed: 1 });
+        const seg = await tts.generate(part, { voice: voiceId, speed: speechRate });
         if (extractKokoroSamples(seg).length < 1) {
           throw new Error('Kokoro returned empty audio.');
         }
         segments.push(seg);
+        // Kokoro runs on the main thread: hand the event loop back between
+        // sentences so window input, IPC and timers keep flowing.
+        await new Promise((yieldLoop) => setImmediate(yieldLoop));
       }
 
       const merged = mergeKokoroAudioSegments(segments);
@@ -634,11 +669,21 @@ async function synthesizeKokoroSpeech(text, voiceId = 'af_heart') {
       };
     })();
 
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Kokoro synthesis timed out after 5s.')), 5000)
-    );
+    // CPU synthesis is slower than the old 5s guess, so the budget scales with
+    // the text instead of cutting off long answers mid-sentence.
+    let timer = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error('Kokoro synthesis timed out.')),
+        Math.min(180000, 25000 + cleaned.length * 60)
+      );
+    });
 
-    return await Promise.race([synthPromise, timeoutPromise]);
+    try {
+      return await Promise.race([synthPromise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   } catch (err) {
     const msg = err.message || '';
 

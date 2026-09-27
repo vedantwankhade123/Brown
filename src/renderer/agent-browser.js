@@ -80,6 +80,10 @@
     ]);
   }
 
+  function brandMark() {
+    return element('span', 'agent-browser-brand');
+  }
+
   async function command(name, fields = {}, quiet = false) {
     if (!available) return { success: false, error: 'Browser controls are unavailable in this build.' };
     const revision = eventRevision;
@@ -571,7 +575,7 @@
     if (!ui.view || !ui.chat) return;
     ui.toggle = button('Browser', () => paneOpen ? closePane() : openPane(true), 'agent-browser-toggle');
     ui.toggle.id = 'btn-agent-browser-toggle';
-    ui.toggle.prepend(globe());
+    ui.toggle.prepend(brandMark());
     ui.toggle.setAttribute('aria-controls', 'agent-browser-pane');
     const header = document.querySelector('.chat-header') || document.querySelector('main > header') || ui.view.parentElement;
     const actions = header.querySelector('.chat-header-actions') || header;
@@ -644,7 +648,7 @@
       dock: icon(['M9 4h11v11H9z', 'M4 9v11h11'])
     };
     ui.popout.append(ui.popoutIcons.popout, ui.popoutIcons.dock);
-    heading.append(globe(), ui.title, ui.status, ui.popout, close);
+    heading.append(brandMark(), ui.title, ui.status, ui.popout, close);
     const form = element('form', 'agent-browser-navigation');
     form.setAttribute('aria-label', 'Browser navigation');
     ui.back = button('', () => { void control('back'); }, 'agent-browser-icon-button');

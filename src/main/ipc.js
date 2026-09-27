@@ -1232,8 +1232,9 @@ function registerAudioIpcHandlers() {
       const text = String(payload.text || payload.content || '');
       const modelKey = payload.modelKey || null;
       const apiKey = String(payload.apiKey || payload.geminiApiKey || '').trim();
-      if (modelKey) return await synthesizeWithModel(modelKey, text, { apiKey });
-      return await synthesizeSpeech(text, undefined, { apiKey });
+      const speed = Number.isFinite(Number(payload.speed)) ? Math.max(0.5, Math.min(2, Number(payload.speed))) : 1;
+      if (modelKey) return await synthesizeWithModel(modelKey, text, { apiKey, speed });
+      return await synthesizeSpeech(text, undefined, { apiKey, speed });
     } catch (err) {
       console.error('[ipc] synthesize-speech error:', err);
       return { success: false, error: err.message || 'Speech synthesis failed.' };

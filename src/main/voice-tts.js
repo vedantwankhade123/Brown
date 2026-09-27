@@ -23,6 +23,26 @@ const TTS_MODEL_CATALOG = [
     previewText: "Hello, I'm Brown. This is the Michael voice."
   },
   {
+    key: 'kokoro-george',
+    engine: 'kokoro',
+    kokoroVoice: 'bm_george',
+    sharedEngineKey: 'kokoro-engine',
+    label: 'George',
+    description: 'UK male · warm, easy-going narrator',
+    sizeEstimate: '~92 MB',
+    previewText: "Hello, I'm Brown. This is the George voice."
+  },
+  {
+    key: 'kokoro-lewis',
+    engine: 'kokoro',
+    kokoroVoice: 'bm_lewis',
+    sharedEngineKey: 'kokoro-engine',
+    label: 'Lewis',
+    description: 'UK male · crisp, articulate conversational voice',
+    sizeEstimate: '~92 MB',
+    previewText: "Hello, I'm Brown. This is the Lewis voice."
+  },
+  {
     key: 'gemini-live-kore',
     engine: 'gemini-cloud',
     label: 'Kore',
@@ -198,7 +218,7 @@ async function synthesizeWithModel(modelKey, text, options = {}) {
 
   if (entry.engine === 'kokoro') {
     const { synthesizeKokoroSpeech } = require('./voice-kokoro');
-    const result = await synthesizeKokoroSpeech(text, entry.kokoroVoice);
+    const result = await synthesizeKokoroSpeech(text, entry.kokoroVoice, { speed: options.speed });
     return {
       ...result,
       modelKey,

@@ -347,7 +347,8 @@ function getLocalAiMode() {
 const INTENT_LOCAL_MODEL_PREFS = {
   math: ['deepseek-r1', 'qwq', 'phi4', 'phi3', 'qwen2.5'],
   action: ['qwen2.5', 'mistral', 'llama3', 'phi4', 'phi3'],
-  search: ['phi4', 'llama3.2', 'gemma2', 'qwen2.5']
+  search: ['phi4', 'llama3.2', 'gemma2', 'qwen2.5'],
+  visual: ['phi4', 'qwen2.5', 'llama3.2', 'llama3', 'mistral', 'gemma2']
 };
 const VISION_MODEL_PREFS = ['llava', 'llama3.2-vision', 'minicpm-v', 'moondream', 'bakllava'];
 
@@ -363,7 +364,7 @@ function selectInstalledModelForPrefs(prefs) {
   return '';
 }
 
-function resolveModelForLocalAi(intent, hasImages = false) {
+function resolveModelForLocalAi(intent, hasImages = false, prefHint = '') {
   const mode = getLocalAiMode();
   const isAutomation = intent === 'action' || intent === 'search';
   const usingCloud = activeModel && activeModel.startsWith('gemini');
@@ -384,7 +385,7 @@ function resolveModelForLocalAi(intent, hasImages = false) {
   // Intent-based routing among installed local models: only swaps when a
   // better-suited model is actually installed (no-op on single-model machines).
   if (!usingCloud && activeModel && !isOllamaCloudPulledModel(activeModel)) {
-    const prefs = hasImages ? VISION_MODEL_PREFS : INTENT_LOCAL_MODEL_PREFS[intent];
+    const prefs = hasImages ? VISION_MODEL_PREFS : INTENT_LOCAL_MODEL_PREFS[prefHint || intent];
     if (prefs && prefs.length) {
       const pick = selectInstalledModelForPrefs(prefs);
       if (pick && pick !== activeModel && !isTinyLocalModel(pick)) {
@@ -1854,7 +1855,8 @@ function updateSessionTitle(sessionId, newTitle) {
 // then the most descriptive recent prompts) once the AI finishes answering.
 function refreshSessionTitleFromConversation(sessionId) {
   const session = conversationsStore[sessionId];
-  if (!session || !Array.isArray(session.messages)) return;
+  if (!session || session.titleLocked || session.aiMeta) return;
+  if (!Array.isArray(session.messages)) return;
   const userTexts = session.messages
     .filter(m => !m.isAi && m.text && !isSimpleGreetingPrompt(m.text))
     .map(m => m.text);
@@ -1877,6 +1879,73 @@ function refreshSessionTitleFromConversation(sessionId) {
   const title = formatSmartTitleWords(best);
   if (isGenericOrFragmentTitle(title) || title === session.title) return;
   updateSessionTitle(sessionId, title);
+}
+
+// AI-generated session title + description for the session card. Runs async
+// after each answer; the heuristic title stays as the instant placeholder.
+const _aiSessionMetaInFlight = new Set();
+
+function extractJsonLoose(text) {
+  const s = String(text || '');
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start === -1 || end <= start) return null;
+  try { return JSON.parse(s.slice(start, end + 1)); } catch (_) { return null; }
+}
+
+function buildSessionMetaDigest(session, { full = false } = {}) {
+  const msgs = (session.messages || []).filter(m => m && m.text);
+  const userTurns = msgs.filter(m => !m.isAi).slice(full ? -14 : -4);
+  const aiTurns = full ? msgs.filter(m => m.isAi).slice(-4) : msgs.filter(m => m.isAi).slice(-1);
+  const rolling = window.UltronAgentMemory?.getConversationSummary?.(session.id)?.text || '';
+  const lines = [];
+  if (rolling) lines.push(`Summary so far: ${String(rolling).slice(0, 400)}`);
+  for (const m of userTurns) lines.push(`User: ${extractPlainTextFromMessage(m.text).replace(/\s+/g, ' ').slice(0, 180)}`);
+  for (const m of aiTurns) lines.push(`Brown: ${extractPlainTextFromMessage(m.text).replace(/\s+/g, ' ').slice(0, full ? 160 : 320)}`);
+  return lines.join('\n').slice(0, full ? 2600 : 1600);
+}
+
+async function generateAiSessionMeta(sessionId, { force = false } = {}) {
+  const session = conversationsStore[sessionId];
+  if (!session || session.titleLocked || _aiSessionMetaInFlight.has(sessionId)) return;
+  const userTurnCount = (session.messages || []).filter(m => !m.isAi).length;
+  if (userTurnCount < 1) return;
+  const prev = session.aiMeta;
+  if (!force && prev && (prev.turns || 0) + 3 > userTurnCount) return;
+  const digest = buildSessionMetaDigest(session, { full: force });
+  if (!digest.trim()) return;
+
+  _aiSessionMetaInFlight.add(sessionId);
+  if (currentSessionId === sessionId) renderSessionPanel();
+  try {
+    const metaSys = 'You name and summarize AI chat sessions. Reply with ONLY one JSON object: {"title":"...","description":"..."}. title: up to 5 Title Case words capturing the actual topic. description: one sentence (max 25 words) saying what this conversation is about. Infer the intended meaning even if the user text contains typos or misspellings. No markdown, no code fences, no text outside the JSON.';
+    const raw = await queryOfflineLLM(`Conversation so far:\n${digest}\n\nReply with the JSON object only:`, [], 'conversation', metaSys, []);
+    const parsed = extractJsonLoose(raw) || {};
+    let title = typeof parsed.title === 'string' ? parsed.title : '';
+    let description = typeof parsed.description === 'string' ? parsed.description : '';
+    if (!title || !description) {
+      const t = String(raw || '').match(/"title"\s*:\s*"([^"]{2,60})"/i);
+      const d = String(raw || '').match(/"description"\s*:\s*"([^"]{10,300})"/i);
+      title = title || (t ? t[1] : '');
+      description = description || (d ? d[1] : '');
+    }
+    title = title.replace(/^["'`]+|["'`;]+$/g, '').replace(/\s+/g, ' ').trim().slice(0, 48);
+    description = description.replace(/^["'`]+|["'`;]+$/g, '').replace(/\s+/g, ' ').trim().slice(0, 280);
+    if (!title || title.length < 3 || isGenericOrFragmentTitle(title)) return;
+    if (description.split(/\s+/).length < 3) return;
+
+    session.aiMeta = { title, description, ts: Date.now(), turns: userTurnCount };
+    touchSession(sessionId);
+    saveConversationsToDisk();
+    if (session.title !== title) updateSessionTitle(sessionId, title);
+    if (currentSessionId === sessionId) renderSessionPanel();
+    logTrace(`AI session meta generated: "${title}"`, 'system');
+  } catch (e) {
+    // Non-fatal — heuristic title stays in place.
+  } finally {
+    _aiSessionMetaInFlight.delete(sessionId);
+    if (currentSessionId === sessionId) renderSessionPanel();
+  }
 }
 
 function normalizeConversationStore(store) {
@@ -1910,7 +1979,7 @@ function normalizeConversationStore(store) {
     });
 
     // Retroactively upgrade generic or fragmented titles if the session has messages
-    if (Array.isArray(session.messages) && session.messages.length > 0 && isGenericOrFragmentTitle(session.title)) {
+    if (Array.isArray(session.messages) && session.messages.length > 0 && isGenericOrFragmentTitle(session.title) && !session.titleLocked && !session.aiMeta) {
       const upgraded = upgradeSessionTitleFromMessages(session);
       if (upgraded && upgraded !== session.title && !isGenericOrFragmentTitle(upgraded)) {
         session.title = upgraded;
@@ -1930,6 +1999,7 @@ function setSendingState(isSending) {
     _processingSessionId = null;
     setTimeout(() => {
       try { refreshSessionTitleFromConversation(doneId); } catch (_) {}
+      generateAiSessionMeta(doneId).catch(() => {});
     }, 500);
   }
   updateSessionProcessingIndicators();
@@ -2271,12 +2341,188 @@ function renderMathFormulas(text) {
     }
   });
 
+  // 7. Bare LaTeX symbol commands emitted without delimiters (e.g. "2\pi r")
+  str = convertBareMathCommands(str, katexLib);
+
   // Restore code blocks
   str = str.replace(/%%KATEX_CODE_BLOCK_(\d+)%%/g, (match, idx) => {
     return codeBlocks[Number(idx)] || match;
   });
 
   return str;
+}
+
+// Bare LaTeX symbol commands local models frequently emit without $ delimiters.
+// Guarded so paths (\ping, C:\dir) and unknown words never match.
+const BARE_MATH_COMMAND_RE = /(?<![A-Za-z\\/:])\\(?:Alpha|Beta|Gamma|Delta|Epsilon|Zeta|Eta|Theta|Iota|Kappa|Lambda|Mu|Nu|Xi|Pi|Rho|Sigma|Tau|Upsilon|Phi|Chi|Psi|Omega|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|times|div|pm|mp|approx|neq|ne|leq|le|geq|ge|equiv|sim|simeq|propto|infty|partial|nabla|cdot|ast|star|circ|degree|angle|perp|parallel|forall|exists|wedge|vee|cap|cup|subset|subseteq|supset|supseteq|in|notin|rightarrow|leftarrow|Rightarrow|Leftarrow|leftrightarrow|Leftrightarrow|mapsto|to|sum|prod|int|oint|lim|ln|log|lg|sin|cos|tan|cot|sec|csc|max|min|det|dim|ker|gcd|lcm)(?![A-Za-z])/g;
+
+function convertBareMathCommands(str, katexLib) {
+  if (!str || !katexLib) return str;
+  return str.replace(BARE_MATH_COMMAND_RE, (cmd) => {
+    try {
+      const html = katexLib.renderToString(cmd, { displayMode: false, throwOnError: false });
+      return html && !html.includes('katex-error') ? html : cmd;
+    } catch (e) {
+      return cmd;
+    }
+  });
+}
+
+// Heuristic: does an inline $...$ body look like math (and not currency/prose)?
+function looksLikeMathBody(body) {
+  const b = String(body || '').trim();
+  if (!b || b.length > 160 || b.includes('\n')) return false;
+  if (/^[\d.,\s%$]+$/.test(b)) return false;
+  if (/[\\{}^_=<>]/.test(b)) return true;
+  if (/^[A-Za-z](?:_[A-Za-z0-9]+)?$/.test(b)) return true;
+  if (/^[A-Za-z0-9_{}().^+\-*/ ]+$/.test(b) && /[+\-*/]/.test(b) && b.split(/\s+/).every(tok => tok.length <= 6)) return true;
+  return false;
+}
+
+/**
+ * Streaming-safe math pass: typesets completed delimited formulas AND partially
+ * typed (unclosed) tail formulas, so KaTeX renders live while tokens stream in
+ * instead of only after the response completes. Code is never touched.
+ */
+function renderMathFormulasStream(text) {
+  if (!text || typeof text !== 'string') return text;
+  const katexLib = (typeof window !== 'undefined' && window.katex)
+    || (typeof katex !== 'undefined' ? katex : null);
+  if (!katexLib || typeof katexLib.renderToString !== 'function') return text;
+
+  const tryRender = (formula, display) => {
+    const body = String(formula || '').trim();
+    if (!body) return null;
+    let html = null;
+    try {
+      html = katexLib.renderToString(body, { displayMode: display, throwOnError: false });
+    } catch (e) {
+      return null;
+    }
+    if (!html || html.includes('katex-error')) return null;
+    return display ? '\n\n' + html + '\n\n' : html;
+  };
+
+  let out = '';
+  let plain = '';
+  const flushPlain = () => {
+    if (plain) {
+      out += convertBareMathCommands(plain, katexLib);
+      plain = '';
+    }
+  };
+
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const ch = text[i];
+
+    // Code fences / inline code: pass through untouched
+    if (ch === '`') {
+      flushPlain();
+      if (text.startsWith('```', i)) {
+        const end = text.indexOf('```', i + 3);
+        const stop = end === -1 ? n : end + 3;
+        out += text.slice(i, stop);
+        i = stop;
+        continue;
+      }
+      const close = text.indexOf('`', i + 1);
+      const inner = close === -1 ? null : text.slice(i + 1, close);
+      if (inner !== null && !inner.includes('\n')) {
+        out += '`' + inner + '`';
+        i = close + 1;
+      } else {
+        out += '`';
+        i += 1;
+      }
+      continue;
+    }
+
+    if (ch === '$') {
+      if (text[i + 1] === '$') {
+        const end = text.indexOf('$$', i + 2);
+        if (end !== -1) {
+          const html = tryRender(text.slice(i + 2, end), true);
+          flushPlain();
+          out += html || text.slice(i, end + 2);
+          i = end + 2;
+          continue;
+        }
+        const tail = text.slice(i + 2);
+        if (tail.length <= 400 && /[\\{}^_=]/.test(tail)) {
+          const html = tryRender(tail, true);
+          if (html) {
+            flushPlain();
+            out += html;
+            i = n;
+            continue;
+          }
+        }
+        plain += '$$';
+        i += 2;
+        continue;
+      }
+      const end = text.indexOf('$', i + 1);
+      if (end !== -1) {
+        const body = text.slice(i + 1, end);
+        if (looksLikeMathBody(body)) {
+          const html = tryRender(body, false);
+          flushPlain();
+          out += html || ('$' + body + '$');
+          i = end + 1;
+          continue;
+        }
+        plain += '$';
+        i += 1;
+        continue;
+      }
+      const tail = text.slice(i + 1);
+      if (looksLikeMathBody(tail)) {
+        const html = tryRender(tail, false);
+        if (html) {
+          flushPlain();
+          out += html;
+          i = n;
+          continue;
+        }
+      }
+      plain += '$';
+      i += 1;
+      continue;
+    }
+
+    if (ch === '\\' && (text[i + 1] === '[' || text[i + 1] === '(')) {
+      const isDisplay = text[i + 1] === '[';
+      const closer = isDisplay ? '\\]' : '\\)';
+      const end = text.indexOf(closer, i + 2);
+      if (end !== -1) {
+        const html = tryRender(text.slice(i + 2, end), isDisplay);
+        flushPlain();
+        out += html || (ch + text[i + 1] + text.slice(i + 2, end) + closer);
+        i = end + closer.length;
+        continue;
+      }
+      const tail = text.slice(i + 2);
+      if (tail.length <= 400) {
+        const html = tryRender(tail, isDisplay);
+        if (html) {
+          flushPlain();
+          out += html;
+          i = n;
+          continue;
+        }
+      }
+      plain += ch + text[i + 1];
+      i += 2;
+      continue;
+    }
+
+    plain += ch;
+    i += 1;
+  }
+  flushPlain();
+  return out;
 }
 
 function structureReadableMarkdown(text) {
@@ -2490,11 +2736,13 @@ function formatCodeBlocks(containerElement) {
       if (match) lang = match[1].toLowerCase();
     }
 
-    if (lang === 'mermaid' && window.UltronVisualEngine) {
+    // Models sometimes label the fence with the diagram type instead of "mermaid"
+    const mermaidAliasLang = /^(flowchart|graph|mindmap|sequencediagram|erdiagram|statediagram|gantt|journey|timeline|sankey|quadrantchart|xychart|requirementdiagram|architecture|packet|block|gitgraph|classdiagram)$/;
+    if ((lang === 'mermaid' || mermaidAliasLang.test(lang)) && window.UltronVisualEngine) {
       // Skip incomplete fences (streaming / truncated) to avoid flicker loops
       const trimmedCode = String(rawCode || '').trim();
       if (!trimmedCode || trimmedCode.length < 12) return;
-      if (!/\b(flowchart|graph|mindmap|sequenceDiagram|erDiagram|classDiagram|stateDiagram|gantt|pie|journey|quadrantChart|xychart|timeline|sankey|gitGraph|requirementDiagram|architecture|packet|block|radar)\b/i.test(trimmedCode)
+      if (lang === 'mermaid' && !/\b(flowchart|graph|mindmap|sequenceDiagram|erDiagram|classDiagram|stateDiagram|gantt|pie|journey|quadrantChart|xychart|timeline|sankey|gitGraph|requirementDiagram|architecture|packet|block|radar)\b/i.test(trimmedCode)
           && !/(-->|==>|-\.->)/.test(trimmedCode)) {
         return;
       }
@@ -3361,7 +3609,7 @@ function createStreamBubblePainter(contentElement) {
     const now = Date.now();
     if (now - lastPaint < 40) return;
     lastPaint = now;
-    const closed = closeIncompleteMarkdown(outputText);
+    const closed = closeIncompleteMarkdown(renderMathFormulasStream(outputText));
     let parsed = '';
     try {
       parsed = window.ultronAPI.parseMarkdown(closed);
@@ -3391,7 +3639,7 @@ async function typeMessageResponse(contentElement, fullText, options = {}) {
   }
 
   // Check if force instant is requested or content is pure widget/error markup
-  const hasVisualFence = /```(?:mermaid|chart|json-chart|gen-ui|widget)\b/i.test(String(fullText || ''));
+  const hasVisualFence = /```(?:mermaid|flowchart|graph|mindmap|sequencediagram|erdiagram|statediagram|gantt|xychart|chart|json-chart|gen-ui|widget)\b/i.test(String(fullText || ''));
   const isErrorOrUndo = typeof fullText === 'string' && (
     fullText.includes('agent-error-recovery-card') ||
     fullText.includes('agent-undo-card') ||
@@ -3506,7 +3754,7 @@ async function typeMessageResponse(contentElement, fullText, options = {}) {
 
     accumulated += tokens.slice(i, i + chunkSize).join('');
 
-    const closed = closeIncompleteMarkdown(accumulated);
+    const closed = closeIncompleteMarkdown(renderMathFormulasStream(accumulated));
     let parsed = '';
     try {
       parsed = window.ultronAPI.parseMarkdown(closed);
@@ -3583,7 +3831,7 @@ function renderChatMessage(sender, text, isAi = false, options = {}) {
     const avatar = document.createElement('div');
     avatar.className = 'avatar ai';
     const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    const aiLogoSrc = isLight ? '../../Assets/brown-b-black-logo.png' : '../../Assets/brown-b-white-logo.png';
+    const aiLogoSrc = isLight ? '../../Assets/Brown-black.png' : '../../Assets/Brown-white.png';
     avatar.innerHTML = `<img src="${aiLogoSrc}" alt="Brown" onerror="this.src='${aiLogoSrc}'" />`;
     messageDiv.appendChild(avatar);
     
@@ -3767,6 +4015,7 @@ function rebuildSessionHistoryList() {
         input.remove();
         navText.style.display = '';
         if (val && val !== curTitle) {
+          if (conversationsStore[id]) conversationsStore[id].titleLocked = true;
           updateSessionTitle(id, val);
         }
       };
@@ -5018,7 +5267,7 @@ function renderSessionPanel() {
   const artifacts = currentSessionId ? memory?.getSessionArtifacts?.(currentSessionId) || [] : [];
   const summary = currentSessionId ? memory?.getConversationSummary?.(currentSessionId) : null;
   const latestPrompt = messages.slice().reverse().find(message => !message.isAi);
-  const summaryText = summary?.text || (latestPrompt ? extractPlainTextFromMessage(latestPrompt.text) : 'Start with an idea. Brown keeps the useful details here as you go.');
+  const summaryText = session?.aiMeta?.description || summary?.text || (latestPrompt ? extractPlainTextFromMessage(latestPrompt.text) : 'Start with an idea. Brown keeps the useful details here as you go.');
   const updated = summary?.ts || session?.updatedAt;
   const tasks = activity.tasks || [];
   const tools = new Map();
@@ -5053,6 +5302,7 @@ function renderSessionPanel() {
       <h3 class="session-context-title">${escapeHtml(session?.title || 'A fresh thread')}</h3>
       <p class="session-context-summary">${escapeHtml(String(summaryText).slice(0, 700))}</p>
       ${messages.length ? `<div class="session-context-meta">${messages.length} ${messages.length === 1 ? 'message' : 'messages'}</div>` : ''}
+      ${_aiSessionMetaInFlight.has(currentSessionId) ? '<span class="session-context-spinner" role="status" aria-label="Summarizing this session"></span>' : ''}
     </section>`];
   sections.push(sideSectionHtml('Action plan', tasks, (task, overflow) => {
     const done = task.completed || task.status === 'completed';
@@ -6928,11 +7178,6 @@ function getSourceDomain(item) {
   }
 }
 
-function getSourceFaviconUrl(domain) {
-  if (!domain || domain === 'web') return '';
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`;
-}
-
 function plainSearchSnippet(text) {
   return String(text || '')
     .replace(/[=\-_~*]{3,}/g, ' ')
@@ -7547,28 +7792,22 @@ function renderStackedSourcesHtml(results) {
 
   const stackHtml = stackItems.map((item, index) => {
     const domain = getSourceDomain(item);
-    const faviconUrl = getSourceFaviconUrl(domain);
     const title = item.title || domain;
     return `
       <a class="source-stack-logo" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer"
          style="z-index:${stackCount - index}" title="${escapeHtml(title)} — ${escapeHtml(domain)}">
-        ${faviconUrl
-          ? `<img src="${escapeHtml(faviconUrl.replace('sz=32', 'sz=64'))}" alt="" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';" /><span class="source-stack-fallback" style="display:none;">🌐</span>`
-          : `<span class="source-stack-fallback">🌐</span>`}
+        <span class="source-stack-mark"></span>
       </a>
     `;
   }).join('');
 
   const renderSourceCard = (item, index) => {
     const domain = getSourceDomain(item);
-    const faviconUrl = getSourceFaviconUrl(domain);
     return `
       <a class="source-result-card" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(domain)}">
         <div class="source-header">
           <span class="source-cite-num source-cite-num-inline">${index + 1}</span>
-          ${faviconUrl
-            ? `<img class="source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" /><span class="source-favicon-fallback" style="display:none;">🌐</span>`
-            : `<span class="source-favicon-fallback">🌐</span>`}
+          <span class="source-favicon"></span>
           <span class="source-domain">${escapeHtml(domain)}</span>
         </div>
         <div class="source-result-title">${escapeHtml(item.title || item.source || 'Web result')}</div>
@@ -7634,7 +7873,6 @@ function enhanceCitationsWithTooltips(renderedHtml, results) {
     const item = results[idx];
     if (!item || !item.url) return match;
     const domain = getSourceDomain(item);
-    const faviconUrl = getSourceFaviconUrl(domain);
     const title = escapeHtml(item.title || domain);
     const snippet = escapeHtml((item.snippet || item.pageContent || '').slice(0, 140));
     
@@ -7643,7 +7881,7 @@ function enhanceCitationsWithTooltips(renderedHtml, results) {
         <a class="citation-badge" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" data-cite-num="${p1}">[${p1}]</a>
         <span class="citation-tooltip">
           <span class="citation-tooltip-header">
-            ${faviconUrl ? `<img class="citation-tooltip-favicon" src="${escapeHtml(faviconUrl)}" alt="" />` : `<span class="citation-tooltip-icon">🌐</span>`}
+            <span class="citation-tooltip-favicon"></span>
             <span class="citation-tooltip-domain">${escapeHtml(domain)}</span>
           </span>
           <span class="citation-tooltip-title">${title}</span>
@@ -7750,10 +7988,6 @@ function renderSearchExperience(answer, searchPayload) {
     } catch (e) {
       domain = item.source || item.sourceDomain || 'web';
     }
-    const faviconUrl = domain && domain !== 'web' 
-      ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=32`
-      : '';
-
     const formattedPrice = item.price ? formatPriceWithLocalEquivalent(item.price) : '';
     const ratingBadge = item.rating 
       ? `<span class="product-result-price-badge" style="background: rgba(234,179,8,0.15); color: #eab308; border-color: rgba(234,179,8,0.3);">⭐ ${typeof item.rating === 'number' ? item.rating.toFixed(1) : item.rating}</span>`
@@ -7774,10 +8008,7 @@ function renderSearchExperience(answer, searchPayload) {
         ${cardImg}
         <div class="product-result-body">
           <div class="product-source-header">
-            ${faviconUrl 
-              ? `<img class="product-source-favicon" src="${escapeHtml(faviconUrl)}" alt="" onerror="this.style.display='none'; if(this.nextElementSibling) this.nextElementSibling.style.display='inline-block';" /><span class="product-source-icon" style="display:none;">🌐</span>` 
-              : `<span class="product-source-icon">🌐</span>`
-            }
+            <span class="product-source-favicon"></span>
             <span class="product-source-domain">${escapeHtml(domain || item.source || 'web')}</span>
             ${ratingBadge || (formattedPrice ? `<span class="product-result-price-badge">${escapeHtml(formattedPrice)}</span>` : '')}
           </div>
@@ -8643,6 +8874,19 @@ function buildReminderResponse(prompt) {
   return `I can set a real in-app timer if you include a delay — e.g. "remind me to drink water in 10 seconds" or "set a timer for 5 minutes".\n\nFor something that survives closing Ultron, use the Windows **Clock** app (Timer / Alarms), or a quick script:\n\n\`\`\`js\nsetTimeout(() => alert('Drink water'), 10_000);\n\`\`\`\n\nI won't invent a flowchart for reminders — tell me the delay and what to say when it fires.`;
 }
 
+// Explicit "make me a visual" asks — drives model routing (visual prefs) and
+// the diagram-fence guarantee retry. Informational questions stay false.
+function isVisualCreationRequest(prompt) {
+  const p = String(prompt || '').toLowerCase().trim();
+  if (!p || isReminderOrTimerRequest(p)) return false;
+  if (/^(what|why|how|is|are|does|do|can|when|where|who|which|explain|define|describe|difference)\b/i.test(p)) return false;
+  if (!/\b(diagram|flowchart|flow\s*chart|mindmap|mind\s*map|sequence\s*diagram|er\s*diagram|state\s*diagram|infographic|visuali[sz]e|architecture\s*diagram|system\s*architecture|chart|graph|plot|gantt|timeline)\b/i.test(p)) return false;
+  if (hasDesktopActionCues(p)) return false;
+  return /\b(create|generate|draw|show|make|build|plot|render|display|give|visuali[sz]e)\b/i.test(p)
+    || /\b(diagram|flowchart|mindmap|infographic|chart|graph)\s+(of|for|showing|that)\b/i.test(p)
+    || /^(a|an|the)?\s*[\w\s-]{0,15}\b(diagram|flowchart|mindmap|chart|graph)\b/i.test(p);
+}
+
 function classifyIntent(prompt) {
   const p = prompt.toLowerCase().trim();
 
@@ -8967,7 +9211,7 @@ async function queryOfflineLLM(prompt, extraMessages = [], intentOverride = null
     const sysEnv = await getSystemContext();
     const realtime = buildRealtimeContext(sysEnv);
     const intent = intentOverride || classifyIntent(prompt);
-    const localModelResolve = resolveModelForLocalAi(intent, Array.isArray(imagePayloads) && imagePayloads.length > 0);
+    const localModelResolve = resolveModelForLocalAi(intent, Array.isArray(imagePayloads) && imagePayloads.length > 0, isVisualCreationRequest(prompt) ? 'visual' : '');
     if (localModelResolve.blocked) {
       return `⚠️ **Local-only mode**\n\nCloud models are disabled and no Ollama model is available.\n\n**To fix:**\n1. Start Ollama (\`ollama serve\`).\n2. Pull a model (\`ollama pull llava\`).\n3. Or change **Settings → Desktop Automation → Local AI routing**.`;
     }
@@ -10666,6 +10910,7 @@ function triggerAiTitleGeneration(userPrompt, targetSessionIdOverride = null) {
   try {
     const targetSessionId = targetSessionIdOverride || currentSessionId;
     if (!targetSessionId || !conversationsStore[targetSessionId]) return;
+    if (conversationsStore[targetSessionId].titleLocked || conversationsStore[targetSessionId].aiMeta) return;
 
     const msgs = conversationsStore[targetSessionId].messages || [];
     const finalTitle = generateSmartSessionTitle(userPrompt, msgs);
@@ -11325,7 +11570,7 @@ async function submitPrompt(overridePrompt) {
           const now = Date.now();
           if (now - lastStreamPaint < 32) return;
           lastStreamPaint = now;
-          const closed = closeIncompleteMarkdown(outputText);
+          const closed = closeIncompleteMarkdown(renderMathFormulasStream(outputText));
           let parsed = '';
           try {
             parsed = window.ultronAPI.parseMarkdown(closed);
@@ -11339,6 +11584,16 @@ async function submitPrompt(overridePrompt) {
 
         // Execute via native Vercel AI SDK Core + MCP harness
         let harnessRan = false;
+        // Diagram/chart asks need a format-following text model, not the chat default (llava)
+        let visualModelSwapFrom = null;
+        if (isVisualCreationRequest(routingPrompt)) {
+          const vResolve = resolveModelForLocalAi('conversation', currentImagePayloads.length > 0, 'visual');
+          if (vResolve.switched) {
+            visualModelSwapFrom = activeModel;
+            activeModel = vResolve.model;
+            logTrace(`Visual routing: using ${activeModel} for diagram/chart request.`, 'system');
+          }
+        }
         if (window.agentHarnessClient && window.agentHarnessClient.isHarnessAvailable() && currentImagePayloads.length === 0) {
           try {
             _activeHarnessRunId = `harness_${Date.now()}`;
@@ -11411,6 +11666,10 @@ async function submitPrompt(overridePrompt) {
             _activeHarnessRunId = null;
           }
         }
+        if (visualModelSwapFrom) {
+          activeModel = visualModelSwapFrom;
+          visualModelSwapFrom = null;
+        }
 
         if (!harnessRan) {
           response = await queryOfflineLLM(prompt, [], 'conversation', followUpSystem, currentImagePayloads, {
@@ -11463,6 +11722,23 @@ async function submitPrompt(overridePrompt) {
           notifyModelIssue(classifyModelFailure(response, activeModel));
         }
         response = String(response || '').replace(/\[your_name\]|\[Your Name\]|<your name>|\[Agent Name\]/gi, 'Brown');
+        // Visual guarantee: user explicitly asked for a diagram/chart but the model
+        // answered in plain text — retry once with a strict diagram-only instruction.
+        if (isVisualCreationRequest(routingPrompt)
+            && !/```(mermaid|flowchart|graph|mindmap|chart|json-chart|data-chart|gen-ui|widget)\b/i.test(response)
+            && !/^⚠️/.test(response)
+            && !/Gemini API Key Required|Connection Error|Provider Error/i.test(response)) {
+          logTrace('Visual request produced no diagram — retrying with strict diagram-only prompt.', 'system');
+          streamedTokens = false;
+          renderMessageContent(aiBubble, composeAgentLiveContent(getAgentShimmerLineHtml('Drawing diagram')));
+          const diagramSys = 'You are a precise diagram generator. Output ONLY one complete ```mermaid fenced code block for the user request. The first line inside the block must be "flowchart TD". Use Id[Readable Label] nodes connected with --> arrows and real domain labels. No intro, no summary, no text outside the code block.';
+          const diagramRetry = await queryOfflineLLM(`Create the requested diagram: ${routingPrompt}`, [], 'conversation', diagramSys, []);
+          if (diagramRetry && /```(mermaid|flowchart|graph|mindmap|xychart|pie)\b/i.test(diagramRetry)) {
+            response = diagramRetry;
+          } else if (diagramRetry && /^(flowchart|graph|mindmap|sequenceDiagram|erDiagram|stateDiagram|gantt|pie|xychart|timeline)\b/i.test(diagramRetry.trim())) {
+            response = '```mermaid\n' + diagramRetry.trim() + '\n```';
+          }
+        }
         // Never wipe a complete generated answer just because the prompt "looks searchable".
         // Only escalate to web search when the answer itself is inadequate (stale/refusal/non-answer)
         // or the user explicitly asked for a live lookup.
@@ -13879,6 +14155,15 @@ async function loadSession(id, title) {
     const savedSession = conversationsStore[id];
     const sessionTitle = title || savedSession?.title || 'Chat';
     if (activeChatTitle) activeChatTitle.textContent = sessionTitle;
+
+    // Summarize the whole session on open: missing or stale title/description only.
+    if (savedSession && !savedSession.titleLocked && (savedSession.messages || []).length >= 2) {
+      const meta = savedSession.aiMeta;
+      const openUserTurns = savedSession.messages.filter(m => !m.isAi).length;
+      if (!meta || (meta.turns || 0) + 3 < openUserTurns) {
+        generateAiSessionMeta(id, { force: true }).catch(() => {});
+      }
+    }
 
     if (savedSession && Array.isArray(savedSession.messages) && savedSession.messages.length > 0) {
       if (chatMain) chatMain.classList.remove('empty-state');
@@ -21272,10 +21557,8 @@ function handleTopBarSettingsShortcut(tabName) {
 // ===== Theme engine (dark / light / system) =====
 function updateLogoSources(resolvedTheme) {
   const isLight = resolvedTheme === 'light';
-  const logoSrc = isLight ? '../../Assets/brown-black-logo.png' : '../../Assets/brown-white-logo.png';
-  const logoAltSrc = isLight ? '../Assets/brown-black-logo.png' : '../Assets/brown-white-logo.png';
-  const bLogoSrc = isLight ? '../../Assets/brown-b-black-logo.png' : '../../Assets/brown-b-white-logo.png';
-  const bLogoAltSrc = isLight ? '../Assets/brown-b-black-logo.png' : '../Assets/brown-b-white-logo.png';
+  const logoSrc = isLight ? '../../Assets/Brown-black.png' : '../../Assets/Brown-white.png';
+  const logoAltSrc = isLight ? '../Assets/Brown-black.png' : '../Assets/Brown-white.png';
 
   document.querySelectorAll('.brand-logo, .welcome-logo, .voice-mode-logo, .onboarding-logo-img, .release-notes-brand-logo').forEach(img => {
     if (img && img.tagName === 'IMG') {
@@ -21286,15 +21569,15 @@ function updateLogoSources(resolvedTheme) {
 
   document.querySelectorAll('.about-app-logo, .avatar.ai img').forEach(img => {
     if (img && img.tagName === 'IMG') {
-      img.src = bLogoSrc;
-      img.onerror = () => { img.src = bLogoSrc; };
+      img.src = logoSrc;
+      img.onerror = () => { img.src = logoSrc; };
     }
   });
 
   const miniPill = document.querySelector('.mini-pill-logo');
   if (miniPill) {
-    miniPill.src = bLogoAltSrc;
-    miniPill.onerror = () => { miniPill.src = bLogoAltSrc; };
+    miniPill.src = logoAltSrc;
+    miniPill.onerror = () => { miniPill.src = logoAltSrc; };
   }
 }
 
@@ -21539,7 +21822,7 @@ async function populateModelsDropdown() {
     const badgeText = c.statusText || (isConn ? 'Active' : 'Not configured');
     card.innerHTML = `
       <div class="tmd-connector-left">
-        <img src="${c.icon}" alt="${c.name}" class="tmd-connector-icon" onerror="this.src='../../Assets/brown-logo.png'">
+        <img src="${c.icon}" alt="${c.name}" class="tmd-connector-icon" onerror="this.src='../../Assets/Brown-white.png'">
         <span class="tmd-connector-name">${escapeHtml(c.name)}</span>
       </div>
       <span class="tmd-connector-badge ${isConn ? 'connected' : 'disconnected'}">${badgeText}</span>
@@ -21919,10 +22202,7 @@ initSoundSettingsUI();
 // ==========================================
 // TEXT-TO-SPEECH (TTS) — read AI responses aloud
 // ==========================================
-let activeTtsUtterance = null;
 let activeNeuralAudio = null;
-let ttsVoicesCache = [];
-let ttsKeepAliveTimer = null;
 
 function isTtsAutoSpeakEnabled() {
   // In voice chat mode, always auto-speak responses
@@ -21967,7 +22247,7 @@ async function precacheTtsAudio(fullText) {
     if (gen !== _ttsPrecacheGeneration) return; // Stale
 
     const apiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
-    const res = await window.ultronAPI.synthesizeSpeech(cleaned, modelKey, { apiKey });
+    const res = await window.ultronAPI.synthesizeSpeech(cleaned, modelKey, { apiKey, speed: getTtsRate() });
     if (gen !== _ttsPrecacheGeneration) return;
 
     if (res?.success && res.wavBase64) {
@@ -21994,20 +22274,6 @@ function getTtsRate() {
   const raw = window.localStorage.getItem('ultron-tts-rate');
   const val = raw != null ? parseFloat(raw) : 1;
   return Number.isFinite(val) ? Math.max(0.5, Math.min(2, val)) : 1;
-}
-
-function getTtsPitch() {
-  const raw = window.localStorage.getItem('ultron-tts-pitch');
-  const val = raw != null ? parseFloat(raw) : 1;
-  return Number.isFinite(val) ? Math.max(0.5, Math.min(2, val)) : 1;
-}
-
-function getTtsPersona() {
-  return window.localStorage.getItem('ultron-tts-persona') || 'neutral';
-}
-
-function getSelectedTtsVoiceUri() {
-  return window.localStorage.getItem('ultron-tts-voice-uri') || '';
 }
 
 function normalizeTextForSpeech(text) {
@@ -22041,94 +22307,6 @@ function normalizeTextForSpeech(text) {
     .replace(/\s{2,}/g, ' ')
     .trim();
   return cleaned;
-}
-
-function loadTtsVoices() {
-  if (!window.speechSynthesis) return [];
-  const voices = window.speechSynthesis.getVoices() || [];
-  if (voices.length) ttsVoicesCache = voices;
-  return ttsVoicesCache;
-}
-
-function ensureTtsVoicesReady(timeoutMs = 1200) {
-  return new Promise((resolve) => {
-    loadTtsVoices();
-    if (ttsVoicesCache.length) {
-      resolve(ttsVoicesCache);
-      return;
-    }
-    const finish = () => {
-      loadTtsVoices();
-      resolve(ttsVoicesCache);
-    };
-    if (!window.speechSynthesis) {
-      finish();
-      return;
-    }
-    const onVoicesChanged = () => {
-      loadTtsVoices();
-      if (ttsVoicesCache.length) {
-        window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
-        resolve(ttsVoicesCache);
-      }
-    };
-    window.speechSynthesis.addEventListener('voiceschanged', onVoicesChanged);
-    setTimeout(() => {
-      window.speechSynthesis.removeEventListener('voiceschanged', onVoicesChanged);
-      finish();
-    }, timeoutMs);
-  });
-}
-
-function clearTtsKeepAlive() {
-  if (ttsKeepAliveTimer) {
-    clearInterval(ttsKeepAliveTimer);
-    ttsKeepAliveTimer = null;
-  }
-}
-
-function startTtsKeepAlive() {
-  clearTtsKeepAlive();
-  if (!window.speechSynthesis) return;
-  ttsKeepAliveTimer = setInterval(() => {
-    if (!activeTtsUtterance) {
-      clearTtsKeepAlive();
-      return;
-    }
-    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-  }, 250);
-}
-
-function getEnglishTtsVoices() {
-  loadTtsVoices();
-  const english = ttsVoicesCache.filter(v => /^en(-|_)?/i.test(v.lang || ''));
-  return english.length ? english : ttsVoicesCache;
-}
-
-function resolveTtsVoice() {
-  loadTtsVoices();
-  const preferredUri = getSelectedTtsVoiceUri();
-  if (preferredUri) {
-    const exact = ttsVoicesCache.find(v => v.voiceURI === preferredUri);
-    if (exact) return exact;
-  }
-
-  const voices = getEnglishTtsVoices();
-  const persona = getTtsPersona();
-
-  const scoreVoice = (voice) => {
-    const name = (voice.name || '').toLowerCase();
-    let score = 0;
-    if (/natural|neural|online/i.test(name)) score += 12;
-    if (/microsoft|google/i.test(name)) score += 2;
-    if (persona === 'female' && /female|zira|jenny|aria|samantha|susan|hazel|emma|natasha|michelle|sonia|libby/i.test(name)) score += 6;
-    if (persona === 'male' && /male|david|mark|guy|ryan|james|george|andrew|brian|christopher|thomas|william/i.test(name)) score += 6;
-    if (persona === 'neutral' && !/robot|legacy|compact/i.test(name)) score += 1;
-    return score;
-  };
-
-  const ranked = [...voices].sort((a, b) => scoreVoice(b) - scoreVoice(a));
-  return ranked[0] || ttsVoicesCache[0] || null;
 }
 
 function stopNeuralAudio() {
@@ -22196,13 +22374,8 @@ function stopTtsSpeech() {
   document.querySelectorAll('.btn-speak-msg.is-loading, .btn-speak-msg.speaking').forEach((el) => {
     setSpeakButtonState(el, 'idle');
   });
-  clearTtsKeepAlive();
   stopNeuralAudio();
   ttsAnalyserNode = null;
-  if (window.speechSynthesis) {
-    window.speechSynthesis.cancel();
-  }
-  activeTtsUtterance = null;
   if (isVoiceChatModeEnabled()) {
     setVoiceOrbVisualState('');
     if (!isAwaitingResponse) startVoiceOrbAnimation('idle');
@@ -22280,7 +22453,6 @@ function notifyStreamingAutoSpeakIdle() {
   const btn = streamingAutoSpeakState.activeButton;
   setSpeakButtonState(btn, 'idle');
   streamingAutoSpeakState.activeButton = null;
-  clearTtsKeepAlive();
   if (typeof streamingAutoSpeakState.onIdle === 'function') {
     const cb = streamingAutoSpeakState.onIdle;
     streamingAutoSpeakState.onIdle = null;
@@ -22296,7 +22468,6 @@ function notifyStreamingAutoSpeakIdle() {
 function markStreamingSpeechStarted() {
   if (!streamingAutoSpeakState.started) {
     streamingAutoSpeakState.started = true;
-    startTtsKeepAlive();
     revealPendingVoiceSpeech();
     setVoiceOrbVisualState('ai-speaking');
     startVoiceOrbAnimation('ai');
@@ -22412,11 +22583,19 @@ async function synthesizeSpeechChunk(text) {
   if (!modelKey || !window.ultronAPI?.synthesizeSpeech) return null;
   const apiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
   try {
-    const synthPromise = window.ultronAPI.synthesizeSpeech(text, modelKey, { apiKey });
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Voice chunk timed out')), 4000)
-    );
-    const res = await Promise.race([synthPromise, timeoutPromise]);
+    const synthPromise = window.ultronAPI.synthesizeSpeech(text, modelKey, { apiKey, speed: getTtsRate() });
+    // CPU synthesis needs far more than a few seconds for a full sentence.
+    const budgetMs = Math.min(180000, 20000 + String(text || '').length * 60);
+    let timer = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Voice chunk timed out')), budgetMs);
+    });
+    let res;
+    try {
+      res = await Promise.race([synthPromise, timeoutPromise]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     if (res?.success && res.wavBase64) {
       return { wavBase64: res.wavBase64, mimeType: res.mimeType || 'audio/wav' };
     }
@@ -22425,26 +22604,6 @@ async function synthesizeSpeechChunk(text) {
     logTrace(`Voice chunk failed: ${e.message}`, 'system');
   }
   return null;
-}
-
-function speakWithBrowserTts(text) {
-  return new Promise((resolve) => {
-    if (!window.speechSynthesis) {
-      resolve(false);
-      return;
-    }
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voice = resolveTtsVoice();
-    if (voice) utterance.voice = voice;
-    utterance.rate = getTtsRate();
-    utterance.pitch = getTtsPitch();
-    utterance.volume = getSoundVolume();
-    utterance.lang = voice?.lang || 'en-US';
-    utterance.onend = () => resolve(true);
-    utterance.onerror = () => resolve(false);
-    activeTtsUtterance = utterance;
-    window.speechSynthesis.speak(utterance);
-  });
 }
 
 async function drainStreamingAutoSpeak() {
@@ -22463,10 +22622,6 @@ async function drainStreamingAutoSpeak() {
       playedAny = true;
       markStreamingSpeechStarted();
       await playNeuralAudio(audio.wavBase64, { mimeType: audio.mimeType || 'audio/wav' });
-    } else {
-      markStreamingSpeechStarted();
-      const spoke = await speakWithBrowserTts(chunk);
-      if (spoke) playedAny = true;
     }
     await yieldToUi();
   }
@@ -22497,16 +22652,8 @@ async function beginUnifiedSpeechPlayback(fullText) {
 
   const modelKey = await resolveActiveTtsModelKey();
   if (!modelKey || !window.ultronAPI?.synthesizeSpeech) {
-    const gen = streamingAutoSpeakState.generation;
-    setTimeout(async () => {
-      if (gen !== streamingAutoSpeakState.generation) return;
-      markStreamingSpeechStarted();
-      await speakWithBrowserTts(cleaned);
-      if (gen === streamingAutoSpeakState.generation) {
-        notifyStreamingAutoSpeakIdle();
-      }
-    }, 0);
-    return true;
+    logTrace('Voice audio unavailable: install a Kokoro voice in Settings → Agent Sounds.', 'system');
+    return false;
   }
 
   const apiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
@@ -22516,11 +22663,13 @@ async function beginUnifiedSpeechPlayback(fullText) {
     if (gen !== streamingAutoSpeakState.generation) return;
     await yieldToUi();
     let played = false;
+    let timer = null;
     try {
-      const synthPromise = window.ultronAPI.synthesizeSpeech(cleaned, modelKey, { apiKey });
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Voice synthesis timed out')), 4000)
-      );
+      const synthPromise = window.ultronAPI.synthesizeSpeech(cleaned, modelKey, { apiKey, speed: getTtsRate() });
+      const budgetMs = Math.min(180000, 20000 + cleaned.length * 60);
+      const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Voice synthesis timed out')), budgetMs);
+      });
       const res = await Promise.race([synthPromise, timeoutPromise]);
       if (gen !== streamingAutoSpeakState.generation) return;
       if (res?.success && res.wavBase64) {
@@ -22531,20 +22680,13 @@ async function beginUnifiedSpeechPlayback(fullText) {
         if (res?.error) logTrace(`Voice: ${res.error}`, 'system');
       }
     } catch (e) {
-      logTrace(`Voice synthesis fallback: ${e.message}`, 'system');
-    }
-
-    if (!played && gen === streamingAutoSpeakState.generation) {
-      try {
-        markStreamingSpeechStarted();
-        await speakWithBrowserTts(cleaned);
-      } catch (err) {
-        logTrace(`Voice audio failed: ${err.message}`, 'system');
-      }
+      logTrace(`Voice synthesis failed: ${e.message}`, 'system');
+    } finally {
+      if (timer) clearTimeout(timer);
     }
 
     if (gen === streamingAutoSpeakState.generation) {
-      notifyStreamingAutoSpeakIdle();
+      if (!played) notifyStreamingAutoSpeakIdle();
     }
   }, 0);
 
@@ -22663,39 +22805,8 @@ async function speakTextAloud(text, { force = false, button = null, onStart, onE
     });
   }
 
-  if (!window.speechSynthesis) {
-    logTrace('Text-to-speech is not available in this environment.', 'system');
-    return false;
-  }
-
-  await ensureTtsVoicesReady();
-
-  const utterance = new SpeechSynthesisUtterance(cleaned);
-  const voice = resolveTtsVoice();
-  if (voice) utterance.voice = voice;
-  utterance.rate = getTtsRate();
-  utterance.pitch = getTtsPitch();
-  utterance.volume = getSoundVolume();
-  utterance.lang = voice?.lang || 'en-US';
-
-  utterance.onstart = () => {
-    startTtsKeepAlive();
-    if (typeof onStart === 'function') onStart();
-  };
-  utterance.onend = () => {
-    clearTtsKeepAlive();
-    activeTtsUtterance = null;
-    if (typeof onEnd === 'function') onEnd();
-  };
-  utterance.onerror = () => {
-    clearTtsKeepAlive();
-    activeTtsUtterance = null;
-    if (typeof onEnd === 'function') onEnd();
-  };
-
-  activeTtsUtterance = utterance;
-  window.speechSynthesis.speak(utterance);
-  return true;
+  logTrace('Voice audio unavailable: install a Kokoro voice in Settings → Agent Sounds.', 'system');
+  return false;
 }
 
 function applyMessageActionButtonStyles(btn) {
@@ -22801,11 +22912,6 @@ function wireMessageActionButtons(actionsDiv, fullText) {
 function maybeAutoSpeakResponse(fullText) {
   resetStreamingAutoSpeak();
   finishStreamingAutoSpeak(fullText);
-}
-
-if (window.speechSynthesis) {
-  window.speechSynthesis.onvoiceschanged = () => loadTtsVoices();
-  loadTtsVoices();
 }
 
 // Voice input (built-in Windows speech) settings
@@ -23256,7 +23362,7 @@ async function previewTtsModel(modelKey, btn) {
   stopTtsSpeech();
 
   try {
-    const res = await window.ultronAPI.synthesizeSpeech(previewText, modelKey);
+    const res = await window.ultronAPI.synthesizeSpeech(previewText, modelKey, { speed: getTtsRate() });
     if (res?.success && res.wavBase64) {
       await playNeuralAudio(res.wavBase64, { mimeType: res.mimeType || 'audio/wav' });
       if (ttsModelFeedback) ttsModelFeedback.textContent = `Preview: ${model.label}`;
@@ -23348,25 +23454,9 @@ function initTtsModelsUI() {
 initTtsModelsUI();
 
 const settingTtsAutoSpeak = document.getElementById('setting-tts-auto-speak');
-const settingTtsPersona = document.getElementById('setting-tts-persona');
-const settingTtsVoice = document.getElementById('setting-tts-voice');
 const settingTtsRate = document.getElementById('setting-tts-rate');
 const settingTtsRateLabel = document.getElementById('setting-tts-rate-label');
 const btnPreviewTts = document.getElementById('btn-preview-tts');
-
-function populateTtsVoiceSelect() {
-  if (!settingTtsVoice) return;
-  const current = getSelectedTtsVoiceUri();
-  const voices = getEnglishTtsVoices();
-  settingTtsVoice.innerHTML = '<option value="">Auto (persona)</option>';
-  voices.forEach(voice => {
-    const opt = document.createElement('option');
-    opt.value = voice.voiceURI;
-    opt.textContent = `${voice.name} (${voice.lang})`;
-    settingTtsVoice.appendChild(opt);
-  });
-  settingTtsVoice.value = current && voices.some(v => v.voiceURI === current) ? current : '';
-}
 
 function updateTtsRateLabel() {
   if (!settingTtsRate || !settingTtsRateLabel) return;
@@ -23379,22 +23469,6 @@ function initTtsSettingsUI() {
     settingTtsAutoSpeak.addEventListener('change', () => {
       window.localStorage.setItem('ultron-tts-auto-speak', settingTtsAutoSpeak.checked ? 'true' : 'false');
       if (!settingTtsAutoSpeak.checked) stopTtsSpeech();
-    });
-  }
-
-  if (settingTtsPersona) {
-    settingTtsPersona.value = getTtsPersona();
-    settingTtsPersona.addEventListener('change', () => {
-      window.localStorage.setItem('ultron-tts-persona', settingTtsPersona.value);
-      if (settingTtsVoice) settingTtsVoice.value = '';
-      window.localStorage.setItem('ultron-tts-voice-uri', '');
-    });
-  }
-
-  if (settingTtsVoice) {
-    ensureTtsVoicesReady().then(() => populateTtsVoiceSelect());
-    settingTtsVoice.addEventListener('change', () => {
-      window.localStorage.setItem('ultron-tts-voice-uri', settingTtsVoice.value || '');
     });
   }
 
@@ -23432,7 +23506,8 @@ function initTtsSettingsUI() {
         if (model?.installed) {
           const res = await window.ultronAPI.synthesizeSpeech(
             "Hello, I'm Ultron. I'll read my responses aloud when you enable auto speak.",
-            activeKey
+            activeKey,
+            { speed: getTtsRate() }
           );
           if (res?.success && res.wavBase64) {
             started = await playNeuralAudio(res.wavBase64, { onEnd: restorePreviewBtn });
@@ -23456,7 +23531,6 @@ function initTtsSettingsUI() {
   }
 
   document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.addEventListener('click', () => {
-    ensureTtsVoicesReady().then(() => populateTtsVoiceSelect());
     refreshTtsModelsUI();
     decorateSettingsActionButtons(document.getElementById('tab-sounds') || document);
   });
