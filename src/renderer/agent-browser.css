@@ -75,8 +75,7 @@
   box-sizing: border-box;
 }
 
-.agent-browser-pane svg,
-.agent-browser-toggle svg {
+.agent-browser-pane svg {
   width: 17px;
   height: 17px;
   fill: none;
@@ -129,18 +128,16 @@
   background: var(--browser-bg);
 }
 
-/* Globe sits on the same round chip as the update button's arrow icon */
-.agent-browser-toggle svg {
-  width: 22px;
-  height: 22px;
-  padding: 4px;
-  box-sizing: border-box;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.14) !important;
+/* Brown's own mark, painted from the brand PNGs */
+.agent-browser-brand {
+  flex: 0 0 auto;
+  width: 17px;
+  height: 17px;
+  background: url('../../Assets/Brown-white.png') center / contain no-repeat;
 }
 
-[data-theme="light"] .agent-browser-toggle svg {
-  background: rgba(0, 0, 0, 0.08) !important;
+[data-theme="light"] .agent-browser-brand {
+  background-image: url('../../Assets/Brown-black.png');
 }
 
 /* Both header pills hug their content */

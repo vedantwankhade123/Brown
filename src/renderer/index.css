@@ -2722,6 +2722,7 @@ flicker-spinner i.on {
 }
 
 .session-context-card {
+  position: relative;
   min-width: 0;
   flex: 0 0 auto;
   height: 200px;
@@ -2805,6 +2806,23 @@ flicker-spinner i.on {
   font-size: 10px;
 }
 
+/* Shown while the whole session is summarized into title + description */
+.session-context-spinner {
+  position: absolute;
+  right: 15px;
+  bottom: 15px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(185, 201, 227, 0.25);
+  border-top-color: #ffffff;
+  animation: session-meta-spin 0.7s linear infinite;
+}
+
+@keyframes session-meta-spin {
+  to { transform: rotate(360deg); }
+}
+
 .side-section {
   position: relative;
   min-width: 0;
@@ -2818,15 +2836,16 @@ flicker-spinner i.on {
   gap: 6px;
   width: 100%;
   min-width: 0;
-  min-height: 30px;
-  padding: 4px 2px;
-  border: none;
-  border-radius: 4px !important;
-  background: transparent;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid rgba(129, 166, 228, 0.16);
+  border-radius: 999px !important;
+  background: radial-gradient(ellipse at 65% 115%, rgba(41, 82, 148, 0.3), transparent 65%),
+    linear-gradient(165deg, #111111 20%, #10131c 54%, #101e40 100%);
   font: inherit;
   font-size: 13px;
   font-weight: 400;
-  color: var(--text-muted);
+  color: #ffffff;
   text-align: left;
   cursor: pointer;
   user-select: none;
@@ -2868,6 +2887,10 @@ flicker-spinner i.on {
   transition: transform 0.15s ease;
 }
 
+.side-section-head .side-chevron {
+  color: #b9c9e3;
+}
+
 .side-section.collapsed .side-chevron {
   transform: rotate(-90deg);
 }
@@ -2882,6 +2905,7 @@ flicker-spinner i.on {
   flex-direction: column;
   min-width: 0;
   gap: 1px;
+  padding-top: 6px;
 }
 
 .side-section-empty {
@@ -5004,7 +5028,6 @@ button.side-row:focus-visible,
   max-width: 400px;
   max-height: 170px;
   object-fit: contain;
-  filter: drop-shadow(0 4px 20px rgba(99, 102, 241, 0.28));
 }
 
 /* Two-image device connection art (desktop + mobile PNGs). */
@@ -5022,7 +5045,6 @@ button.side-row:focus-visible,
   pointer-events: none;
   background: transparent;
   border: none;
-  filter: drop-shadow(0 6px 20px rgba(99, 102, 241, 0.22));
 }
 
 /* Local Wireless / LAN Connection Bridge */
@@ -5053,7 +5075,6 @@ button.side-row:focus-visible,
   height: 6px;
   border-radius: 6px;
   background: linear-gradient(90deg, transparent, #818cf8, #c084fc, transparent);
-  filter: drop-shadow(0 0 6px #818cf8);
 }
 
 .sync-particle-left {
@@ -6928,23 +6949,10 @@ button.side-row:focus-visible,
     0 4px 12px rgba(0, 0, 0, 0.55);
 }
 
-.source-stack-logo img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  border-radius: 50%;
-}
-
-.source-stack-fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  font-size: 15px;
-  line-height: 1;
-  background: #2a2b2e;
+.source-stack-mark {
+  width: 15px;
+  height: 15px;
+  background: url('../../Assets/Brown-white.png') center / contain no-repeat;
 }
 
 .source-see-more-label {
@@ -7027,16 +7035,11 @@ button.side-row:focus-visible,
 }
 
 .source-favicon {
+  display: inline-block;
   width: 16px;
   height: 16px;
-  border-radius: 50%;
-  object-fit: cover;
   flex-shrink: 0;
-}
-
-.source-favicon-fallback {
-  font-size: 13px;
-  line-height: 1;
+  background: url('../../Assets/Brown-white.png') center / contain no-repeat;
 }
 
 .source-domain {
@@ -7225,19 +7228,6 @@ button.side-row:focus-visible,
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-}
-
-.product-source-favicon {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.product-source-icon {
-  font-size: 12px;
-  line-height: 1;
 }
 
 .product-source-domain {
@@ -7492,15 +7482,10 @@ button.side-row:focus-visible,
 }
 
 .citation-tooltip-favicon {
+  display: inline-block;
   width: 13px;
   height: 13px;
-  border-radius: 2px;
-  object-fit: contain;
-}
-
-.citation-tooltip-icon {
-  font-size: 11px;
-  line-height: 1;
+  background: url('../../Assets/Brown-white.png') center / contain no-repeat;
 }
 
 .citation-tooltip-domain {
@@ -9884,16 +9869,11 @@ button.hidden,
 }
 
 .product-source-favicon {
+  display: inline-block;
   width: 14px;
   height: 14px;
-  border-radius: 3px;
-  object-fit: contain;
   flex-shrink: 0;
-}
-
-.product-source-icon {
-  font-size: 12px;
-  line-height: 1;
+  background: url('../../Assets/Brown-white.png') center / contain no-repeat;
 }
 
 .product-source-domain {
@@ -17367,7 +17347,10 @@ html[data-theme="light"],
 [data-theme="light"] .search-carousel-btn:hover { background: rgba(99, 102, 241, 0.18); border-color: rgba(99, 102, 241, 0.5); }
 [data-theme="light"] .source-stack-logo { background: #ffffff; box-shadow: 0 0 0 2px #ffffff, 0 1px 3px rgba(0, 0, 0, 0.18); }
 [data-theme="light"] .source-stack-logo:hover { box-shadow: 0 0 0 2px #ffffff, 0 4px 12px rgba(0, 0, 0, 0.25); }
-[data-theme="light"] .source-stack-fallback { background: #f3f4f6; }
+[data-theme="light"] .source-stack-mark,
+[data-theme="light"] .source-favicon,
+[data-theme="light"] .product-source-favicon,
+[data-theme="light"] .citation-tooltip-favicon { background-image: url('../../Assets/Brown-black.png'); }
 [data-theme="light"] .source-see-more-label,
 [data-theme="light"] .source-see-more[open] .source-see-more-label { color: #4f46e5; }
 [data-theme="light"] .source-summary-preview:hover .source-see-more-label { color: #4338ca; }
@@ -18943,11 +18926,10 @@ html[data-theme="light"],
 .chat-header-actions .btn-top-update.state-checking .top-update-icon-wrap {
   background: transparent !important;
 }
-.chat-header-actions .agent-browser-toggle svg {
+.chat-header-actions .agent-browser-toggle .agent-browser-brand {
   width: 14px !important;
   height: 14px !important;
-  padding: 0 !important;
-  background: transparent !important;
+  background-color: transparent !important;
 }
 
 /* Session toggle matches the other outline pills */
@@ -18985,6 +18967,6 @@ html[data-theme="light"],
 [data-theme="light"] .chat-header-actions .top-update-icon-wrap,
 [data-theme="light"] .chat-header-actions .btn-top-update.state-none .top-update-icon-wrap,
 [data-theme="light"] .chat-header-actions .btn-top-update.state-checking .top-update-icon-wrap,
-[data-theme="light"] .chat-header-actions .agent-browser-toggle svg {
-  background: transparent !important;
+[data-theme="light"] .chat-header-actions .agent-browser-toggle .agent-browser-brand {
+  background-color: transparent !important;
 }

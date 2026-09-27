@@ -145,7 +145,12 @@ const apiMethods = {
     return () => ipcRenderer.removeListener('voice-stt-live:partial', subscription);
   },
 
-  synthesizeSpeech: (text, modelKey) => ipcRenderer.invoke('synthesize-speech', { text, modelKey }),
+  synthesizeSpeech: (text, modelKey, options = {}) => ipcRenderer.invoke('synthesize-speech', {
+    text,
+    modelKey,
+    apiKey: options.apiKey,
+    speed: options.speed
+  }),
   getTtsCatalog: () => ipcRenderer.invoke('get-tts-catalog'),
   getTtsModelStatus: (modelKey) => ipcRenderer.invoke('get-tts-model-status', modelKey),
   getActiveTtsModel: () => ipcRenderer.invoke('get-active-tts-model'),

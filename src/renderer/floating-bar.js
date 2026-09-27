@@ -636,8 +636,8 @@
   function hideAnswerCard() {
     answerCard.classList.add('hidden');
     answerCard.classList.remove('contracted');
-    if (window.speechSynthesis && window.speechSynthesis.speaking) {
-      window.speechSynthesis.cancel();
+    if (typeof window.stopTtsSpeech === 'function') {
+      window.stopTtsSpeech();
     }
     isStreaming = false;
     currentAnswerText = '';
@@ -1163,43 +1163,32 @@
       });
     }
 
-    // Footer Speak Button (TTS)
+    // Footer Speak Button (Kokoro neural TTS only)
     const footerSpeakBtn = document.getElementById('footer-speak-btn');
     if (footerSpeakBtn) {
-      footerSpeakBtn.addEventListener('click', (e) => {
+      let footerSpeaking = false;
+      const setFooterSpeakLabel = (label) => {
+        const txt = footerSpeakBtn.querySelector('.footer-btn-text');
+        if (txt) txt.textContent = label;
+        footerSpeakBtn.classList.toggle('speaking', label === 'Stop');
+      };
+      const endFooterSpeak = () => {
+        footerSpeaking = false;
+        setFooterSpeakLabel('Speak');
+      };
+      footerSpeakBtn.addEventListener('click', async (e) => {
         e.stopPropagation();
         if (!currentAnswerText) return;
-        if (window.speechSynthesis) {
-          if (window.speechSynthesis.speaking) {
-            window.speechSynthesis.cancel();
-            footerSpeakBtn.classList.remove('speaking');
-            const txt = footerSpeakBtn.querySelector('.footer-btn-text');
-            if (txt) txt.textContent = 'Speak';
-          } else {
-            const cleaned = currentAnswerText
-              .replace(/```[\s\S]*?```/g, '')
-              .replace(/`([^`]+)`/g, '$1')
-              .replace(/[*_~#>]/g, '')
-              .trim();
-            const utterance = new SpeechSynthesisUtterance(cleaned || currentAnswerText);
-            utterance.rate = 1.0;
-            utterance.pitch = 1.0;
-            utterance.onend = () => {
-              footerSpeakBtn.classList.remove('speaking');
-              const txt = footerSpeakBtn.querySelector('.footer-btn-text');
-              if (txt) txt.textContent = 'Speak';
-            };
-            utterance.onerror = () => {
-              footerSpeakBtn.classList.remove('speaking');
-              const txt = footerSpeakBtn.querySelector('.footer-btn-text');
-              if (txt) txt.textContent = 'Speak';
-            };
-            footerSpeakBtn.classList.add('speaking');
-            const txt = footerSpeakBtn.querySelector('.footer-btn-text');
-            if (txt) txt.textContent = 'Stop';
-            window.speechSynthesis.speak(utterance);
-          }
+        if (footerSpeaking) {
+          if (typeof window.stopTtsSpeech === 'function') window.stopTtsSpeech();
+          endFooterSpeak();
+          return;
         }
+        if (typeof window.speakTextAloud !== 'function') return;
+        footerSpeaking = true;
+        setFooterSpeakLabel('Stop');
+        const started = await window.speakTextAloud(currentAnswerText, { force: true, onEnd: endFooterSpeak });
+        if (!started) endFooterSpeak();
       });
     }
 

@@ -73,7 +73,7 @@
       "!node_modules/mermaid/dist/*.map",
       "!node_modules/mermaid/dist/*.mjs",
       "!node_modules/mermaid/dist/*.d.ts",
-      "!node_modules/kokoro-js/voices/!(af_heart|am_michael).bin"
+      "!node_modules/kokoro-js/voices/!(af_heart|am_michael|bm_george|bm_lewis).bin"
     ],
     "win": {
       "target": [
@@ -90,7 +90,7 @@
           ]
         }
       ],
-      "icon": "Assets/Brand-Assets/brown-logo.ico",
+      "icon": "Assets/Brown.ico",
       "certificateFile": null,
       "cscLink": null
     },
@@ -115,9 +115,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Brown AI",
       "uninstallDisplayName": "Brown AI",
-      "installerIcon": "Assets/Brand-Assets/brown-logo.ico",
-      "uninstallerIcon": "Assets/Brand-Assets/brown-logo.ico",
-      "installerHeaderIcon": "Assets/Brand-Assets/brown-black-logo.ico",
+      "installerIcon": "Assets/Brown.ico",
+      "uninstallerIcon": "Assets/Brown.ico",
+      "installerHeaderIcon": "Assets/Brand-Assets/Brown-header.ico",
       "installerSidebar": "Assets/installerSidebar.bmp",
       "uninstallerSidebar": "Assets/installerSidebar.bmp",
       "installerHeader": "Assets/installerHeader.bmp",
