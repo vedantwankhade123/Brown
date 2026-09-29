@@ -999,7 +999,27 @@ function getAgentProgressMessage(category, context = {}) {
   return context.fallback || `${category}...`;
 }
 
+// ---- Docked context bar state: active project, @ mentions, citations ----
+const ACTIVE_PROJECT_STORAGE_KEY = 'ultron-active-project-path';
+// Composer chips live in _mentionChips; they are committed into _promptMentions
+// at send time so the generation paths (web/screen/RAG gates) can read them.
+// Chips only ever FORCE a capability on for their own prompt — the global
+// toggles stay the source of truth for every other prompt.
+const _promptMentions = {
+  forceWeb: false,
+  forceScreen: false,
+  forceKnowledge: false,
+  files: [] // [{ path, name }] — indexed files pinned with @, read into context on send
+};
+const _mentionChips = []; // [{ id, kind, label, title, path }]
+let _activeProject = null; // { path, name, fileCount }
+let _projectIndexing = false;
+let _lastRagCitations = [];
+let _pendingLiveCitations = null;
+let _citationBannerRendered = false;
+
 function isScreenCaptureEnabled() {
+  if (_promptMentions.forceScreen) return true;
   if (window.localStorage.getItem('ultron-screen-aware-enabled') === 'false') return false;
   return window.localStorage.getItem('ultron-screen-capture-enabled') !== 'false';
 }
@@ -1527,6 +1547,27 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+/* Stacked-cards empty state (mirrors the reui "c-empty-15" composition). */
+function emptyStateHtml(title, description, extraHtml = '') {
+  return `<div class="ui-empty">
+    <div class="ui-empty-media" aria-hidden="true">
+      <span class="ui-empty-card ui-empty-card-back"></span>
+      <span class="ui-empty-card ui-empty-card-mid"></span>
+      <span class="ui-empty-card ui-empty-card-front">
+        <span class="ui-empty-thumb"></span>
+        <span class="ui-empty-bars">
+          <span class="ui-empty-line ui-empty-line-long"></span>
+          <span class="ui-empty-line ui-empty-line-short"></span>
+        </span>
+      </span>
+      <span class="ui-empty-fade"></span>
+    </div>
+    <div class="ui-empty-title">${escapeHtml(title)}</div>
+    ${description ? `<div class="ui-empty-desc">${escapeHtml(description)}</div>` : ''}
+    ${extraHtml}
+  </div>`;
+}
+
 function getWebSearchCardHtml(query) {
   const cleanQ = (query || '').replace(/["']/g, '').trim();
   let displayText = cleanQ;
@@ -1911,7 +1952,9 @@ async function generateAiSessionMeta(sessionId, { force = false } = {}) {
   const userTurnCount = (session.messages || []).filter(m => !m.isAi).length;
   if (userTurnCount < 1) return;
   const prev = session.aiMeta;
-  if (!force && prev && (prev.turns || 0) + 3 > userTurnCount) return;
+  // A heuristic meta, or one written before any answer existed, is never "fresh"
+  const settled = prev && !prev.heuristic && prev.answered;
+  if (!force && settled && (prev.turns || 0) + 3 > userTurnCount) return;
   const digest = buildSessionMetaDigest(session, { full: force });
   if (!digest.trim()) return;
 
@@ -1934,7 +1977,13 @@ async function generateAiSessionMeta(sessionId, { force = false } = {}) {
     if (!title || title.length < 3 || isGenericOrFragmentTitle(title)) return;
     if (description.split(/\s+/).length < 3) return;
 
-    session.aiMeta = { title, description, ts: Date.now(), turns: userTurnCount };
+    session.aiMeta = {
+      title,
+      description,
+      ts: Date.now(),
+      turns: userTurnCount,
+      answered: (session.messages || []).some(m => m.isAi && m.text)
+    };
     touchSession(sessionId);
     saveConversationsToDisk();
     if (session.title !== title) updateSessionTitle(sessionId, title);
@@ -2267,89 +2316,220 @@ function dedupeRunawayRepetitions(text) {
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Math typesetting engine. ONE scanner feeds both the streaming paint and the
+// final render, so a formula cannot change shape (or break apart) when the
+// stream finishes. Formulas are masked into %%MATH_n%% tokens first, which also
+// keeps the markdown repair rules below from cutting through a formula, and
+// keeps rendered KaTeX HTML out of reach of the bare-command pass.
+// ---------------------------------------------------------------------------
+const MATH_TOKEN_RE = /%%MATH_(\d+)%%/g;
+const KATEX_HTML_CACHE = new Map();
+
+function getKatexLib() {
+  const lib = (typeof window !== 'undefined' && window.katex)
+    || (typeof katex !== 'undefined' ? katex : null);
+  return lib && typeof lib.renderToString === 'function' ? lib : null;
+}
+
+function katexToHtml(body, display, katexLib) {
+  const key = (display ? 'D' : 'I') + body;
+  const cached = KATEX_HTML_CACHE.get(key);
+  if (cached !== undefined) return cached;
+  let html = null;
+  try {
+    html = katexLib.renderToString(body, { displayMode: display, throwOnError: false });
+  } catch (e) {
+    html = null;
+  }
+  if (!html || html.includes('katex-error')) html = null;
+  if (KATEX_HTML_CACHE.size > 600) KATEX_HTML_CACHE.clear();
+  KATEX_HTML_CACHE.set(key, html);
+  return html;
+}
+
+function pushMathSpan(store, body, display, raw) {
+  store.push({ body: String(body || '').trim(), display, raw });
+  return `%%MATH_${store.length - 1}%%`;
+}
+
+/**
+ * Replace every delimited formula with a token, leaving code and prose alone.
+ * `partial` also typesets an unterminated tail formula, which is what makes
+ * KaTeX appear live while tokens stream in.
+ */
+function maskMathSpans(text, store, { partial = false } = {}) {
+  const n = text.length;
+  let out = '';
+  let i = 0;
+  const tailOk = (tail) => partial && tail.length <= 400 && tail.trim().length > 0;
+
+  while (i < n) {
+    const ch = text[i];
+
+    // Code fences and inline code pass through untouched
+    if (ch === '`') {
+      if (text.startsWith('```', i)) {
+        const end = text.indexOf('```', i + 3);
+        const stop = end === -1 ? n : end + 3;
+        out += text.slice(i, stop);
+        i = stop;
+        continue;
+      }
+      const close = text.indexOf('`', i + 1);
+      const inner = close === -1 ? null : text.slice(i + 1, close);
+      if (inner !== null && !inner.includes('\n')) {
+        out += '`' + inner + '`';
+        i = close + 1;
+        continue;
+      }
+      out += ch;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '\\') {
+      const nx = text[i + 1];
+      if (nx === '$') { out += '$'; i += 2; continue; }
+      if (nx === '[' || nx === '(') {
+        const display = nx === '[';
+        const closer = display ? '\\]' : '\\)';
+        const end = text.indexOf(closer, i + 2);
+        if (end !== -1) {
+          out += pushMathSpan(store, text.slice(i + 2, end), display, text.slice(i, end + closer.length));
+          i = end + closer.length;
+          continue;
+        }
+        const tail = text.slice(i + 2);
+        if (tailOk(tail)) {
+          out += pushMathSpan(store, tail, display, text.slice(i));
+          i = n;
+          continue;
+        }
+        out += ch + (nx || '');
+        i += 2;
+        continue;
+      }
+      if (text.startsWith('\\begin{', i)) {
+        const brace = text.indexOf('}', i + 7);
+        const env = brace === -1 ? '' : text.slice(i + 7, brace);
+        const endTag = env ? `\\end{${env}}` : '';
+        const end = endTag ? text.indexOf(endTag, brace + 1) : -1;
+        if (end !== -1) {
+          const raw = text.slice(i, end + endTag.length);
+          out += pushMathSpan(store, raw, true, raw);
+          i = end + endTag.length;
+          continue;
+        }
+        const tail = text.slice(i);
+        if (tailOk(tail) && brace !== -1) {
+          out += pushMathSpan(store, tail, true, tail);
+          i = n;
+          continue;
+        }
+      }
+      out += ch;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '$') {
+      if (text[i + 1] === '$') {
+        const end = text.indexOf('$$', i + 2);
+        if (end !== -1) {
+          out += pushMathSpan(store, text.slice(i + 2, end), true, text.slice(i, end + 2));
+          i = end + 2;
+          continue;
+        }
+        const tail = text.slice(i + 2);
+        if (tailOk(tail)) {
+          out += pushMathSpan(store, tail, true, text.slice(i));
+          i = n;
+          continue;
+        }
+        out += '$$';
+        i += 2;
+        continue;
+      }
+      const end = text.indexOf('$', i + 1);
+      if (end !== -1) {
+        const body = text.slice(i + 1, end);
+        if (looksLikeMathBody(body)) {
+          out += pushMathSpan(store, body, false, text.slice(i, end + 1));
+          i = end + 1;
+          continue;
+        }
+        out += '$';
+        i += 1;
+        continue;
+      }
+      const tail = text.slice(i + 1);
+      if (partial && looksLikeMathBody(tail)) {
+        out += pushMathSpan(store, tail, false, text.slice(i));
+        i = n;
+        continue;
+      }
+      out += '$';
+      i += 1;
+      continue;
+    }
+
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+/** Bracketed display lines and `( x )` variable mentions that carry no delimiters. */
+function maskLooseNotation(text, store) {
+  let t = text.replace(/(?:^|\n)[ \t]*\[[ \t]*([A-Za-z0-9_][^\n]{0,220}?)[ \t]*\][ \t]*(?=\n|$)/g,
+    (match, body) => (/[\\^_=]/.test(body) ? '\n' + pushMathSpan(store, body, true, match) : match));
+  t = t.replace(/(^|[\s(])\(\s*([A-Za-z](?:_[A-Za-z0-9]+)?)\s*\)(?=[\s).,;:!?]|$)/gm,
+    (match, prefix, varName) => prefix + pushMathSpan(store, varName, false, match));
+  return t;
+}
+
+function restoreMathRaw(masked, store) {
+  return masked.replace(MATH_TOKEN_RE, (token, idx) => store[Number(idx)]?.raw ?? token);
+}
+
+function typesetMath(masked, store, katexLib) {
+  if (!store.length) return convertBareMathCommands(masked, katexLib);
+  if (!katexLib) return restoreMathRaw(masked, store);
+  const re = new RegExp(MATH_TOKEN_RE);
+  let out = '';
+  let cursor = 0;
+  let match;
+  while ((match = re.exec(masked)) !== null) {
+    out += convertBareMathCommands(masked.slice(cursor, match.index), katexLib);
+    cursor = match.index + match[0].length;
+    const entry = store[Number(match[1])];
+    if (!entry) { out += match[0]; continue; }
+    const html = entry.body ? katexToHtml(entry.body, entry.display, katexLib) : null;
+    if (!html) { out += entry.raw; continue; }
+    if (!entry.display) { out += html; continue; }
+    // Never split a markdown table row apart to place a display formula
+    const lineStart = masked.lastIndexOf('\n', match.index) + 1;
+    let lineEnd = masked.indexOf('\n', cursor);
+    if (lineEnd === -1) lineEnd = masked.length;
+    out += masked.slice(lineStart, lineEnd).includes('|') ? html : '\n\n' + html + '\n\n';
+  }
+  out += convertBareMathCommands(masked.slice(cursor), katexLib);
+  return out;
+}
+
 function renderMathFormulas(text) {
   if (!text || typeof text !== 'string') return text;
+  const katexLib = getKatexLib();
+  if (!katexLib) return text;
+  const store = [];
+  const masked = maskLooseNotation(maskMathSpans(text, store, { partial: true }), store);
+  return typesetMath(masked, store, katexLib);
+}
 
-  const katexLib = (typeof window !== 'undefined' && window.katex)
-    || (typeof katex !== 'undefined' ? katex : null);
-  if (!katexLib || typeof katexLib.renderToString !== 'function') {
-    return text;
-  }
-
-  let str = text;
-
-  // Mask code blocks (both ```fenced``` and `inline`) so code is never modified
-  const codeBlocks = [];
-  str = str.replace(/(```[\s\S]*?```|`[^`\n]+`)/g, (match) => {
-    const placeholder = `%%KATEX_CODE_BLOCK_${codeBlocks.length}%%`;
-    codeBlocks.push(match);
-    return placeholder;
-  });
-
-  // 1. Display math: $$ ... $$
-  str = str.replace(/\$\$([\s\S]+?)\$\$/g, (match, formula) => {
-    try {
-      return '\n\n' + katexLib.renderToString(formula.trim(), { displayMode: true, throwOnError: false }) + '\n\n';
-    } catch (e) {
-      return match;
-    }
-  });
-
-  // 2. Display math: \[ ... \]
-  str = str.replace(/\\\[([\s\S]+?)\\\]/g, (match, formula) => {
-    try {
-      return '\n\n' + katexLib.renderToString(formula.trim(), { displayMode: true, throwOnError: false }) + '\n\n';
-    } catch (e) {
-      return match;
-    }
-  });
-
-  // 3. Standalone brackets containing LaTeX math formulas (e.g. [ A = P \left(1 + \frac{r}{n}\right)^{nt} ])
-  str = str.replace(/(?:^|\n)\s*\[\s*([A-Za-z0-9_].*?[\\=+\-*/^_{}].*?)\s*\]\s*(?=\n|$)/g, (match, formula) => {
-    try {
-      return '\n\n' + katexLib.renderToString(formula.trim(), { displayMode: true, throwOnError: false }) + '\n\n';
-    } catch (e) {
-      return match;
-    }
-  });
-
-  // 4. Inline math: \( ... \)
-  str = str.replace(/\\\(([\s\S]+?)\\\)/g, (match, formula) => {
-    try {
-      return katexLib.renderToString(formula.trim(), { displayMode: false, throwOnError: false });
-    } catch (e) {
-      return match;
-    }
-  });
-
-  // 5. Single variable parens frequently output by LLMs: Where: ( A ) is ..., ( P ) is ..., ( r ) is ...
-  str = str.replace(/(^|[\s(])\(\s*([A-Za-z](?:_[A-Za-z0-9]+)?)\s*\)(?=[\s).,;:!?]|$)/gm, (match, prefix, varName) => {
-    try {
-      return prefix + katexLib.renderToString(varName.trim(), { displayMode: false, throwOnError: false });
-    } catch (e) {
-      return match;
-    }
-  });
-
-  // 6. Inline math: $ ... $ (skipping currency amounts like $2000 or $50)
-  str = str.replace(/(^|[\s(])\$([A-Za-z0-9_\\{}]+(?:\s*[=+\-*/^]\s*[A-Za-z0-9_\\{}]+)*)\$(?=[\s).,;:!?]|$)/gm, (match, prefix, formula) => {
-    if (/^\d+(?:\.\d+)?$/.test(formula.trim())) return match;
-    try {
-      return prefix + katexLib.renderToString(formula.trim(), { displayMode: false, throwOnError: false });
-    } catch (e) {
-      return match;
-    }
-  });
-
-  // 7. Bare LaTeX symbol commands emitted without delimiters (e.g. "2\pi r")
-  str = convertBareMathCommands(str, katexLib);
-
-  // Restore code blocks
-  str = str.replace(/%%KATEX_CODE_BLOCK_(\d+)%%/g, (match, idx) => {
-    return codeBlocks[Number(idx)] || match;
-  });
-
-  return str;
+// Streaming paint runs the identical engine: same spans, same HTML, no reflow when the answer lands.
+function renderMathFormulasStream(text) {
+  return renderMathFormulas(text);
 }
 
 // Bare LaTeX symbol commands local models frequently emit without $ delimiters.
@@ -2369,160 +2549,20 @@ function convertBareMathCommands(str, katexLib) {
 }
 
 // Heuristic: does an inline $...$ body look like math (and not currency/prose)?
+const MATHY_UNICODE_RE = /[\u00B1\u00D7\u00F7\u221A\u2211\u220F\u222B\u2202\u2207\u221E\u2248\u2260\u2264\u2265\u2265\u2192\u2190\u2208\u2209\u2282\u2283\u2229\u222A\u0391-\u03C9\u03D1\u03F5]/;
+const PROSE_WORD_RE = /\b(?:the|a|an|is|are|was|were|of|and|or|to|for|with|in|on|by|at|as|that|this|it|you|we|they|not|but|if|so)\b/i;
+
 function looksLikeMathBody(body) {
   const b = String(body || '').trim();
-  if (!b || b.length > 160 || b.includes('\n')) return false;
-  if (/^[\d.,\s%$]+$/.test(b)) return false;
+  if (!b || b.length > 220 || b.includes('\n') || b.includes('$')) return false;
+  if (/^[\d.,\s%$°]+$/.test(b)) return false;
   if (/[\\{}^_=<>]/.test(b)) return true;
+  if (MATHY_UNICODE_RE.test(b)) return true;
   if (/^[A-Za-z](?:_[A-Za-z0-9]+)?$/.test(b)) return true;
-  if (/^[A-Za-z0-9_{}().^+\-*/ ]+$/.test(b) && /[+\-*/]/.test(b) && b.split(/\s+/).every(tok => tok.length <= 6)) return true;
-  return false;
-}
-
-/**
- * Streaming-safe math pass: typesets completed delimited formulas AND partially
- * typed (unclosed) tail formulas, so KaTeX renders live while tokens stream in
- * instead of only after the response completes. Code is never touched.
- */
-function renderMathFormulasStream(text) {
-  if (!text || typeof text !== 'string') return text;
-  const katexLib = (typeof window !== 'undefined' && window.katex)
-    || (typeof katex !== 'undefined' ? katex : null);
-  if (!katexLib || typeof katexLib.renderToString !== 'function') return text;
-
-  const tryRender = (formula, display) => {
-    const body = String(formula || '').trim();
-    if (!body) return null;
-    let html = null;
-    try {
-      html = katexLib.renderToString(body, { displayMode: display, throwOnError: false });
-    } catch (e) {
-      return null;
-    }
-    if (!html || html.includes('katex-error')) return null;
-    return display ? '\n\n' + html + '\n\n' : html;
-  };
-
-  let out = '';
-  let plain = '';
-  const flushPlain = () => {
-    if (plain) {
-      out += convertBareMathCommands(plain, katexLib);
-      plain = '';
-    }
-  };
-
-  const n = text.length;
-  let i = 0;
-  while (i < n) {
-    const ch = text[i];
-
-    // Code fences / inline code: pass through untouched
-    if (ch === '`') {
-      flushPlain();
-      if (text.startsWith('```', i)) {
-        const end = text.indexOf('```', i + 3);
-        const stop = end === -1 ? n : end + 3;
-        out += text.slice(i, stop);
-        i = stop;
-        continue;
-      }
-      const close = text.indexOf('`', i + 1);
-      const inner = close === -1 ? null : text.slice(i + 1, close);
-      if (inner !== null && !inner.includes('\n')) {
-        out += '`' + inner + '`';
-        i = close + 1;
-      } else {
-        out += '`';
-        i += 1;
-      }
-      continue;
-    }
-
-    if (ch === '$') {
-      if (text[i + 1] === '$') {
-        const end = text.indexOf('$$', i + 2);
-        if (end !== -1) {
-          const html = tryRender(text.slice(i + 2, end), true);
-          flushPlain();
-          out += html || text.slice(i, end + 2);
-          i = end + 2;
-          continue;
-        }
-        const tail = text.slice(i + 2);
-        if (tail.length <= 400 && /[\\{}^_=]/.test(tail)) {
-          const html = tryRender(tail, true);
-          if (html) {
-            flushPlain();
-            out += html;
-            i = n;
-            continue;
-          }
-        }
-        plain += '$$';
-        i += 2;
-        continue;
-      }
-      const end = text.indexOf('$', i + 1);
-      if (end !== -1) {
-        const body = text.slice(i + 1, end);
-        if (looksLikeMathBody(body)) {
-          const html = tryRender(body, false);
-          flushPlain();
-          out += html || ('$' + body + '$');
-          i = end + 1;
-          continue;
-        }
-        plain += '$';
-        i += 1;
-        continue;
-      }
-      const tail = text.slice(i + 1);
-      if (looksLikeMathBody(tail)) {
-        const html = tryRender(tail, false);
-        if (html) {
-          flushPlain();
-          out += html;
-          i = n;
-          continue;
-        }
-      }
-      plain += '$';
-      i += 1;
-      continue;
-    }
-
-    if (ch === '\\' && (text[i + 1] === '[' || text[i + 1] === '(')) {
-      const isDisplay = text[i + 1] === '[';
-      const closer = isDisplay ? '\\]' : '\\)';
-      const end = text.indexOf(closer, i + 2);
-      if (end !== -1) {
-        const html = tryRender(text.slice(i + 2, end), isDisplay);
-        flushPlain();
-        out += html || (ch + text[i + 1] + text.slice(i + 2, end) + closer);
-        i = end + closer.length;
-        continue;
-      }
-      const tail = text.slice(i + 2);
-      if (tail.length <= 400) {
-        const html = tryRender(tail, isDisplay);
-        if (html) {
-          flushPlain();
-          out += html;
-          i = n;
-          continue;
-        }
-      }
-      plain += ch + text[i + 1];
-      i += 2;
-      continue;
-    }
-
-    plain += ch;
-    i += 1;
-  }
-  flushPlain();
-  return out;
+  const words = b.split(/\s+/).filter(Boolean);
+  if (words.length > 10) return false;
+  if (PROSE_WORD_RE.test(b)) return false;
+  return /^[A-Za-z0-9_{}()[\].^+\-*/:,\s]+$/.test(b) && /[+\-*/^]/.test(b);
 }
 
 function structureReadableMarkdown(text) {
@@ -2587,6 +2627,11 @@ function structureReadableMarkdown(text) {
   t = t.replace(/([^\n])\s*(%%CODE_BLOCK_\d+%%)/g, '$1\n\n$2');
   t = t.replace(/(%%CODE_BLOCK_\d+%%)\s*([^\n\s])/g, '$1\n\n$2');
 
+  // 2c. Mask formulas into %%MATH_n%% tokens BEFORE the repair rules below run,
+  // so no bullet/heading/table regex can ever cut through a formula. Typeset at step 12.
+  const mathSpans = [];
+  t = maskLooseNotation(maskMathSpans(t, mathSpans, { partial: true }), mathSpans);
+
   // 3. Separate run-on section titles concatenated directly onto the first sentence
   t = t.replace(/(?:^|\n)(Approach and Architecture Overview|Architecture Overview|Comparison Overview|Technical Breakdown|Implementation Details|Complete,?\s*Runnable Code Implementation(?:\s*\([^)]*\))?|Summary and Recommendations?|Key Distinctions|Overview)\s+([A-Z][a-z]+|\d+\.)/gi,
     (_, title, start) => `\n\n### ${title.trim()}\n\n${start}`);
@@ -2646,8 +2691,9 @@ function structureReadableMarkdown(text) {
   }
   t = repairedTableLines.join('\n');
 
-  // 5. Separate inline bold headers following a table or paragraph
-  t = t.replace(/([^\n])\s+(\*\*[A-Z][^*]{2,40}\*\*:?)/g, '$1\n\n$2');
+  // 5. Separate a bold section header that is glued onto the end of a paragraph.
+  // The header must sit on its own line, so bold-led bullets (**Term** — text) stay intact.
+  t = t.replace(/([^\n])\s+(\*\*[A-Z][^*\n]{2,40}\*\*:?[ \t]*(?=\n))/g, '$1\n\n$2');
 
   // 6. Fix single-line bullet runs like "* Item 1 * Item 2" or "+ Step 1 + Step 2" or "• Step 1 • Step 2"
   t = t.replace(/([^\n])\s+([•*+-])\s+(\*\*[A-Za-z0-9])/g, '$1\n- $3');
@@ -2670,14 +2716,30 @@ function structureReadableMarkdown(text) {
   // 9. Ensure blank line before headings
   t = t.replace(/([^\n])\n(#{1,4}\s+[^\n]+)/g, '$1\n\n$2\n');
 
-  // 10. Ensure blank line before list blocks following a paragraph
-  t = t.replace(/([^\n\d\-*#|])\n([0-9]+\.\s+|- |\* )/g, '$1\n\n$2');
+  // 10. Ensure a blank line before a list block that is glued onto a paragraph.
+  // Line-based so it never fires BETWEEN two list items (that would turn a tight
+  // list into a loose one and add paragraph gaps inside the answer).
+  {
+    const lines = t.split('\n');
+    const outLines = [];
+    const itemRe = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+\S/;
+    const blockRe = /^[ \t]*(?:#{1,6}\s|>|\||```|~~~|%%CODE_BLOCK_\d+%%|[-=]\s*$|!\[)/;
+    for (let i = 0; i < lines.length; i++) {
+      const prev = outLines.length ? outLines[outLines.length - 1] : '';
+      if (i > 0 && itemRe.test(lines[i]) && prev.trim() !== ''
+          && !itemRe.test(prev) && !blockRe.test(prev) && !/^[ \t]+\S/.test(prev)) {
+        outLines.push('');
+      }
+      outLines.push(lines[i]);
+    }
+    t = outLines.join('\n');
+  }
 
   // 11. Deduplicate runaway repetitive sentences/lines (e.g. repeated loop tokens)
   t = dedupeRunawayRepetitions(t);
 
-  // 12. Render mathematical and LaTeX formulas via KaTeX
-  t = renderMathFormulas(t);
+  // 12. Typeset the masked formulas via KaTeX and convert bare LaTeX symbols
+  t = typesetMath(t, mathSpans, getKatexLib());
 
   // 13. Restore masked code safely
   t = t.replace(/%%INLINE_CODE_(\d+)%%/g, (_, idx) => inlineCodes[Number(idx)] || '');
@@ -3000,11 +3062,13 @@ function formatCodeBlocks(containerElement) {
         delimiters: [
           { left: '$$', right: '$$', display: true },
           { left: '\\[', right: '\\]', display: true },
-          { left: '\\(', right: '\\)', display: false },
-          { left: '$', right: '$', display: false }
+          { left: '\\(', right: '\\)', display: false }
         ],
         throwOnError: false,
-        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+        // Plain $...$ is left to renderMathFormulas: doing it again here would
+        // typeset currency pairs like "$2000 and $50" as a formula.
+        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+        ignoredClasses: ['katex', 'katex-display', 'katex-mathml', 'mermaid', 'visual-chart-wrapper', 'code-box-wrapper']
       });
     } catch (mathErr) {
       console.warn('[KaTeX] renderMathInElement error:', mathErr);
@@ -3571,12 +3635,13 @@ async function renderCreatedFileActionButtons(contentElement, fullText) {
   return;
 }
 
-function finalizeAiMessageBubble(contentElement, fullText, { autoSpeak = true } = {}) {
+function finalizeAiMessageBubble(contentElement, fullText, { autoSpeak = true, ragCitations = null } = {}) {
   if (typeof _activeThinkingController !== 'undefined' && _activeThinkingController) {
     _activeThinkingController.stop();
     _activeThinkingController = null;
   }
   if (!contentElement || !fullText || isThinkingMarkup(fullText)) return;
+  applyRagCitations(contentElement, ragCitations || _pendingLiveCitations, Boolean(ragCitations));
   const messageWrapper = contentElement.closest('.message-wrapper') || contentElement.parentNode;
   const actionsDiv = messageWrapper ? messageWrapper.querySelector('.message-actions') : null;
   if (actionsDiv) wireMessageActionButtons(actionsDiv, fullText);
@@ -3609,7 +3674,7 @@ function createStreamBubblePainter(contentElement) {
     const now = Date.now();
     if (now - lastPaint < 40) return;
     lastPaint = now;
-    const closed = closeIncompleteMarkdown(renderMathFormulasStream(outputText));
+    const closed = renderMathFormulasStream(closeIncompleteMarkdown(outputText));
     let parsed = '';
     try {
       parsed = window.ultronAPI.parseMarkdown(closed);
@@ -3754,7 +3819,7 @@ async function typeMessageResponse(contentElement, fullText, options = {}) {
 
     accumulated += tokens.slice(i, i + chunkSize).join('');
 
-    const closed = closeIncompleteMarkdown(renderMathFormulasStream(accumulated));
+    const closed = renderMathFormulasStream(closeIncompleteMarkdown(accumulated));
     let parsed = '';
     try {
       parsed = window.ultronAPI.parseMarkdown(closed);
@@ -5216,15 +5281,81 @@ function formatSideWhen(ts) {
   return sameDay ? `Today ${time}` : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
 }
 
-function sideExtIcon(filename) {
-  const ext = (String(filename || '').includes('.') ? String(filename).split('.').pop() : '').toLowerCase();
-  const label = (ext || 'file').toUpperCase().slice(0, 4);
-  return `<span class="side-ext side-ext-${escapeHtml(ext || 'bin')}">${escapeHtml(label)}</span>`;
+/* Rail glyphs: one shape per file family so uploads, reads and outputs read at a glance. */
+const SIDE_DOC_BODY = '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline>';
+const SIDE_GLYPHS = {
+  pdf: `${SIDE_DOC_BODY}<path d="M9 11.5v7.5l3-2 3 2v-7.5z"></path>`,
+  text: `${SIDE_DOC_BODY}<line x1="9" y1="13" x2="15" y2="13"></line><line x1="9" y1="17" x2="13" y2="17"></line>`,
+  doc: `${SIDE_DOC_BODY}<line x1="9" y1="12" x2="15" y2="12"></line><line x1="9" y1="15.5" x2="15" y2="15.5"></line><line x1="9" y1="19" x2="12.5" y2="19"></line>`,
+  code: `${SIDE_DOC_BODY}<polyline points="10.6 12.6 8.6 15 10.6 17.4"></polyline><polyline points="14.4 12.6 16.4 15 14.4 17.4"></polyline>`,
+  codemark: '<polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline>',
+  sheet: `${SIDE_DOC_BODY}<rect x="8" y="12" width="8" height="6" rx="1"></rect><line x1="8" y1="15" x2="16" y2="15"></line><line x1="12" y1="12" x2="12" y2="18"></line>`,
+  audio: `${SIDE_DOC_BODY}<circle cx="10" cy="17.2" r="1.6"></circle><path d="M11.6 17.2v-4.7l3 1.1"></path>`,
+  video: `${SIDE_DOC_BODY}<polygon points="10.2 12.8 10.2 17.6 14.4 15.2"></polygon>`,
+  img: '<rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>',
+  archive: '<path d="M3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M3 8l2-4h14l2 4"></path><line x1="11" y1="12" x2="14" y2="12"></line>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h6a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>',
+  web: '<circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>',
+  tool: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>',
+  diagram: '<circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.6" y1="10.5" x2="15.4" y2="6.5"></line><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"></line>',
+  chart: '<line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line>',
+  widget: '<rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect>',
+  focus: '<circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle>',
+  file: SIDE_DOC_BODY,
+};
+const SIDE_FILE_FAMILIES = {
+  pdf: 'pdf',
+  png: 'img', jpg: 'img', jpeg: 'img', gif: 'img', webp: 'img', bmp: 'img', heic: 'img', avif: 'img', tiff: 'img', svg: 'img',
+  js: 'code', jsx: 'code', ts: 'code', tsx: 'code', mjs: 'code', cjs: 'code', py: 'code', rb: 'code', go: 'code', rs: 'code',
+  java: 'code', c: 'code', h: 'code', cpp: 'code', cs: 'code', php: 'code', swift: 'code', kt: 'code', sh: 'code', bash: 'code',
+  sql: 'code', json: 'code', yaml: 'code', yml: 'code', toml: 'code', xml: 'code', html: 'code', htm: 'code', css: 'code',
+  md: 'text', markdown: 'text', txt: 'text', rst: 'text', log: 'text',
+  doc: 'doc', docx: 'doc', odt: 'doc', rtf: 'doc', pages: 'doc', ppt: 'doc', pptx: 'doc', key: 'doc', epub: 'doc',
+  xls: 'sheet', xlsx: 'sheet', csv: 'sheet', tsv: 'sheet', ods: 'sheet', numbers: 'sheet',
+  mp3: 'audio', wav: 'audio', flac: 'audio', aac: 'audio', ogg: 'audio', m4a: 'audio',
+  mp4: 'video', mov: 'video', avi: 'video', mkv: 'video', webm: 'video',
+  zip: 'archive', rar: 'archive', '7z': 'archive', tar: 'archive', gz: 'archive', bz2: 'archive',
+};
+
+function sideExtOf(filename) {
+  const name = String(filename || '');
+  return name.includes('.') ? name.split('.').pop().toLowerCase() : '';
 }
 
-const SIDE_UPLOAD_ICON = '<span class="side-ext side-ext-img"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg></span>';
-const SIDE_FILE_ICON = '<span class="side-ext side-ext-bin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></span>';
-const SIDE_WEB_ICON = '<span class="side-ext side-ext-web"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="11" height="11"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></span>';
+/* The rail shows the extension as right-aligned meta text, never as the leading glyph. */
+function sideExtLabel(filename) {
+  return sideExtOf(filename) ? sideExtOf(filename).toUpperCase().slice(0, 4) : 'File';
+}
+
+function sideGlyph(family) {
+  return `<span class="side-ext side-ext-${escapeHtml(SIDE_GLYPHS[family] ? family : 'file')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SIDE_GLYPHS[family] || SIDE_GLYPHS.file}</svg></span>`;
+}
+
+function sideExtIcon(filename, isFolder = false) {
+  if (isFolder) return sideGlyph('folder');
+  return sideGlyph(SIDE_FILE_FAMILIES[sideExtOf(filename)] || 'file');
+}
+
+const SIDE_WEB_ICON = sideGlyph('web');
+const SIDE_TOOL_ICON = sideGlyph('tool');
+const SIDE_FOCUS_ICON = sideGlyph('focus');
+/* Task plan marks: status glyphs instead of the ✓ / ✗ / • text characters. */
+const SIDE_TASK_SVG = (body) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const SIDE_TASK_MARKS = {
+  done: SIDE_TASK_SVG('<path d="M20 6L9 17l-5-5"></path>'),
+  failed: SIDE_TASK_SVG('<line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>'),
+  running: SIDE_TASK_SVG('<path d="M21 12a9 9 0 1 1-9-9"></path>'),
+  pending: SIDE_TASK_SVG('<circle cx="12" cy="12" r="8"></circle>'),
+};
+/* Output rows are labelled by kind, so pick the glyph from the kind rather than the extension. */
+const SIDE_KIND_ICONS = { Diagram: 'diagram', Chart: 'chart', Widget: 'widget', Code: 'codemark' };
+const SIDE_SECTION_ICONS = {
+  tasks: '<polyline points="9 11 12 14 21 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>',
+  tools: SIDE_GLYPHS.tool,
+  output: '<polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line>',
+  pages: '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>',
+  sources: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>',
+};
 
 function sideRowHtml({ icon, name, sub, path = '', target = '', overflow = false }) {
   const tag = path || target ? 'button' : 'div';
@@ -5239,21 +5370,25 @@ function sideRowHtml({ icon, name, sub, path = '', target = '', overflow = false
 
 const sidebarSectionStates = new Map();
 
-function sideSectionHtml(title, items, buildRow, { empty = '', collapsed = true } = {}) {
+function sideSectionHtml(title, items, buildRow, { emptyTitle = '', empty = '' } = {}) {
   const key = title.toLowerCase().replace(/[^a-z]+/g, '-');
-  const state = sidebarSectionStates.get(`${currentSessionId}:${key}`) || { collapsed: collapsed && items.length === 0, expanded: false };
+  /* Sections start minimized; a click is stored per session so the rail respects it. */
+  const state = sidebarSectionStates.get(`${currentSessionId}:${key}`) || { collapsed: true, expanded: false };
   const rows = items.map((item, i) => buildRow(item, i >= 5)).join('');
+  const emptyState = `<div class="side-section-empty"><span class="side-section-empty-title">${escapeHtml(emptyTitle)}</span><span class="side-section-empty-text">${escapeHtml(empty)}</span></div>`;
   const seeAll = items.length > 5
     ? `<button type="button" class="side-see-all" aria-expanded="${state.expanded}" data-side-count="${items.length}">${state.expanded ? 'Show less' : `See all (${items.length})`}</button>`
     : '';
+  const headIcon = SIDE_SECTION_ICONS[key] || SIDE_GLYPHS.file;
   return `
     <section class="side-section${state.collapsed ? ' collapsed' : ''}${state.expanded ? ' expanded' : ''}" data-side-section="${key}">
       <button type="button" class="side-section-head" aria-expanded="${!state.collapsed}" aria-controls="side-body-${key}">
+        <span class="side-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${headIcon}</svg></span>
         <span class="side-section-title">${escapeHtml(title)}</span>
         <svg class="side-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
         ${items.length ? `<span class="side-count-badge">${items.length}</span>` : ''}
       </button>
-      <div class="side-section-body" id="side-body-${key}">${rows || `<p class="side-section-empty">${escapeHtml(empty)}</p>`}${seeAll}</div>
+      <div class="side-section-body" id="side-body-${key}">${rows || emptyState}${seeAll}</div>
     </section>`;
 }
 
@@ -5285,8 +5420,8 @@ function renderSessionPanel() {
   }
   const readings = Array.from(web.values()).filter(item => item.read);
   const sources = [
-    ...(activity.uploads || []).slice().reverse().map(item => ({ ...item, sub: 'Upload', icon: item.isImage ? SIDE_UPLOAD_ICON : SIDE_FILE_ICON, target: `message:${item.messageIndex}` })),
-    ...artifacts.filter(item => readSet.has(item.source) && !/^https?:\/\//i.test(item.path)).map(item => ({ ...item, sub: 'Read', icon: sideExtIcon(item.name || item.path) })),
+    ...(activity.uploads || []).slice().reverse().map(item => ({ ...item, sub: 'Upload', icon: item.isImage ? sideGlyph('img') : sideExtIcon(item.name), target: `message:${item.messageIndex}` })),
+    ...artifacts.filter(item => readSet.has(item.source) && !/^https?:\/\//i.test(item.path)).map(item => ({ ...item, sub: 'Read', icon: sideExtIcon(item.name || item.path, item.kind === 'folder') })),
     ...Array.from(web.values()).map(item => ({ name: item.title || item.url, path: item.url, sub: item.read ? 'Read' : 'Found', icon: SIDE_WEB_ICON }))
   ];
   const outputs = artifacts.filter(item => !/^https?:\/\//i.test(item.path) && !readSet.has(item.source));
@@ -5298,30 +5433,34 @@ function renderSessionPanel() {
   });
   const sections = [`
     <section class="session-context-card">
-      <div class="session-context-kicker">${SIDE_FILE_ICON}<span>In focus</span>${updated ? `<time>${escapeHtml(formatSideWhen(updated))}</time>` : ''}</div>
+      <div class="session-context-kicker">${SIDE_FOCUS_ICON}<span>In focus</span>${updated ? `<time>${escapeHtml(formatSideWhen(updated))}</time>` : ''}</div>
       <h3 class="session-context-title">${escapeHtml(session?.title || 'A fresh thread')}</h3>
       <p class="session-context-summary">${escapeHtml(String(summaryText).slice(0, 700))}</p>
       ${messages.length ? `<div class="session-context-meta">${messages.length} ${messages.length === 1 ? 'message' : 'messages'}</div>` : ''}
       ${_aiSessionMetaInFlight.has(currentSessionId) ? '<span class="session-context-spinner" role="status" aria-label="Summarizing this session"></span>' : ''}
     </section>`];
-  sections.push(sideSectionHtml('Action plan', tasks, (task, overflow) => {
+  sections.push(sideSectionHtml('Tasks', tasks, (task, overflow) => {
     const done = task.completed || task.status === 'completed';
     const running = ['running', 'in_progress'].includes(task.status);
     const stateClass = task.status === 'failed' ? ' session-task-fail' : done ? ' session-task-done' : running ? ' session-task-active' : '';
-    const mark = task.status === 'failed' ? '&#10005;' : done ? '&#10003;' : running ? '&#8226;' : '&#9675;';
+    const mark = task.status === 'failed' ? SIDE_TASK_MARKS.failed : done ? SIDE_TASK_MARKS.done : running ? SIDE_TASK_MARKS.running : SIDE_TASK_MARKS.pending;
     return `<div class="session-task side-task${stateClass}${overflow ? ' side-row-overflow' : ''}" title="${escapeHtml(task.status || (done ? 'completed' : 'pending'))}"><span class="session-task-mark">${mark}</span><span>${escapeHtml(task.text || task.title || '')}</span></div>`;
-  }, { empty: 'The steps Brown takes, from first move to finish.' }));
-  sections.push(sideSectionHtml('Toolbox', capabilities, (item, overflow) => sideRowHtml({
-    icon: SIDE_FILE_ICON.replace('side-ext-bin', 'side-ext-tool'), name: item.name, sub: item.sub, overflow
-  }), { empty: 'Skills and connections Brown puts to work.' }));
-  sections.push(sideSectionHtml('Creations', [...outputs, ...inline], (item, overflow) => sideRowHtml({
-    icon: sideExtIcon(item.name || item.path), name: item.name, sub: item.sub || 'File', path: item.path, target: item.target, overflow
-  }), { empty: 'What takes shape here: files, visuals, and code.' }));
-  sections.push(sideSectionHtml('Reading trail', readings, (item, overflow) => sideRowHtml({
+  }, { emptyTitle: 'No tasks yet', empty: 'The steps Brown takes, from first move to finish.' }));
+  sections.push(sideSectionHtml('Tools', capabilities, (item, overflow) => sideRowHtml({
+    icon: SIDE_TOOL_ICON, name: item.name, sub: item.sub, overflow
+  }), { emptyTitle: 'No tools yet', empty: 'Skills and connections Brown puts to work.' }));
+  sections.push(sideSectionHtml('Output', [...outputs, ...inline], (item, overflow) => {
+    const kindGlyph = SIDE_KIND_ICONS[item.sub];
+    return sideRowHtml({
+      icon: kindGlyph ? sideGlyph(kindGlyph) : sideExtIcon(item.name || item.path, item.kind === 'folder'),
+      name: item.name, sub: item.sub || sideExtLabel(item.name || item.path), path: item.path, target: item.target, overflow
+    });
+  }, { emptyTitle: 'Nothing created yet', empty: 'What takes shape here: files, visuals, and code.' }));
+  sections.push(sideSectionHtml('Pages', readings, (item, overflow) => sideRowHtml({
     icon: SIDE_WEB_ICON, name: item.title || item.url, path: item.url, overflow
-  }), { empty: 'A trail of the pages Brown has explored.' }));
-  sections.push(sideSectionHtml('Reference shelf', sources, (item, overflow) => sideRowHtml({ ...item, overflow }), {
-    empty: 'Your uploads and the material behind the answer.'
+  }), { emptyTitle: 'No pages read yet', empty: 'A trail of the pages Brown has explored.' }));
+  sections.push(sideSectionHtml('Sources', sources, (item, overflow) => sideRowHtml({ ...item, overflow }), {
+    emptyTitle: 'No sources yet', empty: 'Your uploads and the material behind the answer.'
   }));
   const html = `${sections[0]}<div class="session-side-sections">${sections.slice(1).join('')}</div>`;
   if (content.innerHTML === html) return;
@@ -5423,6 +5562,7 @@ window.addEventListener('DOMContentLoaded', () => {
 // the user already brought into the app (opened projects, files the agent
 // writes/reads) and recalls relevant excerpts automatically during chat.
 function isRagAutoEnabled() {
+  if (_promptMentions.forceKnowledge) return true;
   try { return localStorage.getItem('ultron-rag-auto') !== '0'; } catch (e) { return true; }
 }
 
@@ -5454,20 +5594,801 @@ function queueRagArtifactIndexing() {
 // Pull the most relevant indexed excerpts for the current user message and
 // inject them as private local context. Bounded + timeout-guarded so chat
 // never stalls; returns '' when nothing is relevant.
+const _pinnedFileCache = new Map();
+async function readPinnedMentionFile(filePath) {
+  if (_pinnedFileCache.has(filePath)) return _pinnedFileCache.get(filePath);
+  let text = '';
+  try {
+    if (window.ultronAPI && typeof window.ultronAPI.readFile === 'function') {
+      const res = await window.ultronAPI.readFile(filePath);
+      if (res && res.success && typeof res.content === 'string') text = res.content;
+    }
+  } catch (e) { text = ''; }
+  _pinnedFileCache.set(filePath, text);
+  return text;
+}
+
 async function getRagKnowledgeSnippet(query) {
-  if (!isRagAutoEnabled()) return '';
-  if (!window.ultronAPI || !window.ultronAPI.ragSearch) return '';
-  if (!query || query.trim().length < 12) return '';
+  _lastRagCitations = [];
+  _pendingLiveCitations = null;
+  _citationBannerRendered = false;
+  let snippet = '';
+
+  // Files pinned with @ are hard context — read them straight from disk so the
+  // answer is grounded even if the index has not caught up yet.
+  if (_promptMentions.files.length > 0) {
+    const blocks = [];
+    for (const pinned of _promptMentions.files.slice(0, 4)) {
+      const text = await readPinnedMentionFile(pinned.path);
+      if (!text) continue;
+      blocks.push(`--- ${pinned.name} (${pinned.path}) ---\n${text.slice(0, 2600)}`);
+      _lastRagCitations.push({
+        filePath: pinned.path,
+        fileName: pinned.name,
+        snippet: text.slice(0, 1400),
+        score: 1,
+        pinned: true
+      });
+    }
+    if (blocks.length) {
+      snippet += `\n\nPINNED FILE CONTEXT (attached by the user with @ — answer from these):\n${blocks.join('\n\n')}`;
+    }
+  }
+
+  if (!isRagAutoEnabled()) { _pendingLiveCitations = _lastRagCitations.slice(); return snippet; }
+  if (!window.ultronAPI || !window.ultronAPI.ragSearch) { _pendingLiveCitations = _lastRagCitations.slice(); return snippet; }
+  if (!query || query.trim().length < 12) { _pendingLiveCitations = _lastRagCitations.slice(); return snippet; }
   try {
     const res = await Promise.race([
       window.ultronAPI.ragSearch({ query, topK: 3, minScore: 0.1 }),
       new Promise((resolve) => setTimeout(() => resolve(null), 900))
     ]);
-    if (!res || !res.success || !Array.isArray(res.results) || res.results.length === 0) return '';
-    const lines = res.results.map((r, i) => `[${i + 1}] ${r.fileName}: ${String(r.snippet || r.text || '').slice(0, 400)}`);
-    return `\n\nPERSONAL KNOWLEDGE BASE (private excerpts from files indexed on this PC — use when relevant and mention the source file naturally):\n${lines.join('\n')}`;
-  } catch (e) { return ''; }
+    if (res && res.success && Array.isArray(res.results) && res.results.length > 0) {
+      const lines = res.results.map((r, i) => `[${i + 1}] ${r.fileName}: ${String(r.snippet || r.text || '').slice(0, 400)}`);
+      snippet += `\n\nPERSONAL KNOWLEDGE BASE (private excerpts from files indexed on this PC — use when relevant and mention the source file naturally):\n${lines.join('\n')}`;
+      _lastRagCitations = _lastRagCitations.concat(res.results.filter(r => r && r.filePath));
+    }
+  } catch (e) { /* retrieval is best-effort */ }
+  _pendingLiveCitations = _lastRagCitations.length ? _lastRagCitations.slice() : null;
+  return snippet;
 }
+
+// ============================================================
+// DOCKED CONTEXT BAR — project folder picker, @ mentions,
+// per-prompt capability chips and RAG citation badges
+// ============================================================
+const DOCK_ICONS = {
+  book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>',
+  globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>',
+  monitor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>',
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>'
+};
+
+function folderNameOf(inputPath) {
+  const parts = String(inputPath || '').split(/[\\/]+/);
+  while (parts.length && !parts[parts.length - 1]) parts.pop();
+  return parts[parts.length - 1] || String(inputPath || '');
+}
+
+function relativePathInProject(fullPath) {
+  const root = _activeProject ? String(_activeProject.path || '') : '';
+  const value = String(fullPath || '');
+  if (root && value.toLowerCase().startsWith(root.toLowerCase())) {
+    const rel = value.slice(root.length).replace(/^[\\/]+/, '');
+    if (rel) return rel;
+  }
+  return folderNameOf(value);
+}
+
+function dirLabelForFile(fullPath) {
+  const rel = relativePathInProject(fullPath);
+  const idx = rel.lastIndexOf('/') >= 0 ? rel.lastIndexOf('/') : rel.lastIndexOf('\\');
+  return idx > 0 ? rel.slice(0, idx) : '';
+}
+
+function readCapabilityEnabled(key) {
+  try {
+    if (key === 'ultron-rag-auto') return localStorage.getItem(key) !== '0';
+    return window.localStorage.getItem(key) !== 'false';
+  } catch (e) { return true; }
+}
+
+function writeCapabilityEnabled(key, enabled) {
+  try {
+    if (key === 'ultron-rag-auto') localStorage.setItem(key, enabled ? '1' : '0');
+    else window.localStorage.setItem(key, enabled ? 'true' : 'false');
+  } catch (e) { /* storage disabled */ }
+}
+
+function updateProjectBarUi() {
+  const btn = document.getElementById('btn-choose-project');
+  if (!btn) return;
+  const label = document.getElementById('choose-project-label');
+  const count = document.getElementById('choose-project-count');
+  const badge = document.getElementById('choose-project-badge');
+  const spinner = document.getElementById('choose-project-spinner');
+  if (!_activeProject) {
+    btn.classList.remove('has-project');
+    if (label) label.textContent = 'Choose project';
+    if (count) { count.textContent = ''; count.classList.add('hidden'); }
+    if (badge) badge.classList.add('hidden');
+    if (spinner) spinner.classList.add('hidden');
+    btn.title = 'Select a project folder and index it locally';
+    return;
+  }
+  btn.classList.add('has-project');
+  if (label) label.textContent = _activeProject.name;
+  if (spinner) spinner.classList.toggle('hidden', !_projectIndexing);
+  if (badge) badge.classList.toggle('hidden', _projectIndexing);
+  if (count) {
+    count.textContent = _projectIndexing
+      ? 'indexing…'
+      : (_activeProject.fileCount ? `${_activeProject.fileCount} files` : 'ready');
+    count.classList.remove('hidden');
+  }
+  btn.title = `Active project: ${_activeProject.path}`;
+}
+
+// The record returned by ragAddSources is a pre-reindex snapshot, so file
+// counts are always re-read from the index itself.
+async function refreshActiveProjectStats() {
+  if (!_activeProject || !window.ultronAPI || !window.ultronAPI.ragGetStats) return;
+  const expected = _activeProject.path;
+  try {
+    const stats = await window.ultronAPI.ragGetStats();
+    const source = ((stats && stats.sources) || []).find(s => s && s.path === expected);
+    if (!source) {
+      try { localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY); } catch (e) {}
+      _activeProject = null;
+    } else {
+      _activeProject.fileCount = source.fileCount || 0;
+    }
+  } catch (e) { /* index unreadable — keep the label as-is */ }
+  updateProjectBarUi();
+}
+
+async function chooseProjectFolder() {
+  if (!window.ultronAPI || !window.ultronAPI.selectDirectory) return;
+  let picked = '';
+  try {
+    const result = await window.ultronAPI.selectDirectory();
+    if (result && !result.canceled && Array.isArray(result.filePaths) && result.filePaths.length) {
+      picked = String(result.filePaths[0] || '');
+    }
+  } catch (e) { return; }
+  if (!picked) return;
+  await applyActiveProject(picked);
+}
+
+// Register + index a folder as the active project and reflect it in the docked bar.
+async function applyActiveProject(picked) {
+  if (!picked) return;
+  const name = folderNameOf(picked);
+  _activeProject = { path: picked, name, fileCount: 0 };
+  _projectIndexing = true;
+  updateProjectBarUi();
+  showToast({ type: 'info', title: 'Indexing project', message: `Indexing ${name}… everything stays on this PC.`, duration: 4000 });
+
+  try {
+    const res = await window.ultronAPI.ragAddSources([picked]);
+    if (res && res.success) {
+      try { localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, picked); } catch (e) {}
+      logTrace(`Project "${name}" indexed into the local knowledge base.`, 'system');
+    } else {
+      showToast({ type: 'error', title: 'Indexing failed', message: (res && res.error) || 'Brown could not index that folder.' });
+      _activeProject = null;
+    }
+  } catch (err) {
+    showToast({ type: 'error', title: 'Indexing failed', message: err.message });
+    _activeProject = null;
+  } finally {
+    _projectIndexing = false;
+    await refreshActiveProjectStats();
+    if (_activeProject) {
+      showToast({ type: 'success', title: 'Project ready', message: `${_activeProject.name} — ${_activeProject.fileCount || 0} files indexed. Ask Brown about them directly.`, duration: 4000 });
+    }
+  }
+}
+
+async function disconnectActiveProject(silent = true) {
+  const detached = _activeProject ? _activeProject.path : '';
+  const detachedName = _activeProject ? _activeProject.name : '';
+  _activeProject = null;
+  _projectIndexing = false;
+  try { localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY); } catch (e) {}
+  updateProjectBarUi();
+  if (!detached) return;
+  if (window.ultronAPI && window.ultronAPI.ragRemoveSource) {
+    try { await window.ultronAPI.ragRemoveSource(detached); } catch (e) {}
+  }
+  if (!silent) showToast({ type: 'info', title: 'Project disconnected', message: `${detachedName} is no longer part of Brown's knowledge base.`, duration: 3000 });
+  else logTrace(`Project "${detachedName}" disconnected.`, 'system');
+}
+
+async function restoreActiveProjectFromStorage() {
+  let saved = '';
+  try { saved = localStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY) || ''; } catch (e) {}
+  if (!saved) { _activeProject = null; updateProjectBarUi(); return; }
+  _activeProject = { path: saved, name: folderNameOf(saved), fileCount: 0 };
+  updateProjectBarUi();
+  await refreshActiveProjectStats();
+  // Index was cleared (or this folder was never registered): re-index on boot so
+  // the user never has to open Settings or press "Reindex".
+  if (!_activeProject) await applyActiveProject(saved);
+}
+
+// ---- @ mention chips (per-prompt overrides) ----
+function addMentionChip(chip) {
+  if (!chip || !chip.id) return;
+  if (_mentionChips.some(c => c.id === chip.id)) return;
+  _mentionChips.push(chip);
+  renderMentionChips();
+}
+
+function removeMentionChip(id) {
+  const idx = _mentionChips.findIndex(c => c.id === id);
+  if (idx === -1) return;
+  _mentionChips.splice(idx, 1);
+  renderMentionChips();
+}
+
+function renderMentionChips() {
+  const row = document.getElementById('mention-chip-row');
+  if (!row) return;
+  row.innerHTML = '';
+  if (_mentionChips.length === 0) {
+    row.classList.add('hidden');
+    return;
+  }
+  row.classList.remove('hidden');
+  _mentionChips.forEach((chipData) => {
+    const chip = document.createElement('span');
+    chip.className = 'mention-chip';
+    chip.title = chipData.title || chipData.label;
+    const label = document.createElement('span');
+    label.className = 'mention-chip-label';
+    label.textContent = chipData.label;
+    chip.appendChild(label);
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'mention-chip-x';
+    removeBtn.title = 'Remove from this prompt';
+    removeBtn.setAttribute('aria-label', `Remove ${chipData.label}`);
+    removeBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" width="9" height="9"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>';
+    removeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeMentionChip(chipData.id);
+    });
+    chip.appendChild(removeBtn);
+    row.appendChild(chip);
+  });
+}
+
+// Called by submitPrompt: chips become this prompt's overrides and vanish.
+function commitMentionChipsForPrompt() {
+  _promptMentions.forceWeb = _mentionChips.some(c => c.kind === 'web');
+  _promptMentions.forceScreen = _mentionChips.some(c => c.kind === 'screen');
+  _promptMentions.forceKnowledge = _mentionChips.some(c => c.kind === 'knowledge');
+  _promptMentions.files.length = 0;
+  _mentionChips.filter(c => c.kind === 'file').slice(0, 4).forEach(c => {
+    _promptMentions.files.push({ path: c.path, name: c.label });
+  });
+  _mentionChips.length = 0;
+  renderMentionChips();
+// Nothing from the previous turn may bleed into this one.
+  clearPromptTurnState();
+}
+
+function clearPromptTurnState() {
+  _lastRagCitations = [];
+  _pendingLiveCitations = null;
+  _citationBannerRendered = false;
+}
+
+function makeToolChip(kind) {
+  if (kind === 'web') return { id: 'web', kind: 'web', label: 'Web search', title: 'Live web search is forced on for this prompt' };
+  if (kind === 'screen') return { id: 'screen', kind: 'screen', label: 'Screen aware', title: 'Desktop capture is forced on for this prompt' };
+  return { id: 'knowledge', kind: 'knowledge', label: 'Project knowledge', title: 'Answers grounded in your indexed local files' };
+}
+
+function addFileMentionChip(file) {
+  if (!file || !file.path) return;
+  addMentionChip({
+    id: `file:${file.path}`,
+    kind: 'file',
+    label: file.fileName || folderNameOf(file.path),
+    title: file.path,
+    path: file.path
+  });
+}
+
+// ---- Plugins popover ----
+function isMentionPopoverOpen() {
+  const popover = document.getElementById('mention-popover');
+  return !!popover && !popover.classList.contains('hidden');
+}
+
+// The four input-area popovers overlap each other, so only one may be open at a time.
+function closeInputPopovers(except) {
+  if (except !== 'mention') closeMentionPopover();
+  if (except !== 'plus') closePlusMenu();
+  if (except !== 'perm') {
+    const dd = document.getElementById('perm-mode-dropdown');
+    const wr = document.getElementById('perm-selector-wrapper');
+    if (dd) dd.classList.add('hidden');
+    if (wr) wr.classList.remove('open');
+  }
+  if (except !== 'model') {
+    const dd = document.getElementById('model-dropdown');
+    const fly = document.getElementById('model-details-flyout');
+    const wr = document.getElementById('model-selector-wrapper');
+    if (dd) dd.classList.add('hidden');
+    if (fly) fly.classList.add('hidden');
+    if (wr) wr.classList.remove('open');
+  }
+}
+
+function openMentionPopover() {
+  const popover = document.getElementById('mention-popover');
+  const wrapper = document.getElementById('mentions-wrapper');
+  const btn = document.getElementById('btn-input-mentions');
+  if (!popover || !wrapper || !btn) return;
+  closeInputPopovers('mention');
+  hideAtMentionDropdown();
+  popover.classList.remove('hidden');
+  wrapper.classList.add('open');
+  btn.setAttribute('aria-expanded', 'true');
+  syncMentionToggleStates();
+  const search = document.getElementById('mention-search-input');
+  if (search) search.value = '';
+  refreshMentionFileList('');
+  if (search) setTimeout(() => search.focus(), 30);
+}
+
+function closeMentionPopover() {
+  const popover = document.getElementById('mention-popover');
+  const wrapper = document.getElementById('mentions-wrapper');
+  const btn = document.getElementById('btn-input-mentions');
+  if (!popover || popover.classList.contains('hidden')) return;
+  popover.classList.add('hidden');
+  if (wrapper) wrapper.classList.remove('open');
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+async function refreshMentionFileList(filter) {
+  const listEl = document.getElementById('mention-file-list');
+  if (!listEl) return;
+  if (!window.ultronAPI || typeof window.ultronAPI.ragListFiles !== 'function') {
+    listEl.innerHTML = '<div class="mention-empty">Restart Brown to enable file mentions.</div>';
+    return;
+  }
+  listEl.innerHTML = '<div class="mention-empty">Searching your indexed files…</div>';
+  let res = null;
+  try { res = await window.ultronAPI.ragListFiles(filter || ''); } catch (e) { res = null; }
+  const files = (res && res.success && Array.isArray(res.files)) ? res.files : [];
+  listEl.innerHTML = '';
+  if (!files.length) {
+    const empty = document.createElement('div');
+    empty.className = 'mention-empty';
+    empty.textContent = _activeProject
+      ? (filter ? `No indexed file matches “${filter}”.` : 'No files indexed for this project yet.')
+      : 'No project indexed yet — choose a folder to make its files mentionable.';
+    listEl.appendChild(empty);
+    return;
+  }
+  files.slice(0, 24).forEach((file) => {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'mention-file-row';
+    row.title = file.path;
+    const dir = dirLabelForFile(file.path);
+    row.innerHTML = `<span class="mention-toggle-icon">${DOCK_ICONS.file}</span>`
+      + `<span class="mention-file-name">${escapeHtml(file.fileName || folderNameOf(file.path))}</span>`
+      + `<span class="mention-file-path">${escapeHtml(dir || `${file.chunkCount || 0} chunks`)}</span>`;
+    row.addEventListener('click', (e) => {
+      e.stopPropagation();
+      addFileMentionChip(file);
+      closeMentionPopover();
+      if (chatInput) chatInput.focus();
+    });
+    listEl.appendChild(row);
+  });
+}
+
+function syncMentionToggleStates() {
+  document.querySelectorAll('.mention-toggle[data-key]').forEach((btn) => {
+    const enabled = readCapabilityEnabled(btn.dataset.key);
+    btn.classList.toggle('active', enabled);
+    btn.setAttribute('aria-checked', enabled ? 'true' : 'false');
+  });
+}
+
+function setCapabilityFromPopover(key, enabled) {
+  writeCapabilityEnabled(key, enabled);
+  if (key === 'ultron-screen-aware-enabled') {
+    writeCapabilityEnabled('ultron-screen-capture-enabled', enabled);
+    if (typeof settingScreenCaptureToggle !== 'undefined' && settingScreenCaptureToggle) {
+      settingScreenCaptureToggle.checked = enabled;
+    }
+  }
+  if (key === 'ultron-rag-auto') {
+    const autoToggle = document.getElementById('rag-auto-toggle');
+    if (autoToggle) autoToggle.checked = enabled;
+  }
+  syncMentionToggleStates();
+}
+
+// ---- Inline @ autocomplete ----
+const _atMenu = { rows: [], index: -1, tokenStart: -1, tokenEnd: -1, visible: false, timer: null };
+
+function hideAtMentionDropdown() {
+  const dd = document.getElementById('at-mention-dropdown');
+  if (dd) dd.classList.add('hidden');
+  _atMenu.rows = [];
+  _atMenu.index = -1;
+  _atMenu.tokenStart = -1;
+  _atMenu.visible = false;
+}
+
+function detectAtToken() {
+  if (!chatInput) return null;
+  const caret = typeof chatInput.selectionStart === 'number' ? chatInput.selectionStart : chatInput.value.length;
+  const before = chatInput.value.slice(0, caret);
+  const match = /(?:^|[\s(])@([\p{L}\p{N}._\-/\\]{0,48})$/u.exec(before);
+  if (!match) return null;
+  const token = match[1] || '';
+  return { token, start: caret - token.length - 1, end: caret };
+}
+
+function buildAtMentionRows(token) {
+  const q = String(token || '').toLowerCase();
+  const rows = [];
+  const tools = [
+    {
+      kind: 'knowledge',
+      match: 'knowledge project files folder docs rag',
+      title: 'Project knowledge',
+      desc: _activeProject ? `Ground this answer in ${_activeProject.name}` : 'Ground this answer in your indexed local files',
+      icon: DOCK_ICONS.book
+    },
+    {
+      kind: 'web',
+      match: 'web search internet live current',
+      title: 'Web search',
+      desc: 'Force a live web lookup for this prompt',
+      icon: DOCK_ICONS.globe
+    },
+    {
+      kind: 'screen',
+      match: 'screen vision desktop capture window',
+      title: 'Screen vision',
+      desc: 'Capture the active window for this prompt',
+      icon: DOCK_ICONS.monitor
+    }
+  ];
+  tools.forEach((tool) => {
+    if (!q || tool.title.toLowerCase().includes(q) || tool.match.includes(q) || tool.kind.startsWith(q)) {
+      rows.push({ type: 'tool', tool });
+    }
+  });
+  return rows;
+}
+
+function renderAtMentionDropdown(rows) {
+  const dd = document.getElementById('at-mention-dropdown');
+  if (!dd) return;
+  _atMenu.rows = Array.isArray(rows) ? rows : [];
+  dd.innerHTML = '';
+  rows.forEach((row, i) => {
+    const node = document.createElement('button');
+    node.type = 'button';
+    node.className = `at-mention-row${i === _atMenu.index ? ' active' : ''}`;
+    node.setAttribute('role', 'option');
+    node.setAttribute('aria-selected', i === _atMenu.index ? 'true' : 'false');
+    if (row.type === 'tool') {
+      node.innerHTML = `<span class="at-mention-row-icon">${row.tool.icon}</span>`
+        + `<span class="at-mention-row-text"><span class="at-mention-row-title">${escapeHtml(row.tool.title)}</span>`
+        + `<span class="at-mention-row-desc">${escapeHtml(row.tool.desc)}</span></span>`;
+    } else {
+      const dir = dirLabelForFile(row.file.path);
+      node.innerHTML = `<span class="at-mention-row-icon">${DOCK_ICONS.file}</span>`
+        + `<span class="at-mention-row-text"><span class="at-mention-row-title">${escapeHtml(row.file.fileName || folderNameOf(row.file.path))}</span>`
+        + `<span class="at-mention-row-desc">${escapeHtml(dir || row.file.path)}</span></span>`;
+    }
+    node.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      acceptAtMentionRow(i);
+    });
+    dd.appendChild(node);
+  });
+  dd.classList.toggle('hidden', rows.length === 0);
+  _atMenu.visible = rows.length > 0;
+}
+
+async function syncAtMentionDropdown() {
+  const detected = detectAtToken();
+  if (!detected) {
+    if (_atMenu.visible) hideAtMentionDropdown();
+    return;
+  }
+  const rows = buildAtMentionRows(detected.token);
+  _atMenu.tokenStart = detected.start;
+  _atMenu.tokenEnd = detected.end;
+  _atMenu.index = rows.length ? 0 : -1;
+  renderAtMentionDropdown(rows);
+  if (!detected.token) return;
+  if (!window.ultronAPI || typeof window.ultronAPI.ragListFiles !== 'function') return;
+  // Files load async; only re-render if the same token is still being typed.
+  const requestToken = detected.token;
+  let res = null;
+  try { res = await window.ultronAPI.ragListFiles(requestToken); } catch (e) { return; }
+  const current = detectAtToken();
+  if (!current || current.token !== requestToken || current.start !== _atMenu.tokenStart) return;
+  const files = ((res && res.files) || []).slice(0, 8).map(file => ({ type: 'file', file }));
+  const merged = buildAtMentionRows(requestToken).concat(files);
+  _atMenu.index = merged.length ? Math.max(0, _atMenu.index) : -1;
+  renderAtMentionDropdown(merged);
+}
+
+function acceptAtMentionRow(index) {
+  const row = _atMenu.rows && _atMenu.rows[index];
+  if (!row) { hideAtMentionDropdown(); return; }
+  if (row.type === 'tool') addMentionChip(makeToolChip(row.tool.kind));
+  else addFileMentionChip(row.file);
+  if (chatInput && _atMenu.tokenStart >= 0) {
+    const caret = typeof chatInput.selectionStart === 'number' ? chatInput.selectionStart : chatInput.value.length;
+    let head = chatInput.value.slice(0, _atMenu.tokenStart);
+    let tail = chatInput.value.slice(caret);
+    if (tail.startsWith(' ') && (head === '' || head.endsWith(' ') || head.endsWith('\n'))) tail = tail.slice(1);
+    chatInput.value = head + tail;
+    try { chatInput.setSelectionRange(head.length, head.length); } catch (e) {}
+    if (typeof adjustInputHeight === 'function') adjustInputHeight();
+  }
+  hideAtMentionDropdown();
+  chatInput.focus();
+}
+
+// ---- RAG citation banner on AI answers ----
+function closeRagCitationPopover() {
+  const existing = document.querySelector('.rag-citation-popover');
+  if (existing) existing.remove();
+}
+
+function openRagCitationPopover(anchorEl, group) {
+  closeRagCitationPopover();
+  if (!anchorEl || !anchorEl.isConnected) return;
+  const pop = document.createElement('div');
+  pop.className = 'rag-citation-popover';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', `Excerpts from ${group.fileName}`);
+
+  const bestScore = group.chunks.reduce((max, c) => Math.max(max, Number(c.score) || 0), 0);
+  const head = document.createElement('div');
+  head.className = 'rag-citation-popover-head';
+  head.innerHTML = `<span class="rag-citation-popover-file">${escapeHtml(group.fileName)}</span>`
+    + `<span class="rag-citation-popover-score">${Math.round(Math.min(bestScore, 1) * 100)}% match</span>`;
+  pop.appendChild(head);
+
+  const pathLine = document.createElement('div');
+  pathLine.className = 'rag-citation-popover-path';
+  pathLine.textContent = group.filePath;
+  pop.appendChild(pathLine);
+
+  const seen = new Set();
+  const excerpts = group.chunks
+    .map(c => String(c.snippet || c.text || '').trim())
+    .filter((t) => {
+      if (!t || seen.has(t.slice(0, 80))) return false;
+      seen.add(t.slice(0, 80));
+      return true;
+    })
+    .slice(0, 3)
+    .join('\n\n······\n\n');
+  const pre = document.createElement('pre');
+  pre.textContent = excerpts || 'Brown indexed this file but no exact matching lines were kept.';
+  pop.appendChild(pre);
+
+  if (window.ultronAPI && typeof window.ultronAPI.showItemInFolder === 'function') {
+    const revealRow = document.createElement('div');
+    revealRow.style.cssText = 'display:flex;justify-content:flex-end;margin-top:8px;';
+    const revealBtn = document.createElement('button');
+    revealBtn.type = 'button';
+    revealBtn.className = 'docked-bar-btn';
+    revealBtn.textContent = 'Show in folder';
+    revealBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.ultronAPI.showItemInFolder(group.filePath).catch(() => {});
+    });
+    revealRow.appendChild(revealBtn);
+    pop.appendChild(revealRow);
+  }
+
+  document.body.appendChild(pop);
+  const rect = anchorEl.getBoundingClientRect();
+  const popRect = pop.getBoundingClientRect();
+  let left = Math.max(12, Math.min(rect.left, window.innerWidth - popRect.width - 12));
+  let top = rect.top - popRect.height - 8;
+  if (top < 12) top = Math.min(rect.bottom + 8, window.innerHeight - popRect.height - 12);
+  pop.style.position = 'fixed';
+  pop.style.left = `${left}px`;
+  pop.style.top = `${top}px`;
+}
+
+// One banner per file group; chunks of the same file collapse into one chip.
+function attachRagCitationBanner(contentEl, citations) {
+  if (!contentEl || !Array.isArray(citations) || citations.length === 0) return;
+  if (contentEl.querySelector('.rag-citation-banner')) return;
+  const groups = new Map();
+  citations.forEach((entry) => {
+    if (!entry || !entry.filePath) return;
+    const existing = groups.get(entry.filePath);
+    if (existing) existing.chunks.push(entry);
+    else groups.set(entry.filePath, {
+      filePath: entry.filePath,
+      fileName: entry.fileName || folderNameOf(entry.filePath),
+      chunks: [entry]
+    });
+  });
+  if (!groups.size) return;
+
+  const banner = document.createElement('div');
+  banner.className = 'rag-citation-banner';
+  banner.innerHTML = `<span class="rag-citation-icon">${DOCK_ICONS.book}</span>`
+    + `<span class="rag-citation-label">${groups.size > 1 ? 'Referenced local files:' : 'Referenced local file:'}</span>`;
+  [...groups.values()].slice(0, 6).forEach((group) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'rag-citation-chip';
+    chip.textContent = group.fileName;
+    chip.title = `Show the matching lines from ${group.fileName}`;
+    chip.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const already = document.querySelector('.rag-citation-popover');
+      const sameAnchor = already && already.dataset.sourceFile === group.filePath;
+      closeRagCitationPopover();
+      if (sameAnchor) return;
+      openRagCitationPopover(chip, group);
+      const pop = document.querySelector('.rag-citation-popover');
+      if (pop) pop.dataset.sourceFile = group.filePath;
+    });
+    banner.appendChild(chip);
+  });
+  contentEl.insertBefore(banner, contentEl.firstChild);
+}
+
+// One banner per AI answer per turn; explicit citations (session reload) always
+// render because they belong to the message being repainted.
+function applyRagCitations(contentEl, citations, isExplicit = false) {
+  if (!contentEl || !Array.isArray(citations) || citations.length === 0) return;
+  if (!isExplicit) {
+    if (_citationBannerRendered) return;
+    _citationBannerRendered = true;
+  }
+  attachRagCitationBanner(contentEl, citations);
+}
+
+// ---- Wiring ----
+(function initDockedContextBar() {
+  const btnChoose = document.getElementById('btn-choose-project');
+  const btnClear = document.getElementById('choose-project-clear');
+  const btnMentions = document.getElementById('btn-input-mentions');
+  const searchInput = document.getElementById('mention-search-input');
+
+  if (btnChoose) {
+    btnChoose.addEventListener('click', (e) => {
+      if (e.target.closest('.project-clear')) return;
+      closeMentionPopover();
+      chooseProjectFolder();
+    });
+  }
+  if (btnClear) {
+    const disconnect = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      disconnectActiveProject(false);
+    };
+    btnClear.addEventListener('click', disconnect);
+    btnClear.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') disconnect(e);
+    });
+  }
+
+  if (btnMentions) {
+    btnMentions.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isMentionPopoverOpen()) closeMentionPopover();
+      else openMentionPopover();
+    });
+  }
+  const popover = document.getElementById('mention-popover');
+  if (popover) {
+    popover.addEventListener('click', (e) => e.stopPropagation());
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        if (_atMenu.timer) clearTimeout(_atMenu.timer);
+        _atMenu.timer = setTimeout(() => refreshMentionFileList(searchInput.value), 180);
+      });
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { closeMentionPopover(); if (chatInput) chatInput.focus(); }
+      });
+    }
+    popover.querySelectorAll('.mention-toggle[data-key]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const key = btn.dataset.key;
+        const next = !readCapabilityEnabled(key);
+        setCapabilityFromPopover(key, next);
+        logTrace(`Agent option "${(btn.querySelector('.mention-toggle-title') || {}).textContent || key}" ${next ? 'enabled' : 'disabled'}.`, 'system');
+      });
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    const wrapper = document.getElementById('mentions-wrapper');
+    if (wrapper && !wrapper.contains(e.target)) closeMentionPopover();
+    if (!e.target.closest('.rag-citation-chip')) closeRagCitationPopover();
+    if (chatInput && !chatInput.contains(e.target)) hideAtMentionDropdown();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeMentionPopover();
+      closeRagCitationPopover();
+      hideAtMentionDropdown();
+    }
+  });
+
+  if (chatInput) {
+    chatInput.addEventListener('input', () => { syncAtMentionDropdown(); });
+    chatInput.addEventListener('keyup', (e) => {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) syncAtMentionDropdown();
+    });
+    chatInput.addEventListener('click', () => { syncAtMentionDropdown(); });
+    chatInput.addEventListener('blur', () => { setTimeout(hideAtMentionDropdown, 120); });
+    // Registered before the submit handler below, so the autocomplete owns
+    // Enter/Arrows while it is visible.
+    chatInput.addEventListener('keydown', (e) => {
+      if (!_atMenu.visible || _atMenu.rows.length === 0) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        const delta = e.key === 'ArrowDown' ? 1 : -1;
+        _atMenu.index = (_atMenu.index + delta + _atMenu.rows.length) % _atMenu.rows.length;
+        renderAtMentionDropdown(_atMenu.rows);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        acceptAtMentionRow(_atMenu.index >= 0 ? _atMenu.index : 0);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        hideAtMentionDropdown();
+      }
+    });
+  }
+
+  if (window.ultronAPI && typeof window.ultronAPI.onRagIndexProgress === 'function') {
+    try {
+      window.ultronAPI.onRagIndexProgress((progress) => {
+        if (!progress || !_projectIndexing) return;
+        const count = document.getElementById('choose-project-count');
+        if (count) {
+          count.textContent = `${progress.filesIndexed || 0} files…`;
+          count.classList.remove('hidden');
+        }
+      });
+    } catch (e) { /* older preload build without the progress bridge */ }
+  }
+
+  updateProjectBarUi();
+  syncMentionToggleStates();
+  restoreActiveProjectFromStorage();
+})();
 
 function getLearnedMemorySnippet(query = '') {
   let snippet = '';
@@ -5637,9 +6558,25 @@ function renderChecklist(tasks, persist = true) {
 function appendChatMessage(sender, text, isAi = false, options = {}) {
   const content = options.skipRender ? null : renderChatMessage(sender, text, isAi, options);
 
+  let turnCitations = null;
+  if (isAi && !isThinkingMarkup(text)) {
+    turnCitations = options.ragCitations || _pendingLiveCitations || null;
+    if (turnCitations && content) applyRagCitations(content, turnCitations, Boolean(options.ragCitations));
+  }
+
   // Save message to current session inside conversationsStore
   if (!options.skipSave && currentSessionId && conversationsStore[currentSessionId]) {
-    conversationsStore[currentSessionId].messages.push({ sender, text, isAi, createdAt: nowIso() });
+    const record = { sender, text, isAi, createdAt: nowIso() };
+    if (turnCitations && turnCitations.length) {
+      record.ragCitations = turnCitations.map(c => ({
+        filePath: c.filePath,
+        fileName: c.fileName,
+        snippet: String(c.snippet || c.text || '').slice(0, 900),
+        score: c.score,
+        pinned: Boolean(c.pinned)
+      }));
+    }
+    conversationsStore[currentSessionId].messages.push(record);
     touchSession();
     rebuildSessionHistoryList();
     saveConversationsToDisk();
@@ -5735,34 +6672,6 @@ const UltronSessionIndex = {
     }
   },
 
-  addFile(sessionId, fileInfo) {
-    if (!fileInfo || !fileInfo.name) return;
-    const data = this.getData(sessionId);
-    const existingIdx = data.files.findIndex(f => f.name === fileInfo.name);
-    const snippet = (fileInfo.snippet || '').slice(0, 1000);
-    const record = {
-      name: fileInfo.name,
-      size: fileInfo.size || 0,
-      type: fileInfo.type || 'text/plain',
-      isImage: !!fileInfo.isImage,
-      snippet,
-      tokens: Math.ceil(snippet.length / 4),
-      addedAt: Date.now()
-    };
-    if (existingIdx >= 0) {
-      data.files[existingIdx] = record;
-    } else {
-      data.files.push(record);
-    }
-    data.lastUpdated = Date.now();
-    this.saveData(sessionId, data);
-    updateContextMeter();
-  },
-
-  getFiles(sessionId) {
-    return this.getData(sessionId).files || [];
-  },
-
   setQuantizedMemory(sessionId, memoryText) {
     const data = this.getData(sessionId);
     data.quantizedMemory = memoryText;
@@ -5776,52 +6685,21 @@ const UltronSessionIndex = {
 
   renderSessionIndexUI(sessionId) {
     const section = document.getElementById('session-indexed-section');
-    if (!section) return;
-    const data = this.getData(sessionId);
-    const list = document.getElementById('session-indexed-list');
-    const countBadge = document.getElementById('session-indexed-count');
     const memCard = document.getElementById('session-memory-card');
+    if (!section || !memCard) return;
 
-    const totalFiles = (data.files || []).length;
-    if (totalFiles === 0 && !data.quantizedMemory) {
+    const memory = this.getData(sessionId).quantizedMemory || '';
+    if (!memory) {
       section.classList.add('hidden');
+      memCard.classList.add('hidden');
+      memCard.innerHTML = '';
       return;
     }
 
+    const safeMem = memory.replace(/</g, '&lt;').replace(/>/g, '&gt;');
     section.classList.remove('hidden');
-    if (countBadge) {
-      countBadge.textContent = `${totalFiles} file${totalFiles === 1 ? '' : 's'}`;
-    }
-
-    if (list) {
-      if (totalFiles === 0) {
-        list.innerHTML = `<div style="font-size: 11px; color: #64748b; padding: 4px 0;">No attached files indexed</div>`;
-      } else {
-        list.innerHTML = data.files.map(f => {
-          const safeName = (f.name || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          const icon = f.isImage ? '🖼️' : '📄';
-          return `
-            <div class="session-indexed-item" title="${safeName} (${f.size} bytes)">
-              <div class="session-indexed-item-left">
-                <span>${icon}</span>
-                <span>${safeName}</span>
-              </div>
-              <span class="session-indexed-badge">${f.tokens ? f.tokens + 't' : ''}</span>
-            </div>
-          `;
-        }).join('');
-      }
-    }
-
-    if (memCard) {
-      if (data.quantizedMemory) {
-        const safeMem = data.quantizedMemory.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        memCard.classList.remove('hidden');
-        memCard.innerHTML = `<div style="font-weight: 600; color: #cbd5e1; margin-bottom: 4px; font-size: 11px; display:flex; align-items:center; gap:5px;"><span>🧠</span><span>Quantized Context Memory</span></div><div>${safeMem.slice(0, 240)}${safeMem.length > 240 ? '...' : ''}</div>`;
-      } else {
-        memCard.classList.add('hidden');
-      }
-    }
+    memCard.classList.remove('hidden');
+    memCard.innerHTML = `<div style="font-weight: 600; color: #cbd5e1; margin-bottom: 4px; font-size: 11px; display:flex; align-items:center; gap:5px;"><span>🧠</span><span>Quantized Context Memory</span></div><div>${safeMem.slice(0, 240)}${safeMem.length > 240 ? '...' : ''}</div>`;
   },
 
   async compactContextIfNeeded(sessionId, messages, modelLimit) {
@@ -8640,6 +9518,7 @@ function needsScreenCaptureForTask(prompt) {
 }
 
 function isWebSearchEnabled() {
+  if (_promptMentions.forceWeb) return true;
   return window.localStorage.getItem('ultron-web-search-enabled') !== 'false';
 }
 
@@ -10537,17 +11416,7 @@ if (btnPermSelector && permModeDropdown) {
       permModeDropdown.classList.add('hidden');
       if (permSelectorWrapper) permSelectorWrapper.classList.remove('open');
     } else {
-      // Close model dropdown if open
-      if (modelDropdown) modelDropdown.classList.add('hidden');
-      const mdf = document.getElementById('model-details-flyout');
-      if (mdf) mdf.classList.add('hidden');
-      if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
-      // Close plus menu if open
-      const plusDropdown = document.getElementById('plus-menu-dropdown');
-      if (plusDropdown) plusDropdown.classList.add('hidden');
-      const plusWrapper = document.getElementById('plus-menu-wrapper');
-      if (plusWrapper) plusWrapper.classList.remove('open');
-
+      closeInputPopovers('perm');
       permModeDropdown.classList.remove('hidden');
       if (permSelectorWrapper) permSelectorWrapper.classList.add('open');
     }
@@ -10616,16 +11485,7 @@ if (modelSelectorBtn) {
       if (modelDetailsFlyout) modelDetailsFlyout.classList.add('hidden');
       if (modelSelectorWrapper) modelSelectorWrapper.classList.remove('open');
     } else {
-      // Close plus menu if open
-      const plusDropdown = document.getElementById('plus-menu-dropdown');
-      if (plusDropdown) plusDropdown.classList.add('hidden');
-      const plusWrapper = document.getElementById('plus-menu-wrapper');
-      if (plusWrapper) plusWrapper.classList.remove('open');
-      // Close perm dropdown if open
-      const permDropdown = document.getElementById('perm-mode-dropdown');
-      if (permDropdown) permDropdown.classList.add('hidden');
-      const permWrapper = document.getElementById('perm-selector-wrapper');
-      if (permWrapper) permWrapper.classList.remove('open');
+      closeInputPopovers('model');
 
       if (modelDropdownSearchInput) {
         modelDropdownSearchInput.value = '';
@@ -10905,23 +11765,45 @@ function generateInstantSmartTitle(userPrompt) {
   return generateSmartSessionTitle(userPrompt);
 }
 
-// Instant smart title generation (0ms overhead, zero Ollama queue locks)
+// Instant smart title generation (0ms overhead, zero Ollama queue locks), plus the
+// In-focus card description. The AI pass then replaces this heuristic meta once the
+// answer request is already in flight, so the card never waits for the answer.
 function triggerAiTitleGeneration(userPrompt, targetSessionIdOverride = null) {
   try {
     const targetSessionId = targetSessionIdOverride || currentSessionId;
     if (!targetSessionId || !conversationsStore[targetSessionId]) return;
-    if (conversationsStore[targetSessionId].titleLocked || conversationsStore[targetSessionId].aiMeta) return;
+    const session = conversationsStore[targetSessionId];
+    if (session.titleLocked || (session.aiMeta && !session.aiMeta.heuristic)) return;
 
-    const msgs = conversationsStore[targetSessionId].messages || [];
+    const msgs = session.messages || [];
     const finalTitle = generateSmartSessionTitle(userPrompt, msgs);
     if (!finalTitle || isGenericOrFragmentTitle(finalTitle)) return;
 
     updateSessionTitle(targetSessionId, finalTitle);
     rebuildSessionHistoryList();
     logTrace(`Session title set to: "${finalTitle}"`, 'system');
+
+    const plain = extractPlainTextFromMessage(userPrompt || '').replace(/\s+/g, ' ').trim();
+    if (plain && !session.aiMeta) {
+      const description = plain.length > 190 ? `${plain.slice(0, 190).replace(/\s+\S*$/, '')}…` : plain;
+      session.aiMeta = { title: finalTitle, description, ts: Date.now(), turns: 1, heuristic: true };
+      if (targetSessionId === currentSessionId) renderSessionPanel();
+    }
+    scheduleAiSessionMeta(targetSessionId);
   } catch (e) {
     // Non-fatal
   }
+}
+
+// Fire the AI title/description pass while the answer is still being written:
+// the delay lets the main request claim the model first, so the answer never waits.
+function scheduleAiSessionMeta(sessionId, { delay = 2500 } = {}) {
+  setTimeout(() => {
+    const id = sessionId;
+    if (!conversationsStore[id]) return;
+    if (_aiSessionMetaInFlight.has(id)) return;
+    generateAiSessionMeta(id).catch(() => {});
+  }, delay);
 }
 
 // Check for meaningless or gibberish prompts to avoid model hallucinations
@@ -11212,6 +12094,7 @@ async function submitPrompt(overridePrompt) {
   }
 
   setSendingState(true);
+  commitMentionChipsForPrompt();
 
   let currentImagePayloads = [];
   const userAttachedVisuals = [];
@@ -11570,7 +12453,7 @@ async function submitPrompt(overridePrompt) {
           const now = Date.now();
           if (now - lastStreamPaint < 32) return;
           lastStreamPaint = now;
-          const closed = closeIncompleteMarkdown(renderMathFormulasStream(outputText));
+          const closed = renderMathFormulasStream(closeIncompleteMarkdown(outputText));
           let parsed = '';
           try {
             parsed = window.ultronAPI.parseMarkdown(closed);
@@ -14119,6 +15002,7 @@ async function loadSession(id, title) {
   if (typeof closeSettingsPanel === 'function') {
     closeSettingsPanel();
   }
+  clearPromptTurnState();
   const chatMain = document.querySelector('.chat-main');
 
   setSendingState(false);
@@ -14160,7 +15044,7 @@ async function loadSession(id, title) {
     if (savedSession && !savedSession.titleLocked && (savedSession.messages || []).length >= 2) {
       const meta = savedSession.aiMeta;
       const openUserTurns = savedSession.messages.filter(m => !m.isAi).length;
-      if (!meta || (meta.turns || 0) + 3 < openUserTurns) {
+      if (!meta || meta.heuristic || !meta.answered || (meta.turns || 0) + 3 < openUserTurns) {
         generateAiSessionMeta(id, { force: true }).catch(() => {});
       }
     }
@@ -14173,7 +15057,7 @@ async function loadSession(id, title) {
         const contentEl = renderChatMessage(msg.sender || (isAi ? 'Ultron' : 'User'), msg.text || '', isAi);
         if (isAi && contentEl) {
           try {
-            finalizeAiMessageBubble(contentEl, msg.text || '', { autoSpeak: false });
+            finalizeAiMessageBubble(contentEl, msg.text || '', { autoSpeak: false, ragCitations: msg.ragCitations });
           } catch (finErr) {
             console.warn('finalizeAiMessageBubble non-fatal error:', finErr);
           }
@@ -14657,23 +15541,21 @@ function renderSettingsModels() {
   
   // 2. Render downloaded / unlocked models
   if (allEffectiveInstalled.length === 0) {
-    settingsModelsList.innerHTML = `
-      <div style="border: 1px dashed var(--border-color); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 16px; text-align: center; margin-bottom: 8px;">
-        <p style="font-size: 13px; color: var(--accent-white); font-weight: 500; margin: 0 0 6px 0;">No model weights installed yet</p>
-        <p style="font-size: 11px; color: var(--text-muted); margin: 0 0 14px 0;">Connect your <strong>Ollama Cloud</strong> account above, or download an entry-level offline model (all under 10 GB).</p>
-        <div style="display: flex; flex-direction: column; gap: 8px; align-items: stretch;">
-          <button id="btn-quick-download-llava" class="btn-primary-sm" style="background-color: #ffffff !important; color: #000000 !important; font-weight: 600; padding: 8px 16px; font-size: 12px; border-radius: 999px; cursor: pointer; border: none;">
-            LLaVA 7B — Vision + Chat (4.5 GB) · Recommended
-          </button>
-          <button id="btn-quick-download-gemma" class="btn-primary-sm" style="background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; font-weight: 600; padding: 8px 16px; font-size: 12px; border-radius: 999px; cursor: pointer; border: 1px solid rgba(255,255,255,0.14);">
-            Gemma 2 2B — Low VRAM (1.6 GB)
-          </button>
-          <button id="btn-quick-download-tinyllama" class="btn-primary-sm" style="background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; font-weight: 600; padding: 8px 16px; font-size: 12px; border-radius: 999px; cursor: pointer; border: 1px solid rgba(255,255,255,0.14);">
-            TinyLlama 1.1B — Fastest (637 MB)
-          </button>
-        </div>
-      </div>
-    `;
+    settingsModelsList.innerHTML = emptyStateHtml(
+      'No model weights installed yet',
+      'Connect your Ollama Cloud account above, or download an entry-level offline model (all under 10 GB).',
+      `<div class="ui-empty-actions ui-empty-actions-stack">
+        <button id="btn-quick-download-llava" class="btn-primary-sm" style="background-color: #ffffff !important; color: #000000 !important; font-weight: 600; padding: 8px 16px; font-size: 12px; border-radius: 999px; cursor: pointer; border: none;">
+          LLaVA 7B — Vision + Chat (4.5 GB) · Recommended
+        </button>
+        <button id="btn-quick-download-gemma" class="btn-primary-sm" style="background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; font-weight: 600; padding: 8px 16px; font-size: 12px; border-radius: 999px; cursor: pointer; border: 1px solid rgba(255,255,255,0.14);">
+          Gemma 2 2B — Low VRAM (1.6 GB)
+        </button>
+        <button id="btn-quick-download-tinyllama" class="btn-primary-sm" style="background-color: rgba(255,255,255,0.08) !important; color: #ffffff !important; font-weight: 600; padding: 8px 16px; font-size: 12px; border-radius: 999px; cursor: pointer; border: 1px solid rgba(255,255,255,0.14);">
+          TinyLlama 1.1B — Fastest (637 MB)
+        </button>
+      </div>`
+    );
     
     setTimeout(() => {
       const wire = (btnId, modelName) => {
@@ -17011,6 +17893,9 @@ const triggerNewChat = () => {
   if (typeof closeSettingsPanel === 'function') {
     closeSettingsPanel();
   }
+  _mentionChips.length = 0;
+  renderMentionChips();
+  clearPromptTurnState();
   chatMessagesContainer.innerHTML = '';
   currentSessionId = null;
   setSendingState(false);
@@ -17109,6 +17994,171 @@ function updateWelcomeGreeting() {
 
   welcomeTitle.textContent = `${salutation}, ${firstName}`;
 }
+
+/* Quick-action carousel: an endless row of portrait cards. Two clones sit on each end so
+   the focused card always has a left and a right neighbour, and once a glide settles the
+   position is re-mapped to the matching real card — the swap is pixel-identical, so the
+   loop has no seam at the first or last card. */
+const welcomeActions = document.getElementById('welcome-actions');
+const welcomeDots = document.getElementById('welcome-dots');
+const welcomeCarousel = { active: 0, real: 0, paused: false, gliding: false, steps: 0 };
+if (welcomeActions && welcomeDots) {
+  const realCards = Array.from(welcomeActions.querySelectorAll('.welcome-card'));
+  const CARD_COUNT = realCards.length;
+  const CLONES = 2;
+  const FIRST_REAL = CLONES;
+  const LAST_REAL = FIRST_REAL + CARD_COUNT - 1;
+  const AUTO_STEP_MS = 4200;
+
+  const addClone = (card, atHead) => {
+    const clone = card.cloneNode(true);
+    clone.classList.add('is-clone');
+    clone.tabIndex = -1;
+    clone.setAttribute('aria-hidden', 'true');
+    if (atHead) welcomeActions.prepend(clone);
+    else welcomeActions.append(clone);
+  };
+  /* Head clones go in descending order: prepending reverses, so this lands […,S,B] in
+     front of [W,F,S,B] and every adjacent pair in the row stays in card order. */
+  for (let i = CARD_COUNT - 1; i >= CARD_COUNT - CLONES; i--) addClone(realCards[i], true);
+  for (let i = 0; i < CLONES; i++) addClone(realCards[i], false);
+
+  const slides = Array.from(welcomeActions.querySelectorAll('.welcome-card'));
+  const dots = [];
+
+  /* Custom eased glide: Chromium's native smooth scrolling fights mandatory scroll-snap
+     and visibly stutters, so the animation sets scrollLeft per frame with snapping
+     paused, then restores it exactly on a snap point. */
+  let glideRaf = 0;
+  const GLIDE_MS = 620;
+  const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+  const glideTo = (target) => {
+    cancelAnimationFrame(glideRaf);
+    const start = welcomeActions.scrollLeft;
+    const delta = target - start;
+    if (Math.abs(delta) < 1) return;
+    welcomeActions.style.scrollSnapType = 'none';
+    welcomeCarousel.gliding = true;
+    const t0 = performance.now();
+    const step = (now) => {
+      const p = Math.min((now - t0) / GLIDE_MS, 1);
+      welcomeActions.scrollLeft = start + delta * easeInOutCubic(p);
+      if (p < 1) {
+        glideRaf = requestAnimationFrame(step);
+        return;
+      }
+      welcomeCarousel.gliding = false;
+      welcomeActions.style.scrollSnapType = '';
+    };
+    glideRaf = requestAnimationFrame(step);
+  };
+  /* A drag or wheel is the user taking over — stop animating immediately. */
+  const cancelGlide = () => {
+    if (!welcomeCarousel.gliding) return;
+    cancelAnimationFrame(glideRaf);
+    welcomeCarousel.gliding = false;
+    welcomeActions.style.scrollSnapType = '';
+  };
+  welcomeActions.addEventListener('pointerdown', cancelGlide);
+  welcomeActions.addEventListener('wheel', cancelGlide, { passive: true });
+
+  welcomeCarousel.goTo = (i, animate = true) => {
+    const slide = slides[Math.min(Math.max(i, 0), slides.length - 1)];
+    if (!slide) return;
+    const track = welcomeActions.getBoundingClientRect();
+    const rect = slide.getBoundingClientRect();
+    const target = Math.max(welcomeActions.scrollLeft + rect.left - track.left
+      - (track.width - rect.width) / 2, 0);
+    if (animate) glideTo(target);
+    else {
+      cancelGlide();
+      welcomeActions.scrollTo({ left: target, behavior: 'auto' });
+    }
+    syncCarousel();
+  };
+
+  const seedPrompt = (slide) => {
+    if (!chatInput) return;
+    chatInput.value = slide.dataset.draft || '';
+    chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+    chatInput.focus();
+    const end = chatInput.value.length;
+    try { chatInput.setSelectionRange(end, end); } catch (err) {}
+  };
+
+  slides.forEach((slide, i) => {
+    slide.addEventListener('click', () => {
+      /* A side card — or a clone — just pulls focus; only the centred card writes. */
+      if (i !== welcomeCarousel.active) welcomeCarousel.goTo(i);
+      else seedPrompt(slide);
+    });
+  });
+
+  realCards.forEach((card, i) => {
+    const dot = document.createElement('button');
+    dot.type = 'button';
+    dot.className = 'welcome-dot';
+    dot.setAttribute('aria-label', `Show ${card.querySelector('.welcome-card-title')?.textContent || 'quick action'}`);
+    dot.addEventListener('click', () => welcomeCarousel.goTo(FIRST_REAL + i));
+    welcomeDots.appendChild(dot);
+    dots.push(dot);
+  });
+
+  function syncCarousel() {
+    const track = welcomeActions.getBoundingClientRect();
+    const centre = track.left + track.width / 2;
+    let active = 0;
+    let bestDist = Infinity;
+    slides.forEach((slide, i) => {
+      const rect = slide.getBoundingClientRect();
+      const dist = Math.abs(rect.left + rect.width / 2 - centre);
+      if (dist < bestDist) {
+        bestDist = dist;
+        active = i;
+      }
+    });
+    welcomeCarousel.active = active;
+    welcomeCarousel.real = ((active - FIRST_REAL) % CARD_COUNT + CARD_COUNT) % CARD_COUNT;
+    slides.forEach((slide, i) => slide.classList.toggle('is-focus', i === active));
+    dots.forEach((dot, i) => dot.classList.toggle('is-active', i === welcomeCarousel.real));
+  }
+
+  /* Re-map clone positions onto their real twin once scrolling stops, far enough from the
+     next glide that the jump is invisible. */
+  let settleTimer = 0;
+  const settleLoop = () => {
+    const i = welcomeCarousel.active;
+    if (i < FIRST_REAL) welcomeCarousel.goTo(i + CARD_COUNT, false);
+    else if (i > LAST_REAL) welcomeCarousel.goTo(i - CARD_COUNT, false);
+  };
+
+  welcomeActions.addEventListener('scroll', () => {
+    syncCarousel();
+    clearTimeout(settleTimer);
+    settleTimer = setTimeout(settleLoop, 240);
+  });
+  window.addEventListener('resize', syncCarousel);
+
+  const carouselWrap = welcomeActions.closest('.welcome-carousel');
+  if (carouselWrap) {
+    carouselWrap.addEventListener('pointerenter', () => { welcomeCarousel.paused = true; });
+    carouselWrap.addEventListener('pointerleave', () => { welcomeCarousel.paused = false; });
+  }
+
+  setInterval(() => {
+    /* Idle motion only: stop while hovered, once a prompt is being written, when the
+       welcome screen is gone, when the window isn't on screen, or while a glide is
+       still travelling (a stacked advance would cut it short and look jerky). */
+    if (welcomeCarousel.paused || welcomeCarousel.gliding || document.hidden) return;
+    if (!document.querySelector('.chat-main.empty-state')) return;
+    if (chatInput && chatInput.value.trim()) return;
+    welcomeCarousel.steps += 1;
+    welcomeCarousel.goTo(welcomeCarousel.active + 1);
+  }, AUTO_STEP_MS);
+
+  welcomeCarousel.goTo(FIRST_REAL, false);
+}
+
 
 async function loadAccountDetails(options = {}) {
   if (window.ultronAPI && window.ultronAPI.loadUserProfile) {
@@ -18297,19 +19347,7 @@ function togglePlusMenu() {
   if (!plusMenuWrapper || !plusMenuDropdown || !btnPlusMenu) return;
   const willOpen = plusMenuDropdown.classList.contains('hidden');
   if (willOpen) {
-    // Close model dropdown if open
-    const md = document.getElementById('model-dropdown');
-    if (md) md.classList.add('hidden');
-    const mdf = document.getElementById('model-details-flyout');
-    if (mdf) mdf.classList.add('hidden');
-    const msw = document.getElementById('model-selector-wrapper');
-    if (msw) msw.classList.remove('open');
-    // Close perm dropdown if open
-    const pmd = document.getElementById('perm-mode-dropdown');
-    if (pmd) pmd.classList.add('hidden');
-    const psw = document.getElementById('perm-selector-wrapper');
-    if (psw) psw.classList.remove('open');
-
+    closeInputPopovers('plus');
     syncModelAttachmentCapabilities();
     plusMenuDropdown.classList.remove('hidden');
     plusMenuWrapper.classList.add('open');
@@ -18382,22 +19420,9 @@ async function processAndAttachFiles(files) {
       textContent,
       dataUrl
     });
-
-    if (typeof UltronSessionIndex !== 'undefined') {
-      UltronSessionIndex.addFile(currentSessionId, {
-        name: file.name,
-        size: file.size,
-        type: file.type || 'text/plain',
-        isImage,
-        snippet: textContent ? textContent.slice(0, 1000) : ''
-      });
-    }
   }
 
   renderAttachmentPreviews(hasImageOnTextModel);
-  if (typeof updateContextMeter === 'function') {
-    updateContextMeter();
-  }
 }
 
 if (btnPlusMenu) {
@@ -18418,56 +19443,6 @@ if (plusMenuAttach && hiddenFileInput) {
   });
 }
 
-document.querySelectorAll('.plus-menu-item.mode-option').forEach(btn => {
-  btn.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const mode = btn.dataset.mode;
-    if (!mode) return;
-    await applySecurityMode(mode, 'plus-menu');
-    closePlusMenu();
-  });
-});
-
-function syncPlusMenuToggles() {
-  const toggles = [
-    { id: 'plus-toggle-agent-tools', key: 'ultron-agent-tools-enabled' },
-    { id: 'plus-toggle-screen-aware', key: 'ultron-screen-aware-enabled' },
-    { id: 'plus-toggle-web-search', key: 'ultron-web-search-enabled' }
-  ];
-  toggles.forEach(({ id, key }) => {
-    const btn = document.getElementById(id);
-    if (!btn) return;
-    const enabled = window.localStorage.getItem(key) !== 'false';
-    btn.classList.toggle('active', enabled);
-    btn.setAttribute('aria-checked', enabled ? 'true' : 'false');
-  });
-}
-
-document.querySelectorAll('.plus-menu-item.toggle-option').forEach(btn => {
-  btn.addEventListener('click', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const keyMap = {
-      'plus-toggle-agent-tools': 'ultron-agent-tools-enabled',
-      'plus-toggle-screen-aware': 'ultron-screen-aware-enabled',
-      'plus-toggle-web-search': 'ultron-web-search-enabled'
-    };
-    const key = keyMap[btn.id];
-    if (!key) return;
-    const next = window.localStorage.getItem(key) === 'false';
-    window.localStorage.setItem(key, next ? 'true' : 'false');
-    if (btn.id === 'plus-toggle-screen-aware' && settingScreenCaptureToggle) {
-      settingScreenCaptureToggle.checked = next;
-      window.localStorage.setItem('ultron-screen-capture-enabled', next ? 'true' : 'false');
-    }
-    syncPlusMenuToggles();
-    logTrace(`Agent option "${btn.querySelector('.plus-menu-item-title')?.textContent || btn.id}" ${next ? 'enabled' : 'disabled'}.`, 'system');
-  });
-});
-
-syncPlusMenuToggles();
-
 if (chatMessagesContainer) {
   chatMessagesContainer.addEventListener('click', async (e) => {
     const fixBtn = e.target.closest('.error-fix-btn');
@@ -18479,7 +19454,7 @@ if (chatMessagesContainer) {
         window.localStorage.setItem('ultron-screen-capture-enabled', 'true');
         window.localStorage.setItem('ultron-screen-aware-enabled', 'true');
         if (settingScreenCaptureToggle) settingScreenCaptureToggle.checked = true;
-        syncPlusMenuToggles();
+        syncMentionToggleStates();
       } else if (action === 'switch-vision-model') {
         await ensureVisionModelForScreen();
         updateModelSelectorLabel();
@@ -18563,27 +19538,64 @@ if (hiddenFileInput) {
     }
     hiddenFileInput.value = '';
   });
-
-  // Drag and Drop File Support on Chat Input Pill
-  const inputWrapper = document.querySelector('.input-wrapper');
-  if (inputWrapper) {
-    inputWrapper.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      inputWrapper.style.borderColor = 'rgba(129, 140, 248, 0.6)';
-    });
-    inputWrapper.addEventListener('dragleave', (e) => {
-      e.preventDefault();
-      inputWrapper.style.borderColor = '';
-    });
-    inputWrapper.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      inputWrapper.style.borderColor = '';
-      if (e.dataTransfer && e.dataTransfer.files.length > 0) {
-        await processAndAttachFiles(e.dataTransfer.files);
-      }
-    });
-  }
 }
+
+// ==========================================
+// DRAG-AND-DROP — the whole window accepts files
+// ==========================================
+const fileDropOverlay = document.getElementById('file-drop-overlay');
+const inputWrapperEl = document.querySelector('.input-wrapper');
+
+// dragenter/dragleave fire for every element the cursor crosses, so a depth
+// counter is the only way to tell "left the window" from "moved over a child".
+let fileDragDepth = 0;
+
+const isFileDragEvent = (e) => {
+  const types = e.dataTransfer && e.dataTransfer.types;
+  return Array.from(types || []).includes('Files');
+};
+
+const setDropUi = (on) => {
+  if (fileDropOverlay) fileDropOverlay.classList.toggle('hidden', !on);
+  if (inputWrapperEl) inputWrapperEl.classList.toggle('is-dropping', on);
+};
+
+document.addEventListener('dragenter', (e) => {
+  if (!isFileDragEvent(e)) return;
+  e.preventDefault();
+  fileDragDepth += 1;
+  setDropUi(true);
+});
+
+document.addEventListener('dragover', (e) => {
+  if (!isFileDragEvent(e)) return;
+  // Without preventDefault the browser never delivers 'drop' to the document.
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
+
+document.addEventListener('dragleave', (e) => {
+  if (!isFileDragEvent(e)) return;
+  // relatedTarget is null when the drag left the window itself, not a child.
+  fileDragDepth = e.relatedTarget ? Math.max(0, fileDragDepth - 1) : 0;
+  if (fileDragDepth === 0) setDropUi(false);
+});
+
+document.addEventListener('drop', async (e) => {
+  if (!isFileDragEvent(e)) return;
+  e.preventDefault();
+  fileDragDepth = 0;
+  setDropUi(false);
+  const files = e.dataTransfer && e.dataTransfer.files;
+  if (files && files.length > 0) {
+    await processAndAttachFiles(files);
+    if (_pendingIntakePrompt) {
+      const resume = _pendingIntakePrompt;
+      _pendingIntakePrompt = '';
+      submitPrompt(resume);
+    }
+  }
+});
 
 function renderAttachmentPreviews(hasImageWarning = false) {
   if (!attachmentPreviewBar) return;
@@ -19761,7 +20773,7 @@ function applyPerformanceProfile(profile = getPerformanceProfile()) {
   document.body.dataset.performanceProfile = profile;
   if (settingPerformanceProfileNote) {
     settingPerformanceProfileNote.textContent = profile === 'battery'
-      ? 'Reduced animation, polling, and background startup work'
+      ? 'Light on animations, polling and background startup'
       : profile === 'performance'
         ? 'Fast refreshes and full visual effects'
         : 'Balanced daily use';
@@ -19769,56 +20781,35 @@ function applyPerformanceProfile(profile = getPerformanceProfile()) {
   syncPerformanceProfileUI(profile);
 }
 
-let perfProfileOptions = [];
-let perfProfileLabel = null;
+let perfProfileSegments = [];
 
 function syncPerformanceProfileUI(profile = getPerformanceProfile()) {
-  if (!perfProfileLabel || perfProfileOptions.length === 0) return;
-  const active = perfProfileOptions.find(o => o.dataset.value === profile) || perfProfileOptions[1];
-  perfProfileLabel.textContent = active.textContent;
-  perfProfileOptions.forEach(o => {
-    o.classList.toggle('selected', o === active);
-    o.setAttribute('aria-selected', String(o === active));
+  perfProfileSegments.forEach(seg => {
+    const active = seg.dataset.value === profile;
+    seg.classList.toggle('active', active);
+    seg.setAttribute('aria-pressed', String(active));
+  });
+  document.querySelectorAll('#tab-performance .set-row-static').forEach(row => {
+    row.classList.toggle('is-active', row.dataset.profile === profile);
   });
 }
 
-function setupPerformanceProfileDropdown() {
-  const wrap = document.getElementById('perf-profile-select');
-  const btn = document.getElementById('perf-profile-btn');
-  const menu = document.getElementById('perf-profile-menu');
-  perfProfileLabel = document.getElementById('perf-profile-label');
-  if (!wrap || !btn || !menu || !perfProfileLabel) return;
-
-  perfProfileOptions = Array.from(menu.querySelectorAll('.custom-select-option'));
-
-  const close = () => {
-    menu.classList.add('hidden');
-    btn.setAttribute('aria-expanded', 'false');
-  };
-
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const open = menu.classList.toggle('hidden') === false;
-    btn.setAttribute('aria-expanded', String(open));
-  });
-
-  perfProfileOptions.forEach(opt => {
-    opt.addEventListener('click', (e) => {
-      e.stopPropagation();
-      localStorage.setItem('ultron-performance-profile', opt.dataset.value);
-      applyPerformanceProfile(opt.dataset.value);
-      close();
+function setupPerformanceProfileToggle() {
+  const group = document.getElementById('perf-profile-seg');
+  if (!group) return;
+  perfProfileSegments = Array.from(group.querySelectorAll('.set-seg-btn'));
+  perfProfileSegments.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const value = btn.dataset.value;
+      if (!['battery', 'balanced', 'performance'].includes(value)) return;
+      localStorage.setItem('ultron-performance-profile', value);
+      applyPerformanceProfile(value);
     });
   });
-
-  document.addEventListener('click', (e) => {
-    if (!wrap.contains(e.target)) close();
-  });
-
   syncPerformanceProfileUI();
 }
 
-setupPerformanceProfileDropdown();
+setupPerformanceProfileToggle();
 
 function getSelectedVoiceInputDeviceId() {
   return localStorage.getItem('ultron-voice-input-device') || '';
@@ -21439,7 +22430,7 @@ async function bootSystem() {
     try { setSendingState(false); } catch (e) { console.warn('Sending state err:', e); }
     try { initTraceEmptyState(); } catch (e) { console.warn('Trace empty state err:', e); }
     try { renderChecklist([]); } catch (e) { console.warn('Checklist err:', e); }
-    try { syncPlusMenuToggles(); } catch (e) { console.warn('Menu toggles err:', e); }
+    try { syncMentionToggleStates(); } catch (e) { console.warn('Mention toggles err:', e); }
     try { initAutomationSettingsUI(); } catch (e) { console.warn('Automation settings err:', e); }
     try { startLiveMetricsPolling(); } catch (e) { console.warn('Live metrics err:', e); }
 
@@ -21520,7 +22511,7 @@ if (btnToggleLeftSidebar && leftSidebar) {
   });
 }
 
-// Right session rail collapse (toggle pill sits left of the update checker; open by default)
+// Right session rail collapse (toggle pill sits left of the update checker)
 const btnToggleSessionRail = document.getElementById('btn-toggle-session-rail');
 function applySessionRailCollapsed(collapsed) {
   document.body.classList.toggle('session-rail-collapsed', collapsed);
@@ -21530,11 +22521,11 @@ function applySessionRailCollapsed(collapsed) {
   btnToggleSessionRail.title = collapsed ? 'Show session panel' : 'Hide session panel';
 }
 if (btnToggleSessionRail) {
-  applySessionRailCollapsed(localStorage.getItem('ultron-session-rail-collapsed') === 'true');
+  /* Always start expanded — no stored preference is read, so a rail collapsed in an
+     earlier session can't come back hidden. The toggle still works within this one. */
+  applySessionRailCollapsed(false);
   btnToggleSessionRail.addEventListener('click', () => {
-    const collapsed = !document.body.classList.contains('session-rail-collapsed');
-    try { localStorage.setItem('ultron-session-rail-collapsed', collapsed ? 'true' : 'false'); } catch (e) {}
-    applySessionRailCollapsed(collapsed);
+    applySessionRailCollapsed(!document.body.classList.contains('session-rail-collapsed'));
   });
 }
 
@@ -22101,7 +23092,7 @@ if (settingScreenCaptureToggle) {
   settingScreenCaptureToggle.addEventListener('change', () => {
     window.localStorage.setItem('ultron-screen-capture-enabled', settingScreenCaptureToggle.checked ? 'true' : 'false');
     window.localStorage.setItem('ultron-screen-aware-enabled', settingScreenCaptureToggle.checked ? 'true' : 'false');
-    syncPlusMenuToggles();
+    syncMentionToggleStates();
     logTrace(`Live screen capture ${settingScreenCaptureToggle.checked ? 'enabled' : 'disabled'}.`, 'system');
   });
 }
@@ -22204,12 +23195,18 @@ initSoundSettingsUI();
 // ==========================================
 let activeNeuralAudio = null;
 
+function ttsAutoSpeakPrefEnabled() {
+  try {
+    return window.localStorage.getItem('ultron-tts-auto-speak') === 'true';
+  } catch (e) {
+    return false;
+  }
+}
+
 function isTtsAutoSpeakEnabled() {
-  // In voice chat mode, always auto-speak responses
+  // Voice chat always speaks; text mode follows the Auto-speak switch.
   if (isVoiceChatModeEnabled()) return true;
-  // In normal text mode, never auto-speak — user must click Speak button.
-  // Background pre-synthesis is handled separately by the pre-cache system.
-  return false;
+  return ttsAutoSpeakPrefEnabled();
 }
 
 // --- TTS Pre-cache for text mode ---
@@ -22408,6 +23405,7 @@ function setSpeakButtonState(btn, state) {
   btn.classList.remove('speaking', 'is-loading');
   btn.disabled = false;
   btn.style.pointerEvents = '';
+  btn.style.backgroundColor = '';
 
   if (state === 'loading') {
     btn.classList.add('is-loading');
@@ -22847,19 +23845,6 @@ function createSpeakMessageButton(getText) {
     if (!started) {
       setSpeakButtonState(btnSpeak, 'idle');
       logTrace('Nothing to read aloud in this message.', 'system');
-    }
-  });
-
-  btnSpeak.addEventListener('mouseenter', () => {
-    if (!btnSpeak.classList.contains('speaking') && !btnSpeak.classList.contains('is-loading')) {
-      btnSpeak.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
-      btnSpeak.style.color = 'var(--accent-white)';
-    }
-  });
-  btnSpeak.addEventListener('mouseleave', () => {
-    if (!btnSpeak.classList.contains('speaking') && !btnSpeak.classList.contains('is-loading')) {
-      btnSpeak.style.backgroundColor = 'transparent';
-      btnSpeak.style.color = 'var(--text-muted)';
     }
   });
 
@@ -23465,7 +24450,7 @@ function updateTtsRateLabel() {
 
 function initTtsSettingsUI() {
   if (settingTtsAutoSpeak) {
-    settingTtsAutoSpeak.checked = isTtsAutoSpeakEnabled();
+    settingTtsAutoSpeak.checked = ttsAutoSpeakPrefEnabled();
     settingTtsAutoSpeak.addEventListener('change', () => {
       window.localStorage.setItem('ultron-tts-auto-speak', settingTtsAutoSpeak.checked ? 'true' : 'false');
       if (!settingTtsAutoSpeak.checked) stopTtsSpeech();
@@ -23646,6 +24631,71 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && settingsPanelOpen) {
     closeSettingsPanel();
   }
+});
+
+// ==========================================
+// STORAGE USAGE — real bytes per folder
+// ==========================================
+function formatBytesForUI(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const value = bytes / Math.pow(1024, i);
+  return `${value >= 100 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
+}
+
+let storageUsageInFlight = false;
+
+async function refreshStorageUsage() {
+  if (storageUsageInFlight) return;
+  if (!window.ultronAPI?.getStorageUsage) return;
+  storageUsageInFlight = true;
+
+  const summary = document.getElementById('storage-usage-summary');
+  const cells = {
+    data: { val: 'storage-usage-data', path: 'storage-usage-data-path' },
+    connectors: { val: 'storage-usage-connectors', path: 'storage-usage-connectors-path' },
+    models: { val: 'storage-usage-models', path: 'storage-usage-models-path' }
+  };
+  if (summary) summary.textContent = 'Measuring…';
+
+  try {
+    const usage = await window.ultronAPI.getStorageUsage();
+    if (!usage?.success) {
+      if (summary) summary.textContent = 'Could not read these folders — try Refresh.';
+      return;
+    }
+    for (const [key, refs] of Object.entries(cells)) {
+      const entry = usage[key] || {};
+      const valEl = document.getElementById(refs.val);
+      const pathEl = document.getElementById(refs.path);
+      if (valEl) {
+        if (!entry.exists) {
+          valEl.textContent = 'Not created yet';
+        } else if (!entry.files) {
+          valEl.textContent = 'Empty';
+        } else {
+          valEl.textContent = `${formatBytesForUI(entry.bytes)} · ${entry.files.toLocaleString()} files${entry.truncated ? ' +' : ''}`;
+        }
+      }
+      if (pathEl) {
+        pathEl.textContent = entry.path || '—';
+        pathEl.title = entry.path || '';
+      }
+    }
+    const parts = [`Using ${formatBytesForUI(usage.totalBytes || 0)}`];
+    if (Number.isFinite(usage.freeDiskGB)) parts.push(`${usage.freeDiskGB} GB free on this drive`);
+    if (summary) summary.textContent = `${parts.join(' · ')} — measured just now.`;
+  } finally {
+    storageUsageInFlight = false;
+  }
+}
+
+document.querySelector('.settings-tab-btn[data-tab="storage"]')?.addEventListener('click', () => {
+  refreshStorageUsage();
+});
+document.getElementById('btn-refresh-storage-usage')?.addEventListener('click', () => {
+  refreshStorageUsage();
 });
 
 // Bind storage location browser selection dialog
@@ -24165,6 +25215,17 @@ function setupAutoUpdaterUI() {
   const subtitle = document.getElementById('update-status-subtitle');
   const progressLabel = document.getElementById('update-progress-label');
 
+  // Settings → Updates pane (One UI layout)
+  const osuKicker = document.getElementById('update-kicker');
+  const osuNotesList = document.getElementById('update-notes-list');
+  const osuNotesEmpty = document.getElementById('update-notes-empty');
+  const osuInfoCurrent = document.getElementById('update-info-current');
+  const osuInfoLatest = document.getElementById('update-info-latest');
+  const osuInfoReleased = document.getElementById('update-info-released');
+  const osuProgressWrap = document.getElementById('update-progress-wrap');
+  const osuProgressFill = document.getElementById('update-progress-fill');
+  const osuProgressPct = document.getElementById('update-progress-pct');
+
   // Topbar: single stateful update button + details dropdown
   const topWrap = document.getElementById('top-update-wrap');
   const topBtn = document.getElementById('top-btn-update');
@@ -24194,6 +25255,7 @@ function setupAutoUpdaterUI() {
   const RING_DD_C = 2 * Math.PI * 31;
   let updateState = 'none'; // checking | none | available | downloading | downloaded
   let updateInfo = null;
+  let installedVersion = '';
   let updateProgress = { percent: 0, bytesPerSecond: 0, transferred: 0, total: 0 };
   let dropdownOpen = false;
 
@@ -24314,6 +25376,7 @@ function setupAutoUpdaterUI() {
         ? fmtEta((updateProgress.total - updateProgress.transferred) / updateProgress.bytesPerSecond)
         : '--';
     }
+    setPaneProgress(pct);
   }
 
   function setDropdownOpen(open) {
@@ -24323,72 +25386,156 @@ function setupAutoUpdaterUI() {
     if (open) renderDropdown();
   }
 
+  /** GitHub release bodies are markdown with a trailing changelog link — flatten to bullet lines. Unwrap '**' before dropping leading '*'. */
+  function releaseNoteLines(raw) {
+    if (!raw) return [];
+    return String(raw)
+      .split(/\r?\n/)
+      .map((line) =>
+        line
+          .replace(/\*\*(.+?)\*\*/g, '$1')
+          .replace(/[`_~*]/g, '')
+          .replace(/^\s*[>#]+\s*/, '')
+          .replace(/^\s*[-–—•]\s+/, '')
+          .replace(/\s+(?:in\s+|see\s+|view\s+)?https?:\/\/\S+$/i, '')
+          .trim()
+      )
+      .filter((line) =>
+        line.length > 2 &&
+        !/full changelog/i.test(line) &&
+        !/^https?:\/\//i.test(line) &&
+        !/^(?:brown(?:\s+ai)?\s*)?v?\d+(\.\d+){1,3}$/i.test(line) &&
+        !/^[-–—]+$/.test(line)
+      )
+      .slice(0, 12);
+  }
+
+  function renderUpdateNotes(raw) {
+    const lines = releaseNoteLines(raw);
+    if (osuNotesList) {
+      osuNotesList.innerHTML = lines.map((line) => `<li class="osu-note-item">${escapeHtml(line)}</li>`).join('');
+      osuNotesList.classList.toggle('hidden', lines.length === 0);
+    }
+    if (osuNotesEmpty) osuNotesEmpty.classList.toggle('hidden', lines.length > 0);
+  }
+
+  function setPaneProgress(pct, label) {
+    if (osuProgressWrap) osuProgressWrap.classList.toggle('is-visible', pct !== null);
+    if (osuProgressFill && pct !== null) osuProgressFill.style.width = `${Math.max(2, Math.min(100, pct))}%`;
+    if (osuProgressPct && pct !== null) osuProgressPct.textContent = `${Math.round(pct)}%`;
+    if (progressLabel && label !== undefined) progressLabel.textContent = label;
+  }
+
   function applyUpdateStatus(data) {
     if (!data) return;
 
-    // Settings panel (Updates tab)
+    // Settings panel (Updates tab) — one primary pill at a time: Check, Download or Restart
     if (btnCheck) {
       btnCheck.disabled = false;
       btnCheck.style.opacity = '1';
+      btnCheck.style.display =
+        data.status === 'available' ||
+        data.status === 'downloading' ||
+        data.status === 'downloaded'
+          ? 'none'
+          : '';
     }
 
     if (data.status === 'checking') {
-      if (title) title.textContent = 'Checking GitHub Releases...';
+      if (osuKicker) osuKicker.textContent = 'Checking for updates';
+      if (title) title.textContent = installedVersion ? `Brown v${installedVersion}` : 'Brown';
+      if (subtitle) subtitle.textContent = 'Looking for the newest release on GitHub Releases…';
       if (btnCheck) {
         btnCheck.disabled = true;
         btnCheck.style.opacity = '0.6';
       }
+      setPaneProgress(null);
       updateState = 'checking';
     } else if (data.status === 'available') {
-      updateInfo = { version: data.version, releaseDate: data.releaseDate, releaseNotes: data.releaseNotes };
-      if (title) title.textContent = `New Update Available: v${data.version}!`;
-      if (subtitle) subtitle.textContent = `Release notes: ${data.releaseNotes || 'Bug fixes, speed improvements, and new capabilities.'}`;
+      updateInfo = {
+        version: data.version,
+        currentVersion: data.currentVersion,
+        releaseDate: data.releaseDate,
+        releaseNotes: data.releaseNotes
+      };
+      if (data.currentVersion) {
+        installedVersion = String(data.currentVersion).replace(/^v/i, '');
+        if (osuInfoCurrent) osuInfoCurrent.textContent = `v${installedVersion}`;
+      }
+      if (osuKicker) osuKicker.textContent = 'Update available';
+      if (title) title.textContent = `Brown v${data.version}`;
+      if (subtitle) subtitle.textContent = 'Downloading over a metered connection may use data. Wi-Fi is recommended.';
+      if (osuInfoLatest) osuInfoLatest.textContent = `v${data.version}`;
+      if (osuInfoReleased) {
+        osuInfoReleased.textContent = data.releaseDate
+          ? new Date(data.releaseDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+          : '—';
+      }
+      renderUpdateNotes(data.releaseNotes);
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'inline-flex';
+      setPaneProgress(null);
       updateState = 'available';
       if (typeof showToast === 'function') {
-        showToast(
-          `New Update Available: v${data.version}`,
-          'Open the Update button in the top bar to see details and install.',
-          'info'
-        );
+        showToast({
+          type: 'info',
+          title: `New Update Available: v${data.version}`,
+          message: 'Open the Update button in the top bar, or use Settings → Software Updates to install.'
+        });
       }
     } else if (data.status === 'not-available') {
-      if (title) title.textContent = 'Brown AI is Up to Date ✓';
-      if (subtitle) subtitle.textContent = `You are running the latest version (v${data.version || '1.0'}).`;
+      installedVersion = String(data.version || installedVersion || '').replace(/^v/i, '');
+      if (osuKicker) osuKicker.textContent = 'Your software is up to date';
+      if (title) title.textContent = installedVersion ? `Brown v${installedVersion}` : 'Brown is up to date';
+      if (subtitle) subtitle.textContent = 'You are running the newest release from the stable channel.';
+      if (osuInfoCurrent && installedVersion) osuInfoCurrent.textContent = `v${installedVersion}`;
+      if (osuInfoLatest) osuInfoLatest.textContent = installedVersion ? `v${installedVersion}` : '—';
+      if (osuInfoReleased) osuInfoReleased.textContent = '—';
+      renderUpdateNotes(null);
       if (actionContainer) actionContainer.style.display = 'none';
+      setPaneProgress(null);
       updateInfo = null;
       updateState = 'none';
     } else if (data.status === 'downloading') {
+      if (osuKicker) osuKicker.textContent = 'Downloading update';
+      if (title) title.textContent = `Brown v${data.version || updateInfo?.version || installedVersion || ''}`;
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';
-      if (progressLabel) progressLabel.textContent = `Downloading update... ${data.percent !== undefined ? `${data.percent}%` : ''}`;
+      if (progressLabel) progressLabel.textContent = `Downloading update… ${data.percent !== undefined ? `${data.percent}%` : ''}`;
       updateState = 'downloading';
       renderProgress(data);
     } else if (data.status === 'downloaded') {
-      if (title) title.textContent = `Update v${data.version || '1.0'} Ready to Install!`;
-      if (subtitle) subtitle.textContent = 'Update downloaded successfully. Click restart to apply changes.';
+      if (osuKicker) osuKicker.textContent = 'Ready to install';
+      if (title) title.textContent = `Brown v${data.version || updateInfo?.version || ''}`;
+      if (subtitle) subtitle.textContent = 'Restart to install — the app will close, install, and reopen.';
       if (actionContainer) actionContainer.style.display = 'flex';
       if (btnDownload) btnDownload.style.display = 'none';
       if (btnRestart) btnRestart.style.display = 'inline-flex';
-      if (progressLabel) progressLabel.textContent = 'Download Complete 100%';
+      if (progressLabel) progressLabel.textContent = 'Download complete';
+      setPaneProgress(100);
       updateState = 'downloaded';
       if (typeof showToast === 'function') {
-        showToast(
-          `Update Ready: v${data.version || '1.0.14'}`,
-          'Download finished. Restart now to install, or do it later.',
-          'success'
-        );
+        showToast({
+          type: 'success',
+          title: `Update Ready: v${data.version || installedVersion || ''}`,
+          message: 'Download finished. Restart now to install, or do it later.'
+        });
       }
     } else if (data.status === 'error') {
       const isUpToDate = data.error && (data.error.includes('latest version') || data.error.includes('No newer release'));
       if (isUpToDate) {
-        if (title) title.textContent = 'Brown AI is Up to Date ✓';
-        if (subtitle) subtitle.textContent = 'You are running the latest version (v1.0.14).';
+        if (osuKicker) osuKicker.textContent = 'Your software is up to date';
+        if (title) title.textContent = installedVersion ? `Brown v${installedVersion}` : 'Brown is up to date';
+        if (subtitle) subtitle.textContent = 'You are running the latest version.';
       } else {
-        if (title) title.textContent = 'Update Check Status';
-        if (subtitle) subtitle.textContent = data.error || 'Brown is up to date or network check was completed.';
+        if (osuKicker) osuKicker.textContent = 'Update check failed';
+        if (title) title.textContent = installedVersion ? `Brown v${installedVersion}` : 'Brown';
+        if (subtitle) subtitle.textContent = data.error || 'The update check could not be completed.';
       }
+      setPaneProgress(null);
+      if (actionContainer) actionContainer.style.display = 'none';
+      if (btnDownload) btnDownload.style.display = 'none';
+      if (btnRestart) btnRestart.style.display = 'none';
       updateState = 'none';
     }
 
@@ -25010,11 +26157,10 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
 
         if (listEl) {
           if (!stats.sources || stats.sources.length === 0) {
-            listEl.innerHTML = `
-              <div style="padding: 16px; text-align: center; color: #6b7280; font-size: 13px; background: rgba(255, 255, 255, 0.02); border-radius: 8px; border: 1px dashed var(--border-color);">
-                Nothing indexed yet. With Auto-learn on, projects you open and files Ultron works on appear here automatically — or click "Add Folder" to add any folder.
-              </div>
-            `;
+            listEl.innerHTML = emptyStateHtml(
+              'Nothing indexed yet',
+              'No data here yet. With Auto-learn on, projects you open and files Brown works on appear automatically, or click "Add Folder" to add any folder.'
+            );
           } else {
             listEl.innerHTML = '';
             stats.sources.forEach(src => {

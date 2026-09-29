@@ -181,6 +181,7 @@
     <div class="splash-card">
       <div class="splash-logo-container">
         <img src="../../Assets/Brown-white.png" class="splash-logo-img" alt="Brown Logo" onerror="this.src='../../Assets/Brown-white.png'">
+        <div class="brown-logo-anim splash-logo-lottie" data-brown-logo="splash" aria-hidden="true"></div>
       </div>
       <div class="splash-text-container">
         <span class="splash-brand-title">Brown</span>
@@ -255,16 +256,9 @@
         </div>
       </div>
 
-      <!-- Session Context & Indexed Files (Real-Time RAG & Session Memory) -->
+      <!-- Compacted session memory (Quantized Context). Attached files are listed in the
+           session rail's Sources once the prompt is sent, never here. -->
       <div id="session-indexed-section" class="session-indexed-section hidden">
-        <div class="session-indexed-header">
-          <span style="display: flex; align-items: center; gap: 6px;">
-            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-            <span>Session Context</span>
-          </span>
-          <span id="session-indexed-count" class="session-indexed-count">0 files</span>
-        </div>
-        <div id="session-indexed-list" class="session-indexed-list"></div>
         <div id="session-memory-card" class="session-memory-card hidden"></div>
       </div>
     </div>
@@ -462,9 +456,59 @@
     <div id="chat-pane-column" class="chat-pane-column">
       <!-- WELCOME SCREEN -->
       <div id="welcome-screen" class="welcome-screen">
-      <img src="../../Assets/Brown-white.png" class="welcome-logo" alt="Brown Logo">
+      <div class="welcome-logo-stack">
+        <img src="../../Assets/Brown-white.png" class="welcome-logo" alt="Brown Logo">
+        <div class="brown-logo-anim welcome-logo-lottie" data-brown-logo="welcome" aria-hidden="true"></div>
+      </div>
       <h1 id="welcome-title" class="welcome-title">Good evening, User</h1>
       <p class="welcome-subtitle">How can Brown assist you today?</p>
+
+      <!-- Quick-action cards: portrait cards in a snap carousel, one row tall -->
+      <div class="welcome-carousel">
+        <div id="welcome-actions" class="welcome-actions">
+          <button type="button" class="welcome-card" data-draft="Help me write and improve this text:">
+            <span class="welcome-card-text">
+              <span class="welcome-card-title">Write or edit</span>
+              <span class="welcome-card-desc">Draft, rewrite or polish any text</span>
+            </span>
+            <span class="welcome-card-arrow" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="8 7 17 7 17 16"></polyline></svg>
+            </span>
+          </button>
+
+          <button type="button" class="welcome-card" data-draft="Explain what this code does and fix any problems:">
+            <span class="welcome-card-text">
+              <span class="welcome-card-title">Fix some code</span>
+              <span class="welcome-card-desc">Explain, debug and improve</span>
+            </span>
+            <span class="welcome-card-arrow" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="8 7 17 7 17 16"></polyline></svg>
+            </span>
+          </button>
+
+          <button type="button" class="welcome-card" data-draft="Summarize the key points of this text:">
+            <span class="welcome-card-text">
+              <span class="welcome-card-title">Summarize</span>
+              <span class="welcome-card-desc">Condense long content</span>
+            </span>
+            <span class="welcome-card-arrow" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="8 7 17 7 17 16"></polyline></svg>
+            </span>
+          </button>
+
+          <button type="button" class="welcome-card" data-draft="Help me brainstorm ideas about:">
+            <span class="welcome-card-text">
+              <span class="welcome-card-title">Brainstorm</span>
+              <span class="welcome-card-desc">Generate fresh ideas and angles</span>
+            </span>
+            <span class="welcome-card-arrow" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="8 7 17 7 17 16"></polyline></svg>
+            </span>
+          </button>
+        </div>
+
+        <div id="welcome-dots" class="welcome-dots" role="tablist" aria-label="Quick actions"></div>
+      </div>
     </div>
 
     <!-- Chat Area -->
@@ -568,11 +612,12 @@
 
     <!-- FLOATING INPUT PILL -->
     <div class="input-wrapper">
-      <!-- Attachment Carousel Preview Bar — moved inside pill below -->
+      <!-- Unified input card: docked context bar fused to the top edge of the prompt pill -->
+      <div id="unified-input-container" class="unified-input-container">
 
-      <!-- PROMPT TOP HEADER BAR: Text/Voice mode toggle + Permission mode selector -->
-      <div id="prompt-top-bar" class="prompt-top-bar">
-        <div class="prompt-top-left">
+      <!-- PROMPT TOP HEADER BAR: project + mentions left, permission + screen right -->
+      <div id="prompt-top-bar" class="prompt-top-bar prompt-docked-bar">
+        <div class="prompt-top-left docked-bar-left">
           <!-- Text / Voice Mode Toggle Switcher (Voice Mode Disabled for Beta 1) -->
           <div class="chat-mode-toggle" role="tablist" aria-label="Chat mode" style="display: none !important;">
             <button type="button" id="btn-chat-mode-text" class="chat-mode-btn active" data-mode="text" role="tab" aria-selected="true" title="Text mode">
@@ -590,6 +635,69 @@
             </button>
           </div>
 
+          <!-- CHOOSE PROJECT: pick a folder, index it into the local knowledge base -->
+          <button type="button" id="btn-choose-project" class="docked-bar-btn project-btn" title="Select a project folder and index it locally">
+            <svg class="project-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span id="choose-project-label" class="project-label">Choose project</span>
+            <span id="choose-project-count" class="project-count hidden"></span>
+            <span id="choose-project-badge" class="project-synced-dot hidden" aria-hidden="true"></span>
+            <span id="choose-project-spinner" class="project-spinner hidden" role="progressbar" aria-label="Indexing project"></span>
+            <span id="choose-project-clear" class="project-clear hidden" role="button" tabindex="0" title="Disconnect project" aria-label="Disconnect project">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" width="11" height="11" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </span>
+          </button>
+
+          <!-- @ MENTIONS / PLUGINS: context + tool switches -->
+          <div id="mentions-wrapper" class="mentions-wrapper">
+            <button type="button" id="btn-input-mentions" class="docked-bar-btn" aria-haspopup="true" aria-expanded="false" title="Mention a file, tool or context">
+              <span class="mention-at-icon" aria-hidden="true">@</span>
+              <span>Mention</span>
+              <svg class="mention-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11" aria-hidden="true">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div id="mention-popover" class="mention-popover hidden" role="menu" aria-label="Mentions">
+              <div class="mention-section-label">Add context</div>
+              <div class="mention-search-row">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="13" height="13" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="mention-search-input" class="mention-search-input" placeholder="Search indexed files" autocomplete="off" spellcheck="false" />
+              </div>
+              <div id="mention-file-list" class="mention-file-list" aria-live="polite">
+                <div class="mention-empty">No project indexed yet — choose a folder to make its files mentionable.</div>
+              </div>
+              <div class="mention-divider"></div>
+              <div class="mention-section-label">Tools</div>
+              <button type="button" class="mention-toggle" id="mention-toggle-agent-tools" data-key="ultron-agent-tools-enabled" role="menuitemcheckbox" aria-checked="true">
+                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>
+                <span class="mention-toggle-text"><span class="mention-toggle-title">Agent tools</span><span class="mention-toggle-desc">Run desktop actions &amp; file ops</span></span>
+                <span class="mention-toggle-state"></span>
+              </button>
+              <button type="button" class="mention-toggle" id="mention-toggle-web-search" data-key="ultron-web-search-enabled" role="menuitemcheckbox" aria-checked="true">
+                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></span>
+                <span class="mention-toggle-text"><span class="mention-toggle-title">Web search</span><span class="mention-toggle-desc">Allow live web lookups</span></span>
+                <span class="mention-toggle-state"></span>
+              </button>
+              <button type="button" class="mention-toggle" id="mention-toggle-screen-aware" data-key="ultron-screen-aware-enabled" role="menuitemcheckbox" aria-checked="true">
+                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></span>
+                <span class="mention-toggle-text"><span class="mention-toggle-title">Screen aware</span><span class="mention-toggle-desc">Capture desktop for vision tasks</span></span>
+                <span class="mention-toggle-state"></span>
+              </button>
+              <button type="button" class="mention-toggle" id="mention-toggle-knowledge" data-key="ultron-rag-auto" role="menuitemcheckbox" aria-checked="true">
+                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></span>
+                <span class="mention-toggle-text"><span class="mention-toggle-title">Project knowledge</span><span class="mention-toggle-desc">Answer from your indexed local files</span></span>
+                <span class="mention-toggle-state"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="prompt-top-right docked-bar-right">
           <!-- Permission Mode Selector Pill -->
           <div id="perm-selector-wrapper" class="perm-selector-wrapper">
             <button type="button" id="btn-perm-selector" class="perm-selector-btn" aria-haspopup="true" aria-expanded="false" title="Agent permission mode">
@@ -662,7 +770,10 @@
         </div>
       </div>
 
-      <div id="main-input-pill" class="input-pill input-pill-stacked">
+      <div id="main-input-pill" class="input-pill input-pill-stacked input-pill-docked">
+        <!-- Active @ mention chips (web / screen / pinned files for this prompt) -->
+        <div id="mention-chip-row" class="mention-chip-row hidden"></div>
+
         <!-- Attachment Carousel Preview Bar (inside input pill) -->
         <div id="attachment-preview-bar" class="attachment-preview-bar hidden"></div>
 
@@ -693,45 +804,6 @@
                     <span class="plus-menu-item-desc">Upload text, code, or images</span>
                   </div>
                   <span id="model-capability-badge" class="model-capability-badge badge-text">Text</span>
-                </button>
-                <div class="plus-menu-divider"></div>
-                <button type="button" class="plus-menu-item toggle-option" id="plus-toggle-agent-tools" role="menuitemcheckbox" aria-checked="true">
-                  <span class="plus-menu-option-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
-                    </svg>
-                  </span>
-                  <div class="plus-menu-item-text">
-                    <span class="plus-menu-item-title">Agent tools</span>
-                    <span class="plus-menu-item-desc">Run desktop actions & file ops</span>
-                  </div>
-                </button>
-                <button type="button" class="plus-menu-item toggle-option" id="plus-toggle-screen-aware" role="menuitemcheckbox" aria-checked="true">
-                  <span class="plus-menu-option-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <rect x="2" y="3" width="20" height="14" rx="2"></rect>
-                      <line x1="8" y1="21" x2="16" y2="21"></line>
-                      <line x1="12" y1="17" x2="12" y2="21"></line>
-                      <circle cx="12" cy="10" r="2.5"></circle>
-                    </svg>
-                  </span>
-                  <div class="plus-menu-item-text">
-                    <span class="plus-menu-item-title">Screen aware</span>
-                    <span class="plus-menu-item-desc">Capture desktop for vision tasks</span>
-                  </div>
-                </button>
-                <button type="button" class="plus-menu-item toggle-option" id="plus-toggle-web-search" role="menuitemcheckbox" aria-checked="true">
-                  <span class="plus-menu-option-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <circle cx="12" cy="12" r="10"></circle>
-                      <line x1="2" y1="12" x2="22" y2="12"></line>
-                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-                    </svg>
-                  </span>
-                  <div class="plus-menu-item-text">
-                    <span class="plus-menu-item-title">Web search</span>
-                    <span class="plus-menu-item-desc">Allow live web lookups</span>
-                  </div>
                 </button>
               </div>
             </div>
@@ -837,6 +909,10 @@
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Inline @ mention autocomplete (anchored above the input card) -->
+      <div id="at-mention-dropdown" class="at-mention-dropdown hidden" role="listbox" aria-label="Mention suggestions"></div>
       </div>
     </div>
     </div>
@@ -986,12 +1062,6 @@
       </div>
     </div>
     </div>
-      <div id="right-sidebar-resizer" class="sidebar-resizer" role="separator" tabindex="0" aria-label="Resize session sidebar" aria-orientation="vertical" aria-controls="analytics-sidebar" aria-valuemin="190" aria-valuemax="340" aria-valuenow="340"></div>
-      <aside id="analytics-sidebar" class="analytics-sidebar session-context-rail" aria-label="Session context">
-        <div id="sidebar-session-pane" class="sidebar-session-pane">
-          <div id="session-panel-content" class="session-panel-content"></div>
-        </div>
-      </aside>
     </div>
 
     <!-- Settings (inline, replaces chat view) -->
@@ -1588,183 +1658,195 @@
 
           <!-- Agent Sounds Tab -->
           <div id="tab-sounds" class="tab-pane hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 16px;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <h4 style="margin: 0;">Agent Sounds</h4>
-                <span class="models-sound-badge">Audio feedback</span>
+            <div class="set-head">
+              <div class="set-head-copy">
+                <h4 class="set-title">Agent Sounds</h4>
+                <p class="set-intro">Audio cues for agent events, plus offline speech recognition and neural text-to-speech.</p>
               </div>
-              <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
-                <input type="checkbox" id="setting-sound-enabled" checked style="opacity: 0; width: 0; height: 0;">
-                <span class="switch-slider"></span>
-              </label>
+              <span class="set-badge">Audio feedback</span>
             </div>
 
-            <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.45;">Play audio when tasks complete, permissions are needed, or Brown asks a clarifying question. Use the default sounds in Assets/sounds/ or pick a custom file for each event.</p>
-
-            <div class="models-sound-grid">
-              <div class="models-sound-row">
-                <label class="models-sound-row-label">
-                  <input type="checkbox" id="setting-sound-task-complete" checked style="accent-color: #fff;">
-                  <span>Task complete</span>
-                </label>
-                <div class="models-sound-row-actions">
-                  <button type="button" class="sound-preview-btn" data-sound-kind="task_complete">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                    <span>Preview</span>
-                  </button>
-                  <button type="button" class="sound-file-picker" data-sound-kind="task_complete">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
-                    <span>Choose file</span>
-                  </button>
+            <section class="set-card">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">Notification sounds</h5>
+                  <p class="set-card-desc">Preview each cue or replace it with your own audio file.</p>
                 </div>
-              </div>
-              <div class="models-sound-row">
-                <label class="models-sound-row-label">
-                  <input type="checkbox" id="setting-sound-permission" checked style="accent-color: #fff;">
-                  <span>Permission prompt</span>
+                <label class="switch-container set-switch" title="Master sound switch">
+                  <input type="checkbox" id="setting-sound-enabled" checked>
+                  <span class="switch-slider"></span>
                 </label>
-                <div class="models-sound-row-actions">
-                  <button type="button" class="sound-preview-btn" data-sound-kind="permission">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                    <span>Preview</span>
-                  </button>
-                  <button type="button" class="sound-file-picker" data-sound-kind="permission">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
-                    <span>Choose file</span>
-                  </button>
-                </div>
-              </div>
-              <div class="models-sound-row">
-                <label class="models-sound-row-label">
-                  <input type="checkbox" id="setting-sound-question" checked style="accent-color: #fff;">
-                  <span>Clarifying question</span>
-                </label>
-                <div class="models-sound-row-actions">
-                  <button type="button" class="sound-preview-btn" data-sound-kind="question">
-                    <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                    <span>Preview</span>
-                  </button>
-                  <button type="button" class="sound-file-picker" data-sound-kind="question">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
-                    <span>Choose file</span>
-                  </button>
-                </div>
-              </div>
-            </div>
+              </header>
 
-            <div class="models-sound-volume-row">
-              <span class="text-xs text-muted">Volume</span>
-              <input type="range" id="setting-sound-volume" min="0" max="100" value="55">
-              <span id="setting-sound-volume-label" class="text-xs text-muted">55%</span>
-            </div>
-
-            <div class="models-sound-section voice-model-section">
-              <div class="voice-model-section-header">
-                <div class="voice-model-section-title">
-                  <span class="models-sound-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                      <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-                      <line x1="12" y1="19" x2="12" y2="23"></line>
-                      <line x1="8" y1="23" x2="16" y2="23"></line>
-                    </svg>
-                  </span>
-                  <div>
-                    <h5 class="voice-model-heading">Voice input</h5>
-                    <p class="text-xs text-muted voice-model-desc">Built-in Windows speech recognition for the mic button. No download or API key required.</p>
+              <div class="set-rows">
+                <div class="set-row">
+                  <label class="set-row-check">
+                    <input type="checkbox" id="setting-sound-task-complete" checked>
+                  </label>
+                  <div class="set-row-info">
+                    <span class="set-row-name">Task complete</span>
+                    <span class="set-row-desc">Plays when an agent workflow finishes</span>
                   </div>
+                  <div class="set-row-side">
+                    <button type="button" class="sound-preview-btn set-pill" data-sound-kind="task_complete">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                      <span>Preview</span>
+                    </button>
+                    <button type="button" class="sound-file-picker set-pill" data-sound-kind="task_complete">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                      <span>Choose file</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <label class="set-row-check">
+                    <input type="checkbox" id="setting-sound-permission" checked>
+                  </label>
+                  <div class="set-row-info">
+                    <span class="set-row-name">Permission prompt</span>
+                    <span class="set-row-desc">Plays when Brown needs approval to act</span>
+                  </div>
+                  <div class="set-row-side">
+                    <button type="button" class="sound-preview-btn set-pill" data-sound-kind="permission">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                      <span>Preview</span>
+                    </button>
+                    <button type="button" class="sound-file-picker set-pill" data-sound-kind="permission">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                      <span>Choose file</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <label class="set-row-check">
+                    <input type="checkbox" id="setting-sound-question" checked>
+                  </label>
+                  <div class="set-row-info">
+                    <span class="set-row-name">Clarifying question</span>
+                    <span class="set-row-desc">Plays when Brown waits for your answer</span>
+                  </div>
+                  <div class="set-row-side">
+                    <button type="button" class="sound-preview-btn set-pill" data-sound-kind="question">
+                      <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                      <span>Preview</span>
+                    </button>
+                    <button type="button" class="sound-file-picker set-pill" data-sound-kind="question">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                      <span>Choose file</span>
+                    </button>
+                  </div>
+                </div>
+                <div class="set-slider-row">
+                  <span class="set-slider-label">Volume</span>
+                  <input type="range" class="set-slider" id="setting-sound-volume" min="0" max="100" value="55">
+                  <span class="set-slider-value" id="setting-sound-volume-label">55%</span>
+                </div>
+              </div>
+              <p class="set-card-foot">Defaults ship in <code>Assets/sounds/</code>. A custom file is stored per event and used immediately.</p>
+            </section>
+
+            <section class="set-card">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">Voice input</h5>
+                  <p class="set-card-desc">Windows speech recognition for the mic button — no download or API key.</p>
                 </div>
                 <span id="voice-model-status-badge" class="voice-model-status-badge">Checking…</span>
-              </div>
+              </header>
 
-              <div class="models-sound-row voice-model-row">
-                <div class="voice-model-row-info">
-                  <span class="voice-model-name">Brown Speech (Windows)</span>
-                  <span id="voice-model-size-label" class="text-xs text-muted">Built-in · no download required</span>
-                </div>
-                <div class="models-sound-row-actions" id="voice-input-row-actions">
-                  <button type="button" id="btn-download-voice-model" class="sound-preview-btn hidden">Download</button>
-                  <button type="button" id="btn-cancel-voice-model" class="sound-file-picker hidden">Cancel</button>
-                  <button type="button" id="btn-delete-voice-model" class="sound-file-picker hidden">Remove</button>
-                </div>
-              </div>
-
-              <div id="voice-model-download-progress" class="connector-download-progress hidden">
-                <div class="connector-download-progress-header">
-                  <span id="voice-model-progress-status">Downloading voice model…</span>
-                  <span id="voice-model-progress-stats">0%</span>
-                </div>
-                <div class="connector-download-progress-track">
-                  <div id="voice-model-progress-bar" class="connector-download-progress-fill"></div>
-                </div>
-                <div id="voice-model-progress-detail" class="connector-download-progress-speed">Speed: --</div>
-              </div>
-            </div>
-
-            <div class="models-sound-section voice-model-section">
-              <div class="voice-model-section-header">
-                <div class="voice-model-section-title">
-                  <div>
-                    <h5 class="voice-model-heading">Microphone controls</h5>
-                    <p class="text-xs text-muted voice-model-desc">Windows Speech uses the selected input after recording stops.</p>
+              <div class="set-rows">
+                <div class="set-row">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Brown Speech (Windows)</span>
+                    <span class="set-row-desc" id="voice-model-size-label">Built-in · no download required</span>
+                  </div>
+                  <div class="set-row-side" id="voice-input-row-actions">
+                    <button type="button" id="btn-download-voice-model" class="sound-preview-btn set-pill hidden">Download</button>
+                    <button type="button" id="btn-cancel-voice-model" class="sound-file-picker set-pill hidden">Cancel</button>
+                    <button type="button" id="btn-delete-voice-model" class="sound-file-picker set-pill hidden">Remove</button>
                   </div>
                 </div>
-              </div>
-              <div class="models-sound-grid">
-                <div class="models-sound-row voice-model-row">
-                  <div class="voice-model-row-info">
-                    <span class="voice-model-name">Input device</span>
-                    <span class="text-xs text-muted">Choose the microphone Brown records from</span>
+
+                <div id="voice-model-download-progress" class="connector-download-progress hidden">
+                  <div class="connector-download-progress-header">
+                    <span id="voice-model-progress-status">Downloading voice model…</span>
+                    <span id="voice-model-progress-stats">0%</span>
+                  </div>
+                  <div class="connector-download-progress-track">
+                    <div id="voice-model-progress-bar" class="connector-download-progress-fill"></div>
+                  </div>
+                  <div id="voice-model-progress-detail" class="connector-download-progress-speed">Speed: --</div>
+                </div>
+
+                <div class="set-row">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Input device</span>
+                    <span class="set-row-desc">Microphone Brown records from</span>
                   </div>
                   <select id="setting-voice-input-device" class="tts-select"></select>
                 </div>
-                <div class="models-sound-volume-row" style="margin: 0;">
-                  <span class="text-xs text-muted" style="min-width: 120px; font-weight: 500;">Voice sensitivity</span>
-                  <input type="range" id="setting-voice-sensitivity" min="2.4" max="5" step="0.1" value="3.6">
-                  <span id="setting-voice-sensitivity-label" class="text-xs text-muted" style="min-width: 65px; text-align: right; font-weight: 500;">Balanced</span>
+                <div class="set-slider-row">
+                  <span class="set-slider-label">Voice sensitivity</span>
+                  <input type="range" class="set-slider" id="setting-voice-sensitivity" min="2.4" max="5" step="0.1" value="3.6">
+                  <span class="set-slider-value" id="setting-voice-sensitivity-label">Balanced</span>
                 </div>
-                <div class="models-sound-volume-row" style="margin: 0;">
-                  <span class="text-xs text-muted" style="min-width: 120px; font-weight: 500;">Pause before send</span>
-                  <input type="range" id="setting-voice-pause" min="500" max="2000" step="100" value="700">
-                  <span id="setting-voice-pause-label" class="text-xs text-muted" style="min-width: 65px; text-align: right; font-weight: 500;">0.7s</span>
+                <div class="set-slider-row">
+                  <span class="set-slider-label">Pause before send</span>
+                  <input type="range" class="set-slider" id="setting-voice-pause" min="500" max="2000" step="100" value="700">
+                  <span class="set-slider-value" id="setting-voice-pause-label">0.7s</span>
                 </div>
               </div>
-            </div>
+            </section>
 
-            <div class="models-sound-section tts-settings-section">
-              <div class="voice-model-section-header">
-                <div class="voice-model-section-title">
-                  <span class="models-sound-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                      <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                      <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-                    </svg>
-                  </span>
-                  <div>
-                    <h5 class="voice-model-heading">AI voice output</h5>
-                    <p class="text-xs text-muted voice-model-desc">Natural offline neural voice. Skips code blocks and markdown.</p>
-                  </div>
+            <section class="set-card">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">AI voice output</h5>
+                  <p class="set-card-desc">Reads replies aloud with the neural voice below. Skips code and markdown.</p>
                 </div>
-                <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
-                  <input type="checkbox" id="setting-tts-auto-speak" style="opacity: 0; width: 0; height: 0;">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
+                <div class="set-switch-group">
+                  <span class="set-switch-caption">Auto-speak replies</span>
+                  <label class="switch-container set-switch" title="Auto-speak every reply">
+                    <input type="checkbox" id="setting-tts-auto-speak">
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
+              </header>
 
-              <div class="models-sound-grid">
-                <div class="models-sound-volume-row" style="margin: 0;">
-                  <span class="text-xs text-muted" style="min-width: 90px; font-weight: 500;">Speech rate</span>
-                  <input type="range" id="setting-tts-rate" min="0.7" max="1.4" step="0.05" value="1">
-                  <span id="setting-tts-rate-label" class="text-xs text-muted" style="min-width: 36px; text-align: right; font-weight: 500;">1.0×</span>
+              <div class="set-rows">
+                <div class="set-slider-row">
+                  <span class="set-slider-label">Speech rate</span>
+                  <input type="range" class="set-slider" id="setting-tts-rate" min="0.7" max="1.4" step="0.05" value="1">
+                  <span class="set-slider-value" id="setting-tts-rate-label">1.0×</span>
                 </div>
-                <div class="models-sound-row voice-model-row">
-                  <div class="voice-model-row-info">
-                    <span class="voice-model-name">Preview voice</span>
-                    <span class="text-xs text-muted">"Hello, I'm Brown."</span>
+                <div class="set-row">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Preview voice</span>
+                    <span class="set-row-desc">"Hello, I'm Brown."</span>
                   </div>
-                  <div class="models-sound-row-actions">
-                    <button type="button" id="btn-preview-tts" class="sound-preview-btn">
+                  <div class="set-row-side">
+                    <button type="button" id="btn-preview-tts" class="sound-preview-btn set-pill">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
                         <polygon points="5 3 19 12 5 21 5 3"></polygon>
                       </svg>
@@ -1773,25 +1855,26 @@
                   </div>
                 </div>
               </div>
+              <p class="set-card-foot">Voice chat mode always speaks replies; this switch only controls normal text chats.</p>
+            </section>
 
-              <div class="models-sound-section voice-model-section" style="margin-top: 16px; padding-top: 16px; border-top: none;">
-                <div class="voice-model-section-header">
-                  <div class="voice-model-section-title">
-                    <span class="models-sound-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
-                        <path d="M9 18V5l12-2v13"></path>
-                        <circle cx="6" cy="18" r="3"></circle>
-                        <circle cx="18" cy="16" r="3"></circle>
-                      </svg>
-                    </span>
-                    <div>
-                      <h5 class="voice-model-heading">Offline neural voices</h5>
-                      <p class="text-xs text-muted voice-model-desc">100% offline after download — no internet needed. 5 English voices (3 female, 2 male). Download once, preview, then tap Use.</p>
-                    </div>
-                  </div>
-                  <span id="tts-model-status-badge" class="voice-model-status-badge">Checking…</span>
+            <section class="set-card">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <path d="M9 18V5l12-2v13"></path>
+                    <circle cx="6" cy="18" r="3"></circle>
+                    <circle cx="18" cy="16" r="3"></circle>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">Offline neural voices</h5>
+                  <p class="set-card-desc">5 English voices (3 female, 2 male). Download once, then run fully offline.</p>
                 </div>
+                <span id="tts-model-status-badge" class="voice-model-status-badge">Checking…</span>
+              </header>
 
+              <div class="set-rows">
                 <div id="tts-models-list" class="tts-models-list"></div>
                 <div id="tts-model-download-progress" class="connector-download-progress hidden">
                   <div class="connector-download-progress-header">
@@ -1803,12 +1886,10 @@
                   </div>
                   <div id="tts-model-progress-detail" class="connector-download-progress-speed">Preparing…</div>
                 </div>
-
-                <p id="tts-model-feedback" class="text-xs text-muted connector-feedback" style="margin-top: 8px;"></p>
+                <p id="tts-model-feedback" class="text-xs text-muted connector-feedback"></p>
               </div>
-            </div>
+            </section>
           </div>
-
           <!-- Knowledge Base (Local Vector RAG) Tab -->
           <div id="tab-knowledge" class="tab-pane hidden">
             <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 12px;">
@@ -1874,8 +1955,21 @@
             <div style="margin-bottom: 16px;">
               <h5 style="margin: 0 0 10px 0;">Indexed Folders &amp; Documents</h5>
               <div id="rag-sources-list" style="display: flex; flex-direction: column; gap: 8px;">
-                <div class="settings-dark-card" style="padding: 16px; text-align: center; color: #6b7280; font-size: 13px; background: #131314; border-radius: 12px; border: 1px dashed var(--border-color);">
-                  No folders or documents added yet. With Auto-learn on, projects you open and files Brown works on appear here automatically — or click "Add Folder" to add any folder.
+                <div class="ui-empty">
+                  <div class="ui-empty-media" aria-hidden="true">
+                    <span class="ui-empty-card ui-empty-card-back"></span>
+                    <span class="ui-empty-card ui-empty-card-mid"></span>
+                    <span class="ui-empty-card ui-empty-card-front">
+                      <span class="ui-empty-thumb"></span>
+                      <span class="ui-empty-bars">
+                        <span class="ui-empty-line ui-empty-line-long"></span>
+                        <span class="ui-empty-line ui-empty-line-short"></span>
+                      </span>
+                    </span>
+                    <span class="ui-empty-fade"></span>
+                  </div>
+                  <div class="ui-empty-title">Nothing indexed yet</div>
+                  <div class="ui-empty-desc">No data here yet. With Auto-learn on, projects you open and files Brown works on appear automatically, or click "Add Folder" to add any folder.</div>
                 </div>
               </div>
             </div>
@@ -1995,25 +2089,29 @@
             </div>
           </div>
 
-          <!-- Advanced Options Tab -->
+          <!-- Advanced Options (Performance) Tab -->
           <div id="tab-performance" class="tab-pane hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 8px;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <h4 style="margin: 0;">Advanced Options</h4>
-                <span class="models-sound-badge">Hardware &amp; Runtime</span>
+            <div class="set-head">
+              <div class="set-head-copy">
+                <h4 class="set-title">Advanced Options</h4>
+                <p class="set-intro">Choose how Brown uses your hardware for AI generation, and how much background work it is allowed to do.</p>
               </div>
+              <span class="set-badge">Hardware &amp; runtime</span>
             </div>
-            <p class="text-xs text-muted settings-section-intro" style="margin: 0 0 16px 0; line-height: 1.5;">Configure system resource usage, background automation throttling, and runtime optimization profiles.</p>
 
-            <div class="models-sound-section voice-model-section" style="margin-top: 0; margin-bottom: 14px;">
-              <div class="voice-model-section-header">
-                <div class="voice-model-section-title">
-                  <div>
-                    <h5 class="voice-model-heading">Performance Engine</h5>
-                    <p class="text-xs text-muted voice-model-desc">Hardware acceleration mode for AI generation &amp; rendering.</p>
-                  </div>
+            <section class="set-card">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">Performance engine</h5>
+                  <p class="set-card-desc">Decides whether local models are offloaded to the GPU. Applies to the next generation.</p>
                 </div>
-              </div>
+              </header>
+
               <div class="perf-settings-options">
                 <button type="button" class="perf-option-item active" data-mode="auto">
                   <div class="perf-option-icon icon-auto">
@@ -2026,7 +2124,7 @@
                       <span class="perf-option-title">Auto Adaptive</span>
                       <span class="perf-tag-recommended">Recommended</span>
                     </div>
-                    <span class="perf-option-desc">Auto-detects hardware & balances memory dynamically</span>
+                    <span class="perf-option-desc">Detects your hardware and splits layers between GPU and RAM</span>
                   </div>
                   <span class="perf-option-check">✓</span>
                 </button>
@@ -2039,173 +2137,233 @@
                   <div class="perf-option-text">
                     <div class="perf-option-title-row">
                       <span class="perf-option-title">GPU Priority</span>
-                      <span class="perf-tag-speed">Maximum Speed</span>
+                      <span class="perf-tag-speed">Maximum speed</span>
                     </div>
-                    <span class="perf-option-desc">Force maximum GPU acceleration for AI generation</span>
+                    <span class="perf-option-desc">Offload every layer to the graphics card — fastest, uses most VRAM</span>
                   </div>
                   <span class="perf-option-check">✓</span>
                 </button>
                 <button type="button" class="perf-option-item" data-mode="cpu">
                   <div class="perf-option-icon icon-cpu">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-                      <rect x="4" y="4" width="16" height="16" rx="2"/>
-                      <rect x="9" y="9" width="6" height="6"/>
-                      <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>
+                      <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                      <rect x="9" y="9" width="6" height="6"></rect>
+                      <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"></path>
                     </svg>
                   </div>
                   <div class="perf-option-text">
                     <div class="perf-option-title-row">
                       <span class="perf-option-title">CPU Only</span>
-                      <span class="perf-tag-eco">Safe & Low Power</span>
+                      <span class="perf-tag-eco">Safe &amp; low power</span>
                     </div>
-                    <span class="perf-option-desc">Pure CPU processing to eliminate VRAM locks & save battery</span>
+                    <span class="perf-option-desc">No VRAM used — frees the GPU and saves battery, slower answers</span>
                   </div>
                   <span class="perf-option-check">✓</span>
                 </button>
               </div>
-              <div class="perf-settings-telemetry">
-                <div class="perf-telemetry-row">
-                  <span class="perf-telemetry-label">Active GPU:</span>
-                  <span id="perf-gpu-telemetry" class="perf-telemetry-val">Detecting...</span>
-                </div>
-                <div class="perf-telemetry-row">
-                  <span class="perf-telemetry-label">Memory:</span>
-                  <span id="perf-mem-telemetry" class="perf-telemetry-val">--</span>
-                </div>
-              </div>
-            </div>
 
-            <div class="models-sound-section voice-model-section" style="margin-top: 0; margin-bottom: 14px;">
-              <div class="voice-model-section-header">
-                <div class="voice-model-section-title">
-                  <div>
-                    <h5 class="voice-model-heading">Runtime Profile</h5>
-                    <p class="text-xs text-muted voice-model-desc">Choose how much background work, AI execution threads, and visual activity Brown uses.</p>
-                  </div>
+              <div class="set-telemetry">
+                <div class="set-telemetry-cell">
+                  <span class="set-telemetry-label">Active GPU</span>
+                  <span class="set-telemetry-val" id="perf-gpu-telemetry">Detecting…</span>
+                </div>
+                <div class="set-telemetry-cell">
+                  <span class="set-telemetry-label">System memory</span>
+                  <span class="set-telemetry-val" id="perf-mem-telemetry">Detecting…</span>
+                </div>
+                <div class="set-telemetry-cell">
+                  <span class="set-telemetry-label">CPU load</span>
+                  <span class="set-telemetry-val" id="perf-cpu-telemetry">Detecting…</span>
                 </div>
               </div>
-              <div class="models-sound-row voice-model-row">
-                <div class="voice-model-row-info">
-                  <span class="voice-model-name">Optimization preset</span>
-                  <span id="setting-performance-profile-note" class="text-xs text-muted">Balanced daily use</span>
-                </div>
-                <div id="perf-profile-select" class="custom-select">
-                  <button type="button" id="perf-profile-btn" class="custom-select-btn" aria-haspopup="listbox" aria-expanded="false">
-                    <span id="perf-profile-label">Balanced</span>
-                    <svg class="custom-select-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
-                      <polyline points="6 9 12 15 18 9"></polyline>
-                    </svg>
-                  </button>
-                  <div id="perf-profile-menu" class="custom-select-menu hidden" role="listbox">
-                    <button type="button" class="custom-select-option" data-value="battery" role="option">Battery Saver</button>
-                    <button type="button" class="custom-select-option" data-value="balanced" role="option">Balanced</button>
-                    <button type="button" class="custom-select-option" data-value="performance" role="option">High Performance</button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            </section>
 
-            <div class="models-sound-section voice-model-section" style="margin-bottom: 14px;">
-              <div class="voice-model-section-header">
-                <div class="voice-model-section-title">
-                  <div>
-                    <h5 class="voice-model-heading">Hardware Acceleration</h5>
-                    <p class="text-xs text-muted voice-model-desc">Leverage GPU acceleration for screen vision inference and UI rendering.</p>
-                  </div>
+            <section class="set-card">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">App speed</h5>
+                  <p class="set-card-desc" id="setting-performance-profile-note">Balanced daily use</p>
                 </div>
-              </div>
-              <div class="models-sound-row voice-model-row">
-                <div class="voice-model-row-info">
-                  <span class="voice-model-name">GPU Hardware Acceleration</span>
-                  <span class="text-xs text-muted">DirectX / Vulkan hardware rendering</span>
+                <div id="perf-profile-seg" class="set-seg" role="group" aria-label="App speed">
+                  <button type="button" class="set-seg-btn" data-value="battery" aria-pressed="false">Battery saver</button>
+                  <button type="button" class="set-seg-btn" data-value="balanced" aria-pressed="true">Balanced</button>
+                  <button type="button" class="set-seg-btn" data-value="performance" aria-pressed="false">High performance</button>
                 </div>
-                <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
-                  <input type="checkbox" id="setting-gpu-acceleration" checked style="opacity: 0; width: 0; height: 0;">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-            </div>
+              </header>
 
-            <div class="models-sound-section voice-model-section" style="margin-bottom: 14px;">
-              <div class="voice-model-section-header">
-                <div class="voice-model-section-title">
-                  <div>
-                    <h5 class="voice-model-heading">Background Execution</h5>
-                    <p class="text-xs text-muted voice-model-desc">Allow autonomous desktop workflows to proceed when Brown is minimized.</p>
+              <div class="set-rows">
+                <div class="set-row set-row-static" data-profile="battery">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Battery saver</span>
+                    <span class="set-row-desc">Turns off voice warm-up, heavy animations and background polling</span>
+                  </div>
+                </div>
+                <div class="set-row set-row-static" data-profile="balanced">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Balanced</span>
+                    <span class="set-row-desc">Full features with throttled refresh rates — recommended for daily use</span>
+                  </div>
+                </div>
+                <div class="set-row set-row-static" data-profile="performance">
+                  <div class="set-row-info">
+                    <span class="set-row-name">High performance</span>
+                    <span class="set-row-desc">Fastest telemetry and every visual effect enabled</span>
                   </div>
                 </div>
               </div>
-              <div class="models-sound-row voice-model-row">
-                <div class="voice-model-row-info">
-                  <span class="voice-model-name">Keep Agents Running in Background</span>
-                  <span class="text-xs text-muted">Unthrottled task loops when window is hidden</span>
-                </div>
-                <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;">
-                  <input type="checkbox" id="setting-bg-execution" checked style="opacity: 0; width: 0; height: 0;">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-            </div>
+            </section>
           </div>
-
-          
           <!-- Storage & Memory Tab -->
           <div id="tab-storage" class="tab-pane hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 16px;">
-              <h4 style="margin: 0;">Storage Locations</h4>
-              <label class="switch-container" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0;">
-                <input type="checkbox" id="setting-memory-toggle" style="opacity: 0; width: 0; height: 0;">
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-
-            <p class="text-xs text-muted settings-section-intro" style="margin: 0 0 12px 0;">
-              All downloads, persistent memory, conversation history, and local models are stored securely. You can customize the storage folders below.
-            </p>
-            <p id="storage-ultron-root-label" class="text-xs text-muted" style="margin: 0 0 6px 0; line-height: 1.45; font-weight: 600; color: rgba(255,255,255,0.82);"></p>
-            <p id="storage-install-root-label" class="text-xs text-muted" style="margin: 0 0 14px 0; line-height: 1.45;"></p>
-
-            <div class="setting-item" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 14px;">
-              <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Agent Storage &amp; Memory</label>
-              <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="setting-data-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. %LOCALAPPDATA%\BrownData\data">
-                <button id="btn-browse-storage" class="btn-primary-sm" style="padding: 0 18px; font-size: 12px; height: 36px; border-radius: 9999px; cursor: pointer; flex-shrink: 0; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
-                <button id="btn-reset-storage" class="btn-primary-sm" style="padding: 0 18px; font-size: 12px; height: 36px; border-radius: 9999px; cursor: pointer; flex-shrink: 0; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
+            <div class="set-head">
+              <div class="set-head-copy">
+                <h4 class="set-title">Storage &amp; Memory</h4>
+                <p class="set-intro">Conversations, agent memory and local models stay on this machine. Change where they live and see what they use.</p>
               </div>
-              <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                Conversations, agent memory, and session data. Defaults to <code style="font-size:11px;">%LOCALAPPDATA%\BrownData\data</code>.
-              </p>
+              <span class="set-badge">Local only</span>
             </div>
 
-            <div class="setting-item" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 14px;">
-              <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Connectors &amp; Downloads</label>
-              <div class="storage-row" style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="setting-connectors-dir" class="override-input" style="flex-grow: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="e.g. D:\Brown\connectors">
-                <button id="btn-browse-connectors" class="btn-primary-sm" style="padding: 0 18px; font-size: 12px; height: 36px; border-radius: 9999px; cursor: pointer; flex-shrink: 0; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Browse</button>
-                <button id="btn-reset-connectors" class="btn-primary-sm" style="padding: 0 18px; font-size: 12px; height: 36px; border-radius: 9999px; cursor: pointer; flex-shrink: 0; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Reset</button>
-              </div>
-              <p class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                Desktop automation connectors (UI Automation, MCP servers). Defaults to <code style="font-size:11px;">{Brown-local or Brown-AI}\connectors</code>.
-              </p>
-            </div>
+            <section class="set-card">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                    <polyline points="3.27 6.9 12 12.01 20.73 6.9"></polyline>
+                    <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">Long-term memory</h5>
+                  <p class="set-card-desc">Keeps chat history and agent memory between sessions, and feeds past context to local models.</p>
+                </div>
+                <label class="switch-container set-switch" title="Save conversations and agent memory">
+                  <input type="checkbox" id="setting-memory-toggle">
+                  <span class="switch-slider"></span>
+                </label>
+              </header>
+              <p class="set-card-foot">Off: chats live only in this window and are cleared when Brown quits.</p>
+            </section>
 
-            <div class="setting-item" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 14px;">
-              <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 8px;">Ollama Models</label>
-              <input type="text" id="setting-ollama-models-dir" class="override-input" readonly style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); color: rgba(255,255,0.55); font-size: 12px; box-sizing: border-box; cursor: default;" placeholder="Detecting Ollama…">
-              <p id="setting-ollama-install-note" class="text-xs text-muted" style="margin-top: 8px; line-height: 1.4;">
-                Stored in <code style="font-size:11px;">{Brown-local or Brown-AI}\models</code>. Created when Ollama is installed.
-              </p>
-            </div>
-            
-            <div class="setting-item storage-clear-section" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 14px;">
-              <label class="account-section-label">Clear Data</label>
-              <div class="storage-clear-row">
-                <span class="text-xs text-muted storage-clear-copy">Permanently delete all conversations, chat history, and message logs from storage.</span>
-                <button id="btn-clear-chats" type="button" class="btn-primary-sm storage-clear-btn" style="border-radius: 9999px;">Clear All Chats</button>
+            <section class="set-card">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <path d="M22 12H2"></path>
+                    <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+                    <line x1="6" y1="16" x2="6.01" y2="16"></line>
+                    <line x1="10" y1="16" x2="10.01" y2="16"></line>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">Space used on disk</h5>
+                  <p class="set-card-desc" id="storage-usage-summary">Measuring…</p>
+                </div>
+                <button type="button" id="btn-refresh-storage-usage" class="set-pill">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                  </svg>
+                  <span>Refresh</span>
+                </button>
+              </header>
+
+              <div class="set-rows">
+                <div class="set-row set-row-usage">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Agent data &amp; memory</span>
+                    <span class="set-row-desc set-path" id="storage-usage-data-path">—</span>
+                  </div>
+                  <span class="set-usage-val" id="storage-usage-data">—</span>
+                </div>
+                <div class="set-row set-row-usage">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Connectors</span>
+                    <span class="set-row-desc set-path" id="storage-usage-connectors-path">—</span>
+                  </div>
+                  <span class="set-usage-val" id="storage-usage-connectors">—</span>
+                </div>
+                <div class="set-row set-row-usage">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Ollama models</span>
+                    <span class="set-row-desc set-path" id="storage-usage-models-path">—</span>
+                  </div>
+                  <span class="set-usage-val" id="storage-usage-models">—</span>
+                </div>
               </div>
-            </div>
+              <p class="set-card-foot">Model weights dominate this total — a single 7B model is roughly 4 GB.</p>
+            </section>
+
+            <section class="set-card">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">Storage locations</h5>
+                  <p class="set-card-desc" id="storage-ultron-root-label">—</p>
+                  <p class="set-card-desc" id="storage-install-root-label">—</p>
+                </div>
+              </header>
+
+              <div class="set-rows">
+                <div class="set-row set-row-path">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Agent storage &amp; memory</span>
+                    <span class="set-row-desc">Conversations, agent memory and session data</span>
+                    <input type="text" id="setting-data-dir" class="set-input" placeholder="e.g. %LOCALAPPDATA%\BrownData\data">
+                  </div>
+                  <div class="set-row-side">
+                    <button type="button" id="btn-browse-storage" class="set-pill set-pill-primary">Browse</button>
+                    <button type="button" id="btn-reset-storage" class="set-pill">Reset</button>
+                  </div>
+                </div>
+                <div class="set-row set-row-path">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Connectors &amp; downloads</span>
+                    <span class="set-row-desc">Desktop automation connectors and MCP servers</span>
+                    <input type="text" id="setting-connectors-dir" class="set-input" placeholder="e.g. D:\Brown\connectors">
+                  </div>
+                  <div class="set-row-side">
+                    <button type="button" id="btn-browse-connectors" class="set-pill set-pill-primary">Browse</button>
+                    <button type="button" id="btn-reset-connectors" class="set-pill">Reset</button>
+                  </div>
+                </div>
+                <div class="set-row set-row-path">
+                  <div class="set-row-info">
+                    <span class="set-row-name">Ollama models</span>
+                    <span class="set-row-desc" id="setting-ollama-install-note">Managed by Ollama.</span>
+                    <input type="text" id="setting-ollama-models-dir" class="set-input" readonly placeholder="Detecting Ollama…">
+                  </div>
+                </div>
+              </div>
+              <p class="set-card-foot">Changes apply to new files immediately; move existing folders yourself if you relocate them.</p>
+            </section>
+
+            <section class="set-card set-card-danger">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6l-1.5 14A2 2 0 0 1 15.5 22h-7A2 2 0 0 1 6.5 20L5 6"></path>
+                    <path d="M10 11v6M14 11v6"></path>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">Clear data</h5>
+                  <p class="set-card-desc">Permanently deletes every conversation, chat history and message log.</p>
+                </div>
+                <button type="button" id="btn-clear-chats" class="set-pill set-pill-danger">Clear all chats</button>
+              </header>
+            </section>
           </div>
-          
           <!-- Permissions Tab -->
           <div id="tab-permissions" class="tab-pane hidden">
             <div style="margin-bottom: 16px;">
@@ -2299,32 +2457,97 @@
 
           <!-- Software Updates Tab -->
           <div id="tab-updates" class="tab-pane hidden">
-            <h4 style="margin: 0 0 16px 0;">Software Updates</h4>
-            <div class="update-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
-              <div style="display: flex; align-items: center; justify-content: space-between;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                  <div class="update-status-icon-wrapper" style="width: 42px; height: 42px; border-radius: 10px; background: rgba(66, 133, 244, 0.15); display: flex; align-items: center; justify-content: center; color: #4285f4;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                  </div>
-                  <div>
-                    <h5 id="update-status-title" style="margin: 0; font-size: 15px; font-weight: 600; color: #fff;">Brown is up to date</h5>
-                    <p id="update-status-subtitle" style="margin: 4px 0 0 0; font-size: 12px; color: #a1a1aa;">Current Version: v1.0.14</p>
-                  </div>
-                </div>
-                <button id="btn-check-updates" style="background: #4285f4; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background 0.2s;">
-                  Check for Updates
-                </button>
+            <div class="osu-hero">
+              <div class="osu-art" aria-hidden="true">
+                <svg class="osu-art-svg" viewBox="0 0 320 168" preserveAspectRatio="xMidYMid meet">
+                  <defs>
+                    <radialGradient id="osu-glow" cx="0.5" cy="0.5" r="0.5">
+                      <stop offset="0" stop-color="#295294" stop-opacity="0.85" />
+                      <stop offset="0.6" stop-color="#1b3357" stop-opacity="0" />
+                      <stop offset="1" stop-color="#295294" stop-opacity="0" />
+                    </radialGradient>
+                    <linearGradient id="osu-arc" x1="0" y1="1" x2="1" y2="0">
+                      <stop offset="0" stop-color="#295294" />
+                      <stop offset="0.5" stop-color="#60a5fa" />
+                      <stop offset="1" stop-color="#dbeafe" />
+                    </linearGradient>
+                  </defs>
+                  <ellipse cx="160" cy="150" rx="150" ry="62" fill="url(#osu-glow)" opacity="0.55" />
+                  <g fill="#93c5fd" opacity="0.22">
+                    <circle cx="22" cy="26" r="1.4" /><circle cx="33" cy="26" r="1.4" /><circle cx="44" cy="26" r="1.4" /><circle cx="55" cy="26" r="1.4" />
+                    <circle cx="22" cy="37" r="1.4" /><circle cx="33" cy="37" r="1.4" /><circle cx="44" cy="37" r="1.4" /><circle cx="55" cy="37" r="1.4" />
+                    <circle cx="22" cy="48" r="1.4" /><circle cx="33" cy="48" r="1.4" /><circle cx="44" cy="48" r="1.4" /><circle cx="55" cy="48" r="1.4" />
+                    <circle cx="22" cy="59" r="1.4" /><circle cx="33" cy="59" r="1.4" /><circle cx="44" cy="59" r="1.4" /><circle cx="55" cy="59" r="1.4" />
+                    <circle cx="22" cy="70" r="1.4" /><circle cx="33" cy="70" r="1.4" /><circle cx="44" cy="70" r="1.4" /><circle cx="55" cy="70" r="1.4" />
+                  </g>
+                  <circle cx="160" cy="84" r="60" stroke="#2a3a55" stroke-width="1" fill="none" opacity="0.5" />
+                  <circle cx="160" cy="84" r="46" stroke="#3b5c92" stroke-width="1" fill="none" opacity="0.45" />
+                  <path d="M100 84 A60 60 0 1 0 160 24" stroke="url(#osu-arc)" stroke-width="5" stroke-linecap="round" fill="none" />
+                  <path d="M168 17 L160 24 L168 31" stroke="#dbeafe" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                  <circle cx="252" cy="44" r="9" fill="#60a5fa" opacity="0.9" />
+                  <circle cx="276" cy="96" r="5" fill="#dbeafe" opacity="0.75" />
+                  <circle cx="58" cy="112" r="6.5" fill="#295294" />
+                  <rect x="76" y="32" width="16" height="16" rx="5" fill="#93c5fd" opacity="0.85" transform="rotate(18 84 40)" />
+                  <rect x="228" y="120" width="17" height="17" rx="6" stroke="#dbeafe" stroke-width="2" fill="none" opacity="0.6" transform="rotate(-14 236 128)" />
+                  <path d="M296 52 l0 14 M289 59 l14 0" stroke="#dbeafe" stroke-width="2.4" stroke-linecap="round" opacity="0.55" />
+                  <path d="M30 74 l0 12 M24 80 l12 0" stroke="#93c5fd" stroke-width="2.2" stroke-linecap="round" opacity="0.5" />
+                </svg>
+                <img src="../../Assets/Brown-white.png" class="osu-art-mark" alt="" />
               </div>
 
-              <!-- Action buttons for downloading / restarting -->
-              <div id="update-action-container" style="display: none; align-items: center; gap: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 16px;">
-                <button id="btn-download-update" style="display: none; background: #34a853; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer;">
-                  Download Update
-                </button>
-                <button id="btn-restart-install" style="display: none; background: #ea4335; color: #fff; border: none; padding: 8px 18px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer;">
-                  Restart to Install Update
-                </button>
-                <span id="update-progress-label" style="font-size: 12px; color: #a1a1aa;"></span>
+              <div class="osu-copy">
+                <div class="osu-kicker" id="update-kicker">Your software is up to date</div>
+                <h5 class="osu-headline" id="update-status-title">Brown v1.0</h5>
+                <p class="osu-legal" id="update-status-subtitle">Updates come from GitHub Releases. Downloading over a metered connection may use data.</p>
+
+                <button id="btn-check-updates" class="osu-btn osu-btn-primary">Check for Updates</button>
+
+                <div id="update-action-container" class="osu-action-row">
+                  <button id="btn-download-update" class="osu-btn osu-btn-primary">Download Update</button>
+                  <button id="btn-restart-install" class="osu-btn osu-btn-ghost">Restart to Install Update</button>
+                </div>
+
+                <div id="update-progress-wrap" class="osu-progress">
+                  <div class="osu-progress-head">
+                    <span id="update-progress-label" class="osu-progress-label">Downloading update…</span>
+                    <span id="update-progress-pct" class="osu-progress-pct">0%</span>
+                  </div>
+                  <div class="osu-progress-track"><div class="osu-progress-fill" id="update-progress-fill"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="osu-columns">
+              <div class="osu-card osu-card-notes">
+                <div class="osu-card-title">What's new in this update</div>
+                <div class="osu-notes-scroll">
+                  <ul id="update-notes-list" class="osu-notes-list hidden"></ul>
+                  <p id="update-notes-empty" class="osu-notes-empty">Nothing to install — you are on the newest release. Check for updates to pull in the latest changes.</p>
+                </div>
+              </div>
+
+              <div class="osu-card">
+                <div class="osu-card-title">App update information</div>
+                <div class="osu-info-row">
+                  <span class="osu-info-label">Current version</span>
+                  <span class="osu-info-value" id="update-info-current">v1.0</span>
+                </div>
+                <div class="osu-info-row">
+                  <span class="osu-info-label">Latest version</span>
+                  <span class="osu-info-value" id="update-info-latest">—</span>
+                </div>
+                <div class="osu-info-row">
+                  <span class="osu-info-label">Released</span>
+                  <span class="osu-info-value" id="update-info-released">—</span>
+                </div>
+                <div class="osu-info-row">
+                  <span class="osu-info-label">Release channel</span>
+                  <span class="osu-info-value">Stable</span>
+                </div>
+                <div class="osu-info-row">
+                  <span class="osu-info-label">Source</span>
+                  <span class="osu-info-value">GitHub Releases</span>
+                </div>
               </div>
             </div>
           </div>
@@ -2457,6 +2680,14 @@
       </div>
     </div>
   </main>
+
+  <!-- RIGHT SIDEBAR: SESSION CONTEXT COLUMN (own app column, mirrors the left sidebar) -->
+  <div id="right-sidebar-resizer" class="sidebar-resizer" role="separator" tabindex="0" aria-label="Resize session sidebar" aria-orientation="vertical" aria-controls="analytics-sidebar" aria-valuemin="190" aria-valuemax="340" aria-valuenow="340"></div>
+  <aside id="analytics-sidebar" class="analytics-sidebar session-context-rail" aria-label="Session context">
+    <div id="sidebar-session-pane" class="sidebar-session-pane">
+      <div id="session-panel-content" class="session-panel-content"></div>
+    </div>
+  </aside>
 
   <!-- Natural Language Spotlight Command Search Overlay -->
   <div id="chat-search-overlay" class="chat-search-overlay hidden">
@@ -2986,6 +3217,20 @@
     </div>
   </div>
 
+  <!-- Global drag-and-drop target: any file dragged into the window lands in the composer -->
+  <div id="file-drop-overlay" class="file-drop-overlay hidden" aria-hidden="true">
+    <div class="file-drop-card">
+      <span class="file-drop-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" width="26" height="26"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      </span>
+      <div class="file-drop-title">Drop files to attach</div>
+      <div class="file-drop-hint">Release anywhere — they join the message you're writing.</div>
+    </div>
+  </div>
+
+  <script src="../../node_modules/lottie-web/build/player/lottie_light.min.js"></script>
+  <script src="brown-logo-lottie.js"></script>
+  <script src="logo-motion.js"></script>
   <script src="../agent/app-registry.js"></script>
   <script src="../agent/agent-automation-safety.js"></script>
   <script src="../agent/agent-session-permissions.js"></script>
