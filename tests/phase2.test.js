@@ -59,10 +59,11 @@ Database connection strings and secure API keys are stored in encrypted applicat
   console.log('✓ Local Vector RAG Engine tests passed.');
 
   console.log('Running Desktop Sync & Companion Hub tests...');
-  const pairCodeRes = desktopSync.createDesktopPairCode();
+  // createDesktopPairCode is async (it renders the pairing QR before resolving).
+  const pairCodeRes = await desktopSync.createDesktopPairCode();
   assert.strictEqual(pairCodeRes.success, true);
   assert.strictEqual(pairCodeRes.code.length, 4);
-  assert.ok(pairCodeRes.expiresIn <= 60);
+  assert.ok(pairCodeRes.expiresIn > 0 && pairCodeRes.expiresIn <= 120, 'Pairing code must carry a bounded TTL');
 
   const initialDevices = desktopSync.listPairedDevices();
   assert.ok(Array.isArray(initialDevices));

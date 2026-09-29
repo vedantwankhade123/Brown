@@ -28,6 +28,7 @@ function createHarness() {
     URL,
     console,
     currentSessionId: 'a',
+    _aiSessionMetaInFlight: new Set(),
     conversationsStore: {
       a: { title: 'Session A', messages: [] },
       b: { title: 'Session B', messages: [] }
@@ -60,7 +61,13 @@ function installSidebar(harness) {
     remove: name => classes.delete(name),
     contains: name => classes.has(name)
   } };
-  const content = { innerHTML: '', parentElement: { scrollTop: 17 }, contains: () => false };
+  const scroller = { scrollTop: 0 };
+  const content = {
+    innerHTML: '',
+    parentElement: { scrollTop: 17 },
+    contains: () => false,
+    querySelector: selector => selector === '.session-side-sections' ? scroller : null
+  };
   const checklist = {
     children: [],
     set innerHTML(value) { this.children = []; },
@@ -93,7 +100,12 @@ function installSessionLifecycle(harness) {
   Object.assign(context, {
     setSendingState(value) { context.isAwaitingResponse = value; },
     updateWelcomeGreeting() { harness.welcomes++; },
-    logTrace(message) { harness.logs.push(message); }
+    logTrace(message) { harness.logs.push(message); },
+    // Prompt/workspace globals the lifecycle calls but the rail does not own: stub so
+    // loadSession/triggerNewChat reach completion instead of throwing before the try.
+    _mentionChips: [],
+    renderMentionChips() {},
+    clearPromptTurnState() {}
   });
   evaluateSource(context, 'function expandRightSidebarSection(', 'function ensureRightSidebarVisible(');
   evaluateSource(context, 'function renderChecklist(', 'function appendChatMessage(');
@@ -107,12 +119,14 @@ function sectionHtml(html, key) {
   return match[0];
 }
 
+// The right-hand rail was renamed: sideSectionHtml derives each data-side-section
+// key from the visible title, so the current titles/keys must stay in lockstep.
 const sidebarSections = [
-  ['Action plan', 'action-plan'],
-  ['Toolbox', 'toolbox'],
-  ['Creations', 'creations'],
-  ['Reading trail', 'reading-trail'],
-  ['Reference shelf', 'reference-shelf']
+  ['Tasks', 'tasks'],
+  ['Tools', 'tools'],
+  ['Output', 'output'],
+  ['Pages', 'pages'],
+  ['Sources', 'sources']
 ];
 
 function assertSectionCollapsed(html, key, collapsed) {
@@ -306,8 +320,8 @@ function testBrowserReadingVersusNativeSearch() {
   installSidebar(h);
   c.currentSessionId = 'a';
   c.renderSessionPanel();
-  const reading = sectionHtml(h.content.innerHTML, 'reading-trail');
-  const sources = sectionHtml(h.content.innerHTML, 'reference-shelf');
+  const reading = sectionHtml(h.content.innerHTML, 'pages');
+  const sources = sectionHtml(h.content.innerHTML, 'sources');
   assert.match(reading, /Observed page/);
   assert.match(reading, /Extracted page/);
   assert.doesNotMatch(reading, /Native search|Found result/);
@@ -340,11 +354,11 @@ function testSkillToolAndArtifactSourceDistinctions() {
   ];
   installSidebar(h);
   c.renderSessionPanel();
-  const capabilities = sectionHtml(h.content.innerHTML, 'toolbox');
+  const capabilities = sectionHtml(h.content.innerHTML, 'tools');
   assert.equal((capabilities.match(/side-row-name">Research</g) || []).length, 2, 'A skill and tool with the same name are distinct');
   for (const label of ['Skill', 'MCP', 'Tool']) assert.ok(capabilities.includes(`side-row-sub">${label}</span>`), label);
-  const sources = sectionHtml(h.content.innerHTML, 'reference-shelf');
-  const outputs = sectionHtml(h.content.innerHTML, 'creations');
+  const sources = sectionHtml(h.content.innerHTML, 'sources');
+  const outputs = sectionHtml(h.content.innerHTML, 'output');
   assert.match(sources, /input\.txt/);
   assert.doesNotMatch(sources, /output\.txt/);
   assert.match(outputs, /output\.txt/);
@@ -357,10 +371,12 @@ function testSectionStateAcrossRenders() {
   const c = h.context;
   const states = vm.runInContext('sidebarSectionStates', c);
   const items = Array.from({ length: 7 }, (_, i) => ({ name: `Item ${i}` }));
-  const render = (collapsed = false) => c.sideSectionHtml('Toolbox', items,
-    (item, overflow) => c.sideRowHtml({ icon: '', name: item.name, overflow }), { collapsed });
+  // The rail dropped the caller-supplied collapse default: sideSectionHtml always
+  // starts minimized and only the per-session saved state can expand a section.
+  const render = () => c.sideSectionHtml('Toolbox', items,
+    (item, overflow) => c.sideRowHtml({ icon: '', name: item.name, overflow }));
   const initial = render();
-  assert.match(initial, /class="side-section-head" aria-expanded="true"/);
+  assert.match(initial, /class="side-section-head" aria-expanded="false"/);
   assert.match(initial, /aria-controls="side-body-toolbox"/);
   assert.match(initial, /id="side-body-toolbox"/);
   assert.match(initial, /class="side-see-all" aria-expanded="false"/);
@@ -368,12 +384,12 @@ function testSectionStateAcrossRenders() {
   for (const collapsed of [true, false]) {
     for (const expanded of [true, false]) {
       states.set('a:toolbox', { collapsed, expanded });
-      const html = render(!collapsed); // Saved state, not caller defaults, must win.
+      const html = render(); // Saved state, not a caller default, drives the rail.
       assert.ok(html.includes(`class="side-section-head" aria-expanded="${!collapsed}"`));
       assert.ok(html.includes(`class="side-see-all" aria-expanded="${expanded}"`));
       assert.ok(html.includes(expanded ? 'Show less' : 'See all (7)'));
       assert.ok(html.includes(`class="side-section${collapsed ? ' collapsed' : ''}${expanded ? ' expanded' : ''}"`));
-      assert.equal(render(!collapsed), html, 'Rerendering must not reset ARIA or expansion state');
+      assert.equal(render(), html, 'Rerendering must not reset ARIA or expansion state');
     }
   }
   states.set('a:toolbox', { collapsed: true, expanded: true });
@@ -382,7 +398,7 @@ function testSectionStateAcrossRenders() {
   assert.equal(render(), initial, 'Section preferences are scoped to a session');
   c.currentSessionId = 'a';
   assert.equal(render(), saved, 'Returning to a session restores its state');
-  const empty = c.sideSectionHtml('Action plan', [], () => assert.fail('No rows expected'), { empty: 'No tasks', collapsed: true });
+  const empty = c.sideSectionHtml('Action plan', [], () => assert.fail('No rows expected'), { empty: 'No tasks' });
   assert.match(empty, /class="side-section-head" aria-expanded="false"/);
   assert.match(empty, /No tasks/);
   assert.doesNotMatch(empty, /side-see-all/);
@@ -394,7 +410,7 @@ function testSectionDefaultsWithoutCollapsedOption() {
   const c = h.context;
   for (const items of [[], [{ name: 'A tool' }]]) {
     const buildRow = item => c.sideRowHtml({ icon: '', name: item.name });
-    // Exercise both defaults, without the explicit collapsed=false wrapper above.
+    // With no saved state and no caller option, a section renders minimized by default.
     assertSectionCollapsed(c.sideSectionHtml('Toolbox', items, buildRow), 'toolbox', true);
     assertSectionCollapsed(c.sideSectionHtml('Toolbox', items, buildRow, { empty: 'No tools' }), 'toolbox', true);
   }
@@ -475,23 +491,23 @@ async function testOpenSectionsSurviveRenderingAndSessionSwitches() {
   c.renderSessionPanel();
   for (const [, key] of sidebarSections) assertSectionCollapsed(h.content.innerHTML, key, false);
   c.updateSidebarActivity('a', 'tasks', [{ id: 'plan', text: 'Updated plan', status: 'pending' }]);
-  assert.match(sectionHtml(h.content.innerHTML, 'action-plan'), /Updated plan/);
+  assert.match(sectionHtml(h.content.innerHTML, 'tasks'), /Updated plan/);
   for (const [, key] of sidebarSections) assertSectionCollapsed(h.content.innerHTML, key, false);
 
   await c.loadSession('b');
   assert.equal(c.currentSessionId, 'b');
   for (const [, key] of sidebarSections) assertSectionCollapsed(h.content.innerHTML, key, true);
-  states.set('b:toolbox', { collapsed: false, expanded: false });
+  states.set('b:tools', { collapsed: false, expanded: false });
   c.renderSessionPanel();
-  for (const [, key] of sidebarSections) assertSectionCollapsed(h.content.innerHTML, key, key !== 'toolbox');
+  for (const [, key] of sidebarSections) assertSectionCollapsed(h.content.innerHTML, key, key !== 'tools');
 
   await c.loadSession('a');
   assert.equal(c.currentSessionId, 'a');
-  assert.match(sectionHtml(h.content.innerHTML, 'action-plan'), /Updated plan/);
+  assert.match(sectionHtml(h.content.innerHTML, 'tasks'), /Updated plan/);
   for (const [, key] of sidebarSections) assertSectionCollapsed(h.content.innerHTML, key, false);
   await c.loadSession('b');
   assert.equal(c.currentSessionId, 'b');
-  for (const [, key] of sidebarSections) assertSectionCollapsed(h.content.innerHTML, key, key !== 'toolbox');
+  for (const [, key] of sidebarSections) assertSectionCollapsed(h.content.innerHTML, key, key !== 'tools');
   assert.deepEqual(h.logs, [], 'Session switches must finish without swallowed renderer errors');
 }
 
@@ -527,8 +543,8 @@ async function testLoadSessionKeepsPersistedTasks() {
     assert.match(checklistHtml, /Persisted pending/);
     assert.match(checklistHtml, /Persisted done/);
     assert.equal(h.checklist.children[1].className, 'task-node completed');
-    assert.match(sectionHtml(h.content.innerHTML, 'action-plan'), /Persisted pending/);
-    assert.match(sectionHtml(h.content.innerHTML, 'reference-shelf'), /saved-upload\.txt/);
+    assert.match(sectionHtml(h.content.innerHTML, 'tasks'), /Persisted pending/);
+    assert.match(sectionHtml(h.content.innerHTML, 'sources'), /saved-upload\.txt/);
     assert.doesNotMatch(h.content.innerHTML, /Stale transient task|Other session task/);
   }
 }
