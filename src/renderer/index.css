@@ -13,6 +13,7 @@
   --accent-blue: #3b82f6;
   --bg-hover: #121212;
   --bg-active: #1c1c1c;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.26);
 }
 
 * {
@@ -20,7 +21,7 @@
   margin: 0;
   padding: 0;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  scrollbar-color: transparent transparent;
 }
 
 /* ==========================================
@@ -28,7 +29,7 @@
    ========================================== */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  scrollbar-color: transparent transparent;
 }
 
 ::-webkit-scrollbar {
@@ -59,6 +60,19 @@
 
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* Scrollbars stay invisible: a thumb only paints while the pointer (or the caret) is
+   inside that scroller. Both rules are !important so the per-container colours further
+   down only ever pick the reveal shade, never force a permanent thumb. */
+:not(:hover) {
+  scrollbar-color: transparent transparent !important;
+}
+
+:hover,
+.chat-input-field:focus,
+.code-editor-textarea:focus {
+  scrollbar-color: var(--scrollbar-thumb) transparent !important;
 }
 
 .hidden {
@@ -231,7 +245,9 @@ body.platform-win32 .chat-header-actions {
 .sidebar {
   width: 280px;
   background-color: var(--bg-sidebar);
-  padding: 16px 8px 8px 12px;
+  /* 2px, not 16: the 48px brand row then centres at y=62, exactly on the chat
+     header's mid-line, so the sidebar's first row reads as one band with it. */
+  padding: 2px 8px 8px 12px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -703,6 +719,11 @@ body.platform-win32 .chat-header-actions {
   min-width: 0;
   min-height: 0;
   background-color: var(--bg-obsidian);
+  /* The "In focus" gradient, kept to the bottom half: flat above the midline, then
+     ramping to the deep blue at the base so it also glows behind the docked input. */
+  background-image: radial-gradient(ellipse 74% 42% at 50% 100%, rgba(41, 82, 148, 0.3), transparent 70%),
+    linear-gradient(180deg, #111111 0%, #111111 50%, #10131c 76%, #101e40 100%);
+  background-repeat: no-repeat;
   position: relative;
   overflow: hidden;
   border-top-left-radius: 20px;
@@ -711,6 +732,11 @@ body.platform-win32 .chat-header-actions {
   border-bottom-right-radius: 16px;
   margin-right: 6px;
   margin-bottom: 6px;
+}
+
+[data-theme="light"] .chat-main {
+  background-image: radial-gradient(ellipse 90% 55% at 50% 112%,
+      rgba(41, 82, 148, 0.13), rgba(41, 82, 148, 0.045) 45%, transparent 72%);
 }
 
 .chat-session-layout {
@@ -729,8 +755,8 @@ body.platform-win32 .chat-header-actions {
   min-width: 0;
 }
 
-.chat-session-layout:has(> #chat-view.agent-browser-open) > .session-context-rail,
-.chat-session-layout:has(> #chat-view.agent-browser-open) > #right-sidebar-resizer {
+body:has(#chat-view.agent-browser-open) > .session-context-rail,
+body:has(#chat-view.agent-browser-open) > #right-sidebar-resizer {
   display: none;
 }
 
@@ -745,7 +771,7 @@ body.platform-win32 .chat-header-actions {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  background-color: #000000;
+  background-color: transparent;
   flex-shrink: 0;
   border-top-left-radius: 20px;
   border-top-right-radius: 20px;
@@ -835,11 +861,11 @@ body.platform-win32 .chat-header-actions {
 }
 
 /* Smooth slide in/out for the session rail */
-.chat-session-layout > .session-context-rail {
+body > .session-context-rail {
   transition: width 0.28s ease, min-width 0.28s ease, padding 0.28s ease, opacity 0.2s ease;
 }
 
-body.session-rail-collapsed .chat-session-layout > .session-context-rail {
+body.session-rail-collapsed > .session-context-rail {
   width: 0 !important;
   min-width: 0;
   max-width: none;
@@ -849,7 +875,7 @@ body.session-rail-collapsed .chat-session-layout > .session-context-rail {
   pointer-events: none;
 }
 
-body.session-rail-collapsed .chat-session-layout > #right-sidebar-resizer {
+body.session-rail-collapsed > #right-sidebar-resizer {
   display: none;
 }
 
@@ -1082,36 +1108,30 @@ body.session-rail-collapsed .chat-session-layout > #right-sidebar-resizer {
 }
 
 .perf-tag-recommended {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  padding: 1px 5px;
+  padding: 2px 7px;
   border-radius: 4px;
   background: rgba(56, 189, 248, 0.18);
   color: #38bdf8;
-  letter-spacing: 0.3px;
 }
 
 .perf-tag-speed {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  padding: 1px 5px;
+  padding: 2px 7px;
   border-radius: 4px;
   background: rgba(52, 211, 153, 0.18);
   color: #34d399;
-  letter-spacing: 0.3px;
 }
 
 .perf-tag-eco {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
-  text-transform: uppercase;
-  padding: 1px 5px;
+  padding: 2px 7px;
   border-radius: 4px;
   background: rgba(251, 191, 36, 0.18);
   color: #fbbf24;
-  letter-spacing: 0.3px;
 }
 
 .perf-option-desc {
@@ -2350,6 +2370,121 @@ flicker-spinner i.on {
   border-bottom-style: solid;
 }
 
+/* ========================================================================= */
+/* MATH RENDERING (KaTeX)                                                      */
+/* ========================================================================= */
+.message-content .katex {
+  font-size: 1.06em;
+  color: inherit;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+/* Inline formulas sit on the text baseline and never force a line taller */
+.message-content .katex-display > .katex {
+  text-align: left;
+}
+
+/* Display math reads as a bordered result card, not floating glyphs */
+.message-content .katex-display {
+  margin: 16px 0;
+  padding: 14px 16px;
+  background: rgba(41, 82, 148, 0.10);
+  border: 1px solid rgba(129, 166, 228, 0.22);
+  border-left: 3px solid #81a6e4;
+  border-radius: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: left;
+}
+
+.message-content .katex-display > .katex {
+  display: inline-block;
+  text-align: left;
+  white-space: nowrap;
+  margin: 0;
+  padding: 0;
+}
+
+/* KaTeX's own display wrapper adds its own block; strip its margins so the card owns the rhythm */
+.message-content .katex-display .katex-display {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.message-content li .katex-display {
+  margin: 8px 0;
+}
+
+/* Formula that failed to parse stays readable instead of red-on-red */
+.message-content .katex-error {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.10);
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 12.5px;
+}
+
+[data-theme="light"] .message-content .katex-display {
+  background: rgba(41, 82, 148, 0.06);
+  border-color: rgba(41, 82, 148, 0.18);
+  border-left-color: #295294;
+}
+
+[data-theme="light"] .message-content .katex-error {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* ========================================================================= */
+/* ANSWER RHYTHM — first block flush, no dead space at the end                */
+/* ========================================================================= */
+.message-content > :first-child {
+  margin-top: 0;
+}
+
+.message-content > :last-child {
+  margin-bottom: 0;
+}
+
+.message-content h1 + p,
+.message-content h2 + p,
+.message-content h3 + p,
+.message-content h4 + p {
+  margin-top: 0;
+}
+
+.message-content h2 + h3,
+.message-content h3 + h4,
+.message-content h1 + h2 {
+  margin-top: 12px;
+}
+
+.message-content li > p {
+  margin: 0 0 8px;
+}
+
+.message-content li > p:last-child {
+  margin-bottom: 0;
+}
+
+.message-content > ul:first-child,
+.message-content > ol:first-child {
+  margin-top: 0;
+}
+
+.message-content h5,
+.message-content h6 {
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  margin: 16px 0 8px;
+}
+
 
 /* FLOATING INPUT CONTAINER */
 .input-wrapper {
@@ -2361,7 +2496,10 @@ flicker-spinner i.on {
   justify-content: center;
   width: 100%;
   box-sizing: border-box;
-  background: linear-gradient(to top, var(--bg-obsidian) 70%, transparent);
+  /* Transparent: an obsidian scrim here painted over .chat-main's gradient and made the
+     input area read flat black. Messages never overlap this band (.chat-container pads
+     its bottom by 140px), so the fade is not needed. */
+  background: transparent;
 }
 
 .input-pill {
@@ -2554,17 +2692,21 @@ flicker-spinner i.on {
 }
 
 
-/* RIGHT RAIL: SESSION CONTEXT, shared with the chat surface */
+/* RIGHT RAIL: ITS OWN APP COLUMN, beside the black chat surface */
 .analytics-sidebar {
   --session-rail-accent: color-mix(in srgb, var(--accent-blue) 75%, var(--text-primary));
   --session-rail-hover: color-mix(in srgb, var(--text-primary) 5%, transparent);
-  /* Reserve the 680px chat content plus its padding, scrollbar and splitter. */
-  width: var(--session-rail-width, clamp(280px, calc(100cqw - 740px), 340px));
+  /* Same width as the left sidebar by default, and it keeps tracking that sidebar when
+     its splitter is dragged (--settings-sidebar-width lives on :root). The drag handle
+     can still override this with --session-rail-width. */
+  width: var(--session-rail-width, var(--settings-sidebar-width, 280px));
   min-width: 190px;
-  max-width: min(340px, 35%);
-  background: transparent;
+  max-width: min(400px, 35%);
+  background-color: var(--bg-sidebar);
   border-left: none;
-  padding: 2px 14px 16px 12px;
+  /* Top/bottom inset is 0/6px so the rail content box matches the black chat card exactly
+     (chat-main sits at body padding-top 36px and has margin-bottom 6px). */
+  padding: 0 14px 6px 12px;
   display: flex;
   flex-direction: column;
   align-self: stretch;
@@ -2577,7 +2719,7 @@ flicker-spinner i.on {
 
 @media (max-width: 900px) {
   .analytics-sidebar {
-    padding: 2px 10px 14px 8px;
+    padding: 0 10px 6px 8px;
   }
 }
 
@@ -2688,7 +2830,7 @@ flicker-spinner i.on {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 2px 10px 2px 2px;
+  padding: 0 10px 0 2px;
   display: flex;
   flex-direction: column;
 }
@@ -2740,12 +2882,17 @@ flicker-spinner i.on {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 14px;
+  gap: 4px;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-bottom: 8px;
+  /* The thumb gets its own lane: the padding reserves the gutter and the equal negative
+     margin pulls the scroller box back into the pane's right padding, so the cards keep
+     the exact width they had (still flush with the "In focus" card) instead of shrinking. */
+  padding-right: 8px;
+  margin-right: -8px;
+  padding-bottom: 0;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text-muted) 30%, transparent) transparent;
 }
@@ -2836,12 +2983,11 @@ flicker-spinner i.on {
   gap: 6px;
   width: 100%;
   min-width: 0;
-  min-height: 42px;
-  padding: 9px 12px;
-  border: 1px solid rgba(129, 166, 228, 0.16);
+  min-height: 34px;
+  padding: 7px 12px;
+  border: none;
   border-radius: 999px !important;
-  background: radial-gradient(ellipse at 65% 115%, rgba(41, 82, 148, 0.3), transparent 65%),
-    linear-gradient(165deg, #111111 20%, #10131c 54%, #101e40 100%);
+  background: transparent;
   font: inherit;
   font-size: 13px;
   font-weight: 400;
@@ -2849,6 +2995,14 @@ flicker-spinner i.on {
   text-align: left;
   cursor: pointer;
   user-select: none;
+}
+
+[data-theme="light"] .side-section-head {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .side-section-head .side-chevron {
+  color: var(--text-muted);
 }
 
 .side-section-title {
@@ -2908,11 +3062,40 @@ flicker-spinner i.on {
   padding-top: 6px;
 }
 
+/* Empty subsection: bordered card with centred heading + one-line note. */
 .side-section-empty {
-  padding: 6px 4px;
-  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  padding: 10px 10px 12px;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.side-section-empty-title {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.side-section-empty-text {
+  color: rgba(255, 255, 255, 0.82);
   font-size: 12px;
   line-height: 1.5;
+  /* even line lengths when the copy wraps, instead of a one-word last line */
+  text-wrap: balance;
+}
+
+[data-theme="light"] .side-section-empty-title { color: var(--text-primary); }
+[data-theme="light"] .side-section-empty-text { color: rgba(0, 0, 0, 0.66); }
+[data-theme="light"] .side-section-empty {
+  border-color: rgba(0, 0, 0, 0.14);
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .side-row,
@@ -2979,14 +3162,76 @@ button.side-row:hover {
   color: var(--text-muted);
 }
 
-.side-ext-js { background: rgba(247, 223, 30, 0.14); color: #f7df1e; }
-.side-ext-html, .side-ext-htm { background: rgba(255, 94, 45, 0.14); color: #ff8a65; }
-.side-ext-css { background: rgba(59, 130, 246, 0.16); color: #93c5fd; }
-.side-ext-py { background: rgba(52, 211, 153, 0.14); color: #6ee7b7; }
-.side-ext-json { background: rgba(167, 139, 250, 0.14); color: #c4b5fd; }
-.side-ext-md { background: rgba(148, 163, 184, 0.14); color: #cbd5e1; }
-.side-ext-web, .side-ext-img { background: rgba(56, 189, 248, 0.14); color: #7dd3fc; }
-.side-ext-tool { background: color-mix(in srgb, var(--accent-blue) 12%, transparent); color: var(--session-rail-accent); }
+/* Rail glyph tints — the shape carries the family, the hue only reinforces it. */
+.side-ext-pdf { color: #f87171; }
+.side-ext-doc { color: #93c5fd; }
+.side-ext-text { color: #cbd5e1; }
+.side-ext-code, .side-ext-codemark { color: #fbbf24; }
+.side-ext-sheet { color: #4ade80; }
+.side-ext-audio { color: #c4b5fd; }
+.side-ext-video { color: #f472b6; }
+.side-ext-img, .side-ext-folder, .side-ext-web { color: #7dd3fc; }
+.side-ext-archive { color: #fcd34d; }
+.side-ext-diagram { color: #a5b4fc; }
+.side-ext-chart { color: #5eead4; }
+.side-ext-widget { color: #93c5fd; }
+.side-ext-focus { color: #b9c9e3; }
+.side-ext-file { color: var(--text-muted); }
+.side-ext-tool { color: var(--session-rail-accent); }
+
+[data-theme="light"] .side-ext-pdf { color: #dc2626; }
+[data-theme="light"] .side-ext-text,
+[data-theme="light"] .side-ext-file { color: #64748b; }
+[data-theme="light"] .side-ext-code,
+[data-theme="light"] .side-ext-codemark { color: #b45309; }
+[data-theme="light"] .side-ext-sheet { color: #047857; }
+[data-theme="light"] .side-ext-img,
+[data-theme="light"] .side-ext-folder,
+[data-theme="light"] .side-ext-web { color: #0369a1; }
+[data-theme="light"] .side-ext-doc,
+[data-theme="light"] .side-ext-widget { color: #1d4ed8; }
+[data-theme="light"] .side-ext-audio { color: #6d28d9; }
+[data-theme="light"] .side-ext-video { color: #be185d; }
+[data-theme="light"] .side-ext-archive { color: #92400e; }
+[data-theme="light"] .side-ext-diagram { color: #4338ca; }
+[data-theme="light"] .side-ext-chart { color: #0f766e; }
+[data-theme="light"] .side-ext-focus { color: #475569; }
+
+/* Subsection header marks (Tasks / Tools / Output / Pages / Sources). */
+.side-section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: var(--session-rail-accent);
+}
+
+.side-section-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+[data-theme="light"] .side-section-icon {
+  color: var(--accent-blue);
+}
+
+.side-task .session-task-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.side-task .session-task-mark svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
+
+.side-task.session-task-active .session-task-mark svg {
+  animation: speak-btn-spin 1.4s linear infinite;
+}
 
 .analytics-sidebar.session-context-rail .side-ext {
   background: transparent;
@@ -4434,6 +4679,12 @@ button.side-row:focus-visible,
 
 .chat-main.settings-open > .chat-session-layout,
 .chat-main.settings-open .chat-view {
+  display: none !important;
+}
+
+/* The rail is a body column now, so it must step out while settings are open. */
+body:has(.chat-main.settings-open) > .session-context-rail,
+body:has(.chat-main.settings-open) > #right-sidebar-resizer {
   display: none !important;
 }
 
@@ -6258,98 +6509,6 @@ button.side-row:focus-visible,
   line-height: 1.3;
 }
 
-.plus-menu-divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.08);
-  margin: 2px 4px;
-}
-
-.plus-menu-section-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.4);
-  padding: 2px 8px;
-}
-
-.plus-menu-option-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  background: transparent !important;
-  color: rgba(255, 255, 255, 0.7);
-  transition: color 0.15s, transform 0.15s;
-}
-
-.plus-menu-option-icon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.plus-menu-item:hover .plus-menu-option-icon {
-  color: #ffffff;
-  transform: scale(1.08);
-}
-
-.mode-radio {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(255, 255, 255, 0.35);
-  flex-shrink: 0;
-  position: relative;
-}
-
-.plus-menu-item.mode-option.active .mode-radio {
-  border-color: #60a5fa;
-  background: rgba(96, 165, 250, 0.15);
-}
-
-.plus-menu-item.mode-option.active .mode-radio::after {
-  content: '';
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background: #60a5fa;
-}
-
-.plus-menu-item.mode-option.active .plus-menu-item-title {
-  color: #93c5fd;
-}
-
-.plus-menu-item.toggle-option.active .plus-menu-option-icon {
-  background: transparent !important;
-  color: #ffffff;
-}
-
-.plus-menu-item.toggle-option.active .plus-menu-item-title {
-  color: #ffffff;
-}
-
-/* Circular white background with black tick on the right for active agent-option toggles */
-.plus-menu-item.toggle-option {
-  position: relative;
-}
-.plus-menu-item.toggle-option.active::after {
-  content: '';
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-  margin-left: auto;
-  border-radius: 50%;
-  background-color: #ffffff;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000000' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: 11px 11px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-
 /* In-App Notification Banner Styles */
 .notification-banner {
   display: flex;
@@ -6617,23 +6776,35 @@ button.side-row:focus-visible,
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 40px;
+  padding: clamp(20px, 3.5vw, 40px);
   flex-grow: 1;
+  /* width:100% has to sit next to the cap: with only max-width, a chat column narrower
+     than 760px leaves no room for the auto margins, so the block pinned to the left edge
+     and spilled out to the right — the whole welcome screen read off-centre. */
+  width: 100%;
   max-width: 760px;
   margin: auto;
 }
 
 .welcome-logo {
-  height: 76px;
-  width: 76px;
+  height: clamp(54px, 6.5vw, 76px);
+  width: clamp(54px, 6.5vw, 76px);
   max-width: 76px;
   object-fit: contain;
-  margin-bottom: 12px;
   filter: drop-shadow(0 4px 16px rgba(0,0,0,0.5));
 }
 
+/* Hugs the static logo box exactly, so the animated mark overlaid on it matches. */
+.welcome-logo-stack {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
 .welcome-title {
-  font-size: 36px;
+  font-size: clamp(25px, 3.1vw, 36px);
   font-weight: 600;
   color: var(--accent-white);
   margin: 0 0 12px 0;
@@ -6641,9 +6812,230 @@ button.side-row:focus-visible,
 }
 
 .welcome-subtitle {
-  font-size: 16px;
+  font-size: clamp(13.5px, 1.4vw, 16px);
   color: var(--text-muted);
   margin: 0;
+}
+
+/* Quick-action cards: three portrait cards in view with the centred one focused — the
+   same shape as the website feature slider. One row tall, which is what keeps the
+   welcome screen from pushing the composer below the viewport. */
+.welcome-carousel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-top: 26px;
+  opacity: 0;
+  translate: 0 12px;
+  animation: welcomeCarouselIn .42s cubic-bezier(.16, 1, .3, 1) .14s forwards;
+}
+
+/* The enter motion lives on the group, not the cards: a filled forwards keyframe on a
+   card would win over the focus scale/opacity below and leave them dead. */
+@keyframes welcomeCarouselIn {
+  to { opacity: 1; translate: 0 0; }
+}
+
+.welcome-actions {
+  /* Cards and gaps scale with the viewport (--wc/--wg feed the card width, the gap and
+     the centring gutters), so the row stays composed instead of clipping when the
+     window shrinks. All carousel JS measures live rects, so nothing else hardcodes a
+     card size. */
+  --wc: clamp(124px, 13vw, 170px);
+  --wg: clamp(10px, 1.1vw, 14px);
+  display: flex;
+  flex-direction: row;
+  gap: var(--wg);
+  width: min(100%, 538px);
+  /* (trackWidth - cardWidth) / 2 gutters, so the first and last card can reach the
+     centre instead of stopping flush against an edge. Recomputed from the same min()
+     as the width: a fixed gutter would leave nothing but padding visible once the
+     browser pane squeezes the chat column. */
+  padding: 2px calc((min(100%, 538px) - var(--wc)) / 2) 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.welcome-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.welcome-card {
+  flex: 0 0 auto;
+  scroll-snap-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: var(--wc);
+  min-height: calc(var(--wc) - 2px);
+  padding: clamp(12px, 1.2vw, 16px);
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #212121;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: .55;
+  transform: scale(.93);
+  transition: opacity .28s ease, transform .28s ease, border-color .18s ease, background .18s ease;
+}
+
+.welcome-card.is-focus {
+  opacity: 1;
+  transform: scale(1);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
+}
+
+.welcome-card:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: #262628;
+}
+
+.welcome-card.is-focus:hover {
+  transform: translateY(-2px);
+}
+
+.welcome-card.is-focus:active {
+  transform: scale(.985);
+}
+
+.welcome-card:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.28);
+  outline-offset: 2px;
+}
+
+.welcome-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+}
+
+.welcome-card-title {
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.welcome-card-desc {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 12.5px;
+  line-height: 16.5px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.welcome-card-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  margin-top: auto;
+  border-radius: 15px;
+  background: #ffffff;
+  color: #111111;
+  flex-shrink: 0;
+}
+
+.welcome-card-arrow svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Pagination: the global pill-radius rule turns each 7px button into a dot, and the
+   active one into the short dash from the reference. */
+.welcome-dots {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.welcome-dot {
+  width: 7px;
+  height: 7px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: width .2s ease, background .2s ease;
+}
+
+.welcome-dot.is-active {
+  width: 20px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+[data-theme="light"] .welcome-card {
+  border-color: rgba(0, 0, 0, 0.07);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .welcome-card:hover {
+  border-color: rgba(0, 0, 0, 0.14);
+  background: #fbfbfc;
+}
+
+[data-theme="light"] .welcome-card.is-focus {
+  border-color: rgba(0, 0, 0, 0.1);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .welcome-card:focus-visible {
+  outline-color: rgba(0, 0, 0, 0.24);
+}
+
+[data-theme="light"] .welcome-card-title {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .welcome-card-desc {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+/* A white arrow chip would vanish on the light cards, so it inverts to the brand fill. */
+[data-theme="light"] .welcome-card-arrow {
+  background: var(--brown-btn-gradient);
+  color: #ffffff;
+}
+
+[data-theme="light"] .welcome-dot {
+  background: rgba(0, 0, 0, 0.16);
+}
+
+[data-theme="light"] .welcome-dot.is-active {
+  background: rgba(0, 0, 0, 0.68);
+}
+
+/* Compact windows: keep the stack readable instead of letting fixed sizes crowd the
+   composer off screen. --wc/--wg already scale the cards; these cover the type. */
+@media (max-width: 1000px) {
+  .welcome-card-title { font-size: 14px; }
+  .welcome-card-desc { font-size: 12px; line-height: 15.5px; }
+  .welcome-carousel { gap: 11px; margin-top: 20px; }
+}
+
+@media (max-height: 700px) {
+  .welcome-logo { height: 52px; width: 52px; }
+  .welcome-logo-stack { margin-bottom: 8px; }
+  .welcome-title { font-size: 24px; margin-bottom: 8px; }
+  .welcome-carousel { margin-top: 16px; gap: 10px; }
 }
 
 /* When empty-state is active, show welcome-screen and hide chat-container */
@@ -7846,6 +8238,34 @@ button.side-row:focus-visible,
   animation: splashLogoEntrance 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* Animated Brown mark (Lottie). It overlays the static logo, which is only hidden
+   once an svg actually paints — so a failed mount still shows a logo. The splash
+   backdrop is dark in both themes, hence the mark stays light there. */
+.brown-logo-anim {
+  position: absolute;
+  pointer-events: none;
+  color: #fdfdfd;
+}
+
+.brown-logo-anim svg path {
+  fill: currentColor;
+}
+
+.splash-logo-lottie {
+  inset: -2px;
+  animation: splashLogoEntrance 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.welcome-logo-lottie {
+  inset: -3.5%;
+  filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.5));
+}
+
+.splash-logo-container:has(.brown-logo-anim svg) .splash-logo-img,
+.welcome-logo-stack:has(.brown-logo-anim svg) .welcome-logo {
+  visibility: hidden;
+}
+
 .splash-text-container {
   display: flex;
   align-items: center;
@@ -8289,6 +8709,718 @@ button.side-row:focus-visible,
   box-sizing: border-box;
 }
 
+/* ============================================================
+   UNIFIED INPUT CARD — narrower context bar resting on the pill
+   ============================================================ */
+.unified-input-container {
+  position: relative;
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  /* Each half paints its own card so the pill keeps all four corners round. */
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.unified-input-container:focus-within .prompt-docked-bar,
+.unified-input-container:focus-within .input-pill-docked {
+  border-color: #3c4043;
+}
+
+.prompt-top-bar.prompt-docked-bar {
+  width: calc(100% - 24px);
+  max-width: none;
+  margin: 0 auto;
+  padding: 6px 8px;
+  /* Same flat fill as the input-field pills, so bar and buttons read as one surface. */
+  background: var(--brown-btn-gradient);
+  /* No bottom border: the pill's top edge is the seam. */
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  border-radius: 19px 19px 0 0;
+  box-sizing: border-box;
+  gap: 8px;
+  user-select: none;
+}
+
+.docked-bar-left,
+.docked-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.docked-bar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  min-height: 26px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.92);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  max-width: 260px;
+}
+
+.docked-bar-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.docked-bar-btn:focus-visible {
+  outline: 2px solid var(--accent-blue, #295294);
+  outline-offset: 1px;
+}
+
+/* The existing permission pill adopts the docked-bar button look. !important is
+   needed here: the global flat-pill rule for .perm-selector-btn sets a fill. */
+.prompt-docked-bar .perm-selector-btn {
+  background: transparent !important;
+  border-color: transparent !important;
+  border-radius: 8px !important;
+  min-height: 26px;
+  padding: 4px 9px;
+  color: rgba(255, 255, 255, 0.92) !important;
+}
+
+.prompt-docked-bar .perm-selector-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+  filter: none !important;
+}
+
+/* Icons carry the same weight as the labels on the filled bar. */
+.prompt-docked-bar .perm-selector-icon,
+.project-btn .project-icon,
+.mention-at-icon,
+.mention-chevron {
+  color: rgba(255, 255, 255, 0.82);
+  flex-shrink: 0;
+}
+
+.project-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-count {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+.project-synced-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+  flex-shrink: 0;
+}
+
+.project-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.6px solid rgba(255, 255, 255, 0.22);
+  border-top-color: #81a6e4;
+  animation: dockedSpin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes dockedSpin {
+  to { transform: rotate(360deg); }
+}
+
+.project-clear {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+/* The disconnect × only exists once a project is attached, and only on hover */
+.project-btn.has-project:hover .project-clear,
+.project-btn.has-project .project-clear:focus-visible {
+  display: inline-flex;
+}
+
+.project-clear:hover {
+  background: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+}
+
+/* Mentions trigger + popover */
+.mentions-wrapper {
+  position: relative;
+}
+
+.mention-at-icon {
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.mentions-wrapper.open .mention-chevron {
+  transform: rotate(180deg);
+}
+
+.mention-chevron {
+  transition: transform 0.2s ease;
+  opacity: 0.55;
+}
+
+.mention-popover {
+  position: absolute;
+  /* Clears the docked bar's top edge by 6px so the card never touches the input. */
+  bottom: calc(100% + 12px);
+  left: 0;
+  width: 312px;
+  max-width: calc(100vw - 48px);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+  padding: 8px;
+  z-index: 9100;
+  box-sizing: border-box;
+  animation: popoverFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mention-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  /* Title case, not small-caps: "Add Context", "Tools". */
+  text-transform: capitalize;
+  color: var(--text-muted);
+  padding: 4px 8px 6px;
+}
+
+.mention-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  margin: 0 0 6px;
+  color: var(--text-muted);
+}
+
+.mention-search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--accent-white);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  padding: 4px 0;
+}
+
+.mention-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 176px;
+  overflow-y: auto;
+}
+
+.mention-empty {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  padding: 4px 8px 8px;
+}
+
+.mention-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--accent-white);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.mention-file-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mention-file-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-file-path {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.mention-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 8px 0;
+}
+
+.mention-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--accent-white);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+.mention-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mention-toggle-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #131314;
+  flex-shrink: 0;
+}
+
+/* Same white disc as the tool rows, so the two halves of the card match. */
+.at-mention-row-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #131314;
+  flex-shrink: 0;
+}
+
+.mention-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mention-toggle-title {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.mention-toggle-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.mention-toggle-state {
+  width: 30px;
+  height: 17px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.18s ease;
+}
+
+.mention-toggle-state::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #9ca3af;
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), background 0.18s ease;
+}
+
+.mention-toggle.active .mention-toggle-state {
+  background: rgba(41, 82, 148, 0.85);
+}
+
+.mention-toggle.active .mention-toggle-state::after {
+  transform: translateX(13px);
+  background: #ffffff;
+}
+
+/* The pill is a full card again: rounded on all four corners. */
+.input-pill-docked {
+  max-width: none !important;
+  background: var(--bg-sidebar) !important;
+  border: 1px solid var(--border-color) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3) !important;
+  border-radius: 19px !important;
+  padding: 14px 14px 10px 14px !important;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Active mention chips inside the pill */
+.mention-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+}
+
+.mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 9px;
+  border-radius: 999px;
+  background: rgba(41, 82, 148, 0.22);
+  border: 1px solid rgba(129, 166, 228, 0.32);
+  color: #dbe6f7;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  max-width: 100%;
+}
+
+.mention-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mention-chip-x:hover {
+  background: rgba(239, 68, 68, 0.3);
+  color: #ffffff;
+}
+
+/* Inline @ autocomplete list */
+.at-mention-dropdown {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: auto;
+  width: 340px;
+  max-width: 100%;
+  max-height: 268px;
+  overflow-y: auto;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+  padding: 6px;
+  z-index: 9200;
+  box-sizing: border-box;
+  animation: popoverFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.at-mention-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--accent-white);
+  font-family: 'Outfit', sans-serif;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.at-mention-row.active,
+.at-mention-row:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.at-mention-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.at-mention-row-title {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.at-mention-row-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* RAG citation banner on AI answers */
+.rag-citation-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: rgba(41, 82, 148, 0.12);
+  border: 1px solid rgba(129, 166, 228, 0.22);
+  font-size: 11px;
+  color: #93c5fd;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.rag-citation-icon {
+  display: inline-flex;
+  align-items: center;
+  color: #81a6e4;
+}
+
+.rag-citation-label {
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.rag-citation-chip {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #f4f4f5;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.rag-citation-chip:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(129, 166, 228, 0.4);
+}
+
+.rag-citation-popover {
+  position: absolute;
+  z-index: 9300;
+  width: min(560px, calc(100vw - 64px));
+  max-height: 320px;
+  overflow: auto;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.78);
+  padding: 10px 12px;
+  box-sizing: border-box;
+  animation: popoverFadeIn 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rag-citation-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.rag-citation-popover-file {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: #81a6e4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rag-citation-popover-score {
+  font-size: 11px;
+  color: #34d399;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.rag-citation-popover-path {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  word-break: break-all;
+}
+
+.rag-citation-popover pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: #0d0d0f;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: #d4d4d8;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Light theme */
+[data-theme="light"] .prompt-top-bar.prompt-docked-bar {
+  background: var(--brown-btn-gradient-light);
+  border-color: #dededf;
+}
+
+[data-theme="light"] .input-pill-docked {
+  background: #ffffff !important;
+  border-color: #e2e2e5 !important;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08) !important;
+}
+
+[data-theme="light"] .docked-bar-btn {
+  color: #1f2937;
+}
+
+[data-theme="light"] .docked-bar-btn:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: #18181b;
+  border-color: rgba(15, 23, 42, 0.08);
+}
+
+[data-theme="light"] .prompt-docked-bar .perm-selector-btn {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: #1f2937 !important;
+}
+
+[data-theme="light"] .prompt-docked-bar .perm-selector-btn:hover {
+  background: rgba(15, 23, 42, 0.06) !important;
+  border-color: rgba(15, 23, 42, 0.08) !important;
+  color: #18181b !important;
+}
+
+[data-theme="light"] .prompt-docked-bar .perm-selector-icon,
+[data-theme="light"] .project-btn .project-icon,
+[data-theme="light"] .mention-at-icon,
+[data-theme="light"] .mention-chevron {
+  color: rgba(0, 0, 0, 0.62);
+}
+
+[data-theme="light"] .mention-popover,
+[data-theme="light"] .at-mention-dropdown,
+[data-theme="light"] .rag-citation-popover {
+  background: #ffffff;
+  border-color: #e2e2e5;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+}
+
+/* On a white popover a white disc needs an edge to read as a circle. */
+[data-theme="light"] .mention-toggle-icon,
+[data-theme="light"] .at-mention-row-icon {
+  background: #ffffff;
+  color: #131314;
+  box-shadow: inset 0 0 0 1px #e2e2e5;
+}
+
+[data-theme="light"] .mention-toggle:hover,
+[data-theme="light"] .at-mention-row:hover,
+[data-theme="light"] .at-mention-row.active {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: rgba(15, 23, 42, 0.06);
+}
+
+[data-theme="light"] .mention-toggle-state {
+  background: rgba(15, 23, 42, 0.14);
+}
+
+[data-theme="light"] .mention-toggle.active .mention-toggle-state {
+  background: #295294;
+}
+
+[data-theme="light"] .mention-toggle-state::after {
+  background: #ffffff;
+}
+
+[data-theme="light"] .mention-file-row,
+[data-theme="light"] .at-mention-row,
+[data-theme="light"] .mention-toggle {
+  color: #18181b;
+}
+
+[data-theme="light"] .mention-chip {
+  background: rgba(41, 82, 148, 0.08);
+  border-color: rgba(41, 82, 148, 0.24);
+  color: #1e3a8a;
+}
+
+[data-theme="light"] .rag-citation-banner {
+  background: rgba(41, 82, 148, 0.07);
+  border-color: rgba(41, 82, 148, 0.2);
+  color: #1d4ed8;
+}
+
+[data-theme="light"] .rag-citation-chip {
+  background: rgba(15, 23, 42, 0.05);
+  border-color: rgba(15, 23, 42, 0.08);
+  color: #18181b;
+}
+
+[data-theme="light"] .rag-citation-popover pre {
+  background: #f7f7f8;
+  border-color: #e6e6ea;
+  color: #27272a;
+}
+
+
 .prompt-top-left {
   display: flex;
   align-items: center;
@@ -8345,8 +9477,10 @@ button.side-row:focus-visible,
 /* PERMISSION MODE DROPDOWN CARD (Matching Image 2 Reference) */
 .perm-mode-dropdown {
   position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
+  bottom: calc(100% + 12px);
+  /* Opens leftward: anchored right so the card never leaves the chat column,
+     which clips overflow at its rounded corners. */
+  right: 0;
   width: 272px;
   background: var(--bg-sidebar);
   border: 1px solid var(--border-color);
@@ -11377,6 +12511,19 @@ span.settings-action-btn.is-ready {
 
 .btn-speak-msg.speaking {
   color: #a5b4fc !important;
+}
+
+/* Speaking / synthesising stays bare: the ring is the whole affordance, no chip behind it. */
+.btn-speak-msg.speaking,
+.btn-speak-msg.is-loading,
+.message-action-btn.speaking,
+.message-action-btn.is-loading,
+.btn-speak-msg.speaking:hover,
+.btn-speak-msg.is-loading:hover,
+.message-action-btn.speaking:hover,
+.message-action-btn.is-loading:hover {
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 .btn-speak-msg.is-loading,
@@ -15633,8 +16780,9 @@ button {
 }
 .perm-popover-item,
 .plus-menu-item,
-.model-dropdown-item {
-  border-radius: 12px !important;
+.model-dropdown-item,
+.welcome-card {
+  border-radius: 18px !important;
 }
 
 /* ==========================================
@@ -15651,17 +16799,30 @@ button {
   --accent-white: #111827;
   --bg-hover: #f3f4f6;
   --bg-active: #e5e7eb;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.26);
 }
 
 [data-theme="light"] body,
-[data-theme="light"] .chat-main,
 [data-theme="light"] .sidebar,
 [data-theme="light"] .settings-panel,
 [data-theme="light"] .settings-sidebar,
 [data-theme="light"] .right-sidebar,
-[data-theme="light"] .chat-header,
 [data-theme="light"] .titlebar {
   background: var(--bg-obsidian);
+  color: var(--text-primary);
+}
+
+/* The chat column keeps the "In focus" card gradient, lightened. Declared after the
+   group above because its `background` shorthand would reset background-image. */
+[data-theme="light"] .chat-main {
+  background-image: radial-gradient(ellipse at 65% 115%, rgba(41, 82, 148, 0.14), transparent 65%),
+    linear-gradient(165deg, #ffffff 20%, #f6f7fa 54%, #e2eaf7 100%);
+  background-repeat: no-repeat;
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .chat-header {
+  background-color: transparent;
   color: var(--text-primary);
 }
 
@@ -16425,7 +17586,8 @@ button {
 #tab-performance .models-sound-section,
 #tab-apps .apps-toolbar,
 #tab-apps .apps-list-container,
-#tab-updates .update-card,
+#tab-updates .osu-hero,
+#tab-updates .osu-columns,
 #tab-appearance .developer-settings-card,
 #tab-appearance .appearance-cards,
 #tab-about .developer-settings-card,
@@ -16479,7 +17641,6 @@ button {
 .voice-model-section,
 .tts-settings-section,
 .automation-section,
-.update-card,
 .sync-empty-state-card,
 .desktop-footer-section,
 #tab-account .account-profile-card,
@@ -16501,7 +17662,8 @@ button {
 #tab-permissions .automation-section,
 #tab-permissions .setting-item,
 #tab-apps .apps-list-container,
-#tab-updates .update-card {
+#tab-updates .osu-hero,
+#tab-updates .osu-card {
   background: #131314 !important;
   border: 1px solid var(--border-color) !important;
   border-radius: 12px !important;
@@ -16981,7 +18143,8 @@ button {
 [data-theme="light"] .voice-model-section,
 [data-theme="light"] .tts-settings-section,
 [data-theme="light"] .automation-section,
-[data-theme="light"] .update-card,
+[data-theme="light"] .osu-hero,
+[data-theme="light"] .osu-card,
 [data-theme="light"] .sync-info-card,
 [data-theme="light"] .sync-empty-state-card,
 [data-theme="light"] .desktop-footer-section,
@@ -17005,7 +18168,8 @@ button {
 [data-theme="light"] #tab-permissions .automation-section,
 [data-theme="light"] #tab-permissions .setting-item,
 [data-theme="light"] #tab-apps .apps-list-container,
-[data-theme="light"] #tab-updates .update-card {
+[data-theme="light"] #tab-updates .osu-hero,
+[data-theme="light"] #tab-updates .osu-card {
   background: #ffffff !important;
   border: 1px solid var(--border-color) !important;
 }
@@ -17135,7 +18299,10 @@ html[data-theme="light"],
   height: 76px;
   width: 76px;
   max-width: 76px;
-  margin-bottom: 12px;
+  filter: none;
+}
+[data-theme="light"] .welcome-logo-lottie {
+  color: #000000;
   filter: none;
 }
 [data-theme="light"] .brand-logo {
@@ -18110,7 +19277,7 @@ html[data-theme="light"],
 }
 
 /* ==========================================================================
-   Session Sidebar Indexed Files & Quantized Context Panel
+   Compacted session memory card (left sidebar)
    ========================================================================== */
 .session-indexed-section {
   margin-top: 16px;
@@ -18120,62 +19287,7 @@ html[data-theme="light"],
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.session-indexed-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 12px;
-  font-weight: 600;
-  color: #e2e8f0;
-  margin-bottom: 8px;
-}
-
-.session-indexed-count {
-  font-size: 11px;
-  color: #60a5fa;
-  background: rgba(59, 130, 246, 0.12);
-  padding: 1px 6px;
-  border-radius: 99px;
-}
-
-.session-indexed-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 180px;
-  overflow-y: auto;
-}
-
-.session-indexed-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.03);
-  font-size: 12px;
-  color: #cbd5e1;
-}
-
-.session-indexed-item-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-indexed-badge {
-  font-size: 10px;
-  color: #94a3b8;
-  font-family: monospace;
-  flex-shrink: 0;
-}
-
 .session-memory-card {
-  margin-top: 8px;
   padding: 8px 10px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.02);
@@ -18183,6 +19295,95 @@ html[data-theme="light"],
   font-size: 11.5px;
   color: #94a3b8;
   line-height: 1.5;
+}
+
+/* ==========================================================================
+   Drag-and-drop: the whole window accepts files, the composer answers back
+   ========================================================================== */
+.file-drop-overlay {
+  position: fixed;
+  inset: 0;
+  /* Under the fullscreen modals (999999) and toasts, above every pane. */
+  z-index: 950000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 9, 12, 0.66);
+  backdrop-filter: blur(3px);
+  animation: fileDropFade 130ms ease-out;
+}
+
+.file-drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 30px 44px;
+  border-radius: 18px;
+  border: 1.5px dashed color-mix(in srgb, var(--accent-blue) 60%, transparent);
+  background: #1b1c20;
+  box-shadow: 0 22px 58px rgba(0, 0, 0, 0.5);
+  text-align: center;
+  /* The pointer stays over the card but the drop still belongs to the window. */
+  pointer-events: none;
+}
+
+.file-drop-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-blue) 16%, transparent);
+  color: var(--accent-white);
+}
+
+.file-drop-title {
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--accent-white);
+}
+
+.file-drop-hint {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+@keyframes fileDropFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.input-wrapper.is-dropping .input-pill {
+  border-color: color-mix(in srgb, var(--accent-blue) 60%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-blue) 16%, transparent);
+}
+
+[data-theme="light"] .file-drop-overlay {
+  background: rgba(250, 250, 251, 0.72);
+}
+
+[data-theme="light"] .file-drop-card {
+  background: #ffffff;
+  border-color: color-mix(in srgb, var(--accent-blue) 45%, transparent);
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.14);
+}
+
+[data-theme="light"] .file-drop-icon {
+  background: color-mix(in srgb, var(--accent-blue) 10%, transparent);
+  color: var(--accent-blue);
+}
+
+[data-theme="light"] .file-drop-title {
+  color: #18181b;
+}
+
+[data-theme="light"] .file-drop-hint {
+  color: #71717a;
 }
 
 /* ===== Watch-style buttons: flat pill, sampled #292929 from reference ===== */
@@ -18871,7 +20072,7 @@ html[data-theme="light"],
 
 
 /* ==========================================================================
-   HEADER ACTION BUTTONS: outline style — no fill bg, thin border, icon + label
+   HEADER ACTION BUTTONS: same flat pill fill as the input-field buttons
    (order: Update → Browser → Session)
    ========================================================================== */
 .chat-header-actions .btn-top-update,
@@ -18882,12 +20083,12 @@ html[data-theme="light"],
 .chat-header-actions .btn-top-update.state-downloaded,
 .chat-header-actions .agent-browser-toggle:not([aria-pressed="true"]),
 .chat-header-actions .btn-session-rail {
-  background: transparent !important;
-  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  background: var(--brown-btn-gradient) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  color: #d4d4d8 !important;
+  color: #ffffff !important;
   padding: 5px 10px !important;
   width: auto !important;
   min-width: 0 !important;
@@ -18907,16 +20108,17 @@ html[data-theme="light"],
   padding: 5px 10px 5px 5px !important;
 }
 
+/* Same brighten-on-hover the input-field pills use. */
 .chat-header-actions .btn-top-update:hover,
 .chat-header-actions .btn-top-update.state-none:hover,
 .chat-header-actions .btn-top-update.state-checking:hover,
 .chat-header-actions .agent-browser-toggle:not([aria-pressed="true"]):hover,
 .chat-header-actions .btn-session-rail:hover {
-  background: rgba(255, 255, 255, 0.05) !important;
-  border-color: rgba(255, 255, 255, 0.32) !important;
+  background: var(--brown-btn-gradient) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
   color: #ffffff !important;
+  filter: brightness(1.35) !important;
   transform: none !important;
-  filter: none !important;
 }
 
 /* Strip the white round chip behind idle icons; the blue/green chip survives
@@ -18926,10 +20128,18 @@ html[data-theme="light"],
 .chat-header-actions .btn-top-update.state-checking .top-update-icon-wrap {
   background: transparent !important;
 }
-.chat-header-actions .agent-browser-toggle .agent-browser-brand {
-  width: 14px !important;
-  height: 14px !important;
-  background-color: transparent !important;
+
+/* The Browser pill draws a stroked globe, and it sits outside .agent-browser-pane,
+   so it needs its own icon metrics. */
+.chat-header-actions .agent-browser-toggle svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
 }
 
 /* Session toggle matches the other outline pills */
@@ -18950,23 +20160,1232 @@ html[data-theme="light"],
 [data-theme="light"] .chat-header-actions .btn-top-update.state-checking,
 [data-theme="light"] .chat-header-actions .agent-browser-toggle:not([aria-pressed="true"]),
 [data-theme="light"] .chat-header-actions .btn-session-rail {
-  background: transparent !important;
-  border: 1px solid rgba(0, 0, 0, 0.14) !important;
+  background: var(--brown-btn-gradient-light) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
   box-shadow: none !important;
-  color: #52525b !important;
+  color: #1f2937 !important;
 }
 [data-theme="light"] .chat-header-actions .btn-top-update:hover,
 [data-theme="light"] .chat-header-actions .btn-top-update.state-none:hover,
 [data-theme="light"] .chat-header-actions .btn-top-update.state-checking:hover,
 [data-theme="light"] .chat-header-actions .agent-browser-toggle:not([aria-pressed="true"]):hover,
 [data-theme="light"] .chat-header-actions .btn-session-rail:hover {
-  background: rgba(0, 0, 0, 0.05) !important;
-  border-color: rgba(0, 0, 0, 0.24) !important;
+  background: #dededf !important;
+  border-color: rgba(0, 0, 0, 0.18) !important;
   color: #18181b !important;
+  filter: none !important;
 }
 [data-theme="light"] .chat-header-actions .top-update-icon-wrap,
 [data-theme="light"] .chat-header-actions .btn-top-update.state-none .top-update-icon-wrap,
-[data-theme="light"] .chat-header-actions .btn-top-update.state-checking .top-update-icon-wrap,
-[data-theme="light"] .chat-header-actions .agent-browser-toggle .agent-browser-brand {
+[data-theme="light"] .chat-header-actions .btn-top-update.state-checking .top-update-icon-wrap {
   background-color: transparent !important;
+}
+
+/* ==========================================
+   SHARED EMPTY STATE (stacked cards)
+   ========================================== */
+.ui-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 18px 16px 20px;
+  text-align: center;
+}
+
+.ui-empty-media {
+  position: relative;
+  width: 236px;
+  height: 88px;
+  margin-bottom: 16px;
+}
+
+.ui-empty-card {
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #151517;
+}
+
+.ui-empty-card-back {
+  left: 24px;
+  right: 24px;
+  top: 0;
+  height: 24px;
+  border-radius: 9px 9px 0 0;
+}
+
+.ui-empty-card-mid {
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  height: 24px;
+  border-radius: 9px 9px 0 0;
+}
+
+.ui-empty-card-front {
+  left: 0;
+  right: 0;
+  top: 24px;
+  height: 64px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  background: #1a1a1d;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.38);
+}
+
+.ui-empty-thumb {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ui-empty-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.ui-empty-line {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.ui-empty-line-long { height: 10px; width: 75%; }
+.ui-empty-line-short { height: 8px; width: 50%; }
+
+.ui-empty-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 32px;
+  border-radius: 0 0 10px 10px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.42));
+  pointer-events: none;
+}
+
+.ui-empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.ui-empty-desc {
+  margin-top: 5px;
+  max-width: 360px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #9ca3af;
+  text-wrap: balance;
+}
+
+.ui-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ui-empty-actions-stack {
+  flex-direction: column;
+  align-items: stretch;
+  width: min(380px, 100%);
+}
+
+/* .btn-primary-sm ships width:fit-content, which leaves the pills ragged in a column. */
+.ui-empty-actions-stack > button {
+  width: 100%;
+  justify-content: center;
+}
+
+[data-theme="light"] .ui-empty-card {
+  border-color: rgba(0, 0, 0, 0.14);
+  background: #ffffff;
+}
+
+[data-theme="light"] .ui-empty-card-front {
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .ui-empty-thumb { background: rgba(0, 0, 0, 0.07); }
+[data-theme="light"] .ui-empty-line { background: rgba(0, 0, 0, 0.1); }
+
+[data-theme="light"] .ui-empty-fade {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.6));
+}
+
+[data-theme="light"] .ui-empty-title { color: var(--text-primary); }
+[data-theme="light"] .ui-empty-desc { color: var(--text-muted); }
+
+/* ==========================================================================
+   SETTINGS → SOFTWARE UPDATES (One UI layout, Brown palette)
+   Single self-contained block: delete this range to revert.
+   ========================================================================== */
+/* Pure-white text scale for this tab (light theme swaps to ink, never to gray). */
+#tab-updates {
+  --osu-strong: #ffffff;
+  --osu-soft: rgba(255, 255, 255, 0.82);
+  --osu-faint: rgba(255, 255, 255, 0.66);
+  --osu-hairline: rgba(255, 255, 255, 0.07);
+  gap: 12px;
+}
+
+/* One card, two halves: the graphic owns the left edge, the status copy the right. */
+#tab-updates .osu-hero {
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+  min-height: 186px;
+  padding: 0;
+  /* clips the art panel to the card's 12px radius */
+  overflow: hidden;
+}
+
+/* The art keeps its own aspect ratio inside this panel, so the glow behind it
+   carries the leftover width instead of flat gradient. */
+#tab-updates .osu-art {
+  position: relative;
+  flex: 0 1 42%;
+  min-width: 0;
+  background:
+    radial-gradient(60% 80% at 50% 52%, rgba(41, 82, 148, 0.34) 0%, rgba(41, 82, 148, 0) 72%),
+    linear-gradient(140deg, #131c33 0%, #0e1220 55%, #0a0b0f 100%);
+}
+
+#tab-updates .osu-art-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#tab-updates .osu-art-mark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 62px;
+  height: 60px;
+  transform: translate(-50%, -50%);
+  object-fit: contain;
+}
+
+#tab-updates .osu-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 14px 16px;
+  text-align: left;
+}
+
+#tab-updates .osu-kicker {
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--osu-soft);
+}
+
+#tab-updates .osu-headline {
+  margin: 3px 0 0 0;
+  font-size: 26px;
+  line-height: 1.12;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  /* the global settings h5 rule pins this text to gray with !important */
+  color: var(--osu-strong) !important;
+}
+
+#tab-updates .osu-legal {
+  margin: 5px 0 0 0;
+  max-width: 540px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--osu-faint);
+}
+
+#tab-updates .osu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 20px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+}
+
+#tab-updates .osu-btn-primary {
+  background: #295294;
+  color: #ffffff;
+}
+
+#tab-updates .osu-btn-primary:hover:not(:disabled) {
+  background: #33629f;
+}
+
+#tab-updates .osu-btn-ghost {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #ffffff;
+}
+
+#tab-updates .osu-btn-ghost:hover {
+  border-color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#tab-updates .osu-btn:disabled {
+  cursor: default;
+}
+
+#tab-updates #btn-check-updates {
+  margin-top: 11px;
+}
+
+/* Buttons are shown by JS (inline display) as the updater state machine changes */
+#tab-updates #btn-download-update,
+#tab-updates #btn-restart-install {
+  display: none;
+}
+
+#tab-updates .osu-action-row {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+#tab-updates .osu-progress {
+  display: none;
+  width: 100%;
+  max-width: 460px;
+  margin-top: 11px;
+}
+
+#tab-updates .osu-progress.is-visible {
+  display: block;
+}
+
+#tab-updates .osu-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#tab-updates .osu-progress-label {
+  font-size: 12px;
+  color: var(--osu-soft);
+}
+
+#tab-updates .osu-progress-pct {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--osu-strong);
+}
+
+#tab-updates .osu-progress-track {
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+#tab-updates .osu-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 3px;
+  background: #295294;
+  transition: width 0.2s ease;
+}
+
+#tab-updates .osu-columns {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+#tab-updates .osu-card {
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+#tab-updates .osu-card-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--osu-strong);
+  margin-bottom: 7px;
+}
+
+#tab-updates .osu-card-notes {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#tab-updates .osu-notes-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* scrollbar gets its own lane without shrinking the card (same trick as the session rail) */
+  padding-right: 8px;
+  margin-right: -8px;
+}
+
+#tab-updates .osu-notes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+#tab-updates .osu-note-item {
+  position: relative;
+  padding-left: 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--osu-strong);
+}
+
+#tab-updates .osu-note-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 4px;
+  height: 4px;
+  border-radius: 2px;
+  background: #60a5fa;
+}
+
+#tab-updates .osu-notes-empty {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--osu-faint);
+}
+
+#tab-updates .osu-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--osu-hairline);
+}
+
+#tab-updates .osu-info-row:last-child {
+  border-bottom: none;
+}
+
+#tab-updates .osu-info-label {
+  font-size: 12.5px;
+  color: var(--osu-soft);
+}
+
+#tab-updates .osu-info-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--osu-strong);
+  text-align: right;
+}
+
+/* Light theme: the artwork card stays brand-dark, the surfaces around it flip */
+[data-theme="light"] #tab-updates {
+  --osu-strong: #131314;
+  --osu-soft: rgba(19, 19, 20, 0.8);
+  --osu-faint: rgba(19, 19, 20, 0.62);
+  --osu-hairline: rgba(0, 0, 0, 0.07);
+}
+
+[data-theme="light"] #tab-updates .osu-btn-ghost {
+  border-color: rgba(0, 0, 0, 0.55);
+  color: #131314;
+}
+
+[data-theme="light"] #tab-updates .osu-btn-ghost:hover {
+  border-color: #000000;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] #tab-updates .osu-progress-track {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] #tab-updates .osu-info-row {
+  border-bottom-color: rgba(0, 0, 0, 0.08);
+}
+
+/* ==========================================================================
+   Settings pane cards: Agent Sounds, Advanced Options, Storage & Memory
+   One anatomy for all three panes: head -> cards -> rows -> footer hint.
+   Tokens come from the .settings-panel theme, so light mode is automatic.
+   ========================================================================== */
+#tab-sounds.tab-pane,
+#tab-performance.tab-pane,
+#tab-storage.tab-pane {
+  gap: 12px;
+}
+
+.set-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.set-title {
+  margin: 0 !important;
+}
+
+.set-intro {
+  margin: 6px 0 0 0;
+  max-width: 560px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--set-muted);
+}
+
+.set-badge {
+  flex-shrink: 0;
+  margin-top: 2px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px solid #2a2a31;
+  background: #1b1b20;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--set-faint);
+}
+
+.set-card {
+  padding: 15px 18px 6px;
+  background: var(--set-card);
+  border: 1px solid var(--set-line);
+  border-radius: 12px;
+  min-width: 0;
+}
+
+.set-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--set-line);
+}
+
+.set-card-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: none;
+  color: #111111;
+}
+
+.set-card-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.set-card-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--set-text) !important;
+}
+
+.set-card-desc {
+  margin: 3px 0 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--set-muted);
+}
+
+.set-card-foot {
+  margin: 0;
+  padding: 11px 0 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--set-faint);
+}
+
+.set-card-foot code {
+  font-size: 11px;
+  color: var(--set-muted);
+}
+
+.set-card-danger {
+  border-color: rgba(239, 68, 68, 0.32);
+}
+
+.set-card-danger .set-card-icon {
+  background: #ffffff;
+  border: none;
+  color: #dc2626;
+}
+
+/* Rows -------------------------------------------------------------------- */
+.set-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--set-line);
+  min-width: 0;
+}
+
+.set-rows > .set-row:last-child,
+.set-rows > .set-slider-row:last-child {
+  border-bottom: none;
+}
+
+.set-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.set-row-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--set-text);
+}
+
+.set-row-desc {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--set-faint);
+}
+
+/* Static legend rows that mirror a segmented toggle above them */
+.set-row-static .set-row-name {
+  color: var(--set-muted);
+}
+
+.set-row-static .set-row-desc {
+  opacity: 0.72;
+}
+
+.set-row-static.is-active .set-row-name {
+  color: var(--set-text);
+}
+
+.set-row-static.is-active .set-row-desc {
+  opacity: 1;
+}
+
+.set-row-check {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.set-row-check input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.set-row-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.set-row-path {
+  align-items: flex-start;
+}
+
+.set-row-path .set-row-info {
+  gap: 7px;
+}
+
+.set-row-usage .set-usage-val {
+  font-variant-numeric: tabular-nums;
+}
+
+.set-path {
+  font-family: "Segoe UI", sans-serif;
+  font-size: 11px;
+  color: var(--set-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.set-usage-val {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--set-text);
+}
+
+/* Sliders ----------------------------------------------------------------- */
+.set-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--set-line);
+}
+
+.set-slider-label {
+  flex-shrink: 0;
+  min-width: 128px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--set-text);
+}
+
+.set-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--set-accent);
+  cursor: pointer;
+}
+
+.set-slider-value {
+  flex-shrink: 0;
+  min-width: 56px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--set-muted);
+}
+
+/* Switches ---------------------------------------------------------------- */
+.set-switch {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 20px;
+  margin: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.set-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.set-switch-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.set-switch-caption {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--set-faint);
+}
+
+/* Segmented toggle -------------------------------------------------------- */
+.set-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 3px;
+  border: 1px solid var(--set-line-strong);
+  border-radius: 9999px;
+  background: #0e0e12;
+}
+
+.set-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 11px;
+  border: none;
+  background: transparent;
+  color: var(--set-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.set-seg-btn:hover {
+  color: var(--set-text);
+  background: #1c1c21;
+}
+
+.set-seg-btn.active {
+  background: #295294;
+  color: #ffffff;
+}
+
+.set-seg-btn.active:hover {
+  background: #33629f;
+  color: #ffffff;
+}
+
+/* Pills ------------------------------------------------------------------- */
+.set-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 9999px;
+  border: 1px solid #2e2e36;
+  background: #111111;
+  color: var(--set-text);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.set-pill:hover:not(:disabled) {
+  background: #1c1c1c;
+  border-color: #3d3d47;
+}
+
+.set-pill:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.set-pill svg {
+  flex-shrink: 0;
+}
+
+.set-pill-primary {
+  background: #295294;
+  border-color: #295294;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.set-pill-primary:hover:not(:disabled) {
+  background: #33629f;
+  border-color: #33629f;
+  color: #ffffff;
+}
+
+.set-pill-danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.set-pill-danger:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #ffffff;
+}
+
+/* Path inputs ------------------------------------------------------------- */
+.set-input {
+  width: 100%;
+  height: 34px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--set-line-strong);
+  background: #0e0e12;
+  color: var(--set-text);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.set-input:focus {
+  border-color: var(--set-accent);
+}
+
+.set-input[readonly] {
+  color: var(--set-muted);
+  background: #17171c;
+  cursor: default;
+}
+
+/* Telemetry strip --------------------------------------------------------- */
+.set-telemetry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #0e0e12;
+  border: 1px solid var(--set-line);
+}
+
+.set-telemetry-cell {
+  flex: 1 1 180px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.set-telemetry-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--set-faint);
+}
+
+.set-telemetry-val {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--set-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Reused internals inside the new cards ----------------------------------- */
+.set-rows .tts-models-list {
+  margin: 0;
+  padding: 12px 0 6px;
+  gap: 8px;
+}
+
+.set-rows .connector-download-progress {
+  margin: 12px 0 6px;
+}
+
+.set-rows .connector-feedback {
+  margin: 4px 0 10px;
+}
+
+.set-card .tts-select,
+.set-card .custom-select {
+  flex-shrink: 0;
+}
+
+.set-row .tts-select {
+  max-width: 260px;
+}
+
+/* Solid status fills for the decorated action buttons (voice / model pills).
+   These carry .settings-action-btn.is-*, whose translucent fills are 3-class
+   selectors, so match them with 4 classes to keep the pill solid. */
+.settings-panel .set-pill.settings-action-btn.is-ready,
+.settings-panel .set-pill.settings-action-btn.is-downloaded,
+.settings-panel .set-pill.settings-action-btn.is-active-voice,
+.settings-panel .set-pill.settings-action-btn.is-cloud-ready {
+  background: #12301f;
+  border-color: #1e5c39;
+  color: #6ee7a0;
+}
+
+.settings-panel .set-pill.settings-action-btn.is-downloading {
+  background: #33260c;
+  border-color: #5c4415;
+  color: #fcd34d;
+}
+
+.settings-panel .set-pill.settings-action-btn.is-cloud-missing {
+  background: #2a1719;
+  border-color: #55262a;
+  color: #fca5a5;
+}
+
+/* Light theme: solid fills, no translucency -------------------------------- */
+[data-theme="light"] .set-badge {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+  color: #6b7280;
+}
+
+[data-theme="light"] .set-card-icon {
+  background: #ffffff;
+  border: 1px solid #e2e2e7;
+  color: #111111;
+}
+
+[data-theme="light"] .set-pill {
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+  color: #1f2937;
+}
+
+[data-theme="light"] .set-pill:hover:not(:disabled) {
+  background: #e9e9ec;
+  border-color: #d6d6db;
+}
+
+[data-theme="light"] .set-seg {
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+}
+
+[data-theme="light"] .set-seg-btn {
+  color: #6b7280;
+}
+
+[data-theme="light"] .set-seg-btn:hover {
+  color: #1f2937;
+  background: #e9e9ec;
+}
+
+[data-theme="light"] .set-seg-btn.active,
+[data-theme="light"] .set-seg-btn.active:hover {
+  background: #295294;
+  color: #ffffff;
+}
+
+[data-theme="light"] .set-pill.set-pill-primary {
+  background: #295294;
+  border-color: #295294;
+  color: #ffffff;
+}
+
+[data-theme="light"] .set-pill.set-pill-primary:hover:not(:disabled) {
+  background: #33629f;
+  border-color: #33629f;
+  color: #ffffff;
+}
+
+[data-theme="light"] .set-pill-danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
+[data-theme="light"] .set-pill-danger:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
+  color: #ffffff;
+}
+
+[data-theme="light"] .set-card-danger .set-card-icon {
+  color: #dc2626;
+}
+
+[data-theme="light"] .settings-panel .set-pill.settings-action-btn.is-ready,
+[data-theme="light"] .settings-panel .set-pill.settings-action-btn.is-downloaded,
+[data-theme="light"] .settings-panel .set-pill.settings-action-btn.is-active-voice,
+[data-theme="light"] .settings-panel .set-pill.settings-action-btn.is-cloud-ready {
+  background: #dcfce7;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+[data-theme="light"] .settings-panel .set-pill.settings-action-btn.is-downloading {
+  background: #fef3c7;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+[data-theme="light"] .settings-panel .set-pill.settings-action-btn.is-cloud-missing {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+[data-theme="light"] .set-input {
+  background: #ffffff;
+  color: #111827;
+}
+
+[data-theme="light"] .set-input[readonly] {
+  background: #f7f7f8;
+  color: #6b7280;
+}
+
+[data-theme="light"] .set-telemetry {
+  background: #f7f7f8;
+}
+
+/* .tts-select is hardcoded near-black; settings cards need the light variant */
+[data-theme="light"] .settings-panel .tts-select {
+  background-color: #ffffff;
+  border-color: #e5e7eb;
+  color: #111827;
+}
+
+/* ============================================================
+   SOLID FILLS — icons + buttons in the three rebuilt tabs.
+   Several of these buttons never received .set-pill (the shared
+   .settings-action-btn decoration rewrites className), so the
+   solid treatment is re-declared per tab with ID specificity.
+   ============================================================ */
+#tab-sounds .settings-action-btn,
+#tab-sounds .sound-preview-btn,
+#tab-sounds .sound-file-picker {
+  background: #111111;
+  border: 1px solid #2e2e36;
+  border-radius: 9999px;
+  color: var(--set-text);
+}
+
+#tab-sounds .settings-action-btn:hover:not(:disabled),
+#tab-sounds .sound-preview-btn:hover:not(:disabled),
+#tab-sounds .sound-file-picker:hover:not(:disabled) {
+  background: #1c1c1c;
+  border-color: #3d3d47;
+  color: #ffffff;
+}
+
+#tab-sounds .settings-action-btn.is-ready,
+#tab-sounds .settings-action-btn.is-downloaded,
+#tab-sounds .settings-action-btn.is-active-voice,
+#tab-sounds .settings-action-btn.is-cloud-ready {
+  background: #12301f;
+  border-color: #1e5c39;
+  color: #6ee7a0;
+}
+
+#tab-sounds .settings-action-btn.is-downloading {
+  background: #33260c;
+  border-color: #5c4415;
+  color: #fcd34d;
+}
+
+#tab-sounds .settings-action-btn.is-cloud-missing {
+  background: #2a1719;
+  border-color: #55262a;
+  color: #fca5a5;
+}
+
+/* No outer container around the mode cards — they sit on the card surface. */
+#tab-performance .perf-settings-options {
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  gap: 8px;
+}
+
+#tab-performance .perf-option-item {
+  background: #111111;
+  border: 1px solid #2a2a31;
+}
+
+#tab-performance .perf-option-item:hover {
+  background: #1c1c1c;
+  border-color: #3a3a44;
+}
+
+#tab-performance .perf-option-item.active {
+  background: #12303b;
+  border-color: #1f5f70;
+}
+
+#tab-performance .perf-option-item[data-mode="gpu"].active {
+  background: #123024;
+  border-color: #1e5c39;
+}
+
+#tab-performance .perf-option-item[data-mode="cpu"].active {
+  background: #33260c;
+  border-color: #5c4415;
+}
+
+[data-theme="light"] #tab-sounds .settings-action-btn,
+[data-theme="light"] #tab-sounds .sound-preview-btn,
+[data-theme="light"] #tab-sounds .sound-file-picker {
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+  color: #1f2937;
+}
+
+[data-theme="light"] #tab-sounds .settings-action-btn:hover:not(:disabled),
+[data-theme="light"] #tab-sounds .sound-preview-btn:hover:not(:disabled),
+[data-theme="light"] #tab-sounds .sound-file-picker:hover:not(:disabled) {
+  background: #e9e9ec;
+  border-color: #d6d6db;
+}
+
+[data-theme="light"] #tab-sounds .settings-action-btn.is-ready,
+[data-theme="light"] #tab-sounds .settings-action-btn.is-downloaded,
+[data-theme="light"] #tab-sounds .settings-action-btn.is-active-voice,
+[data-theme="light"] #tab-sounds .settings-action-btn.is-cloud-ready {
+  background: #dcfce7;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+[data-theme="light"] #tab-sounds .settings-action-btn.is-downloading {
+  background: #fef3c7;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+[data-theme="light"] #tab-sounds .settings-action-btn.is-cloud-missing {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+[data-theme="light"] #tab-performance .perf-settings-options {
+  background: none;
+  border: none;
+}
+
+[data-theme="light"] #tab-performance .perf-option-item {
+  background: #ffffff;
+  border-color: #e4e4e7;
+}
+
+[data-theme="light"] #tab-performance .perf-option-item:hover {
+  background: #f4f4f5;
+  border-color: #d6d6db;
+}
+
+[data-theme="light"] #tab-performance .perf-option-item.active {
+  background: #e0f2fe;
+  border-color: #7dd3fc;
+}
+
+[data-theme="light"] #tab-performance .perf-option-item[data-mode="gpu"].active {
+  background: #dcfce7;
+  border-color: #86efac;
+}
+
+[data-theme="light"] #tab-performance .perf-option-item[data-mode="cpu"].active {
+  background: #fef3c7;
+  border-color: #fcd34d;
 }
