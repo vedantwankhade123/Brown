@@ -46,8 +46,6 @@ yarn-error.log*
 Ultron-local/
 brown-local/
 UltronDataDev-migrated-from-C/
-"Downloadable Files"/
-Downloadable Files/
 .system_generated/
 .gemini/
 .agents/
@@ -78,3 +76,6 @@ guide/
 
 # Local staging folder for release binaries (never committed)
 downloadables/
+
+# Offline copy of the Android release keystore + passwords (never committed)
+keystore-backup/

@@ -29,9 +29,6 @@
       "repo": "Brown",
       "releaseType": "release"
     },
-    "releaseInfo": {
-      "releaseName": "Brown AI v1.0.1 (Desktop & Mobile)"
-    },
     "compression": "maximum",
     "npmRebuild": false,
     "electronLanguages": [
