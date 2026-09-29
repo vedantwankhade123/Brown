@@ -1,6 +1,6 @@
 {
   "name": "brown",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Local offline privacy-focused Windows AI Agent framework (Brown)",
   "author": "Vedant Wankhade",
   "license": "Proprietary",
@@ -135,6 +135,7 @@
     "ai": "^7.0.114",
     "electron-updater": "^6.3.9",
     "kokoro-js": "^1.2.1",
+    "lottie-web": "^5.13.0",
     "marked": "^18.0.6",
     "mcp-fetch-server": "^1.1.2",
     "mermaid": "^11.17.2",

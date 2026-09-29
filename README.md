@@ -1,13 +1,13 @@
 # Brown AI — Autonomous Local-First Windows AI Agent
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-v1.0-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown/releases)
+[![Release](https://img.shields.io/badge/Release-v1.0.2-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown/releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
 <p align="center">
   <a href="https://usebrown.online/">
-    <img src="Assets/Brand-Assets/brown-logo.png" alt="Brown AI Logo" width="160" />
+    <img src="Assets/Brown-black.png" alt="Brown AI Logo" width="160" />
   </a>
 </p>
 
@@ -35,13 +35,29 @@
 
 ## 💾 Downloads & Installation
 
-Official pre-compiled binaries are published in their respective repositories:
+Official pre-compiled binaries are published in their respective repositories. The download links below use stable `latest` aliases, so they always resolve to the newest release:
 
 | Build Type | Download | Platform | Description |
 | :--- | :--- | :--- | :--- |
-| **Setup Installer** | [`Brown-AI-Setup-v1.0.1.exe`](https://github.com/vedantwankhade123/Brown/releases/latest) | Windows 10 / 11 (x64) | Standard guided installer with Start Menu & Desktop shortcuts. |
-| **Portable Binary** | [`Brown-AI-v1.0.1.exe`](https://github.com/vedantwankhade123/Brown/releases/latest) | Windows 10 / 11 (x64) | Standalone executable. Runs immediately without installation. |
-| **Android APK** | [`Brown-AI-Mobile.apk`](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest) | Android 11+ | Direct APK install for phones and tablets. |
+| **Setup Installer** | [`Brown-AI-Setup.exe`](https://github.com/vedantwankhade123/Brown/releases/latest/download/Brown-AI-Setup.exe) | Windows 10 / 11 (x64) | Guided installer with Start Menu & Desktop shortcuts. Auto-updates in place. |
+| **Portable Binary** | [`Brown-AI-Portable.exe`](https://github.com/vedantwankhade123/Brown/releases/latest/download/Brown-AI-Portable.exe) | Windows 10 / 11 (x64) | Standalone executable. Runs immediately without installation. |
+| **Android APK** | [`Brown-AI-Mobile.apk`](https://github.com/vedantwankhade123/Brown-Mobile/releases/latest/download/Brown-AI-Mobile.apk) | Android 10+ (arm64-v8a) | Direct APK install for phones and tablets. |
+
+> **First launch**: binaries are not Authenticode-signed yet, so Windows SmartScreen may show *"Windows protected your PC"* — click **More info → Run anyway**. Android will warn about an unknown-source app; allow it for this installer only.
+
+---
+
+## 🔄 Release Pipeline
+
+Releases are built by GitHub Actions, never by hand:
+
+| Repo | Workflow | Trigger |
+| :--- | :--- | :--- |
+| `Brown` | [`ci.yml`](.github/workflows/ci.yml) | Every push / PR — `npm ci` + `npm test` |
+| `Brown` | [`release.yml`](.github/workflows/release.yml) | Tag `v*` — packages NSIS setup, portable binary, `latest.yml`, publishes to GitHub Releases |
+| `Brown-Mobile` | [`build-apk.yml`](.github/workflows/build-apk.yml) | Tag `v*` — Gradle `assembleRelease` with the production keystore (injected as Actions secrets) |
+
+To ship a release: bump `version` (plus `versionCode` on mobile), commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 ---
 
