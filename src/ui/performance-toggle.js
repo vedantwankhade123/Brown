@@ -79,43 +79,88 @@
 
   /**
    * UPDATE SYSTEM TELEMETRY
+   * Each field is read independently: one failing IPC must not blank the others.
    */
-  async function updateTelemetry() {
-    const gpuEl = document.getElementById('perf-gpu-telemetry');
-    const memEl = document.getElementById('perf-mem-telemetry');
+  const TELEMETRY_UNAVAILABLE = 'Not available';
+  const GENERIC_GPU_NAMES = ['no gpu detected', 'generic display adapter', 'microsoft basic render driver'];
 
+  // Last resort: the main-process hardware profile can be missing (an older main
+  // process still running), but WebGL in this window can name the GPU directly.
+  function detectGpuFromWebGL() {
     try {
-      if (gpuEl) {
-        if (window.ultronAPI && typeof window.ultronAPI.getSystemInfo === 'function') {
-          const sysInfo = await window.ultronAPI.getSystemInfo();
-          if (sysInfo && sysInfo.gpu) {
-            const name = sysInfo.gpu.model || sysInfo.gpu.name || sysInfo.gpu.vendor || 'Integrated Graphics';
-            const vram = sysInfo.gpu.vramGB ? ` (${sysInfo.gpu.vramGB} GB)` : '';
-            gpuEl.textContent = `${name}${vram}`;
-          } else if (sysInfo && Array.isArray(sysInfo.gpus) && sysInfo.gpus.length > 0) {
-            gpuEl.textContent = sysInfo.gpus[0];
-          } else {
-            gpuEl.textContent = 'Auto (DirectX / Vulkan)';
-          }
-        } else {
-          gpuEl.textContent = 'Hardware Acceleration Ready';
-        }
-      }
+      const gl = document.createElement('canvas').getContext('webgl');
+      if (!gl) return null;
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const raw = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '') : '';
+      const lose = gl.getExtension('WEBGL_lose_context');
+      if (lose) lose.loseContext();
+      const parts = raw.replace(/^ANGLE\s*\(/i, '').replace(/\)\s*$/, '').split(',');
+      const name = (parts[1] || parts[0] || '')
+        .replace(/\(\s*0x[0-9a-fA-F]+\s*\)/g, '')
+        .replace(/\b(Direct3D|OpenGL|Metal|vs_|ps_|ShaderModel).*$/i, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return name && !GENERIC_GPU_NAMES.includes(name.toLowerCase()) ? name : null;
+    } catch (e) {
+      return null;
+    }
+  }
 
-      if (memEl) {
-        if (window.ultronAPI && typeof window.ultronAPI.getLiveMetrics === 'function') {
-          const metrics = await window.ultronAPI.getLiveMetrics();
-          if (metrics && metrics.success) {
-            memEl.textContent = `${metrics.memoryUsedPct}% used (${metrics.freeMemoryGB} GB free)`;
-          } else if (performance.memory) {
-            const usedMB = Math.round(performance.memory.usedJSHeapSize / (1024 * 1024));
-            memEl.textContent = `${usedMB} MB JS Heap`;
-          }
-        }
+  async function readGpuTelemetry() {
+    const gpuEl = document.getElementById('perf-gpu-telemetry');
+    if (!gpuEl) return;
+
+    let sysInfo = null;
+    try {
+      if (window.ultronAPI && typeof window.ultronAPI.getSystemInfo === 'function') {
+        const result = await window.ultronAPI.getSystemInfo();
+        sysInfo = result && result.success !== false ? result : null;
       }
     } catch (e) {
-      if (gpuEl) gpuEl.textContent = 'Active';
+      console.warn('[Performance Toggle] get-system-info failed:', e.message);
     }
+
+    const card = (sysInfo && sysInfo.gpu) || {};
+    let name = String(card.model || card.name || (sysInfo && sysInfo.gpuName) || '').trim();
+    if (GENERIC_GPU_NAMES.includes(name.toLowerCase())) name = '';
+    const vramGB = Number(card.vramGB || (sysInfo && sysInfo.gpuVramGB) || 0);
+    if (!name) name = detectGpuFromWebGL() || '';
+
+    if (!name) {
+      gpuEl.textContent = sysInfo ? TELEMETRY_UNAVAILABLE : 'Restart Brown to detect';
+      return;
+    }
+    gpuEl.textContent = vramGB ? `${name} (${vramGB} GB)` : name;
+  }
+
+  async function readMemoryTelemetry() {
+    const memEl = document.getElementById('perf-mem-telemetry');
+    const cpuEl = document.getElementById('perf-cpu-telemetry');
+    try {
+      if (!window.ultronAPI || typeof window.ultronAPI.getLiveMetrics !== 'function') {
+        throw new Error('no metrics bridge');
+      }
+      const metrics = await window.ultronAPI.getLiveMetrics();
+      if (!metrics || metrics.success !== true) {
+        throw new Error((metrics && metrics.error) || 'empty metrics payload');
+      }
+      if (memEl) {
+        memEl.textContent = `${metrics.memoryUsedPct}% used · ${metrics.freeMemoryGB} of ${metrics.totalMemoryGB} GB free`;
+      }
+      if (cpuEl) {
+        cpuEl.textContent = metrics.cpuLoadPct == null
+          ? `${metrics.cpuCores} threads`
+          : `${metrics.cpuLoadPct}% across ${metrics.cpuCores} threads`;
+      }
+    } catch (e) {
+      console.warn('[Performance Toggle] get-live-metrics failed:', e.message);
+      if (memEl) memEl.textContent = TELEMETRY_UNAVAILABLE;
+      if (cpuEl) cpuEl.textContent = TELEMETRY_UNAVAILABLE;
+    }
+  }
+
+  async function updateTelemetry() {
+    await Promise.all([readGpuTelemetry(), readMemoryTelemetry()]);
   }
 
   /**

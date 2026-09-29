@@ -25,6 +25,7 @@ const EXCLUDED_DIRS = new Set([
 ]);
 const MAX_FILES_PER_SOURCE = 1500;
 const MAX_FILE_BYTES = 1500000; // 1.5 MB per file
+const MAX_SOURCE_BYTES = 25000000; // 25 MB of text per folder, keeps one index pass inside the heap
 const MAX_AUTO_FILE_SOURCES = 250;
 
 let os;
@@ -304,8 +305,11 @@ function fixedSizeChunk(text, filePath, fileName, startIdx) {
       chunkIdx++;
     }
 
+    // The tail slice is complete: re-overlapping it would land on the same
+    // `start` forever (start = clean.length - CHUNK_OVERLAP < clean.length),
+    // which looped until the process ran out of heap.
+    if (end >= clean.length) break;
     start = end - CHUNK_OVERLAP;
-    if (start >= clean.length || start < 0) break;
   }
 
   return chunks;
@@ -381,19 +385,11 @@ async function extractTextFromPdfBuffer(buffer) {
         }
       }
     } catch {}
-
-    const str = Buffer.from(uint8).toString('latin1');
-    const texts = [];
-    const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-    let match;
-    while ((match = streamRegex.exec(str)) !== null) {
-      const textMatch = match[1].match(/\((.*?)\)|\[(.*?)\]/g);
-      if (textMatch) {
-        texts.push(textMatch.map(t => t.replace(/^[(\[]|[)\]]$/g, '')).join(' '));
-      }
-    }
-    if (texts.length > 0) return texts.join('\n');
-    return str.replace(/[^\x20-\x7E\n\r\t]/g, ' ').trim();
+    // No usable text layer (scanned/image-only PDF, or extraction failed).
+    // Returning nothing is deliberate: scraping the raw bytes produced binary junk
+    // that got chunked into the index, and its huge random-vocabulary vectors
+    // exhausted the main-process heap.
+    return '';
   } catch {
     return '';
   }
@@ -422,15 +418,16 @@ function collectFiles(sourcePath) {
   const stat = fs.statSync(sourcePath);
   if (stat.isFile()) {
     const ext = path.extname(sourcePath).toLowerCase();
-    if (SUPPORTED_EXTENSIONS.has(ext)) {
+    if (SUPPORTED_EXTENSIONS.has(ext) && stat.size <= MAX_FILE_BYTES) {
       results.push(sourcePath);
     }
     return results;
   }
 
   if (stat.isDirectory()) {
+    let totalBytes = 0;
     const walk = (dir, depth = 0) => {
-      if (depth > 6 || results.length >= MAX_FILES_PER_SOURCE) return;
+      if (depth > 6 || results.length >= MAX_FILES_PER_SOURCE || totalBytes >= MAX_SOURCE_BYTES) return;
       try {
         const items = fs.readdirSync(dir, { withFileTypes: true });
         for (const item of items) {
@@ -441,11 +438,14 @@ function collectFiles(sourcePath) {
           } else if (item.isFile()) {
             const ext = path.extname(item.name).toLowerCase();
             if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
+            let size = 0;
             try {
-              if (fs.statSync(full).size > MAX_FILE_BYTES) continue;
+              size = fs.statSync(full).size;
+              if (size > MAX_FILE_BYTES) continue;
             } catch { continue; }
+            totalBytes += size;
             results.push(full);
-            if (results.length >= MAX_FILES_PER_SOURCE) break;
+            if (results.length >= MAX_FILES_PER_SOURCE || totalBytes >= MAX_SOURCE_BYTES) break;
           }
         }
       } catch {}
@@ -460,7 +460,7 @@ function chunksBelongToSource(chunkPath, sourcePath) {
 }
 
 // Add folders or files to the Knowledge Base
-async function addSources(targetPaths = []) {
+async function addSources(targetPaths = [], progressCallback = null) {
   const indexData = loadIndex();
   const added = [];
 
@@ -483,8 +483,9 @@ async function addSources(targetPaths = []) {
   }
 
   saveIndex(indexData);
-  await reindexAll();
-  return { success: true, added, sources: indexData.sources, totalSources: indexData.sources.length };
+  const result = await reindexAll(progressCallback);
+  const refreshed = loadIndex();
+  return { success: true, added, sources: refreshed.sources, totalSources: refreshed.sources.length, totalChunks: result.totalChunks };
 }
 
 // Remove a source from the Knowledge Base
@@ -819,6 +820,32 @@ function getStats() {
   };
 }
 
+// Distinct indexed files, for the @ mention file picker. Derived from chunks so
+// directory sources, auto-learned files and pasted text all show up.
+function listIndexedFiles(filter = '') {
+  const indexData = loadIndex();
+  const byFile = new Map();
+  for (const chunk of (indexData.chunks || [])) {
+    if (!chunk || !chunk.filePath) continue;
+    const current = byFile.get(chunk.filePath);
+    if (current) {
+      current.chunkCount++;
+    } else {
+      byFile.set(chunk.filePath, {
+        path: chunk.filePath,
+        fileName: chunk.fileName || path.basename(chunk.filePath),
+        chunkCount: 1
+      });
+    }
+  }
+  const needle = String(filter || '').trim().toLowerCase();
+  const files = [...byFile.values()].sort((a, b) => a.path.length - b.path.length);
+  return {
+    success: true,
+    files: needle ? files.filter(f => f.path.toLowerCase().includes(needle)) : files
+  };
+}
+
 module.exports = {
   addSources,
   removeSource,
@@ -829,5 +856,6 @@ module.exports = {
   indexTextContent,
   searchKnowledge,
   clearIndex,
-  getStats
+  getStats,
+  listIndexedFiles
 };

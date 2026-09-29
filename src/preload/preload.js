@@ -40,6 +40,8 @@ const apiMethods = {
   captureScreen: (payload) => ipcRenderer.invoke('capture-screen', payload || {}),
   ocrScreen: (payload) => ipcRenderer.invoke('ocr-screen', payload || {}),
   getLiveMetrics: () => ipcRenderer.invoke('get-live-metrics'),
+  getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
+  getStorageUsage: () => ipcRenderer.invoke('get-storage-usage'),
   restoreFileBackup: (payload) => ipcRenderer.invoke('restore-file-backup', payload),
   searchWeb: (query, options) => ipcRenderer.invoke('search-web', query, options),
   getMcpStatus: () => ipcRenderer.invoke('get-mcp-status'),
@@ -243,6 +245,7 @@ const apiMethods = {
   ragSearch: (payload) => ipcRenderer.invoke('rag:search', payload),
   ragClear: () => ipcRenderer.invoke('rag:clear'),
   ragGetStats: () => ipcRenderer.invoke('rag:get-stats'),
+  ragListFiles: (filter) => ipcRenderer.invoke('rag:list-files', filter),
   onRagIndexProgress: (callback) => {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('rag:index-progress', subscription);

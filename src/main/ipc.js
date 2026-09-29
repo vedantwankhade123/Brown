@@ -2514,6 +2514,118 @@ function getInstallationDefaultDataDir() {
     return getStoragePathsSnapshot();
   });
 
+  // Active GPU + hardware summary for the Performance telemetry strip.
+  // Reuses the cached profileHardware() result (60s TTL) so no extra probing per call.
+  ipcMain.handle('get-system-info', async () => {
+    try {
+      const hardware = await profileHardware();
+      const details = Array.isArray(hardware.gpuDetails) ? hardware.gpuDetails : [];
+      const active = hardware.dedicatedGpu || details[0] || null;
+      const gpuName = active ? String(active.model || 'Unknown adapter').trim() : 'No GPU detected';
+      const gpuVendor = active ? String(active.vendor || '').trim() : '';
+      const gpuVramGB = active ? Number(active.vramGB || 0) : 0;
+      return {
+        success: true,
+        gpu: {
+          model: gpuName,
+          name: gpuName,
+          vendor: gpuVendor,
+          vramGB: gpuVramGB,
+          vram: gpuVramGB,
+          dedicated: Boolean(active && active.dedicated)
+        },
+        gpuName,
+        gpuVendor,
+        gpuVramGB,
+        hasDedicatedGpu: Boolean(hardware.hasDedicatedGpu),
+        gpuCount: details.length,
+        totalRamGB: hardware.totalRamGB,
+        cpuThreads: hardware.cpuThreads
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // Byte usage of the three storage roots, for the Storage & Memory tab.
+  const STORAGE_USAGE_SCAN_LIMIT = 30000;
+  async function measureDirBytes(rootDir) {
+    const empty = { path: rootDir || null, exists: false, bytes: 0, files: 0, truncated: false };
+    if (!rootDir) return empty;
+    let stat = null;
+    try {
+      stat = await fs.promises.stat(rootDir);
+    } catch (e) {
+      return empty;
+    }
+    if (!stat.isDirectory()) {
+      return { path: rootDir, exists: true, bytes: stat.size, files: 1, truncated: false };
+    }
+
+    let bytes = 0;
+    let files = 0;
+    let truncated = false;
+    const queue = [rootDir];
+    while (queue.length) {
+      const current = queue.pop();
+      let entries;
+      try {
+        entries = await fs.promises.readdir(current, { withFileTypes: true });
+      } catch (e) {
+        continue;
+      }
+      for (const entry of entries) {
+        if (entry.name === '.permcheck') continue;
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          queue.push(full);
+          continue;
+        }
+        if (files >= STORAGE_USAGE_SCAN_LIMIT) {
+          truncated = true;
+          break;
+        }
+        try {
+          const st = await fs.promises.lstat(full);
+          if (st.isSymbolicLink()) continue;
+          bytes += st.size;
+          files += 1;
+        } catch (e) { /* unreadable entry — skip */ }
+      }
+      // Yield so a large models folder can't block the main process loop.
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    return { path: rootDir, exists: true, bytes, files, truncated };
+  }
+
+  ipcMain.handle('get-storage-usage', async () => {
+    try {
+      const snapshot = getStoragePathsSnapshot();
+      const [data, connectors, models] = await Promise.all([
+        measureDirBytes(snapshot.agentDataDir),
+        measureDirBytes(snapshot.connectorsDir),
+        measureDirBytes(snapshot.ollamaModelsDir)
+      ]);
+      return {
+        success: true,
+        data,
+        connectors,
+        models,
+        totalBytes: data.bytes + connectors.bytes + models.bytes,
+        freeDiskGB: (() => {
+          try {
+            const disk = fs.statfsSync ? fs.statfsSync(path.parse(snapshot.ultronRoot || process.cwd()).root) : null;
+            return disk ? parseFloat((disk.bsize * disk.bavail / (1024 ** 3)).toFixed(1)) : null;
+          } catch (e) {
+            return null;
+          }
+        })()
+      };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
   // Save conversation history to local data directory path
   ipcMain.handle('save-conversations', async (event, dataStr) => {
     try {
@@ -3877,10 +3989,12 @@ function getInstallationDefaultDataDir() {
   // ==========================================
   // LOCAL VECTOR RAG KNOWLEDGE BASE IPC HANDLERS
   // ==========================================
-  ipcMain.handle('rag:add-sources', async (_event, targetPaths = []) => {
+  ipcMain.handle('rag:add-sources', async (event, targetPaths = []) => {
     try {
       const rag = require('./rag-engine');
-      return await rag.addSources(targetPaths);
+      return await rag.addSources(targetPaths, (progress) => {
+        event.sender.send('rag:index-progress', progress);
+      });
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -3939,8 +4053,9 @@ function getInstallationDefaultDataDir() {
       const rag = require('./rag-engine');
       const query = typeof payload === 'string' ? payload : (payload.query || '');
       const options = typeof payload === 'object' ? payload : {};
-      const results = await rag.searchKnowledge(query, options);
-      return { success: true, results };
+      // searchKnowledge already returns { success, results: [] } — wrapping it again
+      // would hand the renderer an object where it expects an array.
+      return await rag.searchKnowledge(query, options);
     } catch (err) {
       return { success: false, error: err.message, results: [] };
     }
@@ -3961,6 +4076,15 @@ function getInstallationDefaultDataDir() {
       return { success: true, ...rag.getStats() };
     } catch (err) {
       return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:list-files', async (_event, filter) => {
+    try {
+      const rag = require('./rag-engine');
+      return rag.listIndexedFiles(filter);
+    } catch (err) {
+      return { success: false, error: err.message, files: [] };
     }
   });
 

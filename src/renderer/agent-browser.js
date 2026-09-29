@@ -575,7 +575,7 @@
     if (!ui.view || !ui.chat) return;
     ui.toggle = button('Browser', () => paneOpen ? closePane() : openPane(true), 'agent-browser-toggle');
     ui.toggle.id = 'btn-agent-browser-toggle';
-    ui.toggle.prepend(brandMark());
+    ui.toggle.prepend(globe());
     ui.toggle.setAttribute('aria-controls', 'agent-browser-pane');
     const header = document.querySelector('.chat-header') || document.querySelector('main > header') || ui.view.parentElement;
     const actions = header.querySelector('.chat-header-actions') || header;
