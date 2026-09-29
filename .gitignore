@@ -75,3 +75,6 @@ brown-releases/
 docs/guides/
 guides/
 guide/
+
+# Local staging folder for release binaries (never committed)
+downloadables/
