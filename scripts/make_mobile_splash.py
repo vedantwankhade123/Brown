@@ -6,12 +6,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 SPLASH = "mobile/Assets/Brown-splash.png"
 MARK = "mobile/Assets/Brown-adaptive.png"
-FONT = "mobile/node_modules/@expo-google-fonts/outfit/700Bold/Outfit_700Bold.ttf"
+FONT = "mobile/node_modules/@expo-google-fonts/outfit/500Medium/Outfit_500Medium.ttf"
 
 SIZE = 1280
 WORD = "Brown"
 FONT_PX = 118
-TRACKING = 0.05  # em, matches the app's letterSpacing idiom
+TRACKING = -0.025  # em, matches the desktop splash .splash-brand-title letter-spacing
 GAP = 62  # logo bottom -> text top
 LOGO_H = 380
 

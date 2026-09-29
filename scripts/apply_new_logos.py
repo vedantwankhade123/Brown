@@ -11,6 +11,7 @@ Run from D:/Ultron:  python scripts/apply_new_logos.py
 import base64
 import io
 import os
+import shutil
 
 from PIL import Image
 
@@ -18,6 +19,7 @@ ROOT = 'd:/Ultron'
 SRC_WHITE = os.path.join(ROOT, 'Assets', 'Brown-white.png')
 SRC_BLACK = os.path.join(ROOT, 'Assets', 'Brown-black.png')
 SRC_BLACK_W = os.path.join(ROOT, 'Assets', 'Brown-black-w.png')
+SRC_LOTTIE = os.path.join(ROOT, 'Assets', 'brown-logo-animation.json')
 
 DESKTOP_ASSETS = os.path.join(ROOT, 'Assets')
 BRAND_ASSETS = os.path.join(DESKTOP_ASSETS, 'Brand-Assets')
@@ -103,6 +105,34 @@ def rounded_tile(img, radius_pct=22.5):
     return out
 
 
+def web_favicons(white, black_w):
+    """Website tab/search icon set. Split out so favicons can be regenerated alone:
+      python -c "import sys;sys.path.insert(0,'d:/Ultron/scripts');import apply_new_logos as m;m.web_favicons(m.load(m.SRC_WHITE),m.load(m.SRC_BLACK_W))"
+    """
+    # browser tab favicons — WHITE mark on transparent, no tile behind it.
+    # The .ico stays the BLACK-on-white tile: browsers that honour the declared icon links below
+    # render the white tab mark, while Googlebot always fetches the root /favicon.ico, so the
+    # search-results tile keeps the black mark.
+    tab = {s: place(white, s, s, 100) for s in (16, 24, 32, 48, 128)}
+    black_tile = {s: rounded_tile(black_w.resize((s, s), Image.Resampling.LANCZOS)) for s in (48, 180)}
+    save_ico(black_tile[48], os.path.join(WEB_PUBLIC, 'favicon.ico'), sizes=(16, 24, 32, 48))
+    for s in (16, 32, 48):
+        save_png(tab[s], os.path.join(WEB_PUBLIC, f'favicon-{s}x{s}.png'))
+    save_png(black_tile[180], os.path.join(WEB_PUBLIC, 'apple-touch-icon.png'))
+    # favicon.svg with the raster embedded (browsers accept <image> in SVG)
+    png64 = io.BytesIO()
+    tab[128].save(png64, format='PNG')
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
+        'viewBox="0 0 128 128" width="128" height="128">'
+        f'<image width="128" height="128" xlink:href="data:image/png;base64,{base64.b64encode(png64.getvalue()).decode()}"/>'
+        '</svg>'
+    )
+    with open(os.path.join(WEB_PUBLIC, 'favicon.svg'), 'w') as f:
+        f.write(svg)
+    print('svg  ', os.path.join(WEB_PUBLIC, 'favicon.svg'))
+
+
 def main():
     white = load(SRC_WHITE)
     black = load(SRC_BLACK)
@@ -128,8 +158,12 @@ def main():
     # adaptive foreground inside Android safe zone
     save_png(place(white, 1024, 1024, 42), os.path.join(MOBILE_ASSETS, 'Brown-adaptive.png'))
     # splash (contain mode on #000000 background)
+    # NOTE: this drops the "Brown" wordmark — re-run scripts/make_mobile_splash.py after this script.
     save_png(place(white, 1280, 1280, 30), os.path.join(MOBILE_ASSETS, 'Brown-splash.png'))
     save_png(black_w.resize((48, 48), Image.Resampling.LANCZOS), os.path.join(MOBILE_ASSETS, 'Brown-favicon.png'))
+    # animated mark: the mobile app bundles the same Lottie JSON the desktop splash uses
+    shutil.copyfile(SRC_LOTTIE, os.path.join(MOBILE_ASSETS, 'brown-logo-animation.json'))
+    print('copy', os.path.join(MOBILE_ASSETS, 'brown-logo-animation.json'))
 
     # ---------------- Android native res (bare workflow; these override app.json in the APK) ----------------
     splash = place(white, 1536, 1024, 30)  # transparent; splashscreen_background #000000 shows through
@@ -152,24 +186,7 @@ def main():
     # Open Graph card: white bg, black mark centered (same composition as before)
     save_png(place(black, 1200, 630, 57, bg=(255, 255, 255)),
              os.path.join(WEB_ASSETS, 'brand-feature-image-1200x630.png'))
-    # browser tab favicons — rounded-corner tiles (ChatGPT style), corners baked into the art
-    tile = {s: rounded_tile(black_w.resize((s, s), Image.Resampling.LANCZOS)) for s in (16, 24, 32, 48, 180)}
-    save_ico(tile[48], os.path.join(WEB_PUBLIC, 'favicon.ico'), sizes=(16, 24, 32, 48))
-    for s in (16, 32, 48):
-        save_png(tile[s], os.path.join(WEB_PUBLIC, f'favicon-{s}x{s}.png'))
-    save_png(tile[180], os.path.join(WEB_PUBLIC, 'apple-touch-icon.png'))
-    # favicon.svg with the raster embedded (browsers accept <image> in SVG)
-    png64 = io.BytesIO()
-    rounded_tile(black_w.resize((128, 128), Image.Resampling.LANCZOS)).save(png64, format='PNG')
-    svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
-        'viewBox="0 0 128 128" width="128" height="128">'
-        f'<image width="128" height="128" xlink:href="data:image/png;base64,{base64.b64encode(png64.getvalue()).decode()}"/>'
-        '</svg>'
-    )
-    with open(os.path.join(WEB_PUBLIC, 'favicon.svg'), 'w') as f:
-        f.write(svg)
-    print('svg  ', os.path.join(WEB_PUBLIC, 'favicon.svg'))
+    web_favicons(white, black_w)
 
     print('\nAll derived brand assets regenerated.')
 
