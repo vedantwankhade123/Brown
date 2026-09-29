@@ -52,6 +52,7 @@ function mapUpdateInfo(info) {
   return {
     status: 'available',
     version: info.version,
+    currentVersion: app.getVersion(),
     releaseDate: info.releaseDate,
     releaseNotes
   };
@@ -241,6 +242,7 @@ function initAutoUpdater(mainWindow) {
           const payload = {
             status: 'available',
             version: latestVer,
+            currentVersion: curVer,
             releaseDate: ghRelease.published_at,
             releaseNotes: ghRelease.body || 'New features, security updates, and performance improvements.',
             downloadUrl: exeAsset?.browser_download_url || ghRelease.html_url
