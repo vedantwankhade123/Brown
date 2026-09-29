@@ -42,125 +42,69 @@ jobs:
         run: npm test
 
       - name: Prepare Version and Release Metadata
-        shell: pwsh
-        run: |
-          $inputVersion = "${{ github.event.inputs.version }}".Trim()
-          $inputTag = "${{ github.event.inputs.release_tag }}".Trim()
-          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
-          $currentPkgVersion = $pkg.version
-
-          if ($inputVersion) {
-            $targetVersion = $inputVersion -replace '^v', ''
-            if ($targetVersion -notmatch '^\d+\.\d+\.\d+') {
-              if ($targetVersion -match '^\d+\.\d+$') { $targetVersion = "$targetVersion.0" }
-            }
-            Write-Host "Updating package.json version to $targetVersion"
-            node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.version=process.argv[1]; fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');" $targetVersion
-          } else {
-            $targetVersion = $currentPkgVersion
-          }
-
-          if ($inputTag) {
-            $releaseTag = if ($inputTag.StartsWith('v')) { $inputTag } else { "v$inputTag" }
-          } elseif ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) {
-            $releaseTag = $env:GITHUB_REF_NAME
-          } else {
-            if ($targetVersion -match '^(\d+\.\d+)\.0$') {
-              $releaseTag = "v$($Matches[1])"
-            } else {
-              $releaseTag = "v$targetVersion"
-            }
-          }
-
-          $marketingVersion = $releaseTag -replace '^v', ''
-
-          Write-Host "Package Version: $targetVersion"
-          Write-Host "Release Tag: $releaseTag"
-          Write-Host "Marketing Version: $marketingVersion"
-
-          echo "TARGET_VERSION=$targetVersion" >> $env:GITHUB_ENV
-          echo "RELEASE_TAG=$releaseTag" >> $env:GITHUB_ENV
-          echo "MARKETING_VERSION=$marketingVersion" >> $env:GITHUB_ENV
-
-          # Prepare release notes
-          $notes = ".release-notes.md"
-          $candidates = @(
-            ".release-notes-v${marketingVersion}.md",
-            ".release-notes-v${targetVersion}.md",
-            $notes
-          )
-          $found = $false
-          foreach ($c in $candidates) {
-            if (Test-Path $c) {
-              Copy-Item -Force $c $notes
-              Write-Host "Using notes from $c"
-              $found = $true
-              break
-            }
-          }
-          if (-not $found) {
-            $lines = git log -n 10 --oneline --no-merges
-            @(
-              "# Brown AI Desktop v${marketingVersion}",
-              "",
-              "## Downloads (Windows)",
-              "- **Setup Installer**: \`Brown-AI-Setup-v${marketingVersion}.exe\` (Recommended)",
-              "- **Portable Edition**: \`Brown-AI-v${marketingVersion}.exe\`",
-              "- **Direct Latest Link**: [\`Brown-AI-Setup.exe\`](https://github.com/vedantwankhade123/Brown/releases/latest/download/Brown-AI-Setup.exe)",
-              "",
-              "## Recent Changes"
-            ) + $lines | Set-Content -Path $notes -Encoding utf8
-            Write-Host "Generated $notes from git history"
-          }
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_TAG: ${{ github.event.inputs.release_tag }}
+        run: node scripts/prepare-release-meta.js
 
       - name: Build Windows Installers
         run: npm run dist:ci
 
       - name: Publish to GitHub Releases
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
         run: |
-          $tag = $env:RELEASE_TAG
-          $mver = $env:MARKETING_VERSION
-          $notes = ".release-notes.md"
-          $setup = Get-ChildItem dist -Filter "*Setup*.exe" | Select-Object -First 1
-          $portable = Get-ChildItem dist -Filter "*.exe" | Where-Object { $_.Name -notmatch 'Setup' } | Select-Object -First 1
+          set -euo pipefail
+          tag="$RELEASE_TAG"
+          mver="$MARKETING_VERSION"
 
-          if (-not $setup -or -not $portable) {
-            Write-Host "Built files in dist:"
-            Get-ChildItem dist -Filter *.exe | Format-Table Name, Length
-            throw "Could not find Setup/Portable EXEs for version $mver"
-          }
+          setup=""
+          portable=""
+          for f in dist/*.exe; do
+            if [ ! -f "$f" ]; then continue; fi
+            base="$(basename "$f")"
+            case "$base" in
+              *Setup*.exe) if [ -z "$setup" ]; then setup="$f"; fi ;;
+              *) if [ -z "$portable" ]; then portable="$f"; fi ;;
+            esac
+          done
 
-          # Prepare standardized and permanent asset names
-          $setupVer = "dist/Brown-AI-Setup-v${mver}.exe"
-          $portableVer = "dist/Brown-AI-v${mver}.exe"
-          $setupLatest = "dist/Brown-AI-Setup.exe"
-          $portableLatest = "dist/Brown-AI-Portable.exe"
+          if [ -z "$setup" ] || [ -z "$portable" ]; then
+            echo "Built files in dist:"
+            ls -la dist
+            echo "::error::Could not find Setup/Portable EXEs for version $mver"
+            exit 1
+          fi
 
-          Copy-Item -Force $setup.FullName $setupVer
-          Copy-Item -Force $portable.FullName $portableVer
-          Copy-Item -Force $setup.FullName $setupLatest
-          Copy-Item -Force $portable.FullName $portableLatest
+          # Permanent aliases keep the website and README links version-free.
+          cp -f "$setup" "dist/Brown-AI-Setup-v${mver}.exe"
+          cp -f "$portable" "dist/Brown-AI-v${mver}.exe"
+          cp -f "$setup" "dist/Brown-AI-Setup.exe"
+          cp -f "$portable" "dist/Brown-AI-Portable.exe"
 
-          $uploadFiles = @($setupVer, $portableVer, $setupLatest, $portableLatest)
-          $yml = Get-ChildItem dist -Filter "latest.yml" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($yml) { $uploadFiles += $yml.FullName }
+          upload_files=(
+            "dist/Brown-AI-Setup-v${mver}.exe"
+            "dist/Brown-AI-v${mver}.exe"
+            "dist/Brown-AI-Setup.exe"
+            "dist/Brown-AI-Portable.exe"
+          )
+          if [ -f dist/latest.yml ]; then
+            upload_files+=("dist/latest.yml")
+          fi
 
-          Write-Host "Uploading files to release $tag :"
-          $uploadFiles | ForEach-Object { Write-Host "  $_" }
+          echo "Uploading files to release $tag:"
+          printf '  %s\n' "${upload_files[@]}"
 
-          $existing = gh release view $tag 2>$null
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "Release $tag exists — uploading/replacing assets"
-            gh release upload $tag $uploadFiles --clobber
-            gh release edit $tag --title "Brown AI Desktop v${mver}" --notes-file $notes
-          } else {
-            Write-Host "Creating release $tag"
-            gh release create $tag $uploadFiles `
-              --title "Brown AI Desktop v${mver}" `
-              --notes-file $notes
-          }
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag exists - uploading/replacing assets"
+            gh release upload "$tag" "${upload_files[@]}" --clobber
+            gh release edit "$tag" --title "Brown AI Desktop v${mver}" --notes-file .release-notes.md
+          else
+            echo "Creating release $tag"
+            gh release create "$tag" "${upload_files[@]}" \
+              --title "Brown AI Desktop v${mver}" \
+              --notes-file .release-notes.md
+          fi
 
-          Write-Host "Successfully published Windows Desktop assets to $tag!"
+          echo "Successfully published Windows Desktop assets to $tag!"
