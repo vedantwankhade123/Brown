@@ -49,15 +49,28 @@ Official pre-compiled binaries are published in their respective repositories. T
 
 ## 🔄 Release Pipeline
 
-Releases are built by GitHub Actions, never by hand:
+There is no CI. Every artifact is built, installed and tested on this machine first, then tagged
+and published to GitHub Releases — which is what the website download buttons and the in-app
+updater read.
 
-| Repo | Workflow | Trigger |
-| :--- | :--- | :--- |
-| `Brown` | [`ci.yml`](.github/workflows/ci.yml) | Every push / PR — `npm ci` + `npm test` |
-| `Brown` | [`release.yml`](.github/workflows/release.yml) | Tag `v*` — packages NSIS setup, portable binary, `latest.yml`, publishes to GitHub Releases |
-| `Brown-Mobile` | [`build-apk.yml`](.github/workflows/build-apk.yml) | Tag `v*` — Gradle `assembleRelease` with the production keystore (injected as Actions secrets) |
+| Step | Command |
+| :--- | :--- |
+| Bump, test, build, stage assets | `npm run release:desktop -- --version 1.0.3` |
+| Install the staged `dist/Brown-AI-Setup.exe`, use it, confirm it works | by hand |
+| Commit the version bump | `git commit -am "chore(release): v1.0.3"` |
+| Tag, push the tag, publish the release | `npm run publish:desktop` |
 
-To ship a release: bump `version` (plus `versionCode` on mobile), commit, then `git tag vX.Y.Z && git push origin vX.Y.Z`.
+[`scripts/release-desktop.js`](scripts/release-desktop.js) uploads a fixed set of asset names,
+because those names are live links: `Brown-AI-Setup.exe` and `Brown-AI-Portable.exe` (the
+version-free aliases the download page uses), `Brown-AI-Setup-vX.Y.Z.exe`, `Brown-AI-vX.Y.Z.exe`,
+plus `latest.yml` for the auto-updater. Drop a `.release-notes-vX.Y.Z.md` in the repo to control the
+release notes; without it the script drafts them from `git log` for you to edit before publishing.
+
+The Android app follows the same shape in [`mobile/`](mobile) with `npm run release:apk` and
+`npm run publish:apk`. After an APK release, commit the updated `mobile` submodule pointer here.
+
+Publishing needs an authenticated `gh` (`gh auth status`); `--publish` refuses to run if the version
+bump is not committed, so a tag never points at a build that cannot be reproduced.
 
 ---
 

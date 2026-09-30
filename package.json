@@ -14,6 +14,8 @@
     "dist": "electron-builder --win",
     "dist:ci": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always",
+    "release:desktop": "node scripts/release-desktop.js",
+    "publish:desktop": "node scripts/release-desktop.js --publish",
     "test": "node tests/run.js"
   },
   "build": {
