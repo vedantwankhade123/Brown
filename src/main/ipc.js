@@ -3910,8 +3910,8 @@ function getInstallationDefaultDataDir() {
     }
   });
 
-  // Download default Kokoro voices for onboarding (Bella & Michael)
-  ipcMain.handle('download-kokoro-onboarding-voices', async (event) => {
+  // Download the Kokoro engine + the voice models chosen during onboarding
+  ipcMain.handle('download-kokoro-onboarding-voices', async (event, voiceIds) => {
     try {
       const { downloadKokoroOnboardingDefaults } = require('./voice-kokoro');
       return await downloadKokoroOnboardingDefaults((payload) => {
@@ -3921,9 +3921,32 @@ function getInstallationDefaultDataDir() {
             ...payload
           });
         }
-      });
+      }, voiceIds);
     } catch (err) {
       return { success: false, error: err.message };
+    }
+  });
+
+  // Lightweight reachability probe for huggingface.co — used by the onboarding
+  // "Local AI Engine" screen to show whether model downloads are possible.
+  // A 401/403 still counts as reachable (the endpoint just rejects anonymous),
+  // so we only treat network failures / timeouts as not reachable.
+  ipcMain.handle('check-huggingface-connection', async () => {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 6000);
+      let res;
+      try {
+        res = await fetch('https://huggingface.co/api/whoami-nop', {
+          method: 'GET',
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+      return { reachable: true, status: res.status };
+    } catch (err) {
+      return { reachable: false, error: err.message };
     }
   });
 

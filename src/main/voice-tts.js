@@ -52,7 +52,7 @@ const TTS_MODEL_CATALOG = [
   }
 ];
 
-const DEFAULT_TTS_MODEL_KEY = 'kokoro-heart';
+const DEFAULT_TTS_MODEL_KEY = 'kokoro-george';
 
 const downloadState = new Map();
 let activeModelKey = DEFAULT_TTS_MODEL_KEY;

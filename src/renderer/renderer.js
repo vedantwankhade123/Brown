@@ -18357,6 +18357,7 @@ async function checkAndRunFirstTimeOnboarding() {
   const step3 = document.getElementById('onboard-step-3');
   const step4 = document.getElementById('onboard-step-4');
   const step5 = document.getElementById('onboard-step-5');
+  const step6 = document.getElementById('onboard-step-6');
   const footerActions = document.getElementById('onboard-footer-actions');
   const emailNote = document.getElementById('onboard-email-note');
 
@@ -18372,147 +18373,15 @@ async function checkAndRunFirstTimeOnboarding() {
   const btnNext = document.getElementById('btn-onboard-next');
   const btnBack = document.getElementById('btn-onboard-back');
   const btnFinish = document.getElementById('btn-onboard-finish');
-  const btnInstallOllama = document.getElementById('btn-onboard-install-ollama');
-  const btnRetryOllama = document.getElementById('btn-onboard-retry-ollama');
 
   let ollamaReady = false;
-  let onboardVoiceMuted = false;
-  let currentOnboardAudioElem = null;
-
-  // The ready screen waits for the Voice Guide instead of a fixed delay, so the
-  // last narration is never cut mid-sentence. These waiters are released when the
-  // audio ends, is muted, or fails to start.
-  const onboardVoiceWaiters = new Set();
-
-  function releaseOnboardVoiceWaiters() {
-    for (const settle of onboardVoiceWaiters) settle();
-    onboardVoiceWaiters.clear();
-  }
-
-  function whenOnboardVoiceIdle(timeoutMs = 45000) {
-    if (!currentOnboardAudioElem) return Promise.resolve();
-    return new Promise((resolve) => {
-      const settle = () => {
-        clearTimeout(cap);
-        onboardVoiceWaiters.delete(settle);
-        resolve();
-      };
-      const cap = setTimeout(settle, timeoutMs);
-      onboardVoiceWaiters.add(settle);
-    });
-  }
-
-  const ONBOARD_AUDIO_CANDIDATES = {
-    0: ['../../Assets/sounds/step-0-welcome.mp3'],
-    1: ['../../Assets/sounds/step-1-name.mp3'],
-    2: ['../../Assets/sounds/step-2-birthdate.mp3'],
-    3: ['../../Assets/sounds/step-3-email.mp3'],
-    4: ['../../Assets/sounds/step-4-requirements.mp3'],
-    5: ['../../Assets/sounds/step-5-ready.mp3']
-  };
-
-  async function speakOnboardStep(step) {
-    if (onboardVoiceMuted) return;
-    const candidates = ONBOARD_AUDIO_CANDIDATES[step];
-    if (!candidates || !candidates.length) return;
-    await playOnboardAudioCandidates(candidates);
-  }
-
-  async function playOnboardAudioCandidates(candidates) {
-    stopOnboardVoice();
-    if (onboardVoiceMuted) return;
-
-    const voiceBtn = document.getElementById('btn-onboard-voice-guide');
-    if (voiceBtn) {
-      voiceBtn.classList.add('is-speaking');
-      const wave = voiceBtn.querySelector('.voice-wave-container');
-      const iconIdle = voiceBtn.querySelector('.voice-icon-idle');
-      const iconMuted = voiceBtn.querySelector('.voice-icon-muted');
-      if (wave) wave.classList.remove('hidden');
-      if (iconIdle) iconIdle.classList.add('hidden');
-      if (iconMuted) iconMuted.classList.add('hidden');
-    }
-
-    function setVoiceIdleState() {
-      if (voiceBtn) {
-        voiceBtn.classList.remove('is-speaking');
-        const wave = voiceBtn.querySelector('.voice-wave-container');
-        const iconIdle = voiceBtn.querySelector('.voice-icon-idle');
-        const iconMuted = voiceBtn.querySelector('.voice-icon-muted');
-        if (wave) wave.classList.add('hidden');
-        if (iconIdle) iconIdle.classList.toggle('hidden', onboardVoiceMuted);
-        if (iconMuted) iconMuted.classList.toggle('hidden', !onboardVoiceMuted);
-      }
-      releaseOnboardVoiceWaiters();
-    }
-
-    for (const src of candidates) {
-      try {
-        const audio = new Audio(src);
-        currentOnboardAudioElem = audio;
-        audio.onended = () => {
-          currentOnboardAudioElem = null;
-          setVoiceIdleState();
-        };
-        audio.onerror = () => {
-          currentOnboardAudioElem = null;
-          setVoiceIdleState();
-        };
-        await audio.play();
-        return;
-      } catch (err) {
-        currentOnboardAudioElem = null;
-      }
-    }
-    setVoiceIdleState();
-  }
-
-  function stopOnboardVoice() {
-    if (currentOnboardAudioElem) {
-      try {
-        currentOnboardAudioElem.pause();
-        currentOnboardAudioElem.currentTime = 0;
-      } catch (e) {}
-      currentOnboardAudioElem = null;
-    }
-
-    const voiceBtn = document.getElementById('btn-onboard-voice-guide');
-    if (voiceBtn) {
-      voiceBtn.classList.remove('is-speaking');
-      const wave = voiceBtn.querySelector('.voice-wave-container');
-      const iconIdle = voiceBtn.querySelector('.voice-icon-idle');
-      const iconMuted = voiceBtn.querySelector('.voice-icon-muted');
-      if (wave) wave.classList.add('hidden');
-      if (iconIdle) iconIdle.classList.toggle('hidden', onboardVoiceMuted);
-      if (iconMuted) iconMuted.classList.toggle('hidden', !onboardVoiceMuted);
-    }
-
-    releaseOnboardVoiceWaiters();
-  }
-
-  const btnVoiceGuide = document.getElementById('btn-onboard-voice-guide');
-  if (btnVoiceGuide) {
-    btnVoiceGuide.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (btnVoiceGuide.classList.contains('is-speaking')) {
-        onboardVoiceMuted = true;
-        btnVoiceGuide.classList.add('is-muted');
-        stopOnboardVoice();
-      } else if (onboardVoiceMuted) {
-        onboardVoiceMuted = false;
-        btnVoiceGuide.classList.remove('is-muted');
-        speakOnboardStep(currentStep);
-      } else {
-        speakOnboardStep(currentStep);
-      }
-    });
-  }
 
   const stepHeadings = {
     1: 'Your Name',
     2: 'Your Date of Birth',
     3: 'Your Email',
-    4: 'Requirements & Components',
+    4: 'Neural Voice',
+    5: 'Local AI Engine',
   };
 
   function setFinishVisible(visible) {
@@ -18521,22 +18390,11 @@ async function checkAndRunFirstTimeOnboarding() {
     btnFinish.disabled = !visible;
   }
 
-  function setOllamaActionBoxes({ notInstalled = false, notRunning = false } = {}) {
-    const notInstalledBox = document.getElementById('ollama-not-installed-box');
-    const notRunningBox = document.getElementById('ollama-not-running-box');
-    const progressRow = document.getElementById('ollama-install-progress-row');
-
-    if (notInstalledBox) notInstalledBox.classList.toggle('hidden', !notInstalled);
-    if (notRunningBox) notRunningBox.classList.toggle('hidden', !notRunning);
-    if (progressRow && !notInstalled) progressRow.classList.add('hidden');
-  }
-
   async function finishOnboarding() {
     window.localStorage.setItem('ultron-privacy-accepted', 'true');
     window.localStorage.setItem('ultron-privacy-accepted-at', new Date().toISOString());
     window.localStorage.setItem('ultron-privacy-version', '1.0');
 
-    stopOnboardVoice();
     window.localStorage.setItem('ultron-setup-completed', 'true');
     if (window.ultronAPI && window.ultronAPI.saveSetupStatus) {
       await window.ultronAPI.saveSetupStatus(true);
@@ -18909,12 +18767,11 @@ async function checkAndRunFirstTimeOnboarding() {
 
   function updateStepUI() {
     const onWelcome = currentStep === 0;
+    const brandWord = document.getElementById('onboard-brand-word');
+    if (brandWord) brandWord.classList.toggle('hidden', currentStep !== 6);
 
     if (step0) step0.classList.toggle('hidden', !onWelcome);
     if (formShell) formShell.classList.toggle('hidden', onWelcome);
-
-    // Automatically speak context guidance for the current onboarding step
-    speakOnboardStep(currentStep);
 
     if (onWelcome) return;
 
@@ -18929,6 +18786,7 @@ async function checkAndRunFirstTimeOnboarding() {
     if (step3) step3.classList.add('hidden');
     if (step4) step4.classList.add('hidden');
     if (step5) step5.classList.add('hidden');
+    if (step6) step6.classList.add('hidden');
     if (footerActions) footerActions.classList.remove('hidden');
     if (emailNote) emailNote.classList.toggle('hidden', currentStep !== 3);
 
@@ -18953,12 +18811,21 @@ async function checkAndRunFirstTimeOnboarding() {
     } else if (currentStep === 4) {
       if (step4) step4.classList.remove('hidden');
       if (btnBack) btnBack.classList.remove('hidden');
-      if (btnNext) btnNext.classList.add('hidden');
-      // Finish stays locked until every mandatory component is on disk.
-      setFinishVisible(areAllOnboardingComponentsReady());
-      runOboardingRequirementsCheck();
+      if (btnNext) {
+        btnNext.classList.remove('hidden');
+        btnNext.textContent = 'Continue';
+      }
+      if (btnFinish) btnFinish.classList.add('hidden');
+      checkKokoroComp();
     } else if (currentStep === 5) {
       if (step5) step5.classList.remove('hidden');
+      if (btnBack) btnBack.classList.remove('hidden');
+      if (btnNext) btnNext.classList.add('hidden');
+      // Everything here is optional — Finish is always available.
+      setFinishVisible(true);
+      runLocalAiEngineCheck();
+    } else if (currentStep === 6) {
+      if (step6) step6.classList.remove('hidden');
       if (stepHeading) stepHeading.classList.add('hidden');
       if (footerActions) footerActions.classList.add('hidden');
     }
@@ -19031,6 +18898,9 @@ async function checkAndRunFirstTimeOnboarding() {
 
         currentStep = 4;
         updateStepUI();
+      } else if (currentStep === 4) {
+        currentStep = 5;
+        updateStepUI();
       }
     };
   }
@@ -19050,10 +18920,6 @@ async function checkAndRunFirstTimeOnboarding() {
     ollama: false,
     kokoro: false
   };
-
-  function areAllOnboardingComponentsReady() {
-    return Boolean(compStatus.ollama && compStatus.kokoro);
-  }
 
   const onboardCircularSpinner = '<span class="onboard-circular-spinner" aria-hidden="true"></span>';
 
@@ -19088,36 +18954,36 @@ async function checkAndRunFirstTimeOnboarding() {
     }
   }
 
+  // Engine pills reuse the Kokoro card anatomy: right-side action circle +
+  // one status line.
+  function setEnginePill(name, state, text, label) {
+    const btn = document.getElementById(`btn-onboard-action-${name}`);
+    setOnboardComponentAction(btn, state, label || text);
+    const desc = document.getElementById(`onboard-desc-${name}`);
+    if (desc) desc.textContent = text;
+  }
+
   async function checkOllamaComp() {
-    const badge = document.getElementById('onboard-badge-ollama');
-    const desc = document.getElementById('onboard-desc-ollama');
-    const btn = document.getElementById('btn-onboard-action-ollama');
-    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
-    setOnboardComponentAction(btn, 'busy', 'Checking Ollama');
-    if (desc) desc.textContent = 'Verifying Ollama service…';
+    setEnginePill('ollama', 'busy', 'Verifying local Ollama service…', 'Checking Ollama');
 
     const conn = await checkOllamaConnection();
     if (conn.connected) {
       compStatus.ollama = true;
-      if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
-      if (desc) desc.textContent = 'Ollama is online at Localhost:11434.';
-      setOnboardComponentAction(btn, 'ready', 'Ollama ready');
+      setEnginePill('ollama', 'ready', 'Ollama is online at localhost:11434.', 'Ollama ready');
       return true;
     }
 
     if (window.ultronAPI?.checkOllamaInstalled) {
       const installCheck = await window.ultronAPI.checkOllamaInstalled();
       if (installCheck.installed) {
-        if (desc) desc.textContent = 'Ollama installed. Starting service…';
+        setEnginePill('ollama', 'busy', 'Starting Ollama service…', 'Starting Ollama');
         await window.ultronAPI.startOllamaService(installCheck.path).catch(() => {});
         for (let i = 0; i < 5; i++) {
           await new Promise(r => setTimeout(r, 800));
           const retry = await checkOllamaConnection();
           if (retry.connected) {
             compStatus.ollama = true;
-            if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
-            if (desc) desc.textContent = 'Ollama is online.';
-            setOnboardComponentAction(btn, 'ready', 'Ollama ready');
+            setEnginePill('ollama', 'ready', 'Ollama is online.', 'Ollama ready');
             return true;
           }
         }
@@ -19125,10 +18991,21 @@ async function checkAndRunFirstTimeOnboarding() {
     }
 
     compStatus.ollama = false;
-    if (badge) { badge.className = 'onboard-comp-badge missing'; badge.textContent = ''; }
-    if (desc) desc.textContent = 'Not running. Install or start Ollama.';
-    setOnboardComponentAction(btn, 'download', 'Install or start Ollama');
+    setEnginePill('ollama', 'download', 'Not running. Click to install or start.', 'Install or start Ollama');
     return false;
+  }
+
+  async function checkHfComp() {
+    setEnginePill('hf', 'busy', 'Checking model download access…', 'Checking Hugging Face');
+    let reachable = false;
+    try {
+      const res = await window.ultronAPI?.checkHuggingFaceConnection?.();
+      reachable = !!res?.reachable;
+    } catch (e) {}
+    setEnginePill('hf', reachable ? 'ready' : 'download',
+      reachable ? 'Hugging Face reachable — downloads work.' : 'Unreachable. Click to retry.',
+      reachable ? 'Hugging Face ready' : 'Retry Hugging Face check');
+    return reachable;
   }
 
   async function checkKokoroComp() {
@@ -19136,86 +19013,164 @@ async function checkAndRunFirstTimeOnboarding() {
     const desc = document.getElementById('onboard-desc-kokoro');
     const btn = document.getElementById('btn-onboard-action-kokoro');
     if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
-    setOnboardComponentAction(btn, 'busy', 'Checking voice models');
+    setOnboardComponentAction(btn, 'busy', 'Checking voice engine');
     if (desc) desc.textContent = 'Verifying Kokoro voice engine…';
 
     try {
       const res = await window.ultronAPI?.getTtsCatalog?.();
       const models = res?.models || [];
-      const heartInstalled = models.some(m => m.key === 'kokoro-heart' && m.installed);
-      const michaelInstalled = models.some(m => m.key === 'kokoro-michael' && m.installed);
-
-      if (heartInstalled && michaelInstalled) {
+      // All Kokoro voices share the one engine download — if any Kokoro model
+      // reports installed, the engine is on disk and voices are usable.
+      const engineReady = models.some(m => m.engine === 'kokoro' && m.installed);
+      if (engineReady) {
         compStatus.kokoro = true;
         if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
-        if (desc) desc.textContent = 'Heart & Michael voices are ready.';
-        setOnboardComponentAction(btn, 'ready', 'Voice models ready');
+        if (desc) desc.textContent = 'Neural voice engine is ready.';
+        setOnboardComponentAction(btn, 'ready', 'Voice engine ready');
         return true;
       }
     } catch (e) {}
 
     compStatus.kokoro = false;
     if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = ''; }
-    if (desc) desc.textContent = 'Downloads Heart & Michael voices.';
-    setOnboardComponentAction(btn, 'download', 'Download voice models');
+    const labels = getSelectedOnboardVoices().map(chip => chip.textContent.trim());
+    if (desc) {
+      desc.textContent = labels.length
+        ? `Downloads the engine + ${labels.join(', ')}.`
+        : 'Downloads the offline voice engine.';
+    }
+    setOnboardComponentAction(btn, 'download', 'Download voice engine and models');
     return false;
   }
 
-  async function runOboardingRequirementsCheck() {
-    await Promise.all([
-      checkOllamaComp(),
-      checkKokoroComp()
-    ]);
-    // Voice models are mandatory: auto-start their download on first check and
-    // keep Finish locked until every component is on disk.
-    if (!compStatus.kokoro) {
-      await startKokoroOnboardDownload();
-    }
-    setFinishVisible(areAllOnboardingComponentsReady());
+  // Voice model picker — chips decide which voices ship with the engine.
+  const onboardVoiceChips = Array.from(document.querySelectorAll('#onboard-voice-picker .onboard-voice-chip'));
+  function getSelectedOnboardVoices() {
+    return onboardVoiceChips.filter(chip => chip.classList.contains('selected'));
+  }
+  onboardVoiceChips.forEach((chip) => {
+    chip.addEventListener('click', () => {
+      if (chip.disabled) return;
+      chip.classList.toggle('selected');
+      checkKokoroComp();
+    });
+  });
+
+  async function runLocalAiEngineCheck() {
+    await Promise.all([checkOllamaComp(), checkHfComp()]);
+    // Everything is optional; Finish stays available either way.
   }
 
-  // Action listeners for individual cards
-  const btnActionOllama = document.getElementById('btn-onboard-action-ollama');
-  if (btnActionOllama) {
-    btnActionOllama.onclick = async () => {
-      setOnboardComponentAction(btnActionOllama, 'busy', 'Installing or starting Ollama');
-      await startOllamaInstallFlow(btnActionOllama);
+  // Clicking a pill runs its fix. Ollama gets the full install flow; since it
+  // rewrites the passed element's textContent, the pill's status line narrates
+  // it.
+  let ollamaTileBusy = false;
+  const tileOllama = document.getElementById('onboard-tile-ollama');
+  if (tileOllama) {
+    tileOllama.onclick = async () => {
+      if (ollamaTileBusy || compStatus.ollama) return;
+      ollamaTileBusy = true;
+      const desc = document.getElementById('onboard-desc-ollama');
+      setEnginePill('ollama', 'busy', 'Installing or starting Ollama…', 'Installing Ollama');
+      try {
+        await startOllamaInstallFlow(desc);
+      } finally {
+        ollamaTileBusy = false;
+      }
       await checkOllamaComp();
-      setFinishVisible(areAllOnboardingComponentsReady());
     };
   }
 
+  const tileHf = document.getElementById('onboard-tile-hf');
+  if (tileHf) {
+    tileHf.onclick = () => checkHfComp();
+  }
+
   const btnActionKokoro = document.getElementById('btn-onboard-action-kokoro');
+  let kokoroOnboardDownloading = false;
+
+  function setKokoroOnboardProgress(data) {
+    const wrap = document.getElementById('onboard-progress-kokoro');
+    if (!wrap) return;
+    if (data && Number.isFinite(Number(data.percent))) {
+      wrap.classList.remove('hidden');
+      const fill = wrap.querySelector('.onboard-comp-progress-fill');
+      const lbl = wrap.querySelector('.onboard-comp-progress-lbl');
+      if (fill) fill.style.width = `${Math.max(0, Math.min(100, Number(data.percent)))}%`;
+      if (lbl) lbl.textContent = data.status || 'Downloading…';
+    } else {
+      wrap.classList.add('hidden');
+    }
+  }
+
   async function startKokoroOnboardDownload() {
-    const btn = document.getElementById('btn-onboard-action-kokoro');
+    if (kokoroOnboardDownloading) return;
+    const btn = btnActionKokoro;
     const badge = document.getElementById('onboard-badge-kokoro');
-    setOnboardComponentAction(btn, 'busy', 'Downloading voice models');
+    const desc = document.getElementById('onboard-desc-kokoro');
+    const selected = getSelectedOnboardVoices();
+
+    kokoroOnboardDownloading = true;
+    onboardVoiceChips.forEach(chip => { chip.disabled = true; });
+    setOnboardComponentAction(btn, 'busy', 'Downloading voice engine and models');
     if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = ''; }
-    await window.ultronAPI?.downloadKokoroOnboardingVoices?.();
-    await checkKokoroComp();
-    setFinishVisible(areAllOnboardingComponentsReady());
+    setKokoroOnboardProgress({ percent: 0, status: 'Starting download…' });
+
+    const cleanupProgress = window.ultronAPI?.onDownloadProgress
+      ? window.ultronAPI.onDownloadProgress((data) => {
+          if (String(data?.modelName || '') !== 'tts-kokoro-onboarding') return;
+          if (data?.phase === 'complete') {
+            setKokoroOnboardProgress({ percent: 100, status: data.status || 'Ready.' });
+          } else {
+            setKokoroOnboardProgress(data);
+          }
+        })
+      : null;
+
+    let result = null;
+    try {
+      result = await window.ultronAPI?.downloadKokoroOnboardingVoices?.(selected.map(c => c.dataset.voiceId));
+    } catch (e) {
+      result = { success: false, error: e.message };
+    } finally {
+      if (cleanupProgress) cleanupProgress();
+      kokoroOnboardDownloading = false;
+      onboardVoiceChips.forEach(chip => { chip.disabled = false; });
+    }
+
+    const ready = await checkKokoroComp();
+    if (!ready) {
+      setKokoroOnboardProgress(null);
+      if (desc) {
+        desc.textContent = result?.error
+          ? `Download failed — ${result.error}`
+          : 'Download did not finish. Click to retry.';
+      }
+      return;
+    }
+
+    setKokoroOnboardProgress(null);
+    // The first selected voice becomes the app's active TTS voice.
+    const firstKey = selected[0]?.dataset.modelKey;
+    if (firstKey && window.ultronAPI?.setActiveTtsModel) {
+      const res = await window.ultronAPI.setActiveTtsModel(firstKey).catch(() => null);
+      if (res?.success) {
+        window.localStorage.setItem('ultron-tts-neural-model', firstKey);
+        cachedActiveTtsModelKey = firstKey;
+      }
+    }
   }
   if (btnActionKokoro) {
     btnActionKokoro.onclick = () => startKokoroOnboardDownload();
   }
 
-  // The ready screen holds for at least floorMs and never leaves before the
-  // Voice Guide has finished narrating it.
-  async function leaveReadyScreen(floorMs) {
-    await Promise.all([
-      new Promise((resolve) => setTimeout(resolve, floorMs)),
-      whenOnboardVoiceIdle(),
-    ]);
-    await finishOnboarding();
-  }
-
   // Finish setup — show ready screen, then redirect to main agent UI
   if (btnFinish) {
     btnFinish.onclick = async () => {
-      if (!areAllOnboardingComponentsReady()) return;
-      currentStep = 5;
+      currentStep = 6;
       updateStepUI();
-      await leaveReadyScreen(2400);
+      await new Promise((resolve) => setTimeout(resolve, 2400));
+      await finishOnboarding();
     };
   }
 
