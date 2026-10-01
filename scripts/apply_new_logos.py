@@ -139,9 +139,10 @@ def main():
     black_w = load(SRC_BLACK_W)
 
     # ---------------- Desktop ----------------
-    # exe / window / installer icon: black mark on solid white (visible on any shell theme)
-    save_ico(black_w, os.path.join(DESKTOP_ASSETS, 'Brown.ico'))
-    save_ico(black_w, os.path.join(BRAND_ASSETS, 'Brown.ico'))
+    # exe / shortcut / installer icon: white mark on transparent, matching the
+    # in-app window icon. Windows paints this straight onto the wallpaper.
+    save_ico(place(white, 256, 256, 92), os.path.join(DESKTOP_ASSETS, 'Brown.ico'))
+    save_ico(place(white, 256, 256, 92), os.path.join(BRAND_ASSETS, 'Brown.ico'))
     # installer page header icon: black mark on transparent
     save_ico(place(black, 256, 256, 92), os.path.join(BRAND_ASSETS, 'Brown-header.ico'))
     # NSIS wizard art (24bpp BMPs, exact dims electron-builder expects)
