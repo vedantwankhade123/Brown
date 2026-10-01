@@ -1,5 +1,5 @@
 /**
- * LAN pairing bridge for Ultron Desktop <-> Ultron Mobile.
+ * LAN pairing bridge for Brown Desktop <-> Brown Mobile.
  * HTTP on 0.0.0.0:49200+ (WhatsApp-style pairing code + real scannable QR).
  */
 const http = require('http');
@@ -313,7 +313,7 @@ function discoverPayload() {
   return {
     ok: true,
     syncId,
-    name: `${os.hostname() || 'Ultron-PC'} (Ultron Desktop)`,
+    name: `${os.hostname() || 'Brown-PC'} (Brown Desktop)`,
     version: app.getVersion ? app.getVersion() : '1.0.0',
     port: activePort,
     addresses: getLanAddresses(),
@@ -326,7 +326,7 @@ function pairQrPayload(code) {
   return JSON.stringify({
     v: 1,
     type: 'brown-pair',
-    name: `${os.hostname() || 'Ultron-PC'} (Ultron Desktop)`,
+    name: `${os.hostname() || 'Brown-PC'} (Brown Desktop)`,
     ip: ips[0] || '127.0.0.1',
     ips,
     port: activePort,
@@ -422,7 +422,7 @@ async function handleRequest(req, res) {
     }
     const token = generateToken();
     const rawTokens = loadConfig().mobilePairTokens || [];
-    const clientDevName = (body.deviceName || (pendingPair && pendingPair.deviceName) || 'Ultron Mobile').trim();
+    const clientDevName = (body.deviceName || (pendingPair && pendingPair.deviceName) || 'Brown Mobile').trim();
     const clientPlatform = body.platform || (pendingPair && pendingPair.platform) || 'android';
 
     // Revoke any previous active tokens for the same device to prevent duplicates
@@ -516,7 +516,7 @@ async function handleRequest(req, res) {
     const consent = await requestChatConsent({
       direction: 'pc-to-phone',
       title: 'Send desktop chats to your phone?',
-      detail: `Ultron Mobile wants to copy ${sessions.length} conversation${sessions.length === 1 ? '' : 's'} (${messageCount} messages) from this PC to the phone.`,
+      detail: `Brown Mobile wants to copy ${sessions.length} conversation${sessions.length === 1 ? '' : 's'} (${messageCount} messages) from this PC to the phone.`,
       sessionCount: sessions.length,
       messageCount,
     });
@@ -535,7 +535,7 @@ async function handleRequest(req, res) {
     const consent = await requestChatConsent({
       direction: 'phone-to-pc',
       title: 'Save phone chats on this PC?',
-      detail: `Ultron Mobile wants to export ${incoming.length} conversation${incoming.length === 1 ? '' : 's'} (${messageCount} messages) from the phone onto this workstation.`,
+      detail: `Brown Mobile wants to export ${incoming.length} conversation${incoming.length === 1 ? '' : 's'} (${messageCount} messages) from the phone onto this workstation.`,
       sessionCount: incoming.length,
       messageCount,
     });
@@ -745,7 +745,7 @@ function getSyncInfo() {
   // Deduplicate active devices by deviceName (case-insensitive) keeping the newest active token
   const byNameActive = new Map();
   for (const t of activeTokens) {
-    const key = (t.deviceName || 'Ultron Mobile').trim().toLowerCase();
+    const key = (t.deviceName || 'Brown Mobile').trim().toLowerCase();
     const existing = byNameActive.get(key);
     if (!existing || (t.createdAt || 0) > (existing.createdAt || 0)) {
       byNameActive.set(key, t);
@@ -755,7 +755,7 @@ function getSyncInfo() {
   const activeDevices = Array.from(byNameActive.values()).map(t => ({
     id: t.id || t.token?.slice(0, 8),
     tokenPrefix: t.token?.slice(0, 8) || '',
-    deviceName: t.deviceName || 'Ultron Mobile',
+    deviceName: t.deviceName || 'Brown Mobile',
     platform: t.platform || 'android',
     createdAt: t.createdAt || Date.now(),
   }));
@@ -763,7 +763,7 @@ function getSyncInfo() {
   // Deduplicate previous devices by deviceName
   const byNamePrevious = new Map();
   for (const t of revokedTokens) {
-    const key = (t.deviceName || 'Ultron Mobile').trim().toLowerCase();
+    const key = (t.deviceName || 'Brown Mobile').trim().toLowerCase();
     if (!byNameActive.has(key)) {
       const existing = byNamePrevious.get(key);
       const timeVal = t.revokedAt || t.createdAt || 0;
@@ -777,7 +777,7 @@ function getSyncInfo() {
   const previousDevices = Array.from(byNamePrevious.values()).map(t => ({
     id: t.id || t.token?.slice(0, 8),
     tokenPrefix: t.token?.slice(0, 8) || '',
-    deviceName: t.deviceName || 'Ultron Mobile',
+    deviceName: t.deviceName || 'Brown Mobile',
     platform: t.platform || 'android',
     lastConnectedAt: t.revokedAt || t.createdAt || Date.now(),
   }));
@@ -831,7 +831,7 @@ async function createDesktopPairCode() {
   pendingPair = {
     requestId,
     code,
-    deviceName: 'Ultron Mobile Companion',
+    deviceName: 'Brown Mobile Companion',
     expiresAt: Date.now() + PAIR_TTL_MS,
     attempts: 0,
   };
