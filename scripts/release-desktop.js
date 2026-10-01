@@ -156,7 +156,7 @@ if (fs.existsSync(path.join(DIST, 'latest.yml'))) upload.push(path.join(DIST, 'l
 if (includeOriginalNames) upload.push(path.join(DIST, setup));
 for (const f of upload) if (!fs.existsSync(f)) die(`expected asset is missing: ${path.basename(f)}`);
 
-sh(`gh api repos/${REPO} > /dev/null`); // fails early with a readable auth error
+sh(`gh api repos/${REPO} > NUL`); // fails early with a readable auth error
 
 const tags = sh('git tag -l', { pipe: true }).split('\n');
 if (tags.includes(tag)) {
@@ -167,7 +167,7 @@ if (tags.includes(tag)) {
 sh(`git push origin ${tag}`);
 
 const quoted = upload.map((f) => `"${f}"`).join(' ');
-const exists = sh(`gh release view ${tag} > /dev/null 2>&1 && echo yes || echo no`, { pipe: true }).trim() === 'yes';
+const exists = sh(`gh release view ${tag} --json assets > NUL 2>&1 && echo yes || echo no`, { pipe: true }).trim() === 'yes';
 if (exists) {
   sh(`gh release upload ${tag} ${quoted} --clobber`);
   sh(`gh release edit ${tag} --title "Brown AI Desktop v${version}" --notes-file .release-notes.md`);
@@ -177,13 +177,13 @@ if (exists) {
 
 // Prove the user-facing link actually resolves instead of assuming the upload worked.
 const resolved = sh(
-  `gh api repos/${REPO}/releases/latest --jq '.tag_name'`,
+  `gh api repos/${REPO}/releases/latest --jq .tag_name`,
   { pipe: true }
 ).trim();
 console.log(`\n[release] published. releases/latest now points at ${resolved}`);
 for (const f of upload) {
   const name = path.basename(f);
-  const ok = sh(`gh release view ${tag} --json assets --jq '.assets[].name'`, { pipe: true }).includes(name);
+  const ok = sh(`gh release view ${tag} --json assets --jq .assets[].name`, { pipe: true }).includes(name);
   console.log(`  ${ok ? 'ok  ' : 'MISS'} ${name}`);
 }
 console.log(`\n  website link: https://github.com/${REPO}/releases/latest/download/Brown-AI-Setup.exe`);
