@@ -389,11 +389,9 @@ function splitKokoroTextParts(text, maxLen = 400) {
   return parts.filter(Boolean);
 }
 
-async function downloadKokoroEngine(sendProgress) {
-  if (kokoroDownloadState.inProgress) {
-    return { success: false, error: 'Kokoro engine download already in progress.' };
-  }
+let kokoroDownloadPromise = null;
 
+async function runKokoroEngineDownload(sendProgress) {
   kokoroDownloadState = { inProgress: true, cancelled: false };
   const emit = (payload) => {
     if (typeof sendProgress === 'function') sendProgress(payload);
@@ -404,34 +402,54 @@ async function downloadKokoroEngine(sendProgress) {
   // Ensure cache lives under resolved modelsDir (post applyStoragePaths) before HF download.
   const cacheDir = getKokoroCacheDir();
   fs.mkdirSync(cacheDir, { recursive: true });
-  // Never destroy a complete download: only reset when the model is missing
-  // or partial.
-  if (!hasCompleteKokoroModel()) {
-    removeIncompleteKokoroCache();
-  }
+  // Completed files from earlier attempts are reused by the transformers cache,
+  // so a flaky network resumes instead of restarting from zero.
+
+  const onLoadProgress = (data) => {
+    if (kokoroDownloadState.cancelled || !data) return;
+    if (data.status === 'progress' && data.total) {
+      const percent = Math.min(95, Math.round((data.loaded / data.total) * 100));
+      emit({
+        phase: 'download',
+        percent,
+        downloaded: `${(data.loaded / (1024 * 1024)).toFixed(1)} MB`,
+        total: `${(data.total / (1024 * 1024)).toFixed(1)} MB`,
+        status: 'Downloading Kokoro engine…'
+      });
+    } else if (data.status === 'initiate') {
+      emit({ phase: 'download', percent: 0, status: `Fetching ${data.file || data.name || 'Kokoro'}…` });
+    }
+  };
 
   try {
-    kokoroPromise = null;
-    kokoroLoadedDevice = null;
-    invalidateKokoroModelPathCache();
-    await getKokoroTts((data) => {
-      if (kokoroDownloadState.cancelled || !data) return;
-      if (data.status === 'progress' && data.total) {
-        const percent = Math.min(95, Math.round((data.loaded / data.total) * 100));
+    const MAX_ATTEMPTS = 3;
+    let lastErr = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      lastErr = null;
+      kokoroPromise = null;
+      kokoroLoadedDevice = null;
+      invalidateKokoroModelPathCache();
+      try {
+        await getKokoroTts(onLoadProgress);
+      } catch (err) {
+        lastErr = err;
+      }
+      if (!lastErr || kokoroDownloadState.cancelled || hasCompleteKokoroModel()) break;
+      if (attempt < MAX_ATTEMPTS) {
+        console.warn(`[voice-kokoro] download attempt ${attempt} failed, retrying:`, lastErr.message || lastErr);
         emit({
           phase: 'download',
-          percent,
-          downloaded: `${(data.loaded / (1024 * 1024)).toFixed(1)} MB`,
-          total: `${(data.total / (1024 * 1024)).toFixed(1)} MB`,
-          status: 'Downloading Kokoro engine…'
+          percent: 2,
+          status: `Network hiccup — retrying Kokoro download (attempt ${attempt + 1} of ${MAX_ATTEMPTS})…`
         });
-      } else if (data.status === 'initiate') {
-        emit({ phase: 'download', percent: 0, status: `Fetching ${data.file || data.name || 'Kokoro'}…` });
+        await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
       }
-    });
+    }
+    // A load error with a complete model on disk still counts as installed;
+    // synthesis will surface any real runtime problem.
+    if (lastErr && !hasCompleteKokoroModel()) throw lastErr;
 
     if (kokoroDownloadState.cancelled) {
-      if (!hasCompleteKokoroModel()) removeIncompleteKokoroCache();
       return { success: false, cancelled: true, error: 'Download cancelled.' };
     }
 
@@ -442,7 +460,6 @@ async function downloadKokoroEngine(sendProgress) {
     }
     const verifiedPath = findKokoroModelOnnxPath();
     if (!verifiedPath || !isValidOnnxModelFile(verifiedPath, KOKORO_MIN_MODEL_BYTES)) {
-      removeIncompleteKokoroCache();
       const diag = getKokoroDiagnostics();
       console.error('[voice-kokoro] incomplete ONNX after download:', diag);
       return {
@@ -471,7 +488,6 @@ async function downloadKokoroEngine(sendProgress) {
   } catch (err) {
     kokoroPromise = null;
     kokoroLoadedDevice = null;
-    if (!hasCompleteKokoroModel()) removeIncompleteKokoroCache();
     if (kokoroDownloadState.cancelled) {
       return { success: false, cancelled: true, error: 'Download cancelled.' };
     }
@@ -486,6 +502,15 @@ async function downloadKokoroEngine(sendProgress) {
   } finally {
     kokoroDownloadState = { inProgress: false, cancelled: false };
   }
+}
+
+function downloadKokoroEngine(sendProgress) {
+  // Single shared in-flight download: auto-start, a second card click, or a
+  // settings download racing onboarding all await the same attempt.
+  if (kokoroDownloadPromise) return kokoroDownloadPromise;
+  kokoroDownloadPromise = runKokoroEngineDownload(sendProgress);
+  kokoroDownloadPromise.catch(() => {}).then(() => { kokoroDownloadPromise = null; });
+  return kokoroDownloadPromise;
 }
 
 async function downloadKokoroVoice(voiceId = 'af_heart', sendProgress) {
@@ -507,7 +532,10 @@ async function downloadKokoroVoice(voiceId = 'af_heart', sendProgress) {
   }
 }
 
-async function downloadKokoroOnboardingDefaults(sendProgress) {
+const ONBOARDING_DEFAULT_VOICES = ['bm_george', 'af_heart'];
+
+async function downloadKokoroOnboardingDefaults(sendProgress, voiceIds) {
+  const ids = Array.isArray(voiceIds) && voiceIds.length ? voiceIds : ONBOARDING_DEFAULT_VOICES;
   const emit = (payload) => {
     if (typeof sendProgress === 'function') sendProgress(payload);
   };
@@ -516,23 +544,18 @@ async function downloadKokoroOnboardingDefaults(sendProgress) {
   const baseResult = await downloadKokoroEngine(sendProgress);
   if (!baseResult.success) return baseResult;
 
-  emit({ phase: 'download', percent: 90, status: 'Setting up Heart & Michael voice models…' });
-  try {
-    await synthesizeKokoroSpeech('Hello', 'af_heart');
-    markVoiceInstalled('af_heart');
-  } catch (e) {
-    markVoiceInstalled('af_heart');
+  emit({ phase: 'download', percent: 90, status: 'Setting up neural voices…' });
+  for (const id of ids) {
+    try {
+      await synthesizeKokoroSpeech('Hello', id);
+    } catch (e) {
+      console.warn(`[voice-kokoro] onboarding voice warmup failed (non-fatal): ${id}`);
+    }
+    markVoiceInstalled(id);
   }
 
-  try {
-    await synthesizeKokoroSpeech('Hello', 'am_michael');
-    markVoiceInstalled('am_michael');
-  } catch (e) {
-    markVoiceInstalled('am_michael');
-  }
-
-  emit({ phase: 'complete', percent: 100, status: 'Kokoro neural voices ready (Heart & Michael).' });
-  return { success: true, installed: true, voices: ['af_heart', 'am_michael'] };
+  emit({ phase: 'complete', percent: 100, status: 'Kokoro neural voices ready.' });
+  return { success: true, installed: true, voices: ids };
 }
 
 async function warmupKokoroEngine(timeoutMs = 180000) {

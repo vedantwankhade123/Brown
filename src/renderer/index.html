@@ -2715,26 +2715,6 @@
 
   <!-- First-Time Setup & Onboarding View (Cursor-inspired) -->
   <div id="onboarding-screen" class="onboarding-screen hidden">
-    <!-- Top-left voice guide narrator toggle (Michael voice) -->
-    <button id="btn-onboard-voice-guide" class="onboard-voice-toggle-btn" type="button" aria-label="Toggle Voice Guide" title="Voice Guide (Michael) — Click to Mute / Play">
-      <svg class="voice-icon-idle" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-        <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-      </svg>
-      <svg class="voice-icon-muted hidden" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-        <line x1="23" y1="9" x2="17" y2="15"></line>
-        <line x1="17" y1="9" x2="23" y2="15"></line>
-      </svg>
-      <span class="voice-wave-container hidden">
-        <span class="voice-wave-bar"></span>
-        <span class="voice-wave-bar"></span>
-        <span class="voice-wave-bar"></span>
-      </span>
-      <span class="onboard-voice-label">Voice Guide</span>
-    </button>
-
     <!-- Passive legal notice, pinned to the bottom of every onboarding step. -->
     <div class="onboard-legal-footer">
       By continuing, you agree to our
@@ -2749,6 +2729,7 @@
           <img src="../../Assets/Brown-white.png" class="onboarding-logo-img" alt="Brown Logo" />
           <div class="brown-logo-anim onboarding-logo-lottie" data-brown-logo="onboarding" aria-hidden="true"></div>
         </div>
+        <div id="onboard-brand-word" class="onboarding-brand-word hidden" aria-hidden="true">Brown</div>
       </div>
 
       <!-- Step 0: Welcome -->
@@ -2835,30 +2816,7 @@
           <div id="onboard-step-4" class="onboard-step hidden">
             <div class="onboard-requirements-container">
               <div class="onboard-components-grid">
-                <!-- Card 1: Ollama Local LLM -->
-                <div class="onboard-comp-card" id="onboard-card-ollama">
-                  <div class="onboard-comp-main">
-                    <div class="onboard-comp-icon">
-                      <img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" />
-                    </div>
-                    <div class="onboard-comp-titles">
-                      <div class="onboard-comp-heading-row">
-                        <h4 class="onboard-comp-name">Local AI Engine (Ollama)</h4>
-                        <span id="onboard-badge-ollama" class="onboard-comp-badge checking" aria-hidden="true"></span>
-                      </div>
-                      <p id="onboard-desc-ollama" class="onboard-comp-status-text">Verifying local Ollama service...</p>
-                      <div id="onboard-progress-ollama" class="onboard-comp-progress-wrap hidden">
-                        <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
-                        <span class="onboard-comp-progress-lbl">Downloading...</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-ollama" class="btn-onboard-comp-action" aria-label="Install or start Ollama" title="Install or start Ollama"></button>
-                  </div>
-                </div>
-
-                <!-- Card 2: Kokoro Neural Voices -->
+                <!-- Kokoro Neural Voice Engine -->
                 <div class="onboard-comp-card" id="onboard-card-kokoro">
                   <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
@@ -2869,7 +2827,7 @@
                         <h4 class="onboard-comp-name">Kokoro Neural Voice Engine</h4>
                         <span id="onboard-badge-kokoro" class="onboard-comp-badge checking" aria-hidden="true"></span>
                       </div>
-                      <p id="onboard-desc-kokoro" class="onboard-comp-status-text">Checking offline voice synthesizer...</p>
+                      <p id="onboard-desc-kokoro" class="onboard-comp-status-text">Optional · offline text-to-speech</p>
                       <div id="onboard-progress-kokoro" class="onboard-comp-progress-wrap hidden">
                         <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
                         <span class="onboard-comp-progress-lbl">Downloading...</span>
@@ -2877,15 +2835,67 @@
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action" aria-label="Download voice models" title="Download voice models"></button>
+                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action" aria-label="Download voice engine and models" title="Download voice engine and models"></button>
+                  </div>
+                </div>
+
+                <!-- Voice model picker (downloaded with the engine) -->
+                <div id="onboard-voice-picker" class="onboard-voice-picker">
+                  <div class="onboard-voice-chips" role="group" aria-label="Voice models to download">
+                    <button type="button" class="onboard-voice-chip" data-voice-id="af_heart" data-model-key="kokoro-heart">Heart</button>
+                    <button type="button" class="onboard-voice-chip" data-voice-id="am_michael" data-model-key="kokoro-michael">Michael</button>
+                    <button type="button" class="onboard-voice-chip selected" data-voice-id="bm_george" data-model-key="kokoro-george">George</button>
+                    <button type="button" class="onboard-voice-chip" data-voice-id="bm_lewis" data-model-key="kokoro-lewis">Lewis</button>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Step 5 is only the narration hold — the brand badge above is its content. -->
-          <div id="onboard-step-5" class="onboard-step hidden"></div>
+          <div id="onboard-step-5" class="onboard-step hidden">
+            <div class="onboard-requirements-container">
+              <div class="onboard-components-grid">
+                <!-- Ollama -->
+                <div class="onboard-comp-card" id="onboard-tile-ollama" title="Check or install Ollama">
+                  <div class="onboard-comp-main">
+                    <div class="onboard-comp-icon">
+                      <img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" />
+                    </div>
+                    <div class="onboard-comp-titles">
+                      <div class="onboard-comp-heading-row">
+                        <h4 class="onboard-comp-name">Ollama</h4>
+                      </div>
+                      <p id="onboard-desc-ollama" class="onboard-comp-status-text">Verifying local Ollama service...</p>
+                    </div>
+                  </div>
+                  <div class="onboard-comp-actions">
+                    <button type="button" id="btn-onboard-action-ollama" class="btn-onboard-comp-action" aria-label="Install or start Ollama" title="Install or start Ollama"></button>
+                  </div>
+                </div>
+
+                <!-- Hugging Face -->
+                <div class="onboard-comp-card" id="onboard-tile-hf" title="Check Hugging Face connection">
+                  <div class="onboard-comp-main">
+                    <div class="onboard-comp-icon">
+                      <img src="../../Assets/Brand-Assets/hf-logo.png" alt="Hugging Face" />
+                    </div>
+                    <div class="onboard-comp-titles">
+                      <div class="onboard-comp-heading-row">
+                        <h4 class="onboard-comp-name">Hugging Face</h4>
+                      </div>
+                      <p id="onboard-desc-hf" class="onboard-comp-status-text">Checking model download access...</p>
+                    </div>
+                  </div>
+                  <div class="onboard-comp-actions">
+                    <button type="button" id="btn-onboard-action-hf" class="btn-onboard-comp-action" aria-label="Check Hugging Face connection" title="Check Hugging Face connection"></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 6: the ready hold — the brand badge + wordmark above is its content. -->
+          <div id="onboard-step-6" class="onboard-step hidden"></div>
         </div>
 
         <div id="onboard-footer-actions" class="onboard-footer-actions">
