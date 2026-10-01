@@ -459,6 +459,44 @@ function reconcileInstallFirstRunMarker() {
   }
 }
 
+const ONBOARDING_WINDOW_SIZE = { width: 1006, height: 667 };
+const REGULAR_WINDOW_SIZE = { width: 1200, height: 800 };
+let onboardingWindowActive = false;
+
+/**
+ * The onboarding flow is a single centered card, so the first run opens in a
+ * smaller window instead of the full app shell. Sizes are DIP; the 36px
+ * title-bar overlay is part of the height. 1006x667 is his screenshot of the
+ * flow measured at 1250x834 device px on a 125% display.
+ */
+function initialWindowSize() {
+  let completed = false;
+  try {
+    completed = Boolean(readUltronConfigFile().setupCompleted);
+  } catch (e) {
+    completed = false;
+  }
+  onboardingWindowActive = !completed;
+  return completed
+    ? { ...REGULAR_WINDOW_SIZE, onboarding: false }
+    : { ...ONBOARDING_WINDOW_SIZE, onboarding: true };
+}
+
+/**
+ * Onboarding is done: hand the user the real app, which means the maximized
+ * window - the small first-run frame is never the size he works at.
+ */
+function restoreRegularWindow() {
+  if (!onboardingWindowActive) return;
+  onboardingWindowActive = false;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow.isMaximized()) {
+    mainWindow.setSize(REGULAR_WINDOW_SIZE.width, REGULAR_WINDOW_SIZE.height);
+    mainWindow.center();
+    mainWindow.maximize();
+  }
+}
+
 function setMainWindow(win) {
   mainWindow = win;
 }
@@ -1055,6 +1093,17 @@ function registerAudioIpcHandlers() {
       const ts = require('./theme-state');
       ts.state.light = String(p.theme) === 'light';
       if (p.user) ts.state.splashDone = true;
+      const { color, symbolColor } = ts.overlayColors();
+      win.setTitleBarOverlay({ color, symbolColor, height: 36 });
+    } catch (e) {}
+  });
+
+  ipcMain.on('set-setup-titlebar', (event, on) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      if (!win) return;
+      const ts = require('./theme-state');
+      ts.state.setup = Boolean(on);
       const { color, symbolColor } = ts.overlayColors();
       win.setTitleBarOverlay({ color, symbolColor, height: 36 });
     } catch (e) {}
@@ -2331,6 +2380,9 @@ function setupIpcHandlers() {
         config.setupCompleted = false;
       }
       writeUltronConfigFile(config);
+
+      // Onboarding is over: give the window back to the regular app shell.
+      if (config.setupCompleted) restoreRegularWindow();
 
       // Write the first-run marker beside the exe ONLY when setup is complete.
       // This marker is checked by reconcileInstallFirstRunMarker() on startup
@@ -4176,6 +4228,7 @@ function getInstallationDefaultDataDir() {
 module.exports = {
   setupIpcHandlers,
   setMainWindow,
-  reconcileInstallFirstRunMarker
+  reconcileInstallFirstRunMarker,
+  initialWindowSize
 };
 
