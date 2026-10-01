@@ -18343,6 +18343,9 @@ async function checkAndRunFirstTimeOnboarding() {
 
   // Show integrated onboarding screen directly inside the app interface
   onboardingScreen.classList.remove('hidden');
+  // Drop the native window-control strip so it blends into this backdrop.
+  if (window.ultronAPI && window.ultronAPI.setSetupTitlebar) window.ultronAPI.setSetupTitlebar(true);
+  playOnboardingBrandIntro();
 
   let currentStep = 0;
 
@@ -18373,9 +18376,31 @@ async function checkAndRunFirstTimeOnboarding() {
   const btnRetryOllama = document.getElementById('btn-onboard-retry-ollama');
 
   let ollamaReady = false;
-  let readyRedirectTimer = null;
   let onboardVoiceMuted = false;
   let currentOnboardAudioElem = null;
+
+  // The ready screen waits for the Voice Guide instead of a fixed delay, so the
+  // last narration is never cut mid-sentence. These waiters are released when the
+  // audio ends, is muted, or fails to start.
+  const onboardVoiceWaiters = new Set();
+
+  function releaseOnboardVoiceWaiters() {
+    for (const settle of onboardVoiceWaiters) settle();
+    onboardVoiceWaiters.clear();
+  }
+
+  function whenOnboardVoiceIdle(timeoutMs = 45000) {
+    if (!currentOnboardAudioElem) return Promise.resolve();
+    return new Promise((resolve) => {
+      const settle = () => {
+        clearTimeout(cap);
+        onboardVoiceWaiters.delete(settle);
+        resolve();
+      };
+      const cap = setTimeout(settle, timeoutMs);
+      onboardVoiceWaiters.add(settle);
+    });
+  }
 
   const ONBOARD_AUDIO_CANDIDATES = {
     0: ['../../Assets/sounds/step-0-welcome.mp3'],
@@ -18418,6 +18443,7 @@ async function checkAndRunFirstTimeOnboarding() {
         if (iconIdle) iconIdle.classList.toggle('hidden', onboardVoiceMuted);
         if (iconMuted) iconMuted.classList.toggle('hidden', !onboardVoiceMuted);
       }
+      releaseOnboardVoiceWaiters();
     }
 
     for (const src of candidates) {
@@ -18460,6 +18486,8 @@ async function checkAndRunFirstTimeOnboarding() {
       if (iconIdle) iconIdle.classList.toggle('hidden', onboardVoiceMuted);
       if (iconMuted) iconMuted.classList.toggle('hidden', !onboardVoiceMuted);
     }
+
+    releaseOnboardVoiceWaiters();
   }
 
   const btnVoiceGuide = document.getElementById('btn-onboard-voice-guide');
@@ -18504,14 +18532,6 @@ async function checkAndRunFirstTimeOnboarding() {
   }
 
   async function finishOnboarding() {
-    const privacyCheckbox = document.getElementById('onboard-privacy-checkbox');
-    const privacyError = document.getElementById('onboard-privacy-error');
-    if (privacyCheckbox && !privacyCheckbox.checked) {
-      if (privacyError) privacyError.classList.remove('hidden');
-      return;
-    }
-    if (privacyError) privacyError.classList.add('hidden');
-
     window.localStorage.setItem('ultron-privacy-accepted', 'true');
     window.localStorage.setItem('ultron-privacy-accepted-at', new Date().toISOString());
     window.localStorage.setItem('ultron-privacy-version', '1.0');
@@ -18522,6 +18542,7 @@ async function checkAndRunFirstTimeOnboarding() {
       await window.ultronAPI.saveSetupStatus(true);
     }
     onboardingScreen.classList.add('hidden');
+    if (window.ultronAPI && window.ultronAPI.setSetupTitlebar) window.ultronAPI.setSetupTitlebar(false);
 
     await loadAccountDetails();
     updateWelcomeGreeting();
@@ -18853,6 +18874,9 @@ async function checkAndRunFirstTimeOnboarding() {
   initCustomDatePicker();
 
   if (fullNameInput) {
+    fullNameInput.addEventListener('input', () => {
+      if (error1 && fullNameInput.value.trim()) error1.classList.add('hidden');
+    });
     fullNameInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -18862,6 +18886,7 @@ async function checkAndRunFirstTimeOnboarding() {
   }
 
   if (birthdateInput) {
+    // error2 is already cleared by the date picker's own input handler.
     birthdateInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -18871,6 +18896,9 @@ async function checkAndRunFirstTimeOnboarding() {
   }
 
   if (emailInput) {
+    emailInput.addEventListener('input', () => {
+      if (error3 && emailInput.value.trim().includes('@')) error3.classList.add('hidden');
+    });
     emailInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -18926,9 +18954,8 @@ async function checkAndRunFirstTimeOnboarding() {
       if (step4) step4.classList.remove('hidden');
       if (btnBack) btnBack.classList.remove('hidden');
       if (btnNext) btnNext.classList.add('hidden');
-      // Voice models are a mandatory setup component — no skipping.
-      if (btnSkipLater) btnSkipLater.classList.add('hidden');
-      setFinishVisible(Boolean(compStatus.kokoro));
+      // Finish stays locked until every mandatory component is on disk.
+      setFinishVisible(areAllOnboardingComponentsReady());
       runOboardingRequirementsCheck();
     } else if (currentStep === 5) {
       if (step5) step5.classList.remove('hidden');
@@ -19021,39 +19048,14 @@ async function checkAndRunFirstTimeOnboarding() {
   // Multi-Component Requirements Check & Setup (Step 4)
   let compStatus = {
     ollama: false,
-    uia: false,
     kokoro: false
   };
 
   function areAllOnboardingComponentsReady() {
-    return Boolean(compStatus.ollama && compStatus.uia && compStatus.kokoro);
+    return Boolean(compStatus.ollama && compStatus.kokoro);
   }
 
-  function updateRequirementsBatchButton({ busy = false } = {}) {
-    const btn = document.getElementById('btn-onboard-download-all');
-    if (!btn) return;
-
-    if (busy) {
-      btn.disabled = true;
-      btn.classList.remove('installed');
-      btn.innerHTML = `${window.UltronMotion.renderFlickerSpinner({ size: 18, className: 'onboard-spinner' })} Setting up components…`;
-      return;
-    }
-
-    if (areAllOnboardingComponentsReady()) {
-      btn.disabled = true;
-      btn.classList.add('installed');
-      btn.innerHTML = `All components ready`;
-      return;
-    }
-
-    btn.disabled = false;
-    btn.classList.remove('installed');
-    btn.innerHTML = `
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-      Set up missing components
-    `;
-  }
+  const onboardCircularSpinner = '<span class="onboard-circular-spinner" aria-hidden="true"></span>';
 
   const onboardDownloadIcon = `
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -19080,7 +19082,7 @@ async function checkAndRunFirstTimeOnboarding() {
       btn.classList.add('installed');
       btn.innerHTML = onboardCheckIcon;
     } else if (state === 'busy') {
-      btn.innerHTML = window.UltronMotion.renderFlickerSpinner({ size: 18, className: 'onboard-spinner' });
+      btn.innerHTML = onboardCircularSpinner;
     } else {
       btn.innerHTML = onboardDownloadIcon;
     }
@@ -19092,7 +19094,7 @@ async function checkAndRunFirstTimeOnboarding() {
     const btn = document.getElementById('btn-onboard-action-ollama');
     if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
     setOnboardComponentAction(btn, 'busy', 'Checking Ollama');
-    if (desc) desc.textContent = 'Verifying Ollama local neural service…';
+    if (desc) desc.textContent = 'Verifying Ollama service…';
 
     const conn = await checkOllamaConnection();
     if (conn.connected) {
@@ -19106,7 +19108,7 @@ async function checkAndRunFirstTimeOnboarding() {
     if (window.ultronAPI?.checkOllamaInstalled) {
       const installCheck = await window.ultronAPI.checkOllamaInstalled();
       if (installCheck.installed) {
-        if (desc) desc.textContent = 'Ollama installed. Starting background service…';
+        if (desc) desc.textContent = 'Ollama installed. Starting service…';
         await window.ultronAPI.startOllamaService(installCheck.path).catch(() => {});
         for (let i = 0; i < 5; i++) {
           await new Promise(r => setTimeout(r, 800));
@@ -19124,34 +19126,8 @@ async function checkAndRunFirstTimeOnboarding() {
 
     compStatus.ollama = false;
     if (badge) { badge.className = 'onboard-comp-badge missing'; badge.textContent = ''; }
-    if (desc) desc.textContent = 'Ollama is not running. Install or launch Ollama to run local models.';
+    if (desc) desc.textContent = 'Not running. Install or start Ollama.';
     setOnboardComponentAction(btn, 'download', 'Install or start Ollama');
-    return false;
-  }
-
-  async function checkUiaComp() {
-    const badge = document.getElementById('onboard-badge-uia');
-    const desc = document.getElementById('onboard-desc-uia');
-    const btn = document.getElementById('btn-onboard-action-uia');
-    if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
-    setOnboardComponentAction(btn, 'busy', 'Checking Windows UI Automation');
-    if (desc) desc.textContent = 'Verifying Windows UI automation server…';
-
-    try {
-      const res = await window.ultronAPI?.checkMcpWindowsUia?.();
-      if (res?.installed) {
-        compStatus.uia = true;
-        if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
-        if (desc) desc.textContent = 'Windows UI Automation server is ready for desktop control.';
-        setOnboardComponentAction(btn, 'ready', 'Windows UI Automation ready');
-        return true;
-      }
-    } catch (e) {}
-
-    compStatus.uia = false;
-    if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = ''; }
-    if (desc) desc.textContent = 'Enables deep Windows UI automation and native app control.';
-    setOnboardComponentAction(btn, 'download', 'Set up Windows UI Automation');
     return false;
   }
 
@@ -19161,7 +19137,7 @@ async function checkAndRunFirstTimeOnboarding() {
     const btn = document.getElementById('btn-onboard-action-kokoro');
     if (badge) { badge.className = 'onboard-comp-badge checking'; badge.textContent = ''; }
     setOnboardComponentAction(btn, 'busy', 'Checking voice models');
-    if (desc) desc.textContent = 'Verifying Kokoro neural voice synthesizer…';
+    if (desc) desc.textContent = 'Verifying Kokoro voice engine…';
 
     try {
       const res = await window.ultronAPI?.getTtsCatalog?.();
@@ -19172,7 +19148,7 @@ async function checkAndRunFirstTimeOnboarding() {
       if (heartInstalled && michaelInstalled) {
         compStatus.kokoro = true;
         if (badge) { badge.className = 'onboard-comp-badge ready'; badge.textContent = ''; }
-        if (desc) desc.textContent = 'Heart & Michael neural voice models are ready.';
+        if (desc) desc.textContent = 'Heart & Michael voices are ready.';
         setOnboardComponentAction(btn, 'ready', 'Voice models ready');
         return true;
       }
@@ -19180,7 +19156,7 @@ async function checkAndRunFirstTimeOnboarding() {
 
     compStatus.kokoro = false;
     if (badge) { badge.className = 'onboard-comp-badge not-installed'; badge.textContent = ''; }
-    if (desc) desc.textContent = 'Offline TTS · Downloads Heart (Female) & Michael (Male) voices. Required to finish setup.';
+    if (desc) desc.textContent = 'Downloads Heart & Michael voices.';
     setOnboardComponentAction(btn, 'download', 'Download voice models');
     return false;
   }
@@ -19188,16 +19164,14 @@ async function checkAndRunFirstTimeOnboarding() {
   async function runOboardingRequirementsCheck() {
     await Promise.all([
       checkOllamaComp(),
-      checkUiaComp(),
       checkKokoroComp()
     ]);
     // Voice models are mandatory: auto-start their download on first check and
-    // keep Finish locked until both Heart & Michael are on disk.
+    // keep Finish locked until every component is on disk.
     if (!compStatus.kokoro) {
       await startKokoroOnboardDownload();
     }
-    setFinishVisible(Boolean(compStatus.kokoro));
-    updateRequirementsBatchButton();
+    setFinishVisible(areAllOnboardingComponentsReady());
   }
 
   // Action listeners for individual cards
@@ -19207,19 +19181,7 @@ async function checkAndRunFirstTimeOnboarding() {
       setOnboardComponentAction(btnActionOllama, 'busy', 'Installing or starting Ollama');
       await startOllamaInstallFlow(btnActionOllama);
       await checkOllamaComp();
-      updateRequirementsBatchButton();
-    };
-  }
-
-  const btnActionUia = document.getElementById('btn-onboard-action-uia');
-  if (btnActionUia) {
-    btnActionUia.onclick = async () => {
-      setOnboardComponentAction(btnActionUia, 'busy', 'Setting up Windows UI Automation');
-      const badge = document.getElementById('onboard-badge-uia');
-      if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = ''; }
-      await window.ultronAPI?.installMcpWindowsUia?.();
-      await checkUiaComp();
-      updateRequirementsBatchButton();
+      setFinishVisible(areAllOnboardingComponentsReady());
     };
   }
 
@@ -19231,66 +19193,29 @@ async function checkAndRunFirstTimeOnboarding() {
     if (badge) { badge.className = 'onboard-comp-badge downloading'; badge.textContent = ''; }
     await window.ultronAPI?.downloadKokoroOnboardingVoices?.();
     await checkKokoroComp();
-    setFinishVisible(Boolean(compStatus.kokoro));
-    updateRequirementsBatchButton();
+    setFinishVisible(areAllOnboardingComponentsReady());
   }
   if (btnActionKokoro) {
     btnActionKokoro.onclick = () => startKokoroOnboardDownload();
   }
 
-  // Batch action: Download all missing requirements
-  const btnDownloadAll = document.getElementById('btn-onboard-download-all');
-  if (btnDownloadAll) {
-    btnDownloadAll.onclick = async () => {
-      updateRequirementsBatchButton({ busy: true });
-
-      // 1. UIA
-      if (!compStatus.uia && window.ultronAPI?.installMcpWindowsUia) {
-        await window.ultronAPI.installMcpWindowsUia().catch(() => {});
-        await checkUiaComp();
-      }
-
-      // 2. Kokoro
-      if (!compStatus.kokoro && window.ultronAPI?.downloadKokoroOnboardingVoices) {
-        await window.ultronAPI.downloadKokoroOnboardingVoices().catch(() => {});
-        await checkKokoroComp();
-      }
-
-      // 3. Ollama
-      if (!compStatus.ollama) {
-        await checkOllamaComp();
-      }
-
-      setFinishVisible(Boolean(compStatus.kokoro));
-      updateRequirementsBatchButton();
-    };
-  }
-
-  // Skip / Setup Later button
-  const btnSkipLater = document.getElementById('btn-onboard-skip-later');
-  if (btnSkipLater) {
-    btnSkipLater.onclick = async () => {
-      currentStep = 5;
-      updateStepUI();
-      if (readyRedirectTimer) clearTimeout(readyRedirectTimer);
-      readyRedirectTimer = setTimeout(async () => {
-        readyRedirectTimer = null;
-        await finishOnboarding();
-      }, 2000);
-    };
+  // The ready screen holds for at least floorMs and never leaves before the
+  // Voice Guide has finished narrating it.
+  async function leaveReadyScreen(floorMs) {
+    await Promise.all([
+      new Promise((resolve) => setTimeout(resolve, floorMs)),
+      whenOnboardVoiceIdle(),
+    ]);
+    await finishOnboarding();
   }
 
   // Finish setup — show ready screen, then redirect to main agent UI
   if (btnFinish) {
     btnFinish.onclick = async () => {
+      if (!areAllOnboardingComponentsReady()) return;
       currentStep = 5;
       updateStepUI();
-
-      if (readyRedirectTimer) clearTimeout(readyRedirectTimer);
-      readyRedirectTimer = setTimeout(async () => {
-        readyRedirectTimer = null;
-        await finishOnboarding();
-      }, 2400);
+      await leaveReadyScreen(2400);
     };
   }
 
@@ -22389,6 +22314,19 @@ function stopSplashStatusCycle() {
   }
 }
 
+function playOnboardingBrandIntro() {
+  // Wait for the splash: the badge lives underneath it, so revealing early would
+  // play the whole animation unseen. Called from both sides of the race.
+  const splash = document.getElementById('app-splash-screen');
+  if (splash && splash.dataset.dismissed !== '1') return;
+  const screen = document.getElementById('onboarding-screen');
+  const badge = document.querySelector('.onboarding-brand-badge');
+  if (!screen || !badge || screen.classList.contains('hidden')) return;
+  badge.classList.remove('brand-intro');
+  void badge.offsetWidth;
+  badge.classList.add('brand-intro');
+}
+
 function dismissSplashScreen() {
   stopSplashStatusCycle();
   const splashScreen = document.getElementById('app-splash-screen');
@@ -22396,6 +22334,9 @@ function dismissSplashScreen() {
     return;
   }
   splashScreen.dataset.dismissed = '1';
+  // The onboarding badge lives under the splash, so its reveal has to be started
+  // here — at page load it would play out unseen behind the splash.
+  playOnboardingBrandIntro();
   splashScreen.classList.add('fade-out');
   setTimeout(() => {
     splashScreen.style.display = 'none';

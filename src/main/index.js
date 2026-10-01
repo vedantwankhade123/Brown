@@ -1,7 +1,7 @@
 const { app, BrowserWindow, shell, nativeTheme } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { setupIpcHandlers, setMainWindow, reconcileInstallFirstRunMarker } = require('./ipc');
+const { setupIpcHandlers, setMainWindow, reconcileInstallFirstRunMarker, initialWindowSize } = require('./ipc');
 const { startDesktopSyncServer, stopDesktopSyncServer } = require('./desktop-sync-server');
 const { initAutoUpdater } = require('./updater');
 const { createFloatingBarWindow } = require('./floating-bar-window');
@@ -60,9 +60,11 @@ function resolveWindowIcon() {
 
 function createWindow() {
   const isWin32 = process.platform === 'win32';
+  const initial = initialWindowSize();
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: initial.width,
+    height: initial.height,
+    ...(initial.onboarding ? { center: true } : null),
     show: false,
     backgroundColor: isWin32 ? TITLE_BAR_COLOR : WINDOW_BG,
     title: 'Brown: Autonomous Local AI Agent',

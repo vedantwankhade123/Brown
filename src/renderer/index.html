@@ -184,7 +184,7 @@
         <div class="brown-logo-anim splash-logo-lottie" data-brown-logo="splash" aria-hidden="true"></div>
       </div>
       <div class="splash-text-container">
-        <span class="splash-brand-title">Brown</span>
+        <span class="splash-brand-title"><span class="brand-letter">B</span><span class="brand-letter">r</span><span class="brand-letter">o</span><span class="brand-letter">w</span><span class="brand-letter">n</span></span>
       </div>
     </div>
   </div>
@@ -2735,16 +2735,25 @@
       <span class="onboard-voice-label">Voice Guide</span>
     </button>
 
+    <!-- Passive legal notice, pinned to the bottom of every onboarding step. -->
+    <div class="onboard-legal-footer">
+      By continuing, you agree to our
+      <a href="https://usebrown.online/terms" class="onboard-legal-link">Terms of Service</a>
+      and have read our
+      <a href="https://usebrown.online/privacy" class="onboard-legal-link">Privacy Policy</a>.
+    </div>
+
     <div class="onboarding-container">
       <div class="onboarding-brand-badge">
-        <img src="../../Assets/Brown-white.png" class="onboarding-logo-img" alt="Brown Logo" />
-        <div class="onboarding-brand-title">Brown</div>
+        <div class="onboarding-logo-stack">
+          <img src="../../Assets/Brown-white.png" class="onboarding-logo-img" alt="Brown Logo" />
+          <div class="brown-logo-anim onboarding-logo-lottie" data-brown-logo="onboarding" aria-hidden="true"></div>
+        </div>
       </div>
 
       <!-- Step 0: Welcome -->
       <div id="onboard-step-0" class="onboard-step onboard-welcome">
         <h1 class="onboarding-title">Welcome to Brown AI</h1>
-        <p class="onboarding-tagline">The Autonomous AI Agent for Windows</p>
         <div class="onboard-btn-stack">
           <button id="btn-onboard-start" type="button" class="btn-onboard-primary btn-onboard-start">Get Started</button>
         </div>
@@ -2825,14 +2834,12 @@
 
           <div id="onboard-step-4" class="onboard-step hidden">
             <div class="onboard-requirements-container">
-              <p class="onboard-requirements-desc">Configure core AI components for your PC for full offline capabilities.</p>
-              
               <div class="onboard-components-grid">
                 <!-- Card 1: Ollama Local LLM -->
                 <div class="onboard-comp-card" id="onboard-card-ollama">
                   <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                      <img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" />
                     </div>
                     <div class="onboard-comp-titles">
                       <div class="onboard-comp-heading-row">
@@ -2851,30 +2858,7 @@
                   </div>
                 </div>
 
-                <!-- Card 2: Windows UI Automation -->
-                <div class="onboard-comp-card" id="onboard-card-uia">
-                  <div class="onboard-comp-main">
-                    <div class="onboard-comp-icon">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                    </div>
-                    <div class="onboard-comp-titles">
-                      <div class="onboard-comp-heading-row">
-                        <h4 class="onboard-comp-name">Windows UI Automation MCP</h4>
-                        <span id="onboard-badge-uia" class="onboard-comp-badge checking" aria-hidden="true"></span>
-                      </div>
-                      <p id="onboard-desc-uia" class="onboard-comp-status-text">Checking Windows automation server...</p>
-                      <div id="onboard-progress-uia" class="onboard-comp-progress-wrap hidden">
-                        <div class="onboard-comp-progress-bar"><div class="onboard-comp-progress-fill" style="width: 0%"></div></div>
-                        <span class="onboard-comp-progress-lbl">Downloading...</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-uia" class="btn-onboard-comp-action" aria-label="Set up Windows UI Automation" title="Set up Windows UI Automation"></button>
-                  </div>
-                </div>
-
-                <!-- Card 3: Kokoro Neural Voices -->
+                <!-- Card 2: Kokoro Neural Voices -->
                 <div class="onboard-comp-card" id="onboard-card-kokoro">
                   <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
@@ -2897,67 +2881,26 @@
                   </div>
                 </div>
               </div>
-
-              <!-- Overall batch action bar -->
-              <div class="onboard-req-batch-bar">
-                <button type="button" id="btn-onboard-download-all" class="btn-onboard-primary btn-onboard-batch">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                  Download &amp; Setup All Requirements
-                </button>
-                <button type="button" id="btn-onboard-skip-later" class="btn-onboard-skip hidden">
-                  Skip &amp; Setup Later
-                </button>
-              </div>
             </div>
           </div>
 
-          <div id="onboard-step-5" class="onboard-step onboard-ready-step hidden">
-            <h2 class="onboard-ready-title">Brown is ready</h2>
-            <p class="onboard-ready-subtitle">Your profile is configured and your workspace is online.</p>
-            <div class="onboard-ready-pills">
-              <span class="onboard-ready-pill">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                Profile created
-              </span>
-              <span class="onboard-ready-pill">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
-                Local Engine
-              </span>
-              <span class="onboard-ready-pill">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-                Agent Online
-              </span>
-            </div>
-
-            <!-- Privacy Policy & Terms Acceptance -->
-            <div class="onboard-privacy-acceptance-card" style="margin: 18px auto 8px; max-width: 440px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 12px 16px; text-align: left;">
-              <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer; user-select: none;">
-                <input type="checkbox" id="onboard-privacy-checkbox" checked style="margin-top: 3px; accent-color: #3b82f6; width: 16px; height: 16px; cursor: pointer;" />
-                <span style="font-size: 12px; color: #cbd5e1; line-height: 1.45;">
-                  I accept the <a href="https://usebrown.online/#privacy" target="_blank" style="color: #60a5fa; text-decoration: underline;">Privacy Policy</a> and <a href="https://usebrown.online/#privacy" target="_blank" style="color: #60a5fa; text-decoration: underline;">Terms of Service</a> for Brown AI.
-                </span>
-              </label>
-              <div id="onboard-privacy-error" class="onboard-error-msg hidden" style="margin-top: 6px; font-size: 11.5px; color: #f87171;">
-                Please accept the Privacy Policy &amp; Terms to finish setup.
-              </div>
-            </div>
-
-            <p class="onboard-ready-redirect">Opening your agent workspace...</p>
-          </div>
+          <!-- Step 5 is only the narration hold — the brand badge above is its content. -->
+          <div id="onboard-step-5" class="onboard-step hidden"></div>
         </div>
 
         <div id="onboard-footer-actions" class="onboard-footer-actions">
           <button id="btn-onboard-next" type="button" class="btn-onboard-primary btn-onboard-action-btn">Continue</button>
           <button id="btn-onboard-finish" type="button" class="btn-onboard-primary btn-onboard-action-btn hidden">Finish</button>
           <button id="btn-onboard-back" type="button" class="btn-onboard-link hidden">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="margin-right: 5px; flex-shrink: 0;">
-              <line x1="19" y1="12" x2="5" y2="12"></line>
-              <polyline points="12 19 5 12 12 5"></polyline>
-            </svg>
+            <span class="btn-onboard-back-arrow" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12"></line>
+                <polyline points="12 19 5 12 12 5"></polyline>
+              </svg>
+            </span>
             <span>Back</span>
           </button>
           <div id="onboard-email-note" class="onboard-email-note hidden">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
             <span>This email will be used for personalized recommendations, security updates, and in-app notifications.</span>
           </div>
         </div>
