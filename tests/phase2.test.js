@@ -62,7 +62,7 @@ Database connection strings and secure API keys are stored in encrypted applicat
   // createDesktopPairCode is async (it renders the pairing QR before resolving).
   const pairCodeRes = await desktopSync.createDesktopPairCode();
   assert.strictEqual(pairCodeRes.success, true);
-  assert.strictEqual(pairCodeRes.code.length, 4);
+  assert.strictEqual(pairCodeRes.code.length, 6);
   assert.ok(pairCodeRes.expiresIn > 0 && pairCodeRes.expiresIn <= 120, 'Pairing code must carry a bounded TTL');
 
   const initialDevices = desktopSync.listPairedDevices();

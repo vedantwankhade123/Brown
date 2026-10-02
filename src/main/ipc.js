@@ -198,7 +198,7 @@ function decodeHexPdfString(hex) {
   }
 }
 
-const { verifyAndResolvePath, isPathBlacklisted, isCommandBlacklisted } = require('./security');
+const { verifyAndResolvePath, isPathBlacklisted, isCommandBlacklisted, isRiskyCommand, isSafeDownloadUrl } = require('./security');
 const { profileHardware, queryLocalOllamaModels, getModelRecommendation } = require('./hardware');
 const { launchWindowsSandbox } = require('./sandbox');
 const { findInstalledAppSmart } = require('./app-matching');
@@ -206,6 +206,9 @@ const { fetchWebPage } = require('./web-fetch');
 const mcpManager = require('./mcp-manager');
 const { searchHuggingFaceGgufModels, getModelQuantizations } = require('./huggingface-service');
 const { getWindowsNativeLocation } = require('./windows-geolocation');
+
+// download-file buffers the whole body in memory, so it needs a ceiling.
+const MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024;
 const { getUltronRuntimeRoot, getConnectorsRoot, getDefaultAgentDataDir, getStoragePathsSnapshot, updateAgentDataDir, updateConnectorsDir, getOllamaModelsDir, getOllamaInstallPath, provisionUltronFolderForOllama, ensureUltronStorageLayout } = require('./paths');
 
 function loadUltronConfigFile() {
@@ -1342,9 +1345,9 @@ function registerAudioIpcHandlers() {
  */
 function setupIpcHandlers() {
   registerAudioIpcHandlers();
-  // Proactively pre-fetch device location in background as soon as main process starts
-  resolveGeoLocation().catch(() => {});
 
+  // Location is resolved lazily, on the first request that actually needs it. Eagerly
+  // prefetching it here posted device coordinates to three third parties on every launch.
   ipcMain.handle('refresh-geo-location', async () => {
     cachedGeoLocation = null;
     cachedGeoLocationAt = 0;
@@ -1803,10 +1806,20 @@ function setupIpcHandlers() {
         return { success: false, error: `Could not find a downloadable file URL for "${query || 'requested asset'}".` };
       }
 
+      if (!isSafeDownloadUrl(downloadUrl)) {
+        return { success: false, error: `Download refused: "${downloadUrl}" is not a public http(s) address.` };
+      }
+
       const downloadsDir = path.join(process.env.USERPROFILE || 'C:\\Users\\vedan', 'Downloads');
       let destPath = payload.targetPath || payload.path;
+      if (destPath) {
+        // The destination is model-supplied, so it gets the same write blacklist as every
+        // other file operation instead of being trusted as-is.
+        destPath = verifyAndResolvePath(destPath, true);
+      }
       if (!destPath) {
-        let name = payload.filename || '';
+        // basename() so a supplied filename cannot walk out of Downloads.
+        let name = path.basename(String(payload.filename || ''));
         if (!name) {
           try {
             name = path.basename(new URL(downloadUrl).pathname);
@@ -1832,7 +1845,15 @@ function setupIpcHandlers() {
         return { success: false, error: `Download failed with HTTP status ${res.status}` };
       }
 
+      const declaredSize = Number(res.headers.get('content-length'));
+      if (declaredSize > MAX_DOWNLOAD_BYTES) {
+        return { success: false, error: `Download refused: ${declaredSize} bytes exceeds the ${Math.round(MAX_DOWNLOAD_BYTES / 1048576)} MB limit.` };
+      }
+
       const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length > MAX_DOWNLOAD_BYTES) {
+        return { success: false, error: `Download refused: body is larger than ${Math.round(MAX_DOWNLOAD_BYTES / 1048576)} MB.` };
+      }
       fs.writeFileSync(destPath, buffer);
 
       return {
@@ -2734,7 +2755,7 @@ function getInstallationDefaultDataDir() {
       // 2. Security Mode Routing
       const needsReview = 
         activeSecurityMode === 'Review' || 
-        (activeSecurityMode === 'Adaptive' && (isWrite || isCommandBlacklisted(command) || command.includes('rm ') || command.includes('del ')));
+        (activeSecurityMode === 'Adaptive' && (isWrite || isCommandBlacklisted(command) || isRiskyCommand(command)));
 
       if (needsReview) {
         // Trigger Human-in-the-Loop Overlay Pause State

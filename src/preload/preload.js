@@ -3,15 +3,36 @@ const { contextBridge, ipcRenderer } = require('electron');
 // Require the copied CommonJS file directly
 const marked = require('./marked.cjs');
 
+// marked has not sanitized its own output since it dropped the `sanitize` option, so raw
+// HTML in a model answer reaches innerHTML untouched. ConfigureMarkdown source is untrusted
+// (model output, RAG chunks, web pages, LAN-pushed prompts) and this renderer carries
+// file/exec IPC, so every parse goes through DOMPurify before it can reach the page.
+const purify = require('dompurify');
+
 // Configure marked options
 marked.setOptions({
   gfm: true,
   breaks: true
 });
 
+function sanitizeHtml(html) {
+  if (!purify.isSupported) {
+    // No DOM in this context: refuse the markup instead of injecting it unchecked.
+    return '';
+  }
+  return purify.sanitize(html, {
+    USE_PROFILES: { html: true, svg: true, mathMl: true },
+    // Documents that could restyle the app or load another one, and anything that can
+    // submit data somewhere. Ordinary tags/attrs (including style=, img src=, task-list
+    // input) stay, and event handlers + javascript: URLs are already gone by default.
+    FORBID_TAGS: ['style', 'form', 'iframe', 'frame', 'object', 'embed', 'base', 'link', 'meta'],
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel|file):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
+  });
+}
+
 const apiMethods = {
   // Markdown parser — supports ==highlight== in addition to standard GFM
-  parseMarkdown: (text) => marked.parse(String(text ?? '').replace(/==([^=\n]+)==/g, '<mark>$1</mark>')),
+  parseMarkdown: (text) => sanitizeHtml(marked.parse(String(text ?? '').replace(/==([^=\n]+)==/g, '<mark>$1</mark>'))),
   // Theme change notify (titlebar overlay retint)
   setAppTheme: (theme, user) => ipcRenderer.send('set-app-theme', { theme, user: !!user }),
   splashDone: () => ipcRenderer.send('splash-done'),

@@ -330,9 +330,8 @@
     try {
       if (window.ultronAPI && typeof window.ultronAPI.parseMarkdown === 'function') {
         html = window.ultronAPI.parseMarkdown(content);
-      } else if (typeof marked !== 'undefined' && marked.parse) {
-        html = marked.parse(content);
       } else {
+        // A raw marked.parse fallback would inject unsanitized HTML from the file.
         html = `<pre>${escapeHtml(content)}</pre>`;
       }
     } catch (_) {

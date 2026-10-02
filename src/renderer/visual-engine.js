@@ -65,7 +65,9 @@
           startOnLoad: false,
           suppressErrorRendering: true,
           errorLevel: 'fatal',
-          securityLevel: 'loose',
+          // 'loose' lets diagram labels carry raw HTML and click bindings, and the diagram
+          // source is model output. 'strict' still renders html labels, sanitized.
+          securityLevel: 'strict',
           theme: 'dark',
           flowchart: { curve: 'basis', htmlLabels: true, useMaxWidth: true, nodeSpacing: 40, rankSpacing: 45 },
           themeVariables: {
