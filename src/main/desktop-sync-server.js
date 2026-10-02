@@ -14,6 +14,12 @@ const PORT_FALLBACKS = [SYNC_PORT, 49201, 49202, 49203];
 const PAIR_TTL_MS = 120 * 1000;
 const PAIR_TTL_S = PAIR_TTL_MS / 1000;
 const MAX_VERIFY_ATTEMPTS = 6;
+// A code survives regeneration requests, so this budget is tracked per server rather than
+// per pendingPair — otherwise POST /pair/request would reset the counter for free.
+const MAX_VERIFY_FAILURES_PER_WINDOW = 12;
+const VERIFY_FAILURE_WINDOW_MS = 10 * 60 * 1000;
+// Chat exports are the largest legitimate payload; anything bigger is not worth buffering.
+const MAX_BODY_BYTES = 32 * 1024 * 1024;
 
 let server = null;
 let activePort = SYNC_PORT;
@@ -21,6 +27,7 @@ let syncId = '';
 let pendingPair = null;
 let pendingChatConsent = null;
 let getMainWindow = () => null;
+let verifyFailureWindow = { count: 0, windowStart: 0 };
 
 function configPath() {
   return path.join(app.getPath('userData'), 'ultron-config.json');
@@ -44,16 +51,34 @@ function saveConfigPatch(patch) {
 function generateSyncId() {
   const host = (os.hostname() || 'PC').replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toUpperCase() || 'PC';
   const n = (crypto.randomBytes(2).readUInt16BE(0) % 9000) + 1000;
-  return `ULTRON-${host}-${n}`;
+  return `BROWN-${host}-${n}`;
 }
 
 function generatePairCode() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 6; i++) {
     code += alphabet[crypto.randomInt(alphabet.length)];
   }
   return code;
+}
+
+function registerVerifyFailure() {
+  const now = Date.now();
+  if (now - verifyFailureWindow.windowStart > VERIFY_FAILURE_WINDOW_MS) {
+    verifyFailureWindow = { count: 0, windowStart: now };
+  }
+  verifyFailureWindow.count += 1;
+  return verifyFailureWindow.count;
+}
+
+function pairingLockedOut() {
+  return verifyFailureWindow.count >= MAX_VERIFY_FAILURES_PER_WINDOW &&
+    Date.now() - verifyFailureWindow.windowStart < VERIFY_FAILURE_WINDOW_MS;
+}
+
+function clearVerifyFailures() {
+  verifyFailureWindow = { count: 0, windowStart: 0 };
 }
 
 function generateToken() {
@@ -72,22 +97,52 @@ function getLanAddresses() {
   return out;
 }
 
-function json(res, status, body) {
+// A browser page on the LAN could otherwise brute-force the pairing code using the user's
+// own browser, so the wildcard CORS grant is limited to local dev origins (expo web).
+const LOCAL_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1|\d{1,3}(\.\d{1,3}){3})(:\d+)?$/i;
+
+function corsOrigin(req) {
+  const origin = String(req.headers.origin || '');
+  return LOCAL_ORIGIN_RE.test(origin) ? origin : '';
+}
+
+function json(req, res, status, body) {
   const payload = JSON.stringify(body);
-  res.writeHead(status, {
+  const headers = {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(payload),
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  });
+  };
+  // A refused upload leaves the client's body unread, so the connection cannot be reused.
+  // Closing only after the response flushes is what lets the caller see 413 instead of a
+  // connection reset.
+  if (status === 413) headers.Connection = 'close';
+  const origin = corsOrigin(req);
+  if (origin) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
+    headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
+    headers['Vary'] = 'Origin';
+  }
+  res.writeHead(status, headers);
   res.end(payload);
 }
 
 function readBody(req) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', (c) => chunks.push(c));
+    let received = 0;
+    req.on('data', (c) => {
+      received += c.length;
+      if (received > MAX_BODY_BYTES) {
+        const err = new Error('Request body too large');
+        err.code = 'BODY_TOO_LARGE';
+        // Stop reading rather than tearing the socket down, so the caller can still answer 413.
+        req.pause();
+        reject(err);
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => {
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
@@ -95,6 +150,7 @@ function readBody(req) {
         resolve({});
       }
     });
+    req.on('error', reject);
   });
 }
 
@@ -352,11 +408,16 @@ async function generatePairQrDataUrl(code) {
 
 async function handleRequest(req, res) {
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    });
+    const headers = {};
+    const origin = corsOrigin(req);
+    if (origin) {
+      headers['Access-Control-Allow-Origin'] = origin;
+      headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
+      headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
+      headers['Access-Control-Max-Age'] = '600';
+      headers['Vary'] = 'Origin';
+    }
+    res.writeHead(204, headers);
     res.end();
     return;
   }
@@ -365,61 +426,79 @@ async function handleRequest(req, res) {
   const route = url.pathname.replace(/\/+$/, '') || '/';
 
   if (req.method === 'GET' && (route === '/discover' || route === '/health')) {
-    json(res, 200, discoverPayload());
+    json(req, res, 200, discoverPayload());
     return;
   }
 
   if (req.method === 'POST' && (route === '/pair/request' || route === '/pair/init' || route === '/pair/start' || route === '/sync/connect')) {
+    if (pairingLockedOut()) {
+      json(req, res, 429, { ok: false, error: 'Too many failed pairing attempts — try again in a few minutes' });
+      return;
+    }
     const body = await readBody(req);
-    const requestId = crypto.randomBytes(8).toString('hex');
-    const code = generatePairCode();
     const clientDevice = (body && (body.deviceName || body.device || body.name)) ? String(body.deviceName || body.device || body.name).trim() : 'Mobile Device';
-    pendingPair = {
-      requestId,
-      code,
-      deviceName: clientDevice,
-      expiresAt: Date.now() + PAIR_TTL_MS,
-      attempts: 0,
-    };
+    // Reuse the live code instead of minting a fresh one, so repeated requests cannot hand
+    // an attacker a clean attempt counter.
+    if (!pendingPair || Date.now() > pendingPair.expiresAt) {
+      pendingPair = {
+        requestId: crypto.randomBytes(8).toString('hex'),
+        code: generatePairCode(),
+        deviceName: clientDevice,
+        expiresAt: Date.now() + PAIR_TTL_MS,
+        attempts: 0,
+      };
+    }
     notifyRenderer('mobile-pair-request', {
-      requestId,
-      code,
+      requestId: pendingPair.requestId,
+      code: pendingPair.code,
       deviceName: pendingPair.deviceName,
       expiresIn: PAIR_TTL_S,
     }, { focus: true });
-    json(res, 200, { ok: true, requestId, expiresIn: PAIR_TTL_S, syncId, deviceName: pendingPair.deviceName });
+    json(req, res, 200, {
+      ok: true,
+      requestId: pendingPair.requestId,
+      expiresIn: PAIR_TTL_S,
+      syncId,
+      deviceName: pendingPair.deviceName,
+    });
     return;
   }
 
   if (req.method === 'POST' && route === '/pair/verify') {
+    if (pairingLockedOut()) {
+      json(req, res, 429, { ok: false, error: 'Too many failed pairing attempts — try again in a few minutes' });
+      return;
+    }
     const body = await readBody(req);
     const code = String(body.code || '').trim().toUpperCase();
     const requestId = String(body.requestId || '');
     if (!pendingPair) {
-      json(res, 400, { ok: false, error: 'No active pairing request' });
+      json(req, res, 400, { ok: false, error: 'No active pairing request' });
       return;
     }
     // QR scans carry only the code; manual pairing carries requestId too.
     if (requestId && pendingPair.requestId !== requestId) {
-      json(res, 400, { ok: false, error: 'No active pairing request' });
+      json(req, res, 400, { ok: false, error: 'No active pairing request' });
       return;
     }
     if (Date.now() > pendingPair.expiresAt) {
       pendingPair = null;
-      json(res, 400, { ok: false, error: 'Pairing code expired' });
+      json(req, res, 400, { ok: false, error: 'Pairing code expired' });
       return;
     }
     if (code !== pendingPair.code) {
       pendingPair.attempts = (pendingPair.attempts || 0) + 1;
-      if (pendingPair.attempts >= MAX_VERIFY_ATTEMPTS) {
+      const total = registerVerifyFailure();
+      if (pendingPair.attempts >= MAX_VERIFY_ATTEMPTS || total >= MAX_VERIFY_FAILURES_PER_WINDOW) {
         pendingPair = null;
         notifyRenderer('mobile-pair-dismissed', {});
-        json(res, 429, { ok: false, error: 'Too many failed attempts — generate a new code on the PC' });
+        json(req, res, 429, { ok: false, error: 'Too many failed attempts — generate a new code on the PC' });
         return;
       }
-      json(res, 401, { ok: false, error: 'Invalid pairing code' });
+      json(req, res, 401, { ok: false, error: 'Invalid pairing code' });
       return;
     }
+    clearVerifyFailures();
     const token = generateToken();
     const rawTokens = loadConfig().mobilePairTokens || [];
     const clientDevName = (body.deviceName || (pendingPair && pendingPair.deviceName) || 'Brown Mobile').trim();
@@ -444,7 +523,7 @@ async function handleRequest(req, res) {
     saveConfigPatch({ mobilePairTokens: updatedTokens, ultronSyncId: syncId });
     pendingPair = null;
     notifyRenderer('mobile-pair-complete', { deviceName: clientDevName, platform: clientPlatform });
-    json(res, 200, {
+    json(req, res, 200, {
       ok: true,
       token,
       desktop: { ...discoverPayload(), geminiApiKey: loadConfig().geminiApiKey || '' },
@@ -456,7 +535,7 @@ async function handleRequest(req, res) {
   if (req.method === 'POST' && route === '/pair/deny') {
     pendingPair = null;
     notifyRenderer('mobile-pair-dismissed', {});
-    json(res, 200, { ok: true });
+    json(req, res, 200, { ok: true });
     return;
   }
 
@@ -471,16 +550,20 @@ async function handleRequest(req, res) {
     route === '/chats' ||
     route === '/session';
   if (protectedRoute && !tokenRec) {
-    json(res, 401, { ok: false, error: 'Unauthorized', needReauth: true });
+    json(req, res, 401, { ok: false, error: 'Unauthorized', needReauth: true });
+    return;
+  }
+
+  // The token proves who the device is; the fingerprint proves it is asking from the network
+  // it was paired on. Checked on every protected route — a token lifted on one LAN must not
+  // work from another. networksOverlap() only needs one /24 in common, so normal roaming is fine.
+  if (tokenRec && tokenRec.lanFingerprint && !networksOverlap(tokenRec.lanFingerprint)) {
+    json(req, res, 401, { ok: false, needReauth: true, error: 'Network changed' });
     return;
   }
 
   if (req.method === 'GET' && route === '/session') {
-    if (tokenRec.lanFingerprint && !networksOverlap(tokenRec.lanFingerprint)) {
-      json(res, 401, { ok: false, needReauth: true, error: 'Network changed' });
-      return;
-    }
-    json(res, 200, {
+    json(req, res, 200, {
       ok: true,
       syncId,
       profile: getSyncedProfile(),
@@ -490,7 +573,7 @@ async function handleRequest(req, res) {
   }
 
   if (req.method === 'GET' && route === '/profile') {
-    json(res, 200, { ok: true, profile: getSyncedProfile() });
+    json(req, res, 200, { ok: true, profile: getSyncedProfile() });
     return;
   }
 
@@ -505,7 +588,7 @@ async function handleRequest(req, res) {
     }
     saveConfigPatch(patch);
     notifyRenderer('mobile-profile-updated', getSyncedProfile());
-    json(res, 200, { ok: true, profile: getSyncedProfile() });
+    json(req, res, 200, { ok: true, profile: getSyncedProfile() });
     return;
   }
 
@@ -521,10 +604,10 @@ async function handleRequest(req, res) {
       messageCount,
     });
     if (!consent.approved) {
-      json(res, 403, { ok: false, denied: true, error: consent.error || 'Declined on the PC' });
+      json(req, res, 403, { ok: false, denied: true, error: consent.error || 'Declined on the PC' });
       return;
     }
-    json(res, 200, { ok: true, sessions });
+    json(req, res, 200, { ok: true, sessions });
     return;
   }
 
@@ -540,12 +623,12 @@ async function handleRequest(req, res) {
       messageCount,
     });
     if (!consent.approved) {
-      json(res, 403, { ok: false, denied: true, error: consent.error || 'Declined on the PC' });
+      json(req, res, 403, { ok: false, denied: true, error: consent.error || 'Declined on the PC' });
       return;
     }
     const merged = mergeIncomingSessions(incoming);
     notifyRenderer('mobile-chats-imported', { merged });
-    json(res, 200, { ok: true, merged });
+    json(req, res, 200, { ok: true, merged });
     return;
   }
 
@@ -553,7 +636,7 @@ async function handleRequest(req, res) {
     if (tokenRec) {
       revokePairedDevice(tokenRec.id || tokenRec.token);
     }
-    json(res, 200, { ok: true, message: 'Unpaired successfully' });
+    json(req, res, 200, { ok: true, message: 'Unpaired successfully' });
     return;
   }
 
@@ -561,19 +644,19 @@ async function handleRequest(req, res) {
     try {
       const response = await fetch('http://127.0.0.1:11434/api/tags');
       if (!response.ok) {
-        json(res, 502, { ok: false, error: 'Ollama is not running on this PC' });
+        json(req, res, 502, { ok: false, error: 'Ollama is not running on this PC' });
         return;
       }
       const data = await response.json();
-      json(res, 200, { ok: true, models: data.models || [] });
+      json(req, res, 200, { ok: true, models: data.models || [] });
     } catch (err) {
-      json(res, 502, { ok: false, error: err.message });
+      json(req, res, 502, { ok: false, error: err.message });
     }
     return;
   }
 
   if (req.method === 'GET' && route === '/gemini-key') {
-    json(res, 200, { ok: true, geminiApiKey: loadConfig().geminiApiKey || '' });
+    json(req, res, 200, { ok: true, geminiApiKey: loadConfig().geminiApiKey || '' });
     return;
   }
 
@@ -608,7 +691,7 @@ async function handleRequest(req, res) {
           });
           if (cpuResponse.ok) {
             const cpuData = await cpuResponse.json();
-            json(res, 200, { ok: true, ...cpuData });
+            json(req, res, 200, { ok: true, ...cpuData });
             return;
           }
         } catch {}
@@ -621,13 +704,13 @@ async function handleRequest(req, res) {
         } else if (/not found|try pulling/i.test(errStr)) {
           errStr = `Model "${body.model}" is not installed in Ollama on your PC.`;
         }
-        json(res, 502, { ok: false, error: errStr });
+        json(req, res, 502, { ok: false, error: errStr });
         return;
       }
 
-      json(res, 200, { ok: true, ...data });
+      json(req, res, 200, { ok: true, ...data });
     } catch (err) {
-      json(res, 502, { ok: false, error: `Desktop connection error: ${err.message}` });
+      json(req, res, 502, { ok: false, error: `Desktop connection error: ${err.message}` });
     }
     return;
   }
@@ -636,9 +719,9 @@ async function handleRequest(req, res) {
   if (req.method === 'GET' && route === '/stt/status') {
     try {
       const { isWhisperReady } = require('./voice-whisper');
-      json(res, 200, { ok: true, ready: isWhisperReady() });
+      json(req, res, 200, { ok: true, ready: isWhisperReady() });
     } catch (err) {
-      json(res, 500, { ok: false, error: err.message });
+      json(req, res, 500, { ok: false, error: err.message });
     }
     return;
   }
@@ -649,9 +732,9 @@ async function handleRequest(req, res) {
       warmupWhisper().then((r) => {
         if (!r?.success) console.warn('[desktop-sync] whisper warmup failed:', r?.error);
       });
-      json(res, 200, { ok: true, started: true });
+      json(req, res, 200, { ok: true, started: true });
     } catch (err) {
-      json(res, 500, { ok: false, error: err.message });
+      json(req, res, 500, { ok: false, error: err.message });
     }
     return;
   }
@@ -660,12 +743,12 @@ async function handleRequest(req, res) {
     const body = await readBody(req);
     const b64 = String(body.audio || '');
     if (!b64) {
-      json(res, 400, { ok: false, error: 'No audio received' });
+      json(req, res, 400, { ok: false, error: 'No audio received' });
       return;
     }
     // ~30s of 16kHz mono 16-bit PCM in base64 ≈ 2 MB; reject anything absurd.
     if (b64.length > 8 * 1024 * 1024) {
-      json(res, 413, { ok: false, error: 'Recording too long (max ~30 seconds)' });
+      json(req, res, 413, { ok: false, error: 'Recording too long (max ~30 seconds)' });
       return;
     }
     try {
@@ -673,19 +756,19 @@ async function handleRequest(req, res) {
       const wav = Buffer.from(b64, 'base64');
       const result = await transcribeWhisperWavBuffer(wav);
       if (result?.success && result.text) {
-        json(res, 200, { ok: true, text: result.text });
+        json(req, res, 200, { ok: true, text: result.text });
       } else if (result?.busy) {
-        json(res, 429, { ok: false, error: 'Whisper is busy with another recording — try again in a second' });
+        json(req, res, 429, { ok: false, error: 'Whisper is busy with another recording — try again in a second' });
       } else {
-        json(res, 502, { ok: false, error: result?.error || 'Whisper could not transcribe the recording' });
+        json(req, res, 502, { ok: false, error: result?.error || 'Whisper could not transcribe the recording' });
       }
     } catch (err) {
-      json(res, 502, { ok: false, error: err.message || 'Whisper transcription failed' });
+      json(req, res, 502, { ok: false, error: err.message || 'Whisper transcription failed' });
     }
     return;
   }
 
-  json(res, 404, { ok: false, error: 'Not found' });
+  json(req, res, 404, { ok: false, error: 'Not found' });
 }
 
 function startDesktopSyncServer(opts = {}) {
@@ -699,30 +782,46 @@ function startDesktopSyncServer(opts = {}) {
   server = http.createServer((req, res) => {
     handleRequest(req, res).catch((err) => {
       console.warn('[desktop-sync]', err.message);
+      const tooLarge = err && err.code === 'BODY_TOO_LARGE';
       try {
-        json(res, 500, { ok: false, error: 'Internal error' });
+        json(req, res, tooLarge ? 413 : 500, {
+          ok: false,
+          error: tooLarge ? 'Upload too large' : 'Internal error',
+        });
       } catch {}
+      if (tooLarge) {
+        // The response carries Connection: close, so the socket goes away once it is flushed.
+        // Stop the remaining upload from arriving in the meantime.
+        req.pause();
+      }
     });
   });
 
   const listenOn = (ports) => {
     const [port, ...rest] = ports;
-    server.once('error', (err) => {
-      if (err.code === 'EADDRINUSE' && rest.length > 0) {
-        console.warn(`[desktop-sync] port ${port} busy, trying ${rest[0]}...`);
-        try { server.close(); } catch {}
-        listenOn(rest);
-      } else if (err.code === 'EADDRINUSE') {
-        console.error('[desktop-sync] all sync ports are in use — mobile pairing disabled');
-        server = null;
+    // Keep the error and listening handlers paired: the old version called server.close()
+    // between attempts, and a bind that completed late then reported a second port as live.
+    const onListening = () => {
+      server.removeListener('error', onError);
+      activePort = port;
+      console.log(`[desktop-sync] listening on 0.0.0.0:${port} id=${syncId}`);
+    };
+    const onError = (err) => {
+      server.removeListener('listening', onListening);
+      if (err.code === 'EADDRINUSE') {
+        if (rest.length > 0) {
+          console.warn(`[desktop-sync] port ${port} busy, trying ${rest[0]}...`);
+          listenOn(rest);
+        } else {
+          console.error('[desktop-sync] all sync ports are in use — mobile pairing disabled');
+        }
       } else {
         console.warn('[desktop-sync] server error:', err.message);
       }
-    });
-    server.listen(port, '0.0.0.0', () => {
-      activePort = port;
-      console.log(`[desktop-sync] listening on 0.0.0.0:${port} id=${syncId}`);
-    });
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, '0.0.0.0');
   };
 
   listenOn(PORT_FALLBACKS);
