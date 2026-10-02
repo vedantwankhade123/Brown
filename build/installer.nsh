@@ -1,46 +1,89 @@
 ; ==============================================================================
 ; Brown AI NSIS Installer Hook Script
-; Provides aggressive cleanup of stale processes & shortcuts, robust file replacement,
-; and fresh shortcut creation for all Windows Desktop / OneDrive / Start Menu paths.
+; Preserve install-relative storage while replacing application binaries.
 ; ==============================================================================
 
+!include "LogicLib.nsh"
+!include "FileFunc.nsh"
+!include "getProcessInfo.nsh"
+Var pid
+
+!ifndef BUILD_UNINSTALLER
+Var brownStorageBackup
+
+!macro BrownRestoreItem ITEM
+  ${If} ${FileExists} "$brownStorageBackup\${ITEM}"
+    ClearErrors
+    Rename "$brownStorageBackup\${ITEM}" "$INSTDIR\${ITEM}"
+    ${If} ${Errors}
+      MessageBox MB_OK|MB_ICONSTOP "Your saved data is safe in $brownStorageBackup. Restore ${ITEM} to $INSTDIR before opening Brown."
+      SetErrorLevel 1
+      Quit
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+Function BrownRestoreStorage
+  ${If} $brownStorageBackup != ""
+    CreateDirectory "$INSTDIR"
+    !insertmacro BrownRestoreItem "data"
+    !insertmacro BrownRestoreItem "models"
+    !insertmacro BrownRestoreItem "connectors"
+    !insertmacro BrownRestoreItem ".ultron-firstrun"
+    RMDir "$brownStorageBackup"
+    StrCpy $brownStorageBackup ""
+  ${EndIf}
+FunctionEnd
+
+!macro BrownProtectItem ITEM
+  ${If} ${FileExists} "$INSTDIR\${ITEM}"
+    ClearErrors
+    Rename "$INSTDIR\${ITEM}" "$brownStorageBackup\${ITEM}"
+    ${If} ${Errors}
+      Call BrownRestoreStorage
+      MessageBox MB_OK|MB_ICONSTOP "Brown could not protect its saved data. Close programs using files in $INSTDIR and try again. Your existing installation has not been removed."
+      SetErrorLevel 1
+      Quit
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+Function .onInstFailed
+  Call BrownRestoreStorage
+FunctionEnd
+!endif
+
+!macro customCheckAppRunning
+  !insertmacro _CHECK_APP_RUNNING
+  !ifndef BUILD_UNINSTALLER
+    ; A sibling folder is on the same volume, so large model files are moved,
+    ; not copied. Older uninstallers otherwise delete these directories.
+    ${If} $brownStorageBackup == ""
+      ${If} ${FileExists} "$INSTDIR.brown-update-backup"
+        MessageBox MB_OK|MB_ICONSTOP "A previous update backup exists at $INSTDIR.brown-update-backup. Restore that data before retrying this installation."
+        SetErrorLevel 1
+        Quit
+      ${EndIf}
+      StrCpy $brownStorageBackup "$INSTDIR.brown-update-backup"
+      ClearErrors
+      CreateDirectory "$brownStorageBackup"
+      ${If} ${Errors}
+        StrCpy $brownStorageBackup ""
+        MessageBox MB_OK|MB_ICONSTOP "Brown cannot create a safe update backup beside $INSTDIR. Choose a writable installation folder and retry."
+        SetErrorLevel 1
+        Quit
+      ${EndIf}
+      !insertmacro BrownProtectItem "data"
+      !insertmacro BrownProtectItem "models"
+      !insertmacro BrownProtectItem "connectors"
+      !insertmacro BrownProtectItem ".ultron-firstrun"
+    ${EndIf}
+  !endif
+!macroend
+
 !macro customInit
-  ; 1. Terminate any running Brown/Ultron processes before installing so no files are locked
-  nsExec::Exec 'taskkill /F /IM "Brown AI.exe" /IM "Brown.exe" /IM "Ultron AI.exe" /IM "Ultron.exe" /IM "electron.exe" /T'
-
-  ; 1b. Delete first-run marker so reinstalls/upgrades re-trigger onboarding
-  Delete "$INSTDIR\.ultron-firstrun"
-
-  ; 2. Clean up user desktop shortcuts
-  Delete "$DESKTOP\Brown AI.lnk"
-  Delete "$DESKTOP\Brown.lnk"
-  Delete "$DESKTOP\Ultron AI.lnk"
-  Delete "$DESKTOP\Ultron.lnk"
-
-  ; 3. Clean up user profile desktop and OneDrive desktop if redirected
-  Delete "$PROFILE\Desktop\Brown AI.lnk"
-  Delete "$PROFILE\Desktop\Brown.lnk"
-  Delete "$PROFILE\Desktop\Ultron AI.lnk"
-  Delete "$PROFILE\Desktop\Ultron.lnk"
-  Delete "$PROFILE\OneDrive\Desktop\Brown AI.lnk"
-  Delete "$PROFILE\OneDrive\Desktop\Brown.lnk"
-  Delete "$PROFILE\OneDrive\Desktop\Ultron AI.lnk"
-  Delete "$PROFILE\OneDrive\Desktop\Ultron.lnk"
-
-  ; 4. Clean up public desktop shortcuts
-  Delete "C:\Users\Public\Desktop\Brown AI.lnk"
-  Delete "C:\Users\Public\Desktop\Brown.lnk"
-  Delete "C:\Users\Public\Desktop\Ultron AI.lnk"
-  Delete "C:\Users\Public\Desktop\Ultron.lnk"
-  nsExec::Exec 'cmd /c del /f /q "C:\Users\Public\Desktop\Brown AI.lnk" "C:\Users\Public\Desktop\Ultron AI.lnk"'
-
-  ; 5. Clean up Start Menu shortcuts
-  Delete "$SMPROGRAMS\Brown AI.lnk"
-  Delete "$SMPROGRAMS\Brown.lnk"
-  Delete "$SMPROGRAMS\Brown AI\Brown AI.lnk"
-  Delete "$SMPROGRAMS\Ultron AI.lnk"
-  Delete "$SMPROGRAMS\Ultron.lnk"
-  Delete "$SMPROGRAMS\Ultron AI\Ultron AI.lnk"
+  ; Leave process coordination to electron-builder. Killing the app tree here
+  ; can terminate the updater-launched installer itself.
 !macroend
 
 !macro customInstallMode
@@ -49,6 +92,7 @@
 !macroend
 
 !macro customInstall
+  Call BrownRestoreStorage
   ; 1. Ensure any leftover stale shortcuts are purged before creating new ones
   Delete "$DESKTOP\Brown AI.lnk"
   Delete "$DESKTOP\Ultron AI.lnk"
@@ -58,13 +102,11 @@
   Delete "$PROFILE\OneDrive\Desktop\Ultron AI.lnk"
   Delete "C:\Users\Public\Desktop\Brown AI.lnk"
   Delete "C:\Users\Public\Desktop\Ultron AI.lnk"
-  nsExec::Exec 'cmd /c del /f /q "C:\Users\Public\Desktop\Brown AI.lnk" "C:\Users\Public\Desktop\Ultron AI.lnk"'
 
   ; 2. Set working directory to $INSTDIR for proper runtime context
   SetOutPath "$INSTDIR"
 
-  ; 2b. Ensure first-run marker is removed so fresh onboarding triggers on launch
-  Delete "$INSTDIR\.ultron-firstrun"
+  ; Preserve existing onboarding and user data on upgrades.
 
   ; 3. Create fresh Desktop shortcut pointing directly to the newly installed executable
   CreateShortcut "$DESKTOP\Brown AI.lnk" "$INSTDIR\Brown AI.exe" "" "$INSTDIR\Brown AI.exe" 0 "" "" "Brown AI - Autonomous Local AI Agent"
@@ -80,12 +122,6 @@
 !macroend
 
 !macro customUnInstall
-  ; 1. Terminate running instances
-  nsExec::Exec 'taskkill /F /IM "Brown AI.exe" /IM "Brown.exe" /IM "Ultron AI.exe" /IM "Ultron.exe" /IM "electron.exe" /T'
-
-  ; 1b. Delete first-run marker so future installs trigger onboarding
-  Delete "$INSTDIR\.ultron-firstrun"
-
   ; 2. Delete all desktop shortcuts
   Delete "$DESKTOP\Brown AI.lnk"
   Delete "$DESKTOP\Ultron AI.lnk"
@@ -95,7 +131,6 @@
   Delete "$PROFILE\OneDrive\Desktop\Ultron AI.lnk"
   Delete "C:\Users\Public\Desktop\Brown AI.lnk"
   Delete "C:\Users\Public\Desktop\Ultron AI.lnk"
-  nsExec::Exec 'cmd /c del /f /q "C:\Users\Public\Desktop\Brown AI.lnk" "C:\Users\Public\Desktop\Ultron AI.lnk"'
 
   ; 3. Delete Start Menu shortcuts and folder
   Delete "$SMPROGRAMS\Brown AI\Brown AI.lnk"
