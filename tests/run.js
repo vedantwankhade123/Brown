@@ -38,6 +38,11 @@ runAgentTests();
 
   await runAutonomyTests();
   await runBrowserTests();
+  const { execFileSync } = require('child_process');
+  const path = require('path');
+  for (const file of ['updater.test.js', 'updater-flow.test.js']) {
+    execFileSync(process.execPath, [path.join(__dirname, file)], { stdio: 'inherit' });
+  }
   console.log('\n=============================================');
   console.log('Verification Success: Autonomy Upgrade Active & Tested');
   console.log('=============================================');

@@ -24987,6 +24987,8 @@ document.body.addEventListener('click', (e) => {
 });
 
 // Auto-Updater UI Integration
+const announcedUpdateStates = new Set();
+
 function setupAutoUpdaterUI() {
   const btnCheck = document.getElementById('btn-check-updates');
   const btnDownload = document.getElementById('btn-download-update');
@@ -25293,7 +25295,9 @@ function setupAutoUpdaterUI() {
       if (btnDownload) btnDownload.style.display = 'inline-flex';
       setPaneProgress(null);
       updateState = 'available';
-      if (typeof showToast === 'function') {
+      const announceKey = `available-${data.version}`;
+      if (typeof showToast === 'function' && !announcedUpdateStates.has(announceKey)) {
+        announcedUpdateStates.add(announceKey);
         showToast({
           type: 'info',
           title: `New Update Available: v${data.version}`,
@@ -25331,7 +25335,9 @@ function setupAutoUpdaterUI() {
       if (progressLabel) progressLabel.textContent = 'Download complete';
       setPaneProgress(100);
       updateState = 'downloaded';
-      if (typeof showToast === 'function') {
+      const readyKey = `downloaded-${data.version || updateInfo?.version}`;
+      if (typeof showToast === 'function' && !announcedUpdateStates.has(readyKey)) {
+        announcedUpdateStates.add(readyKey);
         showToast({
           type: 'success',
           title: `Update Ready: v${data.version || installedVersion || ''}`,
@@ -25407,8 +25413,21 @@ function setupAutoUpdaterUI() {
     await window.ultronAPI.downloadUpdate();
   };
 
-  const handleRestartAndInstall = () => {
-    window.ultronAPI.restartAndInstall();
+  let installRequested = false;
+  const handleRestartAndInstall = async () => {
+    if (installRequested) return;
+    installRequested = true;
+    if (btnRestart) btnRestart.disabled = true;
+    if (tudBtnRestart) tudBtnRestart.disabled = true;
+    try {
+      const result = await window.ultronAPI.restartAndInstall();
+      if (result?.status === 'error') throw new Error(result.error);
+    } catch (error) {
+      if (typeof showToast === 'function') showToast({ type: 'error', title: 'Could not start installation', message: error.message || 'Try again. Brown has stayed open.' });
+      installRequested = false;
+      if (btnRestart) btnRestart.disabled = false;
+      if (tudBtnRestart) tudBtnRestart.disabled = false;
+    }
   };
 
   if (btnCheck) btnCheck.addEventListener('click', handleCheckForUpdates);

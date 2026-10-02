@@ -1,0 +1,45 @@
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const { EventEmitter } = require('events');
+(async () => {
+  const handlers = new Map(), sent = [], notices = [], timers = [];
+  let checks = 0, downloads = 0, exits = 0, launchFails = true, verifyFails = true;
+  let finishCheck;
+  const autoUpdater = new EventEmitter();
+  const info = { version: '1.0.5', files: [{ url: 'setup.exe', sha512: 'test' }] };
+  autoUpdater.setFeedURL = () => {};
+  autoUpdater.checkForUpdates = () => { checks++; return new Promise(resolve => { finishCheck = () => { autoUpdater.emit('update-available', info); resolve({ updateInfo: info }); }; }); };
+  autoUpdater.downloadUpdate = async () => { downloads++; autoUpdater.emit('update-downloaded', { ...info, downloadedFile: 'C:/cache/setup.exe' }); return ['C:/cache/setup.exe']; };
+  const app = { isPackaged: true, getVersion: () => '1.0.3', getPath: () => 'C:/Brown/Brown AI.exe', exit: () => exits++ };
+  class Notification { static isSupported() { return true; } constructor(data) { this.data = data; } on() {} show() { notices.push(this.data); } }
+  const env = { module: { exports: {} }, console: { log() {}, error() {}, warn() {} }, process: { platform: 'win32', env: {} }, setTimeout: (fn, delay) => { timers.push({ fn, delay }); }, setInterval: () => {},
+    require: name => name === 'electron-updater' ? { autoUpdater } : name === 'electron' ? { app, ipcMain: { handle: (key, fn) => handlers.set(key, fn) }, Notification } : name === './update-install' ? { verifyInstaller: async () => { if (verifyFails) throw new Error('checksum'); }, startInstaller: async () => { if (launchFails) throw new Error('blocked'); } } : require(name) };
+  vm.runInNewContext(fs.readFileSync(require('path').join(__dirname, '../src/main/updater.js'), 'utf8'), env);
+  const window = { isDestroyed: () => false, webContents: { send: (channel, data) => sent.push(data) } };
+  env.module.exports.initAutoUpdater(window); env.module.exports.initAutoUpdater(window);
+  assert.equal(autoUpdater.listenerCount('update-available'), 1);
+  const first = handlers.get('check-for-updates')(), second = handlers.get('check-for-updates')();
+  assert.equal(checks, 1); finishCheck(); await Promise.all([first, second]);
+  assert.equal(sent.filter(data => data.status === 'available').length, 1);
+  assert.equal(notices.length, 1);
+  await Promise.all([handlers.get('download-update')(), handlers.get('download-update')()]);
+  assert.equal(downloads, 1);
+  assert.equal(sent.filter(data => data.status === 'downloaded').length, 0);
+  assert.equal(notices.length, 1);
+  verifyFails = false;
+  await Promise.all([handlers.get('download-update')(), handlers.get('download-update')()]);
+  assert.equal(downloads, 2);
+  await handlers.get('download-update')();
+  assert.equal(downloads, 2);
+  autoUpdater.emit('update-available', info);
+  assert.equal(sent.filter(data => data.status === 'available').length, 1);
+  assert.equal(notices.length, 2);
+  let result = await handlers.get('restart-and-install')();
+  assert.equal(result.status, 'error'); assert.equal(exits, 0);
+  launchFails = false;
+  result = await handlers.get('restart-and-install')();
+  assert.equal(result.status, 'installing'); assert.equal(exits, 0);
+  timers.find(timer => timer.delay === 500).fn(); assert.equal(exits, 1);
+  console.log('PASS: concurrent checks/downloads coalesce, notifications deduplicate, failed launch stays open and retry exits only after launch');
+})().catch(error => { console.error(error); process.exitCode = 1; });

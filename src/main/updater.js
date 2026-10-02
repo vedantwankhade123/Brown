@@ -3,14 +3,28 @@ const { ipcMain, app, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const { verifyInstaller, startInstaller } = require('./update-install');
+let initialized = false;
+let checkPromise = null;
+let downloadPromise = null;
+let installPromise = null;
+let downloadedInstaller = null;
+let downloadedExpected = null;
+let downloadPhase = 'idle';
+let lastStatusKey = '';
+const notified = new Set();
 
 let mainWindowRef = null;
 let lastUpdatePayload = null;      // latest known 'available' payload (incl. downloadUrl)
-let lastNotifiedVersion = null;    // dedupe native notifications per version
 let electronUpdaterHasUpdate = false; // true only when autoUpdater itself found an update
-let fallbackInstallerPath = null;  // exe downloaded via the direct-download fallback
 
 function sendToRenderer(channel, data) {
+  if (data?.status === 'available' && ['downloading', 'downloaded', 'installing'].includes(downloadPhase)) return;
+  if (['available', 'downloaded'].includes(data?.status)) {
+    const key = `${data.status}-${data.version}`;
+    if (lastStatusKey === key) return;
+    lastStatusKey = key;
+  }
   if (mainWindowRef && !mainWindowRef.isDestroyed()) {
     mainWindowRef.webContents.send(channel, data);
   }
@@ -32,14 +46,14 @@ function notify(title, body) {
 }
 
 function notifyUpdateAvailable(version) {
-  if (lastNotifiedVersion === `avail-${version}`) return;
-  lastNotifiedVersion = `avail-${version}`;
+  if (notified.has(`avail-${version}`)) return;
+  notified.add(`avail-${version}`);
   notify(`Brown v${version} is available`, 'Open Brown to update — it takes under a minute.');
 }
 
 function notifyUpdateReady(version) {
-  if (lastNotifiedVersion === `ready-${version}`) return;
-  lastNotifiedVersion = `ready-${version}`;
+  if (notified.has(`ready-${version}`)) return;
+  notified.add(`ready-${version}`);
   notify('Update ready to install', `Brown v${version} downloaded. Restart now to apply it.`);
 }
 
@@ -121,6 +135,7 @@ function downloadInstallerFallback(downloadUrl, version) {
       try { fs.unlinkSync(dest); } catch (_) {}
     }
     const out = fs.createWriteStream(dest);
+    out.on('error', (error) => { try { fs.unlinkSync(dest); } catch (_) {} reject(error); });
     httpsFollow(downloadUrl, 6, (res, err) => {
       if (err || !res || res.statusCode !== 200) {
         out.destroy();
@@ -141,27 +156,27 @@ function downloadInstallerFallback(downloadUrl, version) {
         }
       });
       res.pipe(out);
-      out.on('finish', () => { out.close(); resolve(dest); });
-      out.on('error', (e) => { try { fs.unlinkSync(dest); } catch (_) {} reject(e); });
-      res.on('error', (e) => { try { fs.unlinkSync(dest); } catch (_) {} reject(e); });
+      res.on('aborted', () => { out.destroy(); reject(new Error('Download interrupted. Please retry.')); });
+      out.on('finish', () => {
+        out.close(() => {
+          if (total && transferred !== total) return reject(new Error('Download incomplete. Please retry.'));
+          resolve(dest);
+        });
+      });
+      res.on('error', (e) => { out.destroy(); try { fs.unlinkSync(dest); } catch (_) {} reject(e); });
     });
   });
 }
 
-function launchInstallerAndQuit(exePath) {
-  // Spawn detached so the installer survives the app exiting.
-  const child = require('child_process').spawn(exePath, [], { detached: true, stdio: 'ignore' });
-  child.unref();
-  setTimeout(() => app.exit(0), 400);
-}
-
 function initAutoUpdater(mainWindow) {
   mainWindowRef = mainWindow;
+  if (initialized) return;
+  initialized = true;
 
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
-  autoUpdater.allowPrerelease = true;
+  autoUpdater.allowPrerelease = false;
 
   try {
     autoUpdater.setFeedURL({
@@ -181,9 +196,11 @@ function initAutoUpdater(mainWindow) {
   });
 
   autoUpdater.on('update-available', (info) => {
+    if (downloadPhase !== 'idle') return;
     console.log('[AUTO-UPDATER] Update available:', info.version);
     electronUpdaterHasUpdate = true;
     lastUpdatePayload = mapUpdateInfo(info);
+    downloadedExpected = info.files?.find(file => /\.exe$/i.test(String(file.url))) || info.files?.[0];
     sendToRenderer('update-status', lastUpdatePayload);
     notifyUpdateAvailable(info.version);
   });
@@ -211,11 +228,17 @@ function initAutoUpdater(mainWindow) {
 
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[AUTO-UPDATER] Update downloaded:', info.version);
-    sendToRenderer('update-status', { status: 'downloaded', version: info.version });
-    notifyUpdateReady(info.version);
+    downloadedInstaller = info.downloadedFile || autoUpdater.installerPath;
   });
 
-  async function checkForUpdatesQuietly() {
+  function checkForUpdatesQuietly() {
+    if (checkPromise) return checkPromise;
+    if (['downloading', 'downloaded', 'installing'].includes(downloadPhase)) return Promise.resolve({ status: downloadPhase, version: lastUpdatePayload?.version });
+    checkPromise = performCheck().finally(() => { checkPromise = null; });
+    return checkPromise;
+  }
+
+  async function performCheck() {
     try {
       if (app.isPackaged) {
         const result = await autoUpdater.checkForUpdates().catch(() => null);
@@ -236,16 +259,17 @@ function initAutoUpdater(mainWindow) {
         const latestVer = ghRelease.tag_name.replace(/^v/i, '');
         const curVer = app.getVersion() || '1.0.1';
         if (compareSemver(latestVer, curVer) > 0) {
-          const exeAsset = ghRelease.assets?.find(a => /\.exe$/i.test(a.name || '') && /setup/i.test(a.name))
-            || ghRelease.assets?.find(a => /\.exe$/i.test(a.name || ''))
-            || ghRelease.assets?.[0];
+          const exeAsset = ghRelease.assets?.find(a => a.name === 'Brown-AI-Setup.exe')
+            || ghRelease.assets?.find(a => /setup.*\.exe$/i.test(a.name || ''));
+          if (!exeAsset) throw new Error('The release installer is not ready. Try again later.');
           const payload = {
             status: 'available',
             version: latestVer,
             currentVersion: curVer,
             releaseDate: ghRelease.published_at,
             releaseNotes: ghRelease.body || 'New features, security updates, and performance improvements.',
-            downloadUrl: exeAsset?.browser_download_url || ghRelease.html_url
+            downloadUrl: exeAsset.browser_download_url,
+            expected: { size: exeAsset.size, sha256: exeAsset.digest?.replace(/^sha256:/, '') }
           };
           lastUpdatePayload = payload;
           sendToRenderer('update-status', payload);
@@ -270,29 +294,47 @@ function initAutoUpdater(mainWindow) {
   }
 
   ipcMain.handle('check-for-updates', async () => {
-    sendToRenderer('update-status', { status: 'checking' });
+    if (downloadPhase === 'idle') sendToRenderer('update-status', { status: 'checking' });
     return await checkForUpdatesQuietly();
   });
 
-  ipcMain.handle('download-update', async () => {
+  ipcMain.handle('download-update', () => {
+    if (downloadPromise) return downloadPromise;
+    downloadPromise = performDownload().finally(() => { downloadPromise = null; });
+    return downloadPromise;
+  });
+
+  async function performDownload() {
+    if (['downloaded', 'installing'].includes(downloadPhase)) return { status: downloadPhase };
+    downloadPhase = 'downloading';
     try {
       console.log('[AUTO-UPDATER] Starting update download...');
       if (app.isPackaged && electronUpdaterHasUpdate) {
-        await autoUpdater.downloadUpdate();
-        return { status: 'downloading' };
+        const files = await autoUpdater.downloadUpdate();
+        downloadedInstaller = files?.find(file => /\.exe$/i.test(file)) || autoUpdater.installerPath;
+        await verifyInstaller(downloadedInstaller, downloadedExpected);
+        downloadPhase = 'downloaded';
+        sendToRenderer('update-status', { status: 'downloaded', version: lastUpdatePayload?.version });
+        notifyUpdateReady(lastUpdatePayload?.version);
+        return { status: 'downloaded' };
       }
       // Fallback: direct installer download from the release asset URL.
       if (lastUpdatePayload?.downloadUrl && /github/.test(lastUpdatePayload.downloadUrl)) {
         const version = lastUpdatePayload.version;
         sendToRenderer('update-status', { status: 'downloading', percent: 0, version });
         const dest = await downloadInstallerFallback(lastUpdatePayload.downloadUrl, version);
-        fallbackInstallerPath = dest;
+        await verifyInstaller(dest, lastUpdatePayload.expected);
+        downloadedInstaller = dest;
+        downloadedExpected = lastUpdatePayload.expected;
+        downloadPhase = 'downloaded';
         sendToRenderer('update-status', { status: 'downloaded', version });
         notifyUpdateReady(version);
         return { status: 'downloaded' };
       }
       throw new Error('No installer URL available. Re-check for updates and try again.');
     } catch (error) {
+      downloadPhase = 'idle';
+      downloadedInstaller = null;
       console.error('[AUTO-UPDATER] Download failed:', error);
       sendToRenderer('update-status', {
         status: 'error',
@@ -301,24 +343,31 @@ function initAutoUpdater(mainWindow) {
       });
       return { status: 'error', error: error.message };
     }
-  });
+  }
 
   ipcMain.handle('restart-and-install', () => {
-    console.log('[AUTO-UPDATER] Restarting application to apply update...');
-    try {
-      if (fallbackInstallerPath && fs.existsSync(fallbackInstallerPath)) {
-        launchInstallerAndQuit(fallbackInstallerPath);
-        return;
+    if (installPromise) return installPromise;
+    installPromise = (async () => {
+      try {
+        if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE) throw new Error('Use the Setup installer to update this edition of Brown.');
+        if (downloadPhase !== 'downloaded' || !downloadedInstaller) throw new Error('Download the update before restarting.');
+        await verifyInstaller(downloadedInstaller, downloadedExpected);
+        downloadPhase = 'installing';
+        await startInstaller(downloadedInstaller, path.dirname(app.getPath('exe')));
+        sendToRenderer('update-status', { status: 'installing', version: lastUpdatePayload?.version });
+        setTimeout(() => app.exit(0), 500);
+        return { status: 'installing' };
+      } catch (error) {
+        downloadPhase = downloadedInstaller ? 'downloaded' : 'idle';
+        sendToRenderer('update-status', { status: 'install-error', error: error.message });
+        installPromise = null;
+        return { status: 'error', error: error.message };
       }
-      autoUpdater.quitAndInstall(false, true);
-    } catch (_) {
-      if (fallbackInstallerPath && fs.existsSync(fallbackInstallerPath)) {
-        launchInstallerAndQuit(fallbackInstallerPath);
-        return;
-      }
-      app.relaunch();
-      app.exit(0);
-    }
+    })().then(result => {
+      if (result.status === 'error') installPromise = null;
+      return result;
+    });
+    return installPromise;
   });
 
   // Background check on startup and every 30 minutes

@@ -27,6 +27,7 @@ ENV/
 
 # Build & Release Artifacts
 dist/
+dist-desktop-*/
 build/
 web-build/
 .expo/
