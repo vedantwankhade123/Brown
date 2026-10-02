@@ -187,7 +187,10 @@ if (exists) {
   sh(`gh release create ${tag} --draft --verify-tag --title "Brown AI Desktop v${version}" --notes-file .release-notes.md`);
 }
 sh(`gh release upload ${tag} ${quoted} --clobber`);
-const releaseAssets = JSON.parse(sh(`gh api repos/${REPO}/releases/tags/${tag}`, { pipe: true })).assets;
+// Draft releases are visible to their owner through the release ID endpoint,
+// but GitHub's public tag endpoint returns 404 until publication.
+const releaseApiUrl = sh(`gh release view ${tag} --json apiUrl --jq .apiUrl`, { pipe: true }).trim();
+const releaseAssets = JSON.parse(sh(`gh api "${releaseApiUrl}"`, { pipe: true })).assets;
 for (const file of upload) {
   const asset = releaseAssets.find(asset => asset.name === path.basename(file));
   const sha256 = require('crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
