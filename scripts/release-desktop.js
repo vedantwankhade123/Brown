@@ -179,14 +179,15 @@ if (tags.includes(tag)) {
 }
 sh(`git push origin ${tag}`);
 
-const quoted = upload.map((f) => `"${f}"`).join(' ');
 const exists = sh(`gh release view ${tag} --json assets > NUL 2>&1 && echo yes || echo no`, { pipe: true }).trim() === 'yes';
 if (exists) {
   if (sh(`gh release view ${tag} --json isDraft --jq .isDraft`, { pipe: true }).trim() !== 'true') die('This version is already published. Use a new version rather than replacing live update files.');
 } else {
   sh(`gh release create ${tag} --draft --verify-tag --title "Brown AI Desktop v${version}" --notes-file .release-notes.md`);
 }
-sh(`gh release upload ${tag} ${quoted} --clobber`);
+for (const file of upload) {
+  sh(`node "${path.join(__dirname, 'upload-release-asset.js')}" ${tag} "${file}"`);
+}
 // Draft releases are visible to their owner through the release ID endpoint,
 // but GitHub's public tag endpoint returns 404 until publication.
 const releaseApiUrl = sh(`gh release view ${tag} --json apiUrl --jq .apiUrl`, { pipe: true }).trim();
