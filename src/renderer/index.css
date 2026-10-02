@@ -2,6 +2,10 @@
 :root {
   --bg-obsidian: #000000;
   --bg-sidebar: #131314;
+  /* The app's one main surface: title bar, both side columns and the chat viewport.
+     --bg-sidebar stays behind the smaller wells (input pill, dropdowns, panels) so
+     those still read as pressed-in against it. */
+  --bg-app: #1B1B1B;
   --bg-charcoal: #131314;
   --border-color: #1a1a1a;
   --text-primary: #f3f4f6;
@@ -80,7 +84,7 @@
 }
 
 body.ultron-app {
-  background-color: var(--bg-sidebar);
+  background-color: var(--bg-app);
   color: var(--text-primary);
   font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   height: 100vh;
@@ -104,7 +108,7 @@ body.platform-win32 .app-window-titlebar {
   align-items: center;
   padding: 0 14px;
   padding-right: calc(env(titlebar-area-width, 138px) + 8px);
-  background-color: var(--bg-sidebar);
+  background-color: var(--bg-app);
   z-index: 5000;
   -webkit-app-region: drag;
   border-bottom: none;
@@ -244,7 +248,7 @@ body.platform-win32 .chat-header-actions {
 /* LEFT SIDEBAR: GEMINI LAYOUT */
 .sidebar {
   width: 280px;
-  background-color: var(--bg-sidebar);
+  background-color: var(--bg-app);
   /* 2px, not 16: the 48px brand row then centres at y=62, exactly on the chat
      header's mid-line, so the sidebar's first row reads as one band with it. */
   padding: 2px 8px 8px 12px;
@@ -718,11 +722,13 @@ body.platform-win32 .chat-header-actions {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* The chat card keeps its own black surface with the navy bottom glow; the
+     surrounding canvas (title bar, both side columns, the 6px margins and the
+     rounded corners) is --bg-app, which is what frames it. */
   background-color: var(--bg-obsidian);
-  /* The "In focus" gradient, kept to the bottom half: flat above the midline, then
-     ramping to the deep blue at the base so it also glows behind the docked input. */
-  background-image: radial-gradient(ellipse 74% 42% at 50% 100%, rgba(41, 82, 148, 0.3), transparent 70%),
-    linear-gradient(180deg, #111111 0%, #111111 50%, #10131c 76%, #101e40 100%);
+  background-image:
+    radial-gradient(ellipse 74% 42% at 50% 100%, rgba(41,82,148,0.3), transparent 70%),
+    linear-gradient(180deg,#111111 0%,#111111 50%,#10131c 76%,#101e40 100%);
   background-repeat: no-repeat;
   position: relative;
   overflow: hidden;
@@ -2702,7 +2708,7 @@ flicker-spinner i.on {
   width: var(--session-rail-width, var(--settings-sidebar-width, 280px));
   min-width: 190px;
   max-width: min(400px, 35%);
-  background-color: var(--bg-sidebar);
+  background-color: var(--bg-app);
   border-left: none;
   /* Top/bottom inset is 0/6px so the rail content box matches the black chat card exactly
      (chat-main sits at body padding-top 36px and has margin-bottom 6px). */
@@ -2872,8 +2878,7 @@ flicker-spinner i.on {
   padding: 16px;
   border: 1px solid rgba(129, 166, 228, 0.16);
   border-radius: 16px;
-  background: radial-gradient(ellipse at 65% 115%, rgba(41, 82, 148, 0.3), transparent 65%),
-    linear-gradient(165deg, #111111 20%, #10131c 54%, #101e40 100%);
+  background: transparent;
   color: #ffffff;
 }
 
@@ -2968,6 +2973,28 @@ flicker-spinner i.on {
 
 @keyframes session-meta-spin {
   to { transform: rotate(360deg); }
+}
+
+/* The card has no fill of its own any more, so in light mode its text has to follow
+   the page instead of the dark gradient it used to carry. */
+[data-theme="light"] .session-context-card {
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="light"] .session-context-kicker,
+[data-theme="light"] .session-context-card .session-context-title,
+[data-theme="light"] .session-context-card .session-context-summary {
+  color: #1f2937;
+}
+
+[data-theme="light"] .session-context-meta,
+[data-theme="light"] .session-context-kicker time {
+  color: #6b7280;
+}
+
+[data-theme="light"] .session-context-spinner {
+  border-color: rgba(0, 0, 0, 0.12);
+  border-top-color: #1f2937;
 }
 
 .side-section {
@@ -4510,7 +4537,8 @@ button.side-row:focus-visible,
   margin-right: 0 !important;
   margin-bottom: 0 !important;
   border-radius: 0 !important;
-  background-color: var(--bg-sidebar) !important;
+  /* The hidden chat card is part of the app canvas while Settings covers it. */
+  background-color: var(--bg-app) !important;
 }
 
 .chat-main.settings-open .chat-header {
@@ -4668,7 +4696,7 @@ button.side-row:focus-visible,
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  background-color: var(--bg-sidebar);
+  background-color: var(--bg-app);
   border-radius: 0 !important;
   margin: 0 !important;
 }
@@ -4700,7 +4728,7 @@ body:has(.chat-main.settings-open) > #right-sidebar-resizer {
   min-height: 0;
   overflow: hidden;
   border-top: none;
-  background-color: var(--bg-sidebar);
+  background-color: var(--bg-app);
 }
 
 #tab-apps {
@@ -6817,184 +6845,133 @@ body:has(.chat-main.settings-open) > #right-sidebar-resizer {
   margin: 0;
 }
 
-/* Quick-action cards: three portrait cards in view with the centred one focused — the
-   same shape as the website feature slider. One row tall, which is what keeps the
-   welcome screen from pushing the composer below the viewport. */
-.welcome-carousel {
+/* Quick-action prompts: no container fill at all — the rows sit straight on the chat
+   surface, split by short inset hairlines and lit by a soft rounded hover. Title in
+   front, one-line grey subtitle behind it, bare white arrow on the right. No carousel. */
+.welcome-actions {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  margin-top: 26px;
+  width: min(100%, 500px);
+  margin: 24px auto 0;
+  background: none;
+  border: none;
   opacity: 0;
   translate: 0 12px;
-  animation: welcomeCarouselIn .42s cubic-bezier(.16, 1, .3, 1) .14s forwards;
+  animation: welcomeActionsIn .42s cubic-bezier(.16, 1, .3, 1) .14s forwards;
 }
 
-/* The enter motion lives on the group, not the cards: a filled forwards keyframe on a
-   card would win over the focus scale/opacity below and leave them dead. */
-@keyframes welcomeCarouselIn {
+@keyframes welcomeActionsIn {
   to { opacity: 1; translate: 0 0; }
 }
 
-.welcome-actions {
-  /* Cards and gaps scale with the viewport (--wc/--wg feed the card width, the gap and
-     the centring gutters), so the row stays composed instead of clipping when the
-     window shrinks. All carousel JS measures live rects, so nothing else hardcodes a
-     card size. */
-  --wc: clamp(124px, 13vw, 170px);
-  --wg: clamp(10px, 1.1vw, 14px);
+.welcome-card {
+  position: relative;
   display: flex;
   flex-direction: row;
-  gap: var(--wg);
-  width: min(100%, 538px);
-  /* (trackWidth - cardWidth) / 2 gutters, so the first and last card can reach the
-     centre instead of stopping flush against an edge. Recomputed from the same min()
-     as the width: a fixed gutter would leave nothing but padding visible once the
-     browser pane squeezes the chat column. */
-  padding: 2px calc((min(100%, 538px) - var(--wc)) / 2) 6px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
-}
-
-.welcome-actions::-webkit-scrollbar {
-  display: none;
-}
-
-.welcome-card {
-  flex: 0 0 auto;
-  scroll-snap-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
-  width: var(--wc);
-  min-height: calc(var(--wc) - 2px);
-  padding: clamp(12px, 1.2vw, 16px);
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
   margin: 0;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: #212121;
+  border: none;
+  border-radius: 12px !important;
+  background: transparent;
   text-align: left;
   font-family: inherit;
   cursor: pointer;
-  opacity: .55;
-  transform: scale(.93);
-  transition: opacity .28s ease, transform .28s ease, border-color .18s ease, background .18s ease;
+  transition: background .16s ease;
 }
 
-.welcome-card.is-focus {
-  opacity: 1;
-  transform: scale(1);
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.4);
+/* The divider belongs to the gap between two rows, so it is inset to the text column
+   and fades out while either neighbour is hovered — a hairline crossing a lit row
+   reads as a rendering bug. */
+.welcome-card + .welcome-card::before {
+  content: '';
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.09);
+  transition: opacity .16s ease;
+}
+
+.welcome-card:hover + .welcome-card::before,
+.welcome-card:hover::before {
+  opacity: 0;
 }
 
 .welcome-card:hover {
-  border-color: rgba(255, 255, 255, 0.18);
-  background: #262628;
-}
-
-.welcome-card.is-focus:hover {
-  transform: translateY(-2px);
-}
-
-.welcome-card.is-focus:active {
-  transform: scale(.985);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .welcome-card:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.28);
-  outline-offset: 2px;
-}
-
-.welcome-card-text {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: 100%;
-  min-width: 0;
+  outline-offset: -2px;
 }
 
 .welcome-card-title {
   color: #ffffff;
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: 600;
   letter-spacing: -0.2px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .welcome-card-desc {
-  color: rgba(255, 255, 255, 0.62);
-  font-size: 12.5px;
-  line-height: 16.5px;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  transition: color .16s ease;
 }
 
+/* The only mark on the row: a bare arrow, no disc, pinned to the right edge. It shrinks
+   the subtitle rather than overflowing the row. */
 .welcome-card-arrow {
-  display: flex;
+  align-self: center;
+  flex-shrink: 0;
+  margin-left: auto;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  margin-top: auto;
-  border-radius: 15px;
-  background: #ffffff;
-  color: #111111;
-  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  background: none;
+  color: #ffffff;
+  transition: translate .18s ease;
 }
 
 .welcome-card-arrow svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
 }
 
-/* Pagination: the global pill-radius rule turns each 7px button into a dot, and the
-   active one into the short dash from the reference. */
-.welcome-dots {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
+.welcome-card:hover .welcome-card-arrow {
+  translate: 2px 0;
 }
 
-.welcome-dot {
-  width: 7px;
-  height: 7px;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  margin: 0;
-  border: none;
-  background: rgba(255, 255, 255, 0.2);
-  cursor: pointer;
-  transition: width .2s ease, background .2s ease;
+[data-theme="light"] .welcome-card-arrow {
+  color: var(--text-primary);
 }
 
-.welcome-dot.is-active {
-  width: 20px;
-  background: rgba(255, 255, 255, 0.72);
+.welcome-card:hover .welcome-card-desc {
+  color: rgba(255, 255, 255, 0.72);
 }
 
-[data-theme="light"] .welcome-card {
-  border-color: rgba(0, 0, 0, 0.07);
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+[data-theme="light"] .welcome-card + .welcome-card::before {
+  background: rgba(0, 0, 0, 0.08);
 }
 
 [data-theme="light"] .welcome-card:hover {
-  border-color: rgba(0, 0, 0, 0.14);
-  background: #fbfbfc;
+  background: rgba(0, 0, 0, 0.04);
 }
 
-[data-theme="light"] .welcome-card.is-focus {
-  border-color: rgba(0, 0, 0, 0.1);
-  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.1);
+[data-theme="light"] .welcome-card:hover .welcome-card-desc {
+  color: rgba(0, 0, 0, 0.68);
 }
 
 [data-theme="light"] .welcome-card:focus-visible {
@@ -7009,33 +6986,19 @@ body:has(.chat-main.settings-open) > #right-sidebar-resizer {
   color: rgba(0, 0, 0, 0.55);
 }
 
-/* A white arrow chip would vanish on the light cards, so it inverts to the brand fill. */
-[data-theme="light"] .welcome-card-arrow {
-  background: var(--brown-btn-gradient);
-  color: #ffffff;
-}
-
-[data-theme="light"] .welcome-dot {
-  background: rgba(0, 0, 0, 0.16);
-}
-
-[data-theme="light"] .welcome-dot.is-active {
-  background: rgba(0, 0, 0, 0.68);
-}
-
 /* Compact windows: keep the stack readable instead of letting fixed sizes crowd the
-   composer off screen. --wc/--wg already scale the cards; these cover the type. */
+   composer off screen. */
 @media (max-width: 1000px) {
   .welcome-card-title { font-size: 14px; }
-  .welcome-card-desc { font-size: 12px; line-height: 15.5px; }
-  .welcome-carousel { gap: 11px; margin-top: 20px; }
+  .welcome-card-desc { font-size: 12.5px; }
+  .welcome-actions { margin-top: 20px; }
 }
 
 @media (max-height: 700px) {
   .welcome-logo { height: 52px; width: 52px; }
   .welcome-logo-stack { margin-bottom: 8px; }
   .welcome-title { font-size: 24px; margin-bottom: 8px; }
-  .welcome-carousel { margin-top: 16px; gap: 10px; }
+  .welcome-actions { margin-top: 16px; }
 }
 
 /* When empty-state is active, show welcome-screen and hide chat-container */
@@ -14687,6 +14650,20 @@ body[data-performance-profile="battery"] .voice-mode-stage {
   gap: 12px;
   margin: 16px 0 16px;
 }
+/* Which device is asking — the name comes from the phone, so it is a clue, not a guarantee. */
+#mobile-pair-device-name {
+  color: #94a3b8;
+  font-size: 12.5px;
+  margin: -8px 0 14px;
+}
+.mobile-pair-code-boxes.compact {
+  gap: 8px;
+}
+.mobile-pair-code-boxes.compact .code-char-box {
+  width: 44px;
+  height: 56px;
+  font-size: 25px;
+}
 .code-char-box {
   width: 56px;
   height: 66px;
@@ -15812,8 +15789,11 @@ body[data-performance-profile="battery"] .voice-mode-stage {
   background-color: var(--bg-sidebar);
 }
 
+/* The canvas behind the black content card is the app slab, not a pressed-in well —
+   otherwise the card's 6px margin and its 20px top radii reveal a different grey than
+   the nav column next to it. */
 .settings-panel-body-layout {
-  background-color: var(--bg-sidebar);
+  background-color: var(--bg-app);
   border-top: none;
 }
 
@@ -15822,7 +15802,10 @@ body[data-performance-profile="battery"] .voice-mode-stage {
   width: 280px;
   min-width: 280px;
   flex-shrink: 0;
-  background-color: var(--bg-sidebar);
+  /* Same slab as the app canvas and as the strip behind the content card; the card
+     itself stays black, so the nav column separates from it by surface, not by grey.
+     Light mode overrides below. */
+  background-color: var(--bg-app);
   border-right: none;
   padding: 20px 14px 18px;
   gap: 3px;
@@ -16680,8 +16663,7 @@ button {
 }
 .perm-popover-item,
 .plus-menu-item,
-.model-dropdown-item,
-.welcome-card {
+.model-dropdown-item {
   border-radius: 18px !important;
 }
 
@@ -16692,6 +16674,7 @@ button {
 [data-theme="light"] {
   --bg-obsidian: #f7f7f8;
   --bg-sidebar: #ffffff;
+  --bg-app: #ffffff;
   --bg-charcoal: #ffffff;
   --border-color: #e5e7eb;
   --text-primary: #111827;
@@ -18557,20 +18540,21 @@ html[data-theme="light"],
   align-items: center;
 }
 
+/* The icon is a plain 14px glyph, same as the Browser and Session pills — the
+   old 22px disc reserved space the label needed and made the pill look padded. */
 .top-update-icon-wrap {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50% !important;
-  background: rgba(255, 255, 255, 0.14) !important;
+  width: 14px;
+  height: 14px;
+  background: none !important;
   border: none !important;
-  outline: none !important;
+  border-radius: 0 !important;
   box-shadow: none !important;
   flex-shrink: 0;
-  transition: background-color 0.2s ease;
+  color: inherit;
 }
 
 .top-update-ring {
@@ -18578,9 +18562,9 @@ html[data-theme="light"],
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 24px;
-  height: 24px;
-  margin: -12px 0 0 -12px;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
   transform: rotate(-90deg);
   opacity: 0;
   pointer-events: none;
@@ -18605,110 +18589,68 @@ html[data-theme="light"],
   transition: stroke-dashoffset 0.25s ease;
 }
 
-/* Button states — dark theme */
+/* Button states — dark theme. Idle states stay neutral; an actionable update
+   tints the whole pill instead of lighting up an icon disc. */
 .btn-top-update.state-checking {
-  background: rgba(18, 18, 20, 0.65) !important;
-  border-color: rgba(255, 255, 255, 0.12) !important;
-  color: #d1d5db !important;
-  box-shadow: none !important;
   cursor: progress;
 }
-.btn-top-update.state-checking .top-update-icon-wrap {
-  background: rgba(255, 255, 255, 0.14) !important;
-  border-radius: 50% !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-}
 .btn-top-update.state-checking svg {
-  stroke: #ffffff !important;
+  stroke: currentColor !important;
   opacity: 1 !important;
 }
 .btn-top-update.state-checking #top-update-icon-download {
   display: inline-block !important;
-  stroke: #ffffff !important;
-  width: 12px;
-  height: 12px;
+  stroke: currentColor !important;
+  width: 14px;
+  height: 14px;
 }
 .btn-top-update.state-checking #top-update-icon-spin {
   display: inline-block !important;
   position: absolute;
-  inset: -1px;
-  width: 24px;
-  height: 24px;
-  stroke: #ffffff !important;
+  inset: -2px;
+  width: 18px;
+  height: 18px;
+  stroke: currentColor !important;
 }
 
-.btn-top-update.state-none {
-  background: rgba(18, 18, 20, 0.65) !important;
-  color: #d1d5db !important;
-  border-color: rgba(255, 255, 255, 0.12) !important;
-  box-shadow: none !important;
-}
-.btn-top-update.state-none .top-update-icon-wrap {
-  background: rgba(255, 255, 255, 0.14) !important;
-  border-radius: 50% !important;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
-}
 .btn-top-update.state-none svg {
-  stroke: #d1d5db !important;
+  stroke: currentColor !important;
   opacity: 0.95 !important;
 }
 
 .btn-top-update.state-available,
 .btn-top-update.state-downloading {
-  background: rgba(18, 18, 20, 0.75) !important;
-  border-color: rgba(37, 99, 235, 0.45) !important;
-  color: #ffffff !important;
+  background: rgba(41, 82, 148, 0.42) !important;
+  border-color: rgba(139, 184, 255, 0.5) !important;
+  color: #dbeafe !important;
   box-shadow: none !important;
 }
-.btn-top-update.state-available:hover,
-.btn-top-update.state-downloading:hover {
-  background: rgba(255, 255, 255, 0.08) !important;
-  border-color: rgba(37, 99, 235, 0.75) !important;
-}
-.btn-top-update.state-available .top-update-icon-wrap,
-.btn-top-update.state-downloading .top-update-icon-wrap {
-  background: #2563eb !important;
-  border: none !important;
-  border-radius: 50% !important;
-  box-shadow: 0 0 10px rgba(37, 99, 235, 0.4) !important;
-}
-.btn-top-update.state-available #top-update-icon-download,
-.btn-top-update.state-downloading #top-update-icon-download {
-  stroke: #ffffff !important;
-  color: #ffffff !important;
+.btn-top-update.state-available svg,
+.btn-top-update.state-downloading svg {
+  stroke: currentColor !important;
+  color: currentColor !important;
 }
 
 .btn-top-update.state-downloaded {
-  background: rgba(18, 18, 20, 0.75) !important;
-  border-color: rgba(22, 163, 74, 0.45) !important;
-  color: #ffffff !important;
+  background: rgba(20, 83, 45, 0.45) !important;
+  border-color: rgba(134, 239, 172, 0.5) !important;
+  color: #dcfce7 !important;
 }
-.btn-top-update.state-downloaded .top-update-icon-wrap {
-  background: #16a34a !important;
-  border: none !important;
-  border-radius: 50% !important;
-}
-.btn-top-update.state-downloaded:hover { background: rgba(255, 255, 255, 0.08) !important; }
 
 /* Button states — light theme */
-[data-theme="light"] .btn-top-update.state-checking,
-[data-theme="light"] .btn-top-update.state-none {
-  background: rgba(0, 0, 0, 0.05) !important;
-  border-color: transparent !important;
-  color: #6b7280 !important;
-}
-[data-theme="light"] .btn-top-update.state-checking:hover,
-[data-theme="light"] .btn-top-update.state-none:hover { background: rgba(0, 0, 0, 0.08) !important; }
 [data-theme="light"] .btn-top-update.state-checking svg,
-[data-theme="light"] .btn-top-update.state-none svg { stroke: #6b7280 !important; }
-[data-theme="light"] .btn-top-update.state-checking .top-update-icon-wrap,
-[data-theme="light"] .btn-top-update.state-none .top-update-icon-wrap { background: rgba(0, 0, 0, 0.06) !important; }
-[data-theme="light"] .btn-top-update.state-downloaded { background: #16a34a !important; }
-[data-theme="light"] .btn-top-update.state-downloaded:hover { background: #15803d !important; }
+[data-theme="light"] .btn-top-update.state-none svg { stroke: currentColor !important; }
+[data-theme="light"] .btn-top-update.state-available,
+[data-theme="light"] .btn-top-update.state-downloading {
+  background: #e7effc !important;
+  border-color: rgba(41, 82, 148, 0.35) !important;
+  color: #295294 !important;
+}
+[data-theme="light"] .btn-top-update.state-downloaded {
+  background: #e7f7ec !important;
+  border-color: rgba(21, 128, 61, 0.35) !important;
+  color: #15803d !important;
+}
 [data-theme="light"] .tur-ring-track { stroke: rgba(0, 0, 0, 0.18); }
 
 /* Update details dropdown */
@@ -19296,8 +19238,6 @@ html[data-theme="light"],
 .agent-browser-toggle:not([aria-pressed="true"]),
 .btn-top-update.state-none,
 .btn-top-update.state-checking,
-.btn-top-update.state-available,
-.btn-top-update.state-downloading,
 .btn-primary-sm,
 .settings-panel .btn-primary-sm,
 .btn-secondary-sm,
@@ -19969,90 +19909,85 @@ html[data-theme="light"],
 
 
 /* ==========================================================================
-   HEADER ACTION BUTTONS: same flat pill fill as the input-field buttons
-   (order: Update → Browser → Session)
+   HEADER ACTION PILLS — Update → Browser → Session.
+   One metric for the set: 30px tall, 14px glyph, 6px gap, 12px/500 label,
+   and width that comes from the label alone (no reserved icon disc, no min-width).
+   30px − 2px border − 14px glyph leaves 7px above and below the glyph, so the
+   7px horizontal padding makes that same 7px read on the left and right too.
    ========================================================================== */
+.chat-header-actions {
+  gap: 8px;
+}
+
 .chat-header-actions .btn-top-update,
-.chat-header-actions .btn-top-update.state-none,
-.chat-header-actions .btn-top-update.state-checking,
-.chat-header-actions .btn-top-update.state-available,
-.chat-header-actions .btn-top-update.state-downloading,
-.chat-header-actions .btn-top-update.state-downloaded,
-.chat-header-actions .agent-browser-toggle:not([aria-pressed="true"]),
+.chat-header-actions .agent-browser-toggle,
 .chat-header-actions .btn-session-rail {
-  background: var(--brown-btn-gradient) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  color: #ffffff !important;
-  padding: 5px 10px !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  gap: 6px;
+  height: 30px;
+  min-height: 0;
+  padding: 0 7px !important;
   width: auto !important;
   min-width: 0 !important;
   max-width: none !important;
   flex: 0 0 auto !important;
-  filter: none !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  font-family: inherit;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
-/* Icon-only session pill gets even padding */
+/* Icon-only session pill: same padding as the set, no label gap */
 .chat-header-actions .btn-session-rail {
-  padding: 6px 9px !important;
-  gap: 0 !important;
+  gap: 0;
 }
 
-/* Update pill: the 22px icon chip already provides leading space, so keep left padding tight */
-.chat-header-actions .btn-top-update {
-  padding: 5px 10px 5px 5px !important;
+/* Idle fill matches the input-field pills. */
+.chat-header-actions .btn-top-update.state-none,
+.chat-header-actions .btn-top-update.state-checking,
+.chat-header-actions .agent-browser-toggle:not([aria-pressed="true"]),
+.chat-header-actions .btn-session-rail {
+  background: var(--brown-btn-gradient) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+  filter: none !important;
 }
 
 /* Same brighten-on-hover the input-field pills use. */
 .chat-header-actions .btn-top-update:hover,
-.chat-header-actions .btn-top-update.state-none:hover,
-.chat-header-actions .btn-top-update.state-checking:hover,
 .chat-header-actions .agent-browser-toggle:not([aria-pressed="true"]):hover,
 .chat-header-actions .btn-session-rail:hover {
-  background: var(--brown-btn-gradient) !important;
-  border-color: rgba(255, 255, 255, 0.2) !important;
-  color: #ffffff !important;
-  filter: brightness(1.35) !important;
+  filter: brightness(1.4) !important;
   transform: none !important;
 }
 
-/* Strip the white round chip behind idle icons; the blue/green chip survives
-   for update-available / downloaded states (intentional signal). */
-.chat-header-actions .top-update-icon-wrap,
-.chat-header-actions .btn-top-update.state-none .top-update-icon-wrap,
-.chat-header-actions .btn-top-update.state-checking .top-update-icon-wrap {
-  background: transparent !important;
-}
-
-/* The Browser pill draws a stroked globe, and it sits outside .agent-browser-pane,
-   so it needs its own icon metrics. */
-.chat-header-actions .agent-browser-toggle svg {
+/* Every glyph in the header is 14px and inherits the pill's text colour.
+   The download ring is not a glyph — it keeps its own 20px box. */
+.chat-header-actions .btn-top-update svg:not(.top-update-ring),
+.chat-header-actions .agent-browser-toggle svg,
+.chat-header-actions .btn-session-rail svg {
   width: 14px;
   height: 14px;
   fill: none;
-  stroke: currentColor;
+  stroke: currentColor !important;
   stroke-width: 1.7;
   stroke-linecap: round;
   stroke-linejoin: round;
   flex: 0 0 auto;
 }
 
-/* Session toggle matches the other outline pills */
-.chat-header-actions .btn-session-rail {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
 /* Light theme */
-[data-theme="light"] .chat-header-actions .btn-top-update,
 [data-theme="light"] .chat-header-actions .btn-top-update.state-none,
 [data-theme="light"] .chat-header-actions .btn-top-update.state-checking,
 [data-theme="light"] .chat-header-actions .agent-browser-toggle:not([aria-pressed="true"]),
@@ -20062,7 +19997,6 @@ html[data-theme="light"],
   box-shadow: none !important;
   color: #1f2937 !important;
 }
-[data-theme="light"] .chat-header-actions .btn-top-update:hover,
 [data-theme="light"] .chat-header-actions .btn-top-update.state-none:hover,
 [data-theme="light"] .chat-header-actions .btn-top-update.state-checking:hover,
 [data-theme="light"] .chat-header-actions .agent-browser-toggle:not([aria-pressed="true"]):hover,
@@ -20071,11 +20005,6 @@ html[data-theme="light"],
   border-color: rgba(0, 0, 0, 0.18) !important;
   color: #18181b !important;
   filter: none !important;
-}
-[data-theme="light"] .chat-header-actions .top-update-icon-wrap,
-[data-theme="light"] .chat-header-actions .btn-top-update.state-none .top-update-icon-wrap,
-[data-theme="light"] .chat-header-actions .btn-top-update.state-checking .top-update-icon-wrap {
-  background-color: transparent !important;
 }
 
 /* ==========================================

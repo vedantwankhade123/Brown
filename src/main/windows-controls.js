@@ -179,7 +179,7 @@ async function sleepSystem() {
 
 async function restartSystem() {
   return new Promise((resolve) => {
-    exec('shutdown.exe /r /t 10 /c "Ultron initiated system restart"', { windowsHide: true }, (err) => {
+    exec('shutdown.exe /r /t 10 /c "Brown initiated system restart"', { windowsHide: true }, (err) => {
       resolve({ success: !err, message: err ? err.message : 'Restarting system in 10s' });
     });
   });

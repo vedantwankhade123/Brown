@@ -6,7 +6,7 @@ function overlayColors() {
   if (state.setup) return { color: 'rgba(0, 0, 0, 0)', symbolColor: '#ffffff' };
   const light = state.light && state.splashDone;
   return {
-    color: light ? '#ffffff' : '#131314',
+    color: light ? '#ffffff' : '#1B1B1B',
     symbolColor: light ? '#111827' : '#ffffff'
   };
 }
