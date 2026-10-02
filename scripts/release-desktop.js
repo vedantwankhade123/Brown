@@ -172,7 +172,7 @@ sh(`gh api repos/${REPO} > NUL`); // fails early with a readable auth error
 
 const tags = sh('git tag -l', { pipe: true }).split('\n');
 if (tags.includes(tag)) {
-  if (sh(`git rev-parse ${tag}^{commit}`, { pipe: true }).trim() !== sh('git rev-parse HEAD', { pipe: true }).trim()) die('Existing tag does not point at this commit. Do not overwrite a released version.');
+  if (sh(`git rev-parse "${tag}^{commit}"`, { pipe: true }).trim() !== sh('git rev-parse HEAD', { pipe: true }).trim()) die('Existing tag does not point at this commit. Do not overwrite a released version.');
   console.log(`[release] tag ${tag} already exists locally — pushing it as-is`);
 } else {
   sh(`git tag -a ${tag} -m "Brown AI Desktop ${tag}"`);
