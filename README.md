@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://usebrown.online/">
-    <img src="Assets/Brown-black.png" alt="Brown AI Logo" width="160" />
+    <img src="Assets/Brown-white.png" alt="Brown AI Logo" width="160" />
   </a>
 </p>
 
