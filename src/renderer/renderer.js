@@ -706,11 +706,11 @@ function renderActivityFeedHtml(stepsList) {
       timeHtml = `<span class="agent-line-time">${new Date(step.ts).toLocaleTimeString([], { hour12: false })}</span>`;
     } catch (e) {}
     const thumbHtml = step.thumbnail
-      ? `<img class="agent-line-thumb" src="${step.thumbnail}" alt="screenshot" title="Click to view fullscreen" />`
+      ? `<img class="agent-line-thumb" src="${escapeHtml(step.thumbnail)}" alt="screenshot" title="Click to view fullscreen" />`
       : '';
     const appHtml = step.appName
       ? `<span class="agent-app-chip">${step.appIcon
-          ? `<img src="${step.appIcon}" alt="" class="agent-app-logo" />`
+          ? `<img src="${escapeHtml(step.appIcon)}" alt="" class="agent-app-logo" />`
           : `<span class="agent-app-logo agent-app-logo-fallback">${escapeHtml(step.appName.substring(0, 1).toUpperCase())}</span>`
         }<span>${escapeHtml(step.appName)}</span></span>`
       : '';
@@ -4281,13 +4281,13 @@ function showToast({ type = 'info', title = '', message = '', duration = 6500, a
   toast.setAttribute('role', type === 'error' || type === 'warning' ? 'alert' : 'status');
   const iconSvg = TOAST_ICONS[type] || TOAST_ICONS.info;
   const actionsHtml = (actions || []).map((a, i) =>
-    `<button type="button" class="ultron-toast-action${a.primary ? ' primary' : ''}" data-toast-action="${i}">${a.label}</button>`
+    `<button type="button" class="ultron-toast-action${a.primary ? ' primary' : ''}" data-toast-action="${i}">${escapeHtml(a.label)}</button>`
   ).join('');
   toast.innerHTML = `
     <svg class="ultron-toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconSvg}</svg>
     <div class="ultron-toast-body">
-      ${title ? `<p class="ultron-toast-title">${title}</p>` : ''}
-      ${message ? `<p class="ultron-toast-message">${message}</p>` : ''}
+      ${title ? `<p class="ultron-toast-title">${escapeHtml(title)}</p>` : ''}
+      ${message ? `<p class="ultron-toast-message">${escapeHtml(message)}</p>` : ''}
       ${actionsHtml ? `<div class="ultron-toast-actions">${actionsHtml}</div>` : ''}
     </div>
     <button type="button" class="ultron-toast-close" aria-label="Dismiss">✕</button>
@@ -4999,6 +4999,9 @@ function expandRightSidebarSection(sectionId) {
 }
 
 function ensureRightSidebarVisible() {
+  // The rail now starts closed, so a flow that needs it on screen has to open it, not
+  // just repaint it. Counted as a deliberate open so the auto-collapse leaves it alone.
+  chooseSessionRail(false);
   renderSessionPanel();
 }
 
@@ -5392,6 +5395,36 @@ function sideSectionHtml(title, items, buildRow, { emptyTitle = '', empty = '' }
     </section>`;
 }
 
+/* The rail is closed by default and opens itself the first time one of its containers
+   has real content. A manual collapse sticks for that session, so the auto-open can
+   never fight a deliberate choice; switching sessions forgets both halves of it. */
+let railPrefSession = null;
+let railPref = null;
+
+function setSessionRailCollapsed(collapsed) {
+  if (document.body.classList.contains('session-rail-collapsed') === collapsed) return;
+  document.body.classList.toggle('session-rail-collapsed', collapsed);
+  const btn = document.getElementById('btn-toggle-session-rail');
+  if (!btn) return;
+  btn.classList.toggle('is-collapsed', collapsed);
+  btn.setAttribute('aria-expanded', String(!collapsed));
+  btn.title = collapsed ? 'Show session panel' : 'Hide session panel';
+}
+
+function chooseSessionRail(collapsed) {
+  railPrefSession = currentSessionId || '__no_session__';
+  railPref = collapsed;
+  setSessionRailCollapsed(collapsed);
+}
+
+function syncSessionRail(hasContent) {
+  const key = currentSessionId || '__no_session__';
+  if (key !== railPrefSession) { railPrefSession = key; railPref = null; }
+  if (railPref === true) return;                                    // hidden by hand this session
+  if (railPref === false) return setSessionRailCollapsed(false);     // shown by hand this session
+  setSessionRailCollapsed(!hasContent || key === '__no_session__');
+}
+
 function renderSessionPanel() {
   const content = document.getElementById('session-panel-content');
   if (!content) return;
@@ -5463,6 +5496,8 @@ function renderSessionPanel() {
     emptyTitle: 'No sources yet', empty: 'Your uploads and the material behind the answer.'
   }));
   const html = `${sections[0]}<div class="session-side-sections">${sections.slice(1).join('')}</div>`;
+  syncSessionRail(messages.length > 0 || tasks.length > 0 || capabilities.length > 0
+    || outputs.length > 0 || inline.length > 0 || readings.length > 0 || sources.length > 0);
   if (content.innerHTML === html) return;
   const focused = content.contains(document.activeElement) ? document.activeElement : null;
   const focusKey = focused?.closest('[data-side-section]')?.dataset.sideSection;
@@ -8868,7 +8903,7 @@ function renderSearchExperience(answer, searchPayload) {
     }
     const formattedPrice = item.price ? formatPriceWithLocalEquivalent(item.price) : '';
     const ratingBadge = item.rating 
-      ? `<span class="product-result-price-badge" style="background: rgba(234,179,8,0.15); color: #eab308; border-color: rgba(234,179,8,0.3);">⭐ ${typeof item.rating === 'number' ? item.rating.toFixed(1) : item.rating}</span>`
+      ? `<span class="product-result-price-badge" style="background: rgba(234,179,8,0.15); color: #eab308; border-color: rgba(234,179,8,0.3);">⭐ ${typeof item.rating === 'number' ? item.rating.toFixed(1) : escapeHtml(String(item.rating))}</span>`
       : '';
 
     const isPlace = isPlacesQuery || item.type === 'place';
@@ -9729,7 +9764,7 @@ function scheduleLocalReminder({ message, delayMs }) {
   const timerId = setTimeout(() => {
     try {
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        new Notification('Ultron Reminder', { body });
+        new Notification('Brown Reminder', { body });
       }
     } catch (_) { /* ignore */ }
     try {
@@ -11001,7 +11036,7 @@ function updateModelSelectorLabel() {
 
   modelSelectorLabel.innerHTML = `
     <img src="${logoSrc}" alt="${provider}" style="width: 14px; height: 14px; object-fit: contain; flex-shrink: 0; display: block; margin: 0;" />
-    <span style="line-height: 1; display: inline-block; margin: 0; padding: 0;">${name}</span>
+    <span style="line-height: 1; display: inline-block; margin: 0; padding: 0;">${escapeHtml(name)}</span>
   `;
 
   if (modelSelectorBtn) {
@@ -11143,7 +11178,7 @@ function buildModelDropdownItemHtml(modelName, displayName, tag, isActive, isWar
 
   return `
     <div style="display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; overflow: hidden;">
-      <span class="model-name-text">${displayName || modelName}</span>
+      <span class="model-name-text">${escapeHtml(displayName || modelName)}</span>
       ${tierBadge ? `<span class="model-tag-pill">${tierBadge}</span>` : ''}
       ${speedBadge ? `<span class="model-tag-pill">${speedBadge}</span>` : ''}
     </div>
@@ -17995,168 +18030,20 @@ function updateWelcomeGreeting() {
   welcomeTitle.textContent = `${salutation}, ${firstName}`;
 }
 
-/* Quick-action carousel: an endless row of portrait cards. Two clones sit on each end so
-   the focused card always has a left and a right neighbour, and once a glide settles the
-   position is re-mapped to the matching real card — the swap is pixel-identical, so the
-   loop has no seam at the first or last card. */
+/* Quick-action prompts: a plain stacked list. Clicking a row seeds the composer
+   with its draft and focuses it. */
 const welcomeActions = document.getElementById('welcome-actions');
-const welcomeDots = document.getElementById('welcome-dots');
-const welcomeCarousel = { active: 0, real: 0, paused: false, gliding: false, steps: 0 };
-if (welcomeActions && welcomeDots) {
-  const realCards = Array.from(welcomeActions.querySelectorAll('.welcome-card'));
-  const CARD_COUNT = realCards.length;
-  const CLONES = 2;
-  const FIRST_REAL = CLONES;
-  const LAST_REAL = FIRST_REAL + CARD_COUNT - 1;
-  const AUTO_STEP_MS = 4200;
-
-  const addClone = (card, atHead) => {
-    const clone = card.cloneNode(true);
-    clone.classList.add('is-clone');
-    clone.tabIndex = -1;
-    clone.setAttribute('aria-hidden', 'true');
-    if (atHead) welcomeActions.prepend(clone);
-    else welcomeActions.append(clone);
-  };
-  /* Head clones go in descending order: prepending reverses, so this lands […,S,B] in
-     front of [W,F,S,B] and every adjacent pair in the row stays in card order. */
-  for (let i = CARD_COUNT - 1; i >= CARD_COUNT - CLONES; i--) addClone(realCards[i], true);
-  for (let i = 0; i < CLONES; i++) addClone(realCards[i], false);
-
-  const slides = Array.from(welcomeActions.querySelectorAll('.welcome-card'));
-  const dots = [];
-
-  /* Custom eased glide: Chromium's native smooth scrolling fights mandatory scroll-snap
-     and visibly stutters, so the animation sets scrollLeft per frame with snapping
-     paused, then restores it exactly on a snap point. */
-  let glideRaf = 0;
-  const GLIDE_MS = 620;
-  const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-  const glideTo = (target) => {
-    cancelAnimationFrame(glideRaf);
-    const start = welcomeActions.scrollLeft;
-    const delta = target - start;
-    if (Math.abs(delta) < 1) return;
-    welcomeActions.style.scrollSnapType = 'none';
-    welcomeCarousel.gliding = true;
-    const t0 = performance.now();
-    const step = (now) => {
-      const p = Math.min((now - t0) / GLIDE_MS, 1);
-      welcomeActions.scrollLeft = start + delta * easeInOutCubic(p);
-      if (p < 1) {
-        glideRaf = requestAnimationFrame(step);
-        return;
-      }
-      welcomeCarousel.gliding = false;
-      welcomeActions.style.scrollSnapType = '';
-    };
-    glideRaf = requestAnimationFrame(step);
-  };
-  /* A drag or wheel is the user taking over — stop animating immediately. */
-  const cancelGlide = () => {
-    if (!welcomeCarousel.gliding) return;
-    cancelAnimationFrame(glideRaf);
-    welcomeCarousel.gliding = false;
-    welcomeActions.style.scrollSnapType = '';
-  };
-  welcomeActions.addEventListener('pointerdown', cancelGlide);
-  welcomeActions.addEventListener('wheel', cancelGlide, { passive: true });
-
-  welcomeCarousel.goTo = (i, animate = true) => {
-    const slide = slides[Math.min(Math.max(i, 0), slides.length - 1)];
-    if (!slide) return;
-    const track = welcomeActions.getBoundingClientRect();
-    const rect = slide.getBoundingClientRect();
-    const target = Math.max(welcomeActions.scrollLeft + rect.left - track.left
-      - (track.width - rect.width) / 2, 0);
-    if (animate) glideTo(target);
-    else {
-      cancelGlide();
-      welcomeActions.scrollTo({ left: target, behavior: 'auto' });
-    }
-    syncCarousel();
-  };
-
-  const seedPrompt = (slide) => {
-    if (!chatInput) return;
-    chatInput.value = slide.dataset.draft || '';
-    chatInput.dispatchEvent(new Event('input', { bubbles: true }));
-    chatInput.focus();
-    const end = chatInput.value.length;
-    try { chatInput.setSelectionRange(end, end); } catch (err) {}
-  };
-
-  slides.forEach((slide, i) => {
-    slide.addEventListener('click', () => {
-      /* A side card — or a clone — just pulls focus; only the centred card writes. */
-      if (i !== welcomeCarousel.active) welcomeCarousel.goTo(i);
-      else seedPrompt(slide);
+if (welcomeActions) {
+  welcomeActions.querySelectorAll('.welcome-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      if (!chatInput) return;
+      chatInput.value = card.dataset.draft || '';
+      chatInput.dispatchEvent(new Event('input', { bubbles: true }));
+      chatInput.focus();
+      const end = chatInput.value.length;
+      try { chatInput.setSelectionRange(end, end); } catch (err) {}
     });
   });
-
-  realCards.forEach((card, i) => {
-    const dot = document.createElement('button');
-    dot.type = 'button';
-    dot.className = 'welcome-dot';
-    dot.setAttribute('aria-label', `Show ${card.querySelector('.welcome-card-title')?.textContent || 'quick action'}`);
-    dot.addEventListener('click', () => welcomeCarousel.goTo(FIRST_REAL + i));
-    welcomeDots.appendChild(dot);
-    dots.push(dot);
-  });
-
-  function syncCarousel() {
-    const track = welcomeActions.getBoundingClientRect();
-    const centre = track.left + track.width / 2;
-    let active = 0;
-    let bestDist = Infinity;
-    slides.forEach((slide, i) => {
-      const rect = slide.getBoundingClientRect();
-      const dist = Math.abs(rect.left + rect.width / 2 - centre);
-      if (dist < bestDist) {
-        bestDist = dist;
-        active = i;
-      }
-    });
-    welcomeCarousel.active = active;
-    welcomeCarousel.real = ((active - FIRST_REAL) % CARD_COUNT + CARD_COUNT) % CARD_COUNT;
-    slides.forEach((slide, i) => slide.classList.toggle('is-focus', i === active));
-    dots.forEach((dot, i) => dot.classList.toggle('is-active', i === welcomeCarousel.real));
-  }
-
-  /* Re-map clone positions onto their real twin once scrolling stops, far enough from the
-     next glide that the jump is invisible. */
-  let settleTimer = 0;
-  const settleLoop = () => {
-    const i = welcomeCarousel.active;
-    if (i < FIRST_REAL) welcomeCarousel.goTo(i + CARD_COUNT, false);
-    else if (i > LAST_REAL) welcomeCarousel.goTo(i - CARD_COUNT, false);
-  };
-
-  welcomeActions.addEventListener('scroll', () => {
-    syncCarousel();
-    clearTimeout(settleTimer);
-    settleTimer = setTimeout(settleLoop, 240);
-  });
-  window.addEventListener('resize', syncCarousel);
-
-  const carouselWrap = welcomeActions.closest('.welcome-carousel');
-  if (carouselWrap) {
-    carouselWrap.addEventListener('pointerenter', () => { welcomeCarousel.paused = true; });
-    carouselWrap.addEventListener('pointerleave', () => { welcomeCarousel.paused = false; });
-  }
-
-  setInterval(() => {
-    /* Idle motion only: stop while hovered, once a prompt is being written, when the
-       welcome screen is gone, when the window isn't on screen, or while a glide is
-       still travelling (a stacked advance would cut it short and look jerky). */
-    if (welcomeCarousel.paused || welcomeCarousel.gliding || document.hidden) return;
-    if (!document.querySelector('.chat-main.empty-state')) return;
-    if (chatInput && chatInput.value.trim()) return;
-    welcomeCarousel.steps += 1;
-    welcomeCarousel.goTo(welcomeCarousel.active + 1);
-  }, AUTO_STEP_MS);
-
-  welcomeCarousel.goTo(FIRST_REAL, false);
 }
 
 
@@ -19531,7 +19418,7 @@ function renderAttachmentPreviews(hasImageWarning = false) {
 
     pill.innerHTML = `
       ${thumbHtml}
-      <span class="attachment-name" title="${fileObj.name}">${fileObj.name}</span>
+      <span class="attachment-name" title="${escapeHtml(fileObj.name)}">${escapeHtml(fileObj.name)}</span>
       <span class="attachment-size">${sizeKB} KB</span>
       <button type="button" class="btn-remove-attachment" data-index="${index}" title="Remove attachment">✕</button>
     `;
@@ -22409,19 +22296,11 @@ if (btnToggleLeftSidebar && leftSidebar) {
 
 // Right session rail collapse (toggle pill sits left of the update checker)
 const btnToggleSessionRail = document.getElementById('btn-toggle-session-rail');
-function applySessionRailCollapsed(collapsed) {
-  document.body.classList.toggle('session-rail-collapsed', collapsed);
-  if (!btnToggleSessionRail) return;
-  btnToggleSessionRail.classList.toggle('is-collapsed', collapsed);
-  btnToggleSessionRail.setAttribute('aria-expanded', String(!collapsed));
-  btnToggleSessionRail.title = collapsed ? 'Show session panel' : 'Hide session panel';
-}
 if (btnToggleSessionRail) {
-  /* Always start expanded — no stored preference is read, so a rail collapsed in an
-     earlier session can't come back hidden. The toggle still works within this one. */
-  applySessionRailCollapsed(false);
+  /* Closed by default — the markup already carries the collapsed classes, so there is no
+     open-then-snap-back frame. renderSessionPanel() opens it once a container has content. */
   btnToggleSessionRail.addEventListener('click', () => {
-    applySessionRailCollapsed(!document.body.classList.contains('session-rail-collapsed'));
+    chooseSessionRail(!document.body.classList.contains('session-rail-collapsed'));
   });
 }
 
@@ -22888,6 +22767,10 @@ async function generateQR() {
       if (expEl) expEl.textContent = remaining > 0 ? `Code expires in ${remaining}s` : 'Refreshing code...';
       if (remaining <= 0) { clearInterval(_syncQrTimer); _syncQrTimer = null; generateQR(); }
     }, 1000);
+  } else {
+    // Nothing was generated, so no event will consume the flag. Leaving it set would swallow
+    // the modal for the phone's next real pairing request.
+    window._suppressPairModal = false;
   }
 }
 
@@ -22909,6 +22792,8 @@ async function generatePairCode() {
       if (expEl) expEl.textContent = remaining > 0 ? `Code expires in ${remaining}s` : 'Refreshing code...';
       if (remaining <= 0) { clearInterval(_syncPairTimer); _syncPairTimer = null; generatePairCode(); }
     }, 1000);
+  } else {
+    window._suppressPairModal = false;
   }
 }
 
@@ -25067,8 +24952,8 @@ function renderSearchResults(query) {
     item.setAttribute('data-target-session', session.id);
     
     item.innerHTML = `
-      <span class="search-result-title">${session.title}</span>
-      <span class="search-result-preview">${preview}</span>
+      <span class="search-result-title">${escapeHtml(session.title || 'Untitled session')}</span>
+      <span class="search-result-preview">${escapeHtml(preview)}</span>
     `;
     
     // Bind click trigger to load session and hide search
@@ -25195,11 +25080,11 @@ function setupAutoUpdaterUI() {
       topBtn.classList.add('state-checking');
       topIconSpin?.classList.remove('hidden');
       topIconDownload?.classList.remove('hidden');
-      if (topLabel) topLabel.textContent = 'Checking for updates';
+      if (topLabel) topLabel.textContent = 'Checking…';
     } else if (updateState === 'none') {
       topBtn.classList.add('state-none');
       topIconDownload?.classList.remove('hidden');
-      if (topLabel) topLabel.textContent = 'No Updates';
+      if (topLabel) topLabel.textContent = 'Up to date';
     } else if (updateState === 'available') {
       topBtn.classList.add('state-available');
       topIconDownload?.classList.remove('hidden');
@@ -25225,7 +25110,8 @@ function setupAutoUpdaterUI() {
         tudSubtitle.textContent = [ver, date].filter(Boolean).join(' · ');
       }
       if (tudNotes) {
-        tudNotes.textContent = updateInfo?.releaseNotes || 'Bug fixes, speed improvements, and new capabilities.';
+        const lines = releaseNoteLines(updateInfo?.releaseNotes);
+        tudNotes.textContent = lines.length ? lines.join('\n') : 'Bug fixes, speed improvements, and new capabilities.';
         tudNotes.classList.remove('hidden');
       }
       tudProgress?.classList.add('hidden');
@@ -25282,13 +25168,47 @@ function setupAutoUpdaterUI() {
     if (open) renderDropdown();
   }
 
-  /** GitHub release bodies are markdown with a trailing changelog link — flatten to bullet lines. Unwrap '**' before dropping leading '*'. */
+  /**
+   * electron-updater hands back GitHub's rendered HTML while the Releases API fallback hands back
+   * the raw markdown. Flatten either one to text first, otherwise the tags show up verbatim.
+   */
+  /** Entities GitHub's rendered bodies actually emit — decoded by hand, no DOM parsing. */
+  const NOTE_ENTITIES = {
+    nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'",
+    mdash: '—', ndash: '–', hellip: '…', bull: '•', middot: '·',
+    lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
+    copy: '©', reg: '®', trade: '™', times: '×', minus: '−',
+  };
+
+  function stripNoteMarkup(raw) {
+    let text = String(raw);
+    if (!/[<>]/.test(text)) return text;
+    text = text
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<(?:br|\/(?:p|div|ul|ol|li|h[1-6]|blockquote|pre|table|tr))[^>]*>/gi, '\n')
+      .replace(/<li[^>]*>/gi, '\n- ')
+      .replace(/<[^>]*>/g, '');
+    return text
+      .replace(/&(?:#\d+|#[xX][\da-fA-F]+|[a-z]+[0-9]*);/gi, (entity) => {
+        const body = entity.slice(1, -1);
+        if (body[0] === '#') {
+          const code = /^#[xX]/.test(body) ? parseInt(body.slice(1), 16) : parseInt(body.slice(1), 10);
+          return Number.isFinite(code) && code > 0 && code < 0x110000 ? String.fromCodePoint(code) : entity;
+        }
+        return NOTE_ENTITIES[body.toLowerCase()] ?? entity;
+      })
+      .replace(/\n{3,}/g, '\n\n');
+  }
+
+  /** Release bodies carry a trailing changelog link and a version heading — flatten to bullet lines. Unwrap '**' before dropping leading '*'. */
   function releaseNoteLines(raw) {
     if (!raw) return [];
-    return String(raw)
+    return stripNoteMarkup(raw)
       .split(/\r?\n/)
       .map((line) =>
         line
+          .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+          .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
           .replace(/\*\*(.+?)\*\*/g, '$1')
           .replace(/[`_~*]/g, '')
           .replace(/^\s*[>#]+\s*/, '')
@@ -25300,7 +25220,8 @@ function setupAutoUpdaterUI() {
         line.length > 2 &&
         !/full changelog/i.test(line) &&
         !/^https?:\/\//i.test(line) &&
-        !/^(?:brown(?:\s+ai)?\s*)?v?\d+(\.\d+){1,3}$/i.test(line) &&
+        // "Brown AI Desktop v1.0.3" — the version is already in the card title.
+        !/^(?:brown(?:\s+ai)?(?:\s+desktop)?(?:\s*(?:ai|desktop))?\s*[:—-]?\s*)?v?\d+(\.\d+){1,3}\s*$/i.test(line) &&
         !/^[-–—]+$/.test(line)
       )
       .slice(0, 12);
@@ -25658,14 +25579,18 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
     if (titleEl) {
       titleEl.textContent = 'Pairing Request';
     }
+    if (nameEl) {
+      nameEl.textContent = `${deviceName} on this network is asking to pair.`;
+    }
 
     if (boxesContainer) {
+      const chars = cleanCode || '————';
       boxesContainer.innerHTML = '';
-      for (let i = 0; i < 4; i++) {
-        const char = cleanCode[i] || '—';
+      boxesContainer.classList.toggle('compact', chars.length > 4);
+      for (let i = 0; i < chars.length; i++) {
         const box = document.createElement('div');
         box.className = 'code-char-box';
-        box.textContent = char;
+        box.textContent = chars[i];
         boxesContainer.appendChild(box);
       }
     } else if (codeEl) {
@@ -26066,7 +25991,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
                 <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
                   <span style="font-size: 16px;">📁</span>
                   <div style="overflow: hidden;">
-                    <div style="font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${src.name || src.path}${src.auto ? ' <span style="font-size: 9px; font-weight: 700; color: #60a5fa; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 999px; padding: 1px 6px; vertical-align: middle;">Auto</span>' : ''}</div>
+                    <div style="font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(src.name || src.path || '')}${src.auto ? ' <span style="font-size: 9px; font-weight: 700; color: #60a5fa; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 999px; padding: 1px 6px; vertical-align: middle;">Auto</span>' : ''}</div>
                     <div style="font-size: 11px; color: #a1a1aa; margin-top: 2px;">${src.fileCount || 0} files • ${src.chunkCount || 0} vector chunks</div>
                   </div>
                 </div>
@@ -26158,7 +26083,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
               card.style.cssText = 'background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; font-size: 12px;';
               card.innerHTML = `
                 <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                  <span style="font-weight: 600; color: #60a5fa;">#${idx + 1} ${r.fileName}</span>
+                  <span style="font-weight: 600; color: #60a5fa;">#${idx + 1} ${escapeHtml(r.fileName)}</span>
                   <span style="color: #34d399; font-weight: 600;">Match: ${(r.score * 100).toFixed(1)}%</span>
                 </div>
                 <div style="color: #d1d5db; line-height: 1.4; font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: pre-wrap;">${escapeHtml(r.snippet)}</div>
@@ -26328,6 +26253,9 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
     if (btnGenPair) {
       btnGenPair.addEventListener('click', async () => {
         btnGenPair.textContent = 'Generating…';
+        // The banner below the button is this tab's answer; the fullscreen modal is for a
+        // request that came from the phone.
+        window._suppressPairModal = true;
         const res = await window.ultronAPI.createMobilePairCode();
         btnGenPair.textContent = 'Generate Pair Code';
 
@@ -26347,6 +26275,8 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
               if (pairBanner) pairBanner.classList.add('hidden');
             }
           }, 1000);
+        } else {
+          window._suppressPairModal = false;
         }
       });
     }

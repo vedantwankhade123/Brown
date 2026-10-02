@@ -30,7 +30,7 @@
     if (toolCall.type === 'EXECUTE' && looksLikeShell(toolCall.target || text)) {
       return {
         allowed: false,
-        message: 'That command looks destructive or unsafe. Ultron blocked it.',
+        message: 'That command looks destructive or unsafe. Brown blocked it.',
         errorCode: 'AUTOMATION_BLOCKED'
       };
     }

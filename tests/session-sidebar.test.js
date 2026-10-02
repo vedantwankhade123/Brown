@@ -73,9 +73,22 @@ function installSidebar(harness) {
     set innerHTML(value) { this.children = []; },
     appendChild(node) { this.children.push(node); }
   };
+  // The rail starts collapsed in the markup, so the stub body carries that class too.
+  const railClasses = new Set(['session-rail-collapsed']);
+  const railBody = { classList: {
+    add: name => railClasses.add(name),
+    remove: name => railClasses.delete(name),
+    contains: name => railClasses.has(name),
+    toggle: (name, on) => {
+      const next = on === undefined ? !railClasses.has(name) : Boolean(on);
+      if (next) railClasses.add(name); else railClasses.delete(name);
+      return next;
+    }
+  } };
   Object.assign(context, {
     document: {
       activeElement: null,
+      body: railBody,
       getElementById: id => id === 'session-panel-content' ? content : null,
       querySelector: selector => selector === '.chat-main' ? chatMain : null,
       createElement: () => ({ className: '', textContent: '', innerHTML: '' })
@@ -86,7 +99,7 @@ function installSidebar(harness) {
     activeSubgoals: [],
     isAwaitingResponse: false
   });
-  Object.assign(harness, { content, checklist, chatMain });
+  Object.assign(harness, { content, checklist, chatMain, railBody });
   evaluateSource(context, 'function escapeHtml(', 'function getWebSearchCardHtml(');
   evaluateSource(context, 'function formatSideWhen(', 'function renderSessionPanel(');
   evaluateSource(context, 'function renderSessionPanel(', '// Delegated handlers: sidebar tabs + session item actions');
@@ -329,6 +342,18 @@ function testBrowserReadingVersusNativeSearch() {
   assert.match(sources, /Found result/);
   assert.match(sources, /side-row-sub">Found</);
   assert.match(sources, /side-row-sub">Read</);
+
+  // Rail visibility: content opens the default-closed rail, a hand-collapse survives later
+  // renders, and switching to an empty session closes it again.
+  assert.ok(!h.railBody.classList.contains('session-rail-collapsed'), 'Content opens the closed rail.');
+  c.chooseSessionRail(true);
+  c.renderSessionPanel();
+  assert.ok(h.railBody.classList.contains('session-rail-collapsed'), 'A manual collapse is never undone by new content.');
+  c.currentSessionId = 'b';
+  c.renderSessionPanel();
+  assert.ok(h.railBody.classList.contains('session-rail-collapsed'), 'An empty session keeps the rail closed.');
+  c.chooseSessionRail(false);
+  assert.ok(!h.railBody.classList.contains('session-rail-collapsed'), 'An explicit open wins over the empty session.');
 }
 
 function testSkillToolAndArtifactSourceDistinctions() {

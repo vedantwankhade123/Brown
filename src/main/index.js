@@ -27,7 +27,7 @@ function initializeDataDirectories() {
 module.exports = { getDefaultDataDirectory: () => require('./paths').getDefaultAgentDataDir() };
 
 const WINDOW_BG = '#000000';
-const TITLE_BAR_COLOR = '#131314';
+const TITLE_BAR_COLOR = '#1B1B1B';
 const themeState = require('./theme-state');
 
 let mainWindow = null;
