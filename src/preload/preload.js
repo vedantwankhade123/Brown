@@ -64,6 +64,10 @@ const apiMethods = {
   getLiveMetrics: () => ipcRenderer.invoke('get-live-metrics'),
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
   getStorageUsage: () => ipcRenderer.invoke('get-storage-usage'),
+  captureDiagnostics: (payload) => ipcRenderer.invoke('diagnostics:capture', payload),
+  listDiagnostics: () => ipcRenderer.invoke('diagnostics:list'),
+  countDiagnostics: () => ipcRenderer.invoke('diagnostics:count'),
+  sendDiagnostics: () => ipcRenderer.invoke('diagnostics:send'),
   restoreFileBackup: (payload) => ipcRenderer.invoke('restore-file-backup', payload),
   searchWeb: (query, options) => ipcRenderer.invoke('search-web', query, options),
   getMcpStatus: () => ipcRenderer.invoke('get-mcp-status'),
@@ -211,6 +215,8 @@ const apiMethods = {
   listMobilePairedDevices: () => ipcRenderer.invoke('desktop-sync:list-devices'),
   revokeMobilePairedDevice: (id) => ipcRenderer.invoke('desktop-sync:revoke-device', id),
   clearPreviousMobileDevices: () => ipcRenderer.invoke('desktop-sync:clear-previous-devices'),
+  getMobileConnectionSettings: () => ipcRenderer.invoke('desktop-sync:get-settings'),
+  setMobileConnectionSettings: (settings) => ipcRenderer.invoke('desktop-sync:set-settings', settings),
   createMobilePairCode: () => ipcRenderer.invoke('desktop-sync:create-pair-code'),
   denyMobilePair: () => ipcRenderer.invoke('desktop-sync:deny-pair'),
   approveMobileChats: () => ipcRenderer.invoke('desktop-sync:approve-chats'),
@@ -259,6 +265,10 @@ const apiMethods = {
   saveProviderKeys: (keys) => ipcRenderer.invoke('save-provider-keys', keys),
   loadProviderKeys: () => ipcRenderer.invoke('load-provider-keys'),
   // Local Vector RAG
+  ragSelectFiles: () => ipcRenderer.invoke('rag:select-files'),
+  ragGetDroppedPath: (file) => {
+    try { return require('electron').webUtils.getPathForFile(file); } catch { return file?.path || ''; }
+  },
   ragAddSources: (paths) => ipcRenderer.invoke('rag:add-sources', paths),
   ragAutoAdd: (sourcePath) => ipcRenderer.invoke('rag:auto-add', sourcePath),
   ragIndexFile: (filePath) => ipcRenderer.invoke('rag:index-file', filePath),

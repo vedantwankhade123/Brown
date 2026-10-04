@@ -47,8 +47,8 @@ function resolveWindowIcon() {
     path.join(__dirname, '..', '..', 'Assets', 'Brand-Assets'),
     path.join(__dirname, '..', '..', 'Assets'),
   ];
-  // White logo reads best on the dark Windows taskbar; fall back to the .ico.
-  const names = ['Brown-white.png', 'Brown.ico'];
+  // Rounded black-tile bear reads on both light and dark taskbars; PNG is the fallback.
+  const names = ['Brown.ico', 'browny_white.png'];
   for (const dir of roots) {
     for (const name of names) {
       const full = path.join(dir, name);
@@ -186,10 +186,12 @@ function createWindow() {
 
 process.on('uncaughtException', (err) => {
   console.error('[MAIN] Uncaught Exception:', err);
+  try { require('./error-logs').captureError(err, 'main'); } catch (_) {}
 });
 
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[MAIN] Unhandled Rejection at:', promise, 'reason:', reason);
+  try { require('./error-logs').captureError(reason instanceof Error ? reason : { message: String(reason), stack: reason && reason.stack }, 'main'); } catch (_) {}
 });
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -254,6 +256,7 @@ app.whenReady().then(() => {
     session.defaultSession.on('preload-error', (event, preloadPath, error) => {
       console.error('[PRELOAD ERROR] Path:', preloadPath);
       console.error('[PRELOAD ERROR] Error Stack:', error.stack || error);
+      try { require('./error-logs').captureError(error, 'preload'); } catch (_) {}
     });
   } catch (err) {
     console.warn('[MAIN] Session setup error:', err.message);

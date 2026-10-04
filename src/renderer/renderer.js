@@ -3895,8 +3895,7 @@ function renderChatMessage(sender, text, isAi = false, options = {}) {
   if (isAi) {
     const avatar = document.createElement('div');
     avatar.className = 'avatar ai';
-    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-    const aiLogoSrc = isLight ? '../../Assets/Brown-black.png' : '../../Assets/Brown-white.png';
+    const aiLogoSrc = document.documentElement.getAttribute('data-theme') === 'light' ? '../../Assets/browny_black.png' : '../../Assets/browny_white.png';
     avatar.innerHTML = `<img src="${aiLogoSrc}" alt="Brown" onerror="this.src='${aiLogoSrc}'" />`;
     messageDiv.appendChild(avatar);
     
@@ -16110,6 +16109,8 @@ settingsTabs.forEach(tab => {
       updateMemoryUIState();
     } else if (targetTab === 'account') {
       await loadAccountDetails({ locationReason: 'account-tab' });
+    } else if (targetTab === 'help') {
+      if (typeof renderHelpSupportTab === 'function') renderHelpSupportTab();
     }
   });
 });
@@ -17608,9 +17609,9 @@ function initModelsConnectionTabs() {
    ========================================================================== */
 const SKILL_CATEGORIES = [
   { id: 'all', label: 'All' },
-  { id: 'system', label: 'System & Files' },
-  { id: 'visuals', label: 'Visuals & Docs' },
-  { id: 'dev', label: 'Developer' },
+  { id: 'system', label: 'Productivity' },
+  { id: 'visuals', label: 'Content Creation' },
+  { id: 'dev', label: 'Coding' },
   { id: 'math', label: 'Math & Stats' },
   { id: 'web', label: 'Web & Research' },
   { id: 'reasoning', label: 'Reasoning' },
@@ -17659,6 +17660,8 @@ const SKILL_META = {
 
 let activeSkillCategory = 'all';
 let activeSkillSearch = '';
+let activeSkillSort = 'featured';
+const FEATURED_SKILL_IDS = ['modern-web-frontend-architect', 'visual-diagram-chart-creator', 'code-architect-engineer', 'web-intelligence-synthesis', 'save-document', 'generative-ui-builder', 'git-and-github-version-control', 'file-read-summarize'];
 
 const SKILL_CAT_ICONS = {
   system: '<rect x="4" y="4" width="16" height="12" rx="2"></rect><line x1="8" y1="20" x2="16" y2="20"></line><line x1="12" y1="16" x2="12" y2="20"></line>',
@@ -17697,7 +17700,7 @@ function renderSkillsList() {
   if (!wrap) return;
   let skills = getSkillsCatalog();
   const total = skills.length;
-  if (activeModelsConnectionTab !== 'online' && activeSkillCategory !== 'all') {
+  if (activeSkillCategory !== 'all') {
     skills = skills.filter(s => (SKILL_META[s.id] || {}).cat === activeSkillCategory);
   }
   const q = activeSkillSearch.trim().toLowerCase();
@@ -17707,6 +17710,11 @@ function renderSkillsList() {
       return `${s.name || ''} ${s.id} ${meta.desc || ''} ${(s.triggers || []).join(' ')}`.toLowerCase().includes(q);
     });
   }
+  skills = [...skills].sort((a, b) => {
+    if (activeSkillSort === 'name') return (a.name || a.id).localeCompare(b.name || b.id);
+    const rank = id => { const index = FEATURED_SKILL_IDS.indexOf(id); return index < 0 ? FEATURED_SKILL_IDS.length : index; };
+    return rank(a.id) - rank(b.id);
+  });
   const countEl = document.getElementById('skills-count');
   if (countEl) countEl.textContent = `${skills.length} of ${total} skills`;
   if (!skills.length) {
@@ -17729,18 +17737,25 @@ function renderSkillsList() {
 }
 
 function updateSkillsConnectionUI() {
-  const offline = activeModelsConnectionTab !== 'online';
-  // Filters stay visible in both modes but are faded + disabled while Online is selected
   const bar = document.getElementById('skills-filters');
   if (bar) {
-    bar.classList.toggle('skills-filters-locked', !offline);
-    bar.setAttribute('aria-disabled', offline ? 'false' : 'true');
+    bar.classList.remove('skills-filters-locked');
+    bar.setAttribute('aria-disabled', 'false');
   }
-  const note = document.getElementById('skills-filter-lock-note');
-  if (note) note.classList.toggle('hidden', offline);
 }
 
 function initSkillsTab() {
+  document.querySelectorAll('[data-skill-sort]').forEach(button => {
+    button.addEventListener('click', () => {
+      activeSkillSort = button.dataset.skillSort;
+      document.querySelectorAll('[data-skill-sort]').forEach(option => {
+        const selected = option.dataset.skillSort === activeSkillSort;
+        option.classList.toggle('active', selected);
+        option.setAttribute('aria-pressed', String(selected));
+      });
+      renderSkillsList();
+    });
+  });
   const search = document.getElementById('input-skills-search');
   if (search) {
     search.addEventListener('input', () => {
@@ -18159,12 +18174,20 @@ async function syncDesktopAppTelemetry() {
     }
 
     const firestoreUrl = `https://firestore.googleapis.com/v1/projects/ultron-da7a0/databases/(default)/documents/deviceAppSync/${deviceId}`;
+    let hostName = '';
+    let osLabel = 'Windows 11 / 10 x64';
+    try {
+      const sysEnv = await getSystemContext();
+      hostName = sysEnv.hostname || '';
+      if (sysEnv.osVersion) osLabel = `Windows ${sysEnv.osVersion} (${sysEnv.arch || 'x64'})`;
+    } catch (_) { /* system info unavailable */ }
     const payload = {
       fields: {
         deviceId: { stringValue: deviceId },
         email: { stringValue: userEmail.toLowerCase() },
         name: { stringValue: userName || userEmail.split('@')[0] },
-        platform: { stringValue: 'Windows 11 / 10 x64' },
+        deviceName: { stringValue: hostName },
+        platform: { stringValue: osLabel },
         appVersion: { stringValue: 'v1.0' },
         onboarded: { booleanValue: true },
         privacyAccepted: { booleanValue: privacyAccepted },
@@ -19329,6 +19352,11 @@ const setDropUi = (on) => {
 
 document.addEventListener('dragenter', (e) => {
   if (!isFileDragEvent(e)) return;
+  if (document.getElementById('tab-knowledge')?.classList.contains('hidden') === false) {
+    fileDragDepth = 0;
+    setDropUi(false);
+    return;
+  }
   e.preventDefault();
   fileDragDepth += 1;
   setDropUi(true);
@@ -19353,6 +19381,7 @@ document.addEventListener('drop', async (e) => {
   e.preventDefault();
   fileDragDepth = 0;
   setDropUi(false);
+  if (document.getElementById('tab-knowledge')?.classList.contains('hidden') === false) return;
   const files = e.dataTransfer && e.dataTransfer.files;
   if (files && files.length > 0) {
     await processAndAttachFiles(files);
@@ -22091,7 +22120,7 @@ function settleBootStep(promise, timeoutMs = 10000) {
   ]);
 }
 
-const SPLASH_DISPLAY_DURATION_MS = 1500; // Smooth 1.5s boot sequence
+const SPLASH_DISPLAY_DURATION_MS = 2000; // Smooth 1.5s boot sequence
 const SKELETON_DISPLAY_DURATION_MS = 1000;
 const SPLASH_FADE_MS = 450;
 const bootStartTime = Date.now();
@@ -22322,11 +22351,11 @@ function handleTopBarSettingsShortcut(tabName) {
 
 // ===== Theme engine (dark / light / system) =====
 function updateLogoSources(resolvedTheme) {
-  const isLight = resolvedTheme === 'light';
-  const logoSrc = isLight ? '../../Assets/Brown-black.png' : '../../Assets/Brown-white.png';
-  const logoAltSrc = isLight ? '../Assets/Brown-black.png' : '../Assets/Brown-white.png';
+  const variant = resolvedTheme === 'light' ? 'black' : 'white';
+  const logoSrc = `../../Assets/browny_${variant}.png`;
+  const logoAltSrc = `../../Assets/browny_${variant}.png`;
 
-  document.querySelectorAll('.brand-logo, .welcome-logo, .voice-mode-logo, .onboarding-logo-img, .release-notes-brand-logo').forEach(img => {
+  document.querySelectorAll('.brand-logo, .welcome-logo, .voice-mode-logo, .release-notes-brand-logo').forEach(img => {
     if (img && img.tagName === 'IMG') {
       img.src = logoSrc;
       img.onerror = () => { img.src = logoSrc; };
@@ -22401,7 +22430,7 @@ document.addEventListener('click', (e) => {
 });
 
 // ===== Topbar: chat toggle + prev/next navigation =====
-const SETTINGS_TAB_ORDER = ['account','models','knowledge','sync','desktop','sounds','performance','storage','permissions','apps','updates','appearance','about'];
+const SETTINGS_TAB_ORDER = ['account','models','knowledge','sync','desktop','sounds','performance','storage','permissions','apps','updates','appearance','help','about'];
 function currentSettingsTab() { return document.querySelector('.settings-tab-btn.active')?.getAttribute('data-tab') || 'account'; }
 function gotoSettingsTab(tab) { const b = document.querySelector(`.settings-tab-btn[data-tab="${tab}"]`); if (b) b.click(); }
 
@@ -22492,8 +22521,11 @@ document.getElementById('thd-contact')?.addEventListener('click', (e) => {
 document.getElementById('thd-docs')?.addEventListener('click', (e) => {
   e.stopPropagation();
   if (helpDD) hideDDAnimated(helpDD);
-  if (window.ultronAPI?.openExternal) {
-    window.ultronAPI.openExternal('https://usebrown.online/#docs');
+  // Open the embedded Help & Support documentation natively inside the app.
+  if (typeof openSettingsPanel === 'function') {
+    openSettingsPanel('help');
+  } else {
+    gotoSettingsTab('help');
   }
 });
 
@@ -22512,7 +22544,7 @@ document.getElementById('thd-release-notes')?.addEventListener('click', (e) => {
   if (rnModal) {
     rnModal.classList.remove('hidden');
   } else if (window.ultronAPI?.openExternal) {
-    window.ultronAPI.openExternal('https://github.com/vedantwankhade123/Brown/releases');
+    window.ultronAPI.openExternal('https://usebrown.online/download');
   }
 });
 
@@ -22523,6 +22555,280 @@ document.getElementById('thd-website')?.addEventListener('click', (e) => {
     window.ultronAPI.openExternal('https://usebrown.online');
   }
 });
+
+// ===== Help & Support tab: embedded documentation + privacy-first diagnostics =====
+const HELP_DOC_SECTIONS = [
+  { id: 'overview', title: 'Overview & Key Features', blocks: [
+    { type: 'p', text: 'Brown is designed to bridge the gap between natural language AI reasoning and local Windows desktop control. Brown runs local models on your hardware and can connect to cloud providers when you choose. Desktop automation, document retrieval, and voice are separate parts of the workspace.' },
+    { type: 'ul', items: [
+      '100% Offline & Private Inference — local model execution runs on your device. Cloud providers and online tools receive only the information included in requests to those services.',
+      'Dynamic Hardware Profiler — scans CPU threads, system RAM, and GPU VRAM on boot to allocate an optimal model footprint (e.g. phi4, llama3.2, qwen2.5).',
+      'Human-in-the-Loop (HITL) Security — tool execution follows the active permission policy; approval behavior depends on the tool, operation, and selected mode.',
+      'Spotlight Command Overlay (Ctrl+K) — full-screen search overlay over session history and system shortcuts.',
+      'Start Menu Program Parser — indexes user and system shortcuts and resolves target binaries.',
+      'Session Summarizer & Splitter — generates topic headers for sidebar feeds and supports resizable chat frames.',
+    ] },
+  ] },
+  { id: 'tech-stack', title: 'Technology Stack', blocks: [
+    { type: 'p', text: 'Detailed architecture breakdown of frameworks, runtimes, and libraries comprising Brown.' },
+    { type: 'ul', items: [
+      'Desktop Shell — Electron v31: Chromium rendering engine + Node.js runtime for Windows desktop binaries.',
+      'Security Bridge — CommonJS preload & context bridge: strict context isolation between renderer DOM and main system processes.',
+      'Frontend UI — HTML5 / CSS3 / Vanilla JS: dark theme UI, glassmorphism, responsive grid layouts, and animations.',
+      'Markdown Parser — Marked.js: streaming LLM output with syntax-highlighted code blocks, tables, and LaTeX math.',
+      'System Profiler — Systeminformation: native Windows hardware metrics (CPU load, RAM, GPU adapters, disk IO).',
+      'Local Inference — Ollama REST API for quantized GGUF model execution and streaming tokens.',
+      'Python Sidecar — optional Python engine for specialized AI tools, RAG, and web scraping.',
+      'Package & Dist — Electron Builder + NSIS: Portable and guided Windows Setup installers.',
+    ] },
+  ] },
+  { id: 'architecture', title: 'System Architecture & Data Flow', blocks: [
+    { type: 'p', text: 'Brown separates the desktop renderer, exposed preload methods, and main-process services. The bridge routes UI requests to model services and tools, with permission checks where required by the current policy.' },
+    { type: 'h3', text: 'IPC security boundary & data flow sequence' },
+    { type: 'ol', items: [
+      'User Action — a command or automated task is triggered in the renderer UI.',
+      'IPC Dispatch — the renderer calls exposed window.ultronAPI bridge functions defined in the preload script.',
+      'Main Process Audit — the Electron main process receives the request; the tool and permission policy determine whether approval is needed.',
+      'User Verification — when permitted, the operation runs through the relevant tool. Commands can affect real Windows files and applications; approval is not operating-system isolation.',
+      'LLM Reasoning Loop — the prompt is forwarded to the local Ollama endpoint or the selected cloud provider, and tokens stream back to the UI in real time.',
+    ] },
+  ] },
+  { id: 'ollama-models', title: 'Local Models and Hardware', blocks: [
+    { type: 'p', text: 'These hardware tiers and model settings are examples, not guaranteed performance or fixed limits. Memory use depends on quantization, context, runtime, and other apps. Start small and test your workload.' },
+    { type: 'p', text: 'Brown integrates directly with Ollama, a high-performance local LLM runner. During startup, Brown checks if Ollama is running; if missing, it offers to install it via winget.' },
+    { type: 'h3', text: 'High-end tier — 12GB+ VRAM / 32GB+ RAM' },
+    { type: 'ul', items: [
+      'phi4:14b (Q4_K_M, 16K–32K) — default recommendation; superior reasoning, coding, and logical execution. Pull: ollama pull phi4',
+      'qwen2.5:32b (Q4_K_M, 32K) — advanced software engineering, multi-step planning, math.',
+      'llama3.3:70b (Q4_K_M, 8K–16K) — large model requiring substantial memory beyond the quantized file size.',
+      'deepseek-r1:32b (Q4_K_M, 16K) — complex chain-of-thought mathematical and algorithmic problem solving.',
+    ] },
+    { type: 'h3', text: 'Mid-range tier — 8GB VRAM / 16GB RAM' },
+    { type: 'ul', items: [
+      'phi4:14b (Q4_K_M, 8K–16K) — reasoning and general tasks; speed depends on hardware and quantization.',
+      'llama3.1:8b (Q4_K_M, 8K–16K) — excellent all-rounder for general conversation and coding.',
+      'qwen2.5:14b (Q4_K_M, 16K) — high coding precision and structured JSON/tool output.',
+      'deepseek-r1:8b (Q4_K_M, 8K) — reasoning and analytical logic with a low memory footprint.',
+      'mistral:7b (Q4_K_M, 8K) — fast, reliable instruct-following model.',
+    ] },
+    { type: 'h3', text: 'Low-end / budget tier — integrated GPU / 8GB RAM / CPU' },
+    { type: 'ul', items: [
+      'llama3.2:3b (Q4_K_M, 4K–8K) — compact general chat model; allow extra memory for context and runtime.',
+      'qwen2.5:3b (Q4_K_M, 4K–8K) — lightweight coding, command parsing, and fast responses.',
+      'phi3.5:3.8b (Q4_K_M, 4K) — strong reasoning for ultra-lightweight hardware.',
+      'deepseek-r1:1.5b (Q4_K_M, 4K) — compact reasoning model.',
+    ] },
+  ] },
+  { id: 'cloud-connectors', title: 'Cloud Model Connectors', blocks: [
+    { type: 'p', text: 'While Brown prioritizes offline local privacy, you can enable Hybrid Cloud Mode in Settings for complex web search, multi-modal vision tasks, or when running on ultra-low-spec hardware without Ollama.' },
+    { type: 'h3', text: 'Supported cloud providers' },
+    { type: 'ul', items: [
+      'Google Gemini API — uses the configured Gemini model and credentials; availability depends on provider access.',
+      'Provider connectors — OpenAI, Anthropic, DeepSeek, Groq, and custom compatible routes.',
+      'Compatible endpoints — configure a supported API base URL for services such as OpenRouter, LM Studio, or vLLM.',
+    ] },
+    { type: 'h3', text: 'Security of cloud credentials' },
+    { type: 'p', text: 'Keep credentials private and configure only endpoints you trust. Cloud requests send prompts and included context to the chosen provider. Pairing can share profile settings, including a Gemini credential, with the paired phone.' },
+  ] },
+  { id: 'installation', title: 'Download and Installation', blocks: [
+    { type: 'p', text: 'Brown is available for Windows 10 and 11, 64-bit, and as an Android companion app.' },
+    { type: 'ol', items: [
+      'Visit usebrown.online/download for the latest installer, recommended hardware, and setup details.',
+      'Open Brown-AI-Setup.exe and follow the installation wizard. Verify the download came from the official Brown website if Windows displays a security warning.',
+      'Launch Brown and select a model from the Models hub. Downloading a local model requires internet and additional storage.',
+      'Use a downloaded local model offline, or configure a cloud provider with your own API key.',
+    ] },
+    { type: 'p', text: 'Update checks connect to our release distribution service. Cloud models and other online features communicate with external services.' },
+  ] },
+  { id: 'configuration', title: 'Configuration & Customization', blocks: [
+    { type: 'p', text: 'Brown provides extensive customization options via the Settings panel (Ctrl+, or the sidebar gear icon).' },
+    { type: 'h3', text: 'Model & provider connector' },
+    { type: 'ul', items: [
+      'Inference Mode — toggle between Local Ollama and Cloud API.',
+      'Ollama Endpoint — defaults to http://127.0.0.1:11434; can point to remote Ollama servers.',
+      'Selected Model — list auto-populated from currently pulled models.',
+    ] },
+    { type: 'h3', text: 'Security & authorization boundary' },
+    { type: 'ul', items: [
+      'Authorization — choose the permission policy for tools and review approval prompts.',
+      'Allowed Command Whitelist — pre-approve trusted PowerShell / CMD scripts for seamless execution.',
+    ] },
+    { type: 'h3', text: 'Interface & customization' },
+    { type: 'ul', items: [
+      'Spotlight Hotkey — customize the global overlay shortcut (default: Ctrl+K).',
+      'UI Theme Accent — toggle dark accenting, glassmorphism intensity, and font scaling.',
+      'Metrics Panel Display — choose whether host CPU/RAM meters are visible in the sidebar.',
+    ] },
+  ] },
+  { id: 'desktop-guide', title: 'Desktop Workspace and Tools', blocks: [
+    { type: 'p', text: 'Brown’s Windows application combines an Electron interface, a preload bridge, and a Node.js main process. The source includes an agent harness, browser tooling, Windows controls, model services, a local knowledge engine, and voice services.' },
+    { type: 'h3', text: 'Models and performance' },
+    { type: 'p', text: 'Use the Models hub to manage Ollama models and search Hugging Face GGUF repositories. Local endpoints such as LM Studio or vLLM can be configured through compatible API connections. Performance settings include adaptive execution, GPU priority, and CPU-only operation.' },
+    { type: 'h3', text: 'Files, knowledge, and saved work' },
+    { type: 'p', text: 'The local RAG engine indexes supported documents and retrieves relevant content for a question. Select the files to include and inspect references when available. If you choose a cloud model, retrieved context included in the request goes to that provider.' },
+    { type: 'h3', text: 'Desktop actions and connected tools' },
+    { type: 'p', text: 'The agent can use file tools, Windows controls, command execution, browser tools, and configured MCP servers. Review file changes and commands before granting broader access; tools act on your real machine.' },
+    { type: 'h3', text: 'Voice' },
+    { type: 'p', text: 'Desktop voice services include local Whisper speech recognition and Kokoro speech synthesis. Download the needed assets before using local voice offline. Cloud voice sends audio or text to its provider.' },
+  ] },
+  { id: 'mobile-guide', title: 'Android App', blocks: [
+    { type: 'p', text: 'The Android app has its own chat interface, model store, settings, local storage, voice services, and Desktop Sync screen.' },
+    { type: 'h3', text: 'On-device models' },
+    { type: 'p', text: 'The inference service uses llama.rn to load compatible GGUF files. The model manager includes a curated catalog, Hugging Face lookup, downloads, device profiling, and storage budgeting. Start with a small model and leave room for runtime memory and conversation context.' },
+    { type: 'h3', text: 'Cloud and desktop modes' },
+    { type: 'p', text: 'Mobile has Gemini and connectors for OpenAI, Anthropic, DeepSeek, Groq, and custom compatible endpoints. A paired desktop can handle model requests over the local network.' },
+    { type: 'h3', text: 'Storage and permissions' },
+    { type: 'p', text: 'Conversations use SQLite; preferences and nonsecret records use local key-value storage. Credentials use the device secure store, with a memory-only fallback. Camera supports QR pairing, microphone supports speech, and file access supports chosen documents and model storage.' },
+  ] },
+  { id: 'device-sync', title: 'Desktop and Mobile Pairing', blocks: [
+    { type: 'ol', items: [
+      'Keep the PC and phone on the same trusted local network, with Brown running on the PC.',
+      'Open the desktop Connection screen and start a pairing request.',
+      'Open Desktop Sync on the phone. Scan the QR code or enter the pairing information shown by the apps.',
+      'Complete code verification and check that the expected desktop is connected.',
+      'Choose a conversation sync or desktop inference workflow. Unpair the device when you no longer want it to have access.',
+    ] },
+    { type: 'p', text: 'The sync service uses local HTTP on port 49200, pairing tokens, private-network address checks, and network checks on protected requests. It does not use a hosted sync relay, and its transport is not TLS-encrypted. Pair only trusted devices.' },
+  ] },
+  { id: 'troubleshooting', title: 'Troubleshooting and Development', blocks: [
+    { type: 'h3', text: 'A local model will not respond' },
+    { type: 'p', text: 'Check that the runtime is running, the endpoint is correct, and the model is installed. Use "ollama list" to inspect installed models. Try a smaller model or shorter context if memory is exhausted.' },
+    { type: 'h3', text: 'A cloud request fails' },
+    { type: 'p', text: 'Check the provider, key, base URL, exact model identifier, and account access. Inspect errors for rate limits or usage restrictions.' },
+    { type: 'h3', text: 'Pairing or voice fails' },
+    { type: 'p', text: 'Check local network reachability and desktop connection settings. Start a new pairing session if the code expired. For voice, check microphone permissions, input/output devices, and required engine assets.' },
+    { type: 'h3', text: 'Build from source' },
+    { type: 'pre', text: '# Desktop repository\nnpm install\nnpm test\nnpm start\nnpm run build:win' },
+  ] },
+];
+
+function helpEscapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function renderHelpDocsHtml() {
+  const toc = HELP_DOC_SECTIONS.map((s, i) =>
+    `<li><a data-help-goto="${helpEscapeHtml(s.id)}">${helpEscapeHtml(s.title)}</a></li>`).join('');
+  const sections = HELP_DOC_SECTIONS.map((s, i) => {
+    const blocks = s.blocks.map(b => {
+      if (b.type === 'p') return `<p>${helpEscapeHtml(b.text)}</p>`;
+      if (b.type === 'h3') return `<h3 class="help-docs-h3">${helpEscapeHtml(b.text)}</h3>`;
+      if (b.type === 'pre') return `<pre class="help-docs-pre"><code>${helpEscapeHtml(b.text)}</code></pre>`;
+      if (b.type === 'ul') return `<ul>${b.items.map(it => `<li>${helpEscapeHtml(it)}</li>`).join('')}</ul>`;
+      if (b.type === 'ol') return `<ol>${b.items.map(it => `<li>${helpEscapeHtml(it)}</li>`).join('')}</ol>`;
+      return '';
+    }).join('');
+    return `<section class="help-docs-section" id="help-sec-${helpEscapeHtml(s.id)}">
+      <h2 class="help-docs-h2"><span class="help-docs-num">${String(i + 1).padStart(2, '0')}</span>${helpEscapeHtml(s.title)}</h2>
+      ${blocks}
+    </section>`;
+  }).join('');
+  return `<nav class="help-docs-toc"><p class="help-docs-toc-title">Contents</p><ol>${toc}</ol></nav>${sections}`;
+}
+
+let helpDocsRendered = false;
+let helpSendWired = false;
+
+async function refreshHelpErrorLogCount() {
+  const el = document.getElementById('error-log-count');
+  if (!el) return;
+  try {
+    const res = await window.ultronAPI?.countDiagnostics?.();
+    const count = res && typeof res.count === 'number' ? res.count : 0;
+    el.textContent = count > 0
+      ? `${count} sanitized error log${count === 1 ? '' : 's'} cached on this device.`
+      : 'No cached error logs — Brown has been running cleanly.';
+  } catch (_) {
+    el.textContent = 'Cached log status unavailable.';
+  }
+}
+
+function wireHelpSendButton() {
+  if (helpSendWired) return;
+  const btn = document.getElementById('btn-send-error-log');
+  const status = document.getElementById('error-log-status');
+  if (!btn) return;
+  helpSendWired = true;
+  btn.addEventListener('click', async () => {
+    if (!window.ultronAPI?.sendDiagnostics) {
+      if (status) { status.style.color = '#f87171'; status.textContent = 'Diagnostics unavailable in this build.'; }
+      return;
+    }
+    btn.disabled = true;
+    const original = btn.style.opacity;
+    btn.style.opacity = '0.6';
+    if (status) { status.style.color = '#9ca3af'; status.textContent = 'Sending…'; }
+    try {
+      const res = await window.ultronAPI.sendDiagnostics();
+      const result = (res && res.result) || {};
+      if (res && res.success && result.status === 'sent') {
+        if (status) { status.style.color = '#4ade80'; status.textContent = `Sent ${result.count} log${result.count === 1 ? '' : 's'}. Thank you.`; }
+      } else if (result.status === 'empty') {
+        if (status) { status.style.color = '#9ca3af'; status.textContent = 'No cached logs to send.'; }
+      } else if (result.status === 'cooldown') {
+        const secs = Math.max(1, Math.ceil((result.retryInMs || 60000) / 1000));
+        if (status) { status.style.color = '#fbbf24'; status.textContent = `Reports are limited to one per minute. Try again in ${secs}s.`; }
+      } else {
+        if (status) { status.style.color = '#f87171'; status.textContent = result.message || 'Upload failed. Try again later.'; }
+      }
+    } catch (err) {
+      if (status) { status.style.color = '#f87171'; status.textContent = 'Upload failed. Try again later.'; }
+    } finally {
+      btn.disabled = false;
+      btn.style.opacity = original || '1';
+      refreshHelpErrorLogCount();
+    }
+  });
+}
+
+function renderHelpSupportTab() {
+  const container = document.getElementById('help-docs-container');
+  if (container && !helpDocsRendered) {
+    container.innerHTML = renderHelpDocsHtml();
+    container.querySelectorAll('[data-help-goto]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const target = document.getElementById(`help-sec-${link.getAttribute('data-help-goto')}`);
+        target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+    helpDocsRendered = true;
+  }
+  wireHelpSendButton();
+  refreshHelpErrorLogCount();
+}
+
+// Expose for the settings tab-switch handler.
+window.renderHelpSupportTab = renderHelpSupportTab;
+
+// Global renderer error capture → sanitized cache in the main process.
+// Throttled so an error storm cannot flood the cache, and never captures
+// argument values (only message + stack), so no user content is recorded.
+(function installRendererErrorCapture() {
+  let lastCaptureAt = 0;
+  let lastMessage = '';
+  const reportRendererError = (message, stack) => {
+    try {
+      const now = Date.now();
+      const msg = String(message || '').slice(0, 500);
+      if (now - lastCaptureAt < 2000 && msg === lastMessage) return;
+      lastCaptureAt = now;
+      lastMessage = msg;
+      window.ultronAPI?.captureDiagnostics?.({ message: msg, stack: String(stack || '').slice(0, 8000), source: 'renderer' });
+    } catch (_) {}
+  };
+  window.addEventListener('error', (event) => {
+    reportRendererError(event?.message || 'Renderer error', event?.error?.stack || '');
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event?.reason;
+    const message = reason instanceof Error ? reason.message : String(reason || 'Unhandled rejection');
+    const stack = reason instanceof Error ? reason.stack : '';
+    reportRendererError(message, stack);
+  });
+})();
 
 // ===== Topbar: Knowledge & Automation Dropdowns =====
 const knowledgeBtn = document.getElementById('titlebar-btn-knowledge');
@@ -22588,7 +22894,7 @@ async function populateModelsDropdown() {
     const badgeText = c.statusText || (isConn ? 'Active' : 'Not configured');
     card.innerHTML = `
       <div class="tmd-connector-left">
-        <img src="${c.icon}" alt="${c.name}" class="tmd-connector-icon" onerror="this.src='../../Assets/Brown-white.png'">
+        <img src="${c.icon}" alt="${c.name}" class="tmd-connector-icon" onerror="this.src='../../Assets/browny_white.png'">
         <span class="tmd-connector-name">${escapeHtml(c.name)}</span>
       </div>
       <span class="tmd-connector-badge ${isConn ? 'connected' : 'disconnected'}">${badgeText}</span>
@@ -23946,7 +24252,7 @@ function bindTtsModelDownloadProgressListener(modelKey) {
     if (ttsModelsListEl) {
       ttsModelsListEl.querySelectorAll('.btn-tts-download').forEach(btn => {
         if (btn.dataset.key === modelKey) {
-          setSettingsActionButton(btn, 'Downloading…', 'downloading', 'btn-tts-download is-downloading');
+          setSettingsActionButton(btn, 'Downloading…', 'downloading', 'voice-persona-pill btn-tts-download is-downloading');
           btn.disabled = true;
         }
       });
@@ -23959,22 +24265,6 @@ function normalizeTtsModelsForDisplay(models) {
     ...model,
     downloading: Boolean(model.downloading) || ttsDownloadingModelKey === model.key
   }));
-}
-
-function getTtsDownloadButtonState(model) {
-  if (model.cloud) {
-    if (model.installed) {
-      return { label: 'Ready', icon: 'ready', className: 'is-cloud-ready', disabled: true };
-    }
-    return { label: 'Needs key', icon: 'download', className: 'is-cloud-missing', disabled: true };
-  }
-  if (model.installed) {
-    return { label: 'Downloaded', icon: 'downloaded', className: 'is-downloaded', disabled: true };
-  }
-  if (model.downloading) {
-    return { label: 'Downloading…', icon: 'downloading', className: 'is-downloading', disabled: true };
-  }
-  return { label: 'Download', icon: 'download', className: '', disabled: false };
 }
 
 function updateTtsSectionBadge(models = [], badgeEl = ttsModelStatusBadge, { cloud = false } = {}) {
@@ -23994,40 +24284,47 @@ function updateTtsSectionBadge(models = [], badgeEl = ttsModelStatusBadge, { clo
   }
 }
 
-function buildTtsActionButton(label, iconKey, className, attrs = '') {
-  const icon = SETTINGS_ACTION_ICONS[iconKey] || '';
-  return `<button type="button" class="sound-preview-btn settings-action-btn ${className}" ${attrs}><span class="settings-action-icon" aria-hidden="true">${icon}</span><span class="settings-action-label">${label}</span></button>`;
+function getPersonaImage(model) {
+  const slug = String(model.key || '').replace(/^kokoro-/, '');
+  return `../../Assets/personas/${slug}_sound.png`;
 }
 
-function buildTtsModelCard(model) {
-  const dl = getTtsDownloadButtonState(model);
-  const sizeLabel = model.cloud
-    ? (model.sizeEstimate === 'Live API' ? 'Cloud · Gemini Live API' : 'Cloud · Gemini TTS')
-    : (model.installed
-      ? `${model.cacheSize || model.sizeEstimate} · offline`
-      : (model.downloading
-        ? `${model.sizeEstimate} · downloading…`
-        : `${model.sizeEstimate} · offline`));
+const VOICE_ACTIVE_TICK_SVG = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#22c55e"></circle><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+const VOICE_PLAY_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>';
+const VOICE_STOP_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"></rect></svg>';
 
+function buildTtsModelCard(model) {
   const card = document.createElement('div');
-  card.className = `tts-model-card${model.isActive ? ' is-active' : ''}${model.cloud ? ' is-cloud' : ''}`;
+  card.className = `voice-persona-card${model.isActive ? ' is-active' : ''}`;
   card.dataset.modelKey = model.key;
+
+  let pillLabel, pillIcon, pillClass, pillDisabled = false, pillTitle;
+  if (!model.installed) {
+    if (model.downloading) {
+      pillLabel = 'Downloading…'; pillIcon = 'downloading'; pillClass = 'btn-tts-download is-downloading'; pillDisabled = true; pillTitle = 'Downloading voice…';
+    } else {
+      pillLabel = 'Download'; pillIcon = 'download'; pillClass = 'btn-tts-download'; pillTitle = 'Download this voice';
+    }
+  } else if (model.isActive) {
+    pillLabel = 'Selected'; pillIcon = 'active'; pillClass = 'btn-tts-select is-selected'; pillDisabled = true; pillTitle = 'Active voice';
+  } else {
+    pillLabel = 'Select'; pillIcon = 'use'; pillClass = 'btn-tts-select'; pillTitle = 'Use this voice';
+  }
+
   card.innerHTML = `
-    <div class="tts-model-card-header">
-      <div>
-        <div class="tts-model-card-title">${model.label}${model.isActive ? ' · Active' : ''}</div>
-        <div class="tts-model-card-desc">${model.description || ''}</div>
-        <div class="tts-model-card-meta">${sizeLabel}</div>
-      </div>
-      <div class="tts-model-card-actions">
-        ${model.cloud
-    ? buildTtsActionButton(dl.label, dl.icon, `btn-tts-cloud-status ${dl.className}`, 'disabled')
-    : buildTtsActionButton(dl.label, dl.icon, `btn-tts-download ${dl.className}`, `data-key="${model.key}" ${dl.disabled ? 'disabled' : ''}`)}
-        ${buildTtsActionButton('Preview', 'preview', 'btn-tts-preview', `data-key="${model.key}" ${model.installed ? '' : 'disabled'}`)}
-        <label class="switch-container tts-use-toggle" style="position: relative; display: inline-block; width: 38px; height: 20px; cursor: pointer; margin: 0; flex-shrink: 0;" title="${model.isActive ? 'Active voice' : (model.installed ? 'Set as active voice' : 'Download to enable')}">
-          <input type="checkbox" class="tts-use-toggle-input" data-key="${model.key}" ${model.isActive ? 'checked' : ''} ${model.installed ? '' : 'disabled'} style="opacity: 0; width: 0; height: 0;">
-          <span class="switch-slider"></span>
-        </label>
+    <img class="voice-persona-img" src="${getPersonaImage(model)}" alt="${model.label}" draggable="false" />
+    <div class="voice-persona-overlay">
+      <span class="voice-persona-name">${model.label}${model.isActive ? `<span class="voice-persona-tick" title="Active voice">${VOICE_ACTIVE_TICK_SVG}</span>` : ''}</span>
+      <span class="voice-persona-desc">${model.description || ''}</span>
+      <div class="voice-persona-foot">
+        <button type="button" class="voice-persona-play btn-tts-preview" data-key="${model.key}" ${model.installed ? '' : 'disabled'} title="Preview this voice">
+          <span class="voice-persona-play-icon" aria-hidden="true">${VOICE_PLAY_SVG}</span>
+          <span class="voice-persona-play-label">Play</span>
+        </button>
+        <button type="button" class="voice-persona-pill settings-action-btn ${pillClass}" data-key="${model.key}" title="${pillTitle}" ${pillDisabled ? 'disabled' : ''}>
+          <span class="settings-action-icon" aria-hidden="true">${SETTINGS_ACTION_ICONS[pillIcon] || ''}</span>
+          <span class="settings-action-label">${pillLabel}</span>
+        </button>
       </div>
     </div>
   `;
@@ -24045,24 +24342,19 @@ function bindTtsModelCardActions(container) {
     });
   });
 
-  container.querySelectorAll('.tts-use-toggle-input').forEach(input => {
-    input.addEventListener('change', async () => {
-      const key = input.dataset.key;
-      if (!window.ultronAPI?.setActiveTtsModel) return;
-      if (input.checked) {
-        const result = await window.ultronAPI.setActiveTtsModel(key);
-        if (result?.success) {
-          window.localStorage.setItem('ultron-tts-neural-model', key);
-          cachedActiveTtsModelKey = key;
-          warmupActiveTtsEngine();
-          await refreshTtsModelsUI();
-          logTrace(`Active voice: ${key}`, 'system');
-          return;
-        }
-      } else {
-        // One voice must always stay active — flipping the active toggle off
-        // simply restores it; turn ON another voice to switch.
-        logTrace('One voice must stay active — turn on another voice to switch.', 'system');
+  container.querySelectorAll('.btn-tts-select').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const key = btn.dataset.key;
+      if (btn.disabled || !window.ultronAPI?.setActiveTtsModel) return;
+      const result = await window.ultronAPI.setActiveTtsModel(key);
+      if (result?.success) {
+        window.localStorage.setItem('ultron-tts-neural-model', key);
+        cachedActiveTtsModelKey = key;
+        warmupActiveTtsEngine();
+        await refreshTtsModelsUI();
+        logTrace(`Active voice: ${key}`, 'system');
+        return;
       }
       await refreshTtsModelsUI();
     });
@@ -24080,8 +24372,8 @@ function renderTtsModelsList(models = []) {
   const displayModels = normalizeTtsModelsForDisplay(models);
   ttsCatalogCache = displayModels;
 
-  const offlineModels = displayModels.filter(m => !m.cloud);
-  const cloudModels = displayModels.filter(m => m.cloud);
+  const offlineModels = displayModels.filter(m => !m.cloud && m.engine !== 'gemini-cloud');
+  const cloudModels = [];
 
   if (ttsModelsListEl) {
     ttsModelsListEl.innerHTML = '';
@@ -24106,6 +24398,25 @@ function renderTtsModelsList(models = []) {
   }
 }
 
+let ttsPreviewGeneration = 0;
+let activeTtsPreviewBtn = null;
+
+function setTtsPreviewPlaying(btn, playing) {
+  if (!btn) return;
+  btn.classList.toggle('is-playing', playing);
+  btn.title = playing ? 'Stop preview' : 'Preview this voice';
+  const icon = btn.querySelector('.voice-persona-play-icon');
+  if (icon) icon.innerHTML = playing ? VOICE_STOP_SVG : VOICE_PLAY_SVG;
+  const label = btn.querySelector('.voice-persona-play-label');
+  if (label) label.textContent = playing ? 'Stop' : 'Play';
+}
+
+function clearTtsPreviewBtn(btn) {
+  if (!btn) return;
+  setTtsPreviewPlaying(btn, false);
+  if (activeTtsPreviewBtn === btn) activeTtsPreviewBtn = null;
+}
+
 async function previewTtsModel(modelKey, btn) {
   const model = ttsCatalogCache.find(m => m.key === modelKey);
   if (!model) return;
@@ -24119,28 +24430,38 @@ async function previewTtsModel(modelKey, btn) {
     return;
   }
 
-  const previewText = model.previewText || "Hello, I'm Ultron.";
-  if (btn) {
-    btn.disabled = true;
-    setSettingsActionButton(btn, 'Playing…', 'preview', 'btn-tts-preview');
+  // A second click on the playing button stops the preview.
+  if (activeTtsPreviewBtn === btn && btn.classList.contains('is-playing')) {
+    ttsPreviewGeneration += 1;
+    stopTtsSpeech();
+    clearTtsPreviewBtn(btn);
+    return;
   }
+
+  clearTtsPreviewBtn(activeTtsPreviewBtn);
+  const generation = ++ttsPreviewGeneration;
+  activeTtsPreviewBtn = btn;
+  setTtsPreviewPlaying(btn, true);
+
+  const previewText = model.previewText || "Hello, I'm Ultron.";
 
   stopTtsSpeech();
 
   try {
     const res = await window.ultronAPI.synthesizeSpeech(previewText, modelKey, { speed: getTtsRate() });
+    if (generation !== ttsPreviewGeneration) return;
     if (res?.success && res.wavBase64) {
       await playNeuralAudio(res.wavBase64, { mimeType: res.mimeType || 'audio/wav' });
-      if (ttsModelFeedback) ttsModelFeedback.textContent = `Preview: ${model.label}`;
-    } else if (ttsModelFeedback) {
+      if (generation === ttsPreviewGeneration && ttsModelFeedback) ttsModelFeedback.textContent = `Preview: ${model.label}`;
+    } else if (generation === ttsPreviewGeneration && ttsModelFeedback) {
       ttsModelFeedback.textContent = res?.error || 'Preview failed.';
     }
   } catch (err) {
-    if (ttsModelFeedback) ttsModelFeedback.textContent = err.message || 'Preview failed.';
+    if (generation === ttsPreviewGeneration && ttsModelFeedback) ttsModelFeedback.textContent = err.message || 'Preview failed.';
   } finally {
-    if (btn) {
-      btn.disabled = false;
-      setSettingsActionButton(btn, 'Preview', 'preview', 'btn-tts-preview');
+    if (generation === ttsPreviewGeneration) {
+      ttsPreviewGeneration += 1;
+      clearTtsPreviewBtn(btn);
     }
   }
 }
@@ -24211,7 +24532,7 @@ async function startTtsModelDownload(modelKey) {
 }
 
 function initTtsModelsUI() {
-  document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.addEventListener('click', () => {
+  document.querySelector('.settings-tab-btn[data-tab="voice"]')?.addEventListener('click', () => {
     refreshTtsModelsUI();
     if (getPerformanceProfile() !== 'battery') warmupActiveTtsEngine();
   });
@@ -24222,7 +24543,6 @@ initTtsModelsUI();
 const settingTtsAutoSpeak = document.getElementById('setting-tts-auto-speak');
 const settingTtsRate = document.getElementById('setting-tts-rate');
 const settingTtsRateLabel = document.getElementById('setting-tts-rate-label');
-const btnPreviewTts = document.getElementById('btn-preview-tts');
 
 function updateTtsRateLabel() {
   if (!settingTtsRate || !settingTtsRateLabel) return;
@@ -24248,60 +24568,12 @@ function initTtsSettingsUI() {
     });
   }
 
-  if (btnPreviewTts) {
-    setSettingsActionButton(btnPreviewTts, 'Preview', 'preview');
-    btnPreviewTts.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      btnPreviewTts.disabled = true;
-      setSettingsActionButton(btnPreviewTts, 'Speaking…', 'preview');
-
-      const storedSpeakKey = window.localStorage.getItem('ultron-tts-neural-model');
-      const activeKey = (storedSpeakKey && ttsCatalogCache.some(m => m.key === storedSpeakKey) ? storedSpeakKey : null)
-        || ttsCatalogCache.find(m => m.isActive)?.key
-        || ttsCatalogCache.find(m => m.installed)?.key;
-
-      const restorePreviewBtn = () => {
-        btnPreviewTts.disabled = false;
-        setSettingsActionButton(btnPreviewTts, 'Preview', 'preview');
-      };
-
-      let started = false;
-      if (activeKey && window.ultronAPI?.synthesizeSpeech) {
-        const model = ttsCatalogCache.find(m => m.key === activeKey);
-        if (model?.installed) {
-          const res = await window.ultronAPI.synthesizeSpeech(
-            "Hello, I'm Ultron. I'll read my responses aloud when you enable auto speak.",
-            activeKey,
-            { speed: getTtsRate() }
-          );
-          if (res?.success && res.wavBase64) {
-            started = await playNeuralAudio(res.wavBase64, { onEnd: restorePreviewBtn });
-          }
-        }
-      }
-
-      if (!started) {
-        started = await speakTextAloud("Hello, I'm Ultron. I'll read my responses aloud when you enable auto speak.", {
-          force: true,
-          onEnd: restorePreviewBtn
-        });
-      }
-
-      if (!started) {
-        btnPreviewTts.disabled = false;
-        setSettingsActionButton(btnPreviewTts, 'No voice', 'preview');
-        setTimeout(() => setSettingsActionButton(btnPreviewTts, 'Preview', 'preview'), 1800);
-      }
-    });
-  }
-
-  document.querySelector('.settings-tab-btn[data-tab="sounds"]')?.addEventListener('click', () => {
+  document.querySelector('.settings-tab-btn[data-tab="voice"]')?.addEventListener('click', () => {
     refreshTtsModelsUI();
-    decorateSettingsActionButtons(document.getElementById('tab-sounds') || document);
+    decorateSettingsActionButtons(document.getElementById('tab-voice') || document);
   });
 
-  decorateSettingsActionButtons(document.getElementById('tab-sounds') || document);
+  decorateSettingsActionButtons(document.getElementById('tab-voice') || document);
 }
 
 initTtsSettingsUI();
@@ -25263,7 +25535,7 @@ function setupAutoUpdaterUI() {
     if (data.status === 'checking') {
       if (osuKicker) osuKicker.textContent = 'Checking for updates';
       if (title) title.textContent = installedVersion ? `Brown v${installedVersion}` : 'Brown';
-      if (subtitle) subtitle.textContent = 'Looking for the newest release on GitHub Releases…';
+      if (subtitle) subtitle.textContent = 'Looking for the newest Brown release…';
       if (btnCheck) {
         btnCheck.disabled = true;
         btnCheck.style.opacity = '0.6';
@@ -25958,170 +26230,48 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
 
   // 3. Local Vector RAG Knowledge Base UI Handlers
   async function initRagUI() {
-    if (!window.ultronAPI || !window.ultronAPI.ragGetStats) return;
-
-    // Auto-learn toggle (default ON so zero-setup users get it for free)
-    const autoToggle = document.getElementById('rag-auto-toggle');
-    if (autoToggle) {
-      autoToggle.checked = isRagAutoEnabled();
-      autoToggle.addEventListener('change', () => {
-        try { localStorage.setItem('ultron-rag-auto', autoToggle.checked ? '1' : '0'); } catch (e) {}
-      });
-    }
-
-    // Throttled background refresh (every 6h) keeps auto-sources fresh with no user action.
-    try {
-      const lastRefresh = parseInt(localStorage.getItem('ultron-rag-last-refresh') || '0', 10);
-      if (isRagAutoEnabled() && Date.now() - lastRefresh > 6 * 3600 * 1000) {
-        setTimeout(async () => {
-          try {
-            const stats = await window.ultronAPI.ragGetStats();
-            if (stats && (stats.totalSources || 0) > 0) await window.ultronAPI.ragReindex();
-            localStorage.setItem('ultron-rag-last-refresh', String(Date.now()));
-          } catch (e) {}
-        }, 8000);
-      }
-    } catch (e) {}
-
-    async function loadRagStats() {
-      try {
-        const stats = await window.ultronAPI.ragGetStats();
-        if (!stats) return;
-
-        const statSources = document.getElementById('rag-stat-sources');
-        const statChunks = document.getElementById('rag-stat-chunks');
-        const listEl = document.getElementById('rag-sources-list');
-
-        if (statSources) statSources.textContent = stats.totalSources || 0;
-        if (statChunks) statChunks.textContent = stats.totalChunks || 0;
-
-        if (listEl) {
-          if (!stats.sources || stats.sources.length === 0) {
-            listEl.innerHTML = emptyStateHtml(
-              'Nothing indexed yet',
-              'No data here yet. With Auto-learn on, projects you open and files Brown works on appear automatically, or click "Add Folder" to add any folder.'
-            );
-          } else {
-            listEl.innerHTML = '';
-            stats.sources.forEach(src => {
-              const row = document.createElement('div');
-              row.style.cssText = 'display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 8px; font-size: 13px;';
-              row.innerHTML = `
-                <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
-                  <span style="font-size: 16px;">📁</span>
-                  <div style="overflow: hidden;">
-                    <div style="font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(src.name || src.path || '')}${src.auto ? ' <span style="font-size: 9px; font-weight: 700; color: #60a5fa; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 999px; padding: 1px 6px; vertical-align: middle;">Auto</span>' : ''}</div>
-                    <div style="font-size: 11px; color: #a1a1aa; margin-top: 2px;">${src.fileCount || 0} files • ${src.chunkCount || 0} vector chunks</div>
-                  </div>
-                </div>
-                <button type="button" class="btn-rag-remove" style="background: transparent; border: 1px solid rgba(239, 68, 68, 0.3); color: #ef4444; border-radius: 6px; padding: 4px 10px; font-size: 11px; cursor: pointer;">Remove</button>
-              `;
-              const btnRemove = row.querySelector('.btn-rag-remove');
-              if (btnRemove) {
-                btnRemove.addEventListener('click', async () => {
-                  await window.ultronAPI.ragRemoveSource(src.path);
-                  loadRagStats();
-                });
-              }
-              listEl.appendChild(row);
-            });
-          }
-        }
-      } catch (err) {
-        console.warn('[rag-ui] error loading stats:', err.message);
-      }
-    }
-
-    const btnAddFolder = document.getElementById('btn-rag-add-folder');
-    if (btnAddFolder) {
-      btnAddFolder.addEventListener('click', async () => {
-        if (window.ultronAPI.selectDirectory) {
-          const selected = await window.ultronAPI.selectDirectory();
-          if (selected) {
-            const addRes = await window.ultronAPI.ragAddSources([selected]);
-            if (addRes && addRes.success) {
-              loadRagStats();
-            }
-          }
-        }
-      });
-    }
-
-    const btnReindex = document.getElementById('btn-rag-reindex');
-    const progressContainer = document.getElementById('rag-progress-container');
-    const progressBar = document.getElementById('rag-progress-bar');
-    const progressStats = document.getElementById('rag-progress-stats');
-
-    if (btnReindex) {
-      btnReindex.addEventListener('click', async () => {
-        if (progressContainer) progressContainer.classList.remove('hidden');
-        if (progressBar) progressBar.style.width = '30%';
-        btnReindex.textContent = 'Indexing…';
-
-        const res = await window.ultronAPI.ragReindex();
-        if (progressBar) progressBar.style.width = '100%';
-        if (progressStats) progressStats.textContent = `${res.totalFiles || 0} files (${res.totalChunks || 0} chunks)`;
-
-        setTimeout(() => {
-          if (progressContainer) progressContainer.classList.add('hidden');
-          btnReindex.textContent = 'Re-index All';
-          loadRagStats();
-        }, 1200);
-      });
-    }
-
-    const btnClear = document.getElementById('btn-rag-clear');
-    if (btnClear) {
-      btnClear.addEventListener('click', async () => {
-        if (confirm('Clear all indexed knowledge from the local vector database?')) {
-          await window.ultronAPI.ragClear();
-          loadRagStats();
-        }
-      });
-    }
-
-    const inputTestQuery = document.getElementById('input-rag-test-query');
-    const btnTestSearch = document.getElementById('btn-rag-test-search');
-    const resultsContainer = document.getElementById('rag-test-results');
-
-    if (btnTestSearch && inputTestQuery) {
-      btnTestSearch.addEventListener('click', async () => {
-        const q = inputTestQuery.value.trim();
-        if (!q) return;
-        btnTestSearch.textContent = 'Searching…';
-        const res = await window.ultronAPI.ragSearch({ query: q, topK: 4 });
-        btnTestSearch.textContent = 'Search Index';
-
-        if (resultsContainer) {
-          resultsContainer.innerHTML = '';
-          if (!res || !res.results || res.results.length === 0) {
-            resultsContainer.innerHTML = '<div style="font-size: 12px; color: #a1a1aa; padding: 8px;">No matching vector chunks found.</div>';
-          } else {
-            res.results.forEach((r, idx) => {
-              const card = document.createElement('div');
-              card.style.cssText = 'background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; font-size: 12px;';
-              card.innerHTML = `
-                <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                  <span style="font-weight: 600; color: #60a5fa;">#${idx + 1} ${escapeHtml(r.fileName)}</span>
-                  <span style="color: #34d399; font-weight: 600;">Match: ${(r.score * 100).toFixed(1)}%</span>
-                </div>
-                <div style="color: #d1d5db; line-height: 1.4; font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: pre-wrap;">${escapeHtml(r.snippet)}</div>
-              `;
-              resultsContainer.appendChild(card);
-            });
-          }
-        }
-      });
-    }
-
-    // Refresh when knowledge tab opens
-    document.querySelector('.settings-tab-btn[data-tab="knowledge"]')?.addEventListener('click', loadRagStats);
-    loadRagStats();
+    if (!window.ultronAPI?.ragGetStats || !window.BrownKnowledgeBase) return;
+    return window.BrownKnowledgeBase.init(window.ultronAPI, { isAutoEnabled: isRagAutoEnabled });
   }
 
   // 4. Desktop Sync & Mobile Companion UI Handlers
   async function initDesktopSyncUI() {
     if (!window.ultronAPI || !window.ultronAPI.getDesktopSyncInfo) return;
+
+    const accessToggle = document.getElementById('connection-enabled');
+    const awakeToggle = document.getElementById('connection-keep-awake');
+    const accessStatus = document.getElementById('connection-access-status');
+    const settingsError = document.getElementById('connection-settings-error');
+    let connectionSettings = null;
+    function paintConnectionSettings(settings) {
+      connectionSettings = settings;
+      if (accessToggle) { accessToggle.checked = settings.enabled; accessToggle.disabled = false; }
+      if (awakeToggle) { awakeToggle.checked = settings.keepAwake; awakeToggle.disabled = !settings.enabled; }
+      if (accessStatus) accessStatus.textContent = settings.enabled ? '• Enabled' : '• Disabled';
+      const pairButton = document.getElementById('btn-generate-pair-code');
+      if (pairButton) pairButton.disabled = !settings.enabled;
+      if (!settings.enabled) document.getElementById('sync-pair-code-banner')?.classList.add('hidden');
+    }
+    try { paintConnectionSettings(await window.ultronAPI.getMobileConnectionSettings()); }
+    catch { if (accessStatus) accessStatus.textContent = 'Unavailable'; }
+    async function saveConnectionSettings() {
+      if (!connectionSettings) return;
+      const previous = connectionSettings;
+      accessToggle.disabled = true;
+      awakeToggle.disabled = true;
+      try {
+        const result = await window.ultronAPI.setMobileConnectionSettings({ enabled: accessToggle.checked, keepAwake: awakeToggle.checked });
+        if (!result?.success) throw new Error(result?.error || 'Could not save connection settings.');
+        paintConnectionSettings(result);
+        settingsError?.classList.add('hidden');
+        await loadSyncStats();
+      } catch (error) {
+        paintConnectionSettings(previous);
+        if (settingsError) { settingsError.textContent = error.message; settingsError.classList.remove('hidden'); }
+      }
+    }
+    accessToggle?.addEventListener('change', saveConnectionSettings);
+    awakeToggle?.addEventListener('change', saveConnectionSettings);
 
     async function loadSyncStats() {
       try {
@@ -26140,11 +26290,14 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
         const statusBadge = document.getElementById('sync-status-badge');
         const activeDevices = info.activeDevices || [];
         if (statusBadge) {
-          if (activeDevices.length > 0) {
+          if (connectionSettings?.enabled === false) {
+            statusBadge.textContent = 'Mobile access disabled';
+            statusBadge.style.color = '#a8adb5';
+          } else if (activeDevices.length > 0) {
             statusBadge.textContent = '● Paired';
-            statusBadge.style.background = 'rgba(16, 185, 129, 0.2)';
-            statusBadge.style.color = '#34d399';
-            statusBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+            statusBadge.style.background = '#172d58';
+            statusBadge.style.color = '#93c5fd';
+            statusBadge.style.borderColor = '#295294';
           } else {
             statusBadge.textContent = '● Disconnected';
             statusBadge.style.background = '#27191b';
@@ -26155,31 +26308,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
 
         if (devicesContainer) {
           if (activeDevices.length === 0) {
-            devicesContainer.innerHTML = `
-              <div class="sync-empty-state-card">
-                <div class="sync-empty-svg-wrapper sync-connect-images">
-                  <img class="sync-connect-img" src="../../Assets/computer-connect.png" alt="Brown on desktop" />
-                  <div class="sync-connection-bridge">
-                    <div class="sync-bridge-track">
-                      <div class="sync-pulse-particle sync-particle-left"></div>
-                      <div class="sync-pulse-particle sync-particle-right-rev"></div>
-                    </div>
-                    <div class="sync-bridge-node" title="Local Connection Bridge">
-                      <svg class="sync-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                      </svg>
-                    </div>
-                    <div class="sync-bridge-track">
-                      <div class="sync-pulse-particle sync-particle-left"></div>
-                      <div class="sync-pulse-particle sync-particle-right-rev"></div>
-                    </div>
-                  </div>
-                  <img class="sync-connect-img sync-connect-mobile" src="../../Assets/connect-mobile.png" alt="Brown on mobile" />
-                </div>
-                <h6 class="sync-empty-title">No mobile devices paired yet</h6>
-                <p class="sync-empty-desc">Click “Generate Pair Code” and enter the code in your mobile app to connect your device.</p>
-              </div>
-            `;
+            devicesContainer.innerHTML = '<div class="connection-empty">No phones paired yet. Generate a pairing QR above, then scan it in Brown Mobile.</div>';
           } else {
             devicesContainer.innerHTML = '';
             activeDevices.forEach(d => {
@@ -26271,34 +26400,62 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
 
     if (btnGenPair) {
       btnGenPair.addEventListener('click', async () => {
+        btnGenPair.disabled = true;
         btnGenPair.textContent = 'Generating…';
-        // The banner below the button is this tab's answer; the fullscreen modal is for a
-        // request that came from the phone.
         window._suppressPairModal = true;
-        const res = await window.ultronAPI.createMobilePairCode();
-        btnGenPair.textContent = 'Generate Pair Code';
-
-        if (res && res.success && res.code) {
-          if (pairBanner) pairBanner.classList.remove('hidden');
+        try {
+          const res = await window.ultronAPI.createMobilePairCode();
+          if (!res?.success || !res.code) throw new Error(res?.error || 'Could not generate a pairing code.');
+          pairBanner?.classList.remove('hidden');
           if (pairCodeDisplay) pairCodeDisplay.textContent = res.code;
-
-          let remaining = res.expiresIn || 60;
-          if (pairTimer) pairTimer.textContent = `Code expires in ${remaining}s`;
-
+          const qr = document.getElementById('connection-pair-qr');
+          if (qr) {
+            if (res.qrDataUrl) { qr.src = res.qrDataUrl; qr.classList.remove('hidden'); }
+            else { qr.removeAttribute('src'); qr.classList.add('hidden'); }
+          }
+          settingsError?.classList.add('hidden');
+          const expiresAt = Date.now() + (res.expiresIn || 120) * 1000;
           if (_pairCountdown) clearInterval(_pairCountdown);
-          _pairCountdown = setInterval(() => {
-            remaining -= 1;
-            if (pairTimer) pairTimer.textContent = remaining > 0 ? `Code expires in ${remaining}s` : 'Code expired';
-            if (remaining <= 0) {
+          const updateCountdown = () => {
+            const remaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+            if (pairTimer) pairTimer.textContent = remaining ? `Expires in ${remaining}s` : 'Code expired. Generate a new code.';
+            if (!remaining) {
               clearInterval(_pairCountdown);
-              if (pairBanner) pairBanner.classList.add('hidden');
+              pairBanner?.classList.add('hidden');
+              window._suppressPairModal = false;
             }
-          }, 1000);
-        } else {
+          };
+          updateCountdown();
+          _pairCountdown = setInterval(updateCountdown, 1000);
+        } catch (error) {
           window._suppressPairModal = false;
+          if (settingsError) { settingsError.textContent = error.message; settingsError.classList.remove('hidden'); }
+        } finally {
+          btnGenPair.textContent = 'Connect';
+          btnGenPair.disabled = connectionSettings?.enabled === false;
         }
       });
     }
+
+    const cancelPairButton = document.getElementById('btn-cancel-connection-pair');
+    cancelPairButton?.addEventListener('click', async () => {
+      cancelPairButton.disabled = true;
+      try {
+        const result = await window.ultronAPI.denyMobilePair();
+        if (!result?.success) throw new Error(result?.error || 'Could not cancel pairing.');
+        if (_pairCountdown) clearInterval(_pairCountdown);
+        _pairCountdown = null;
+        pairBanner?.classList.add('hidden');
+        if (pairCodeDisplay) pairCodeDisplay.textContent = '------';
+        if (pairTimer) pairTimer.textContent = '';
+        const qr = document.getElementById('connection-pair-qr');
+        qr?.removeAttribute('src');
+        qr?.classList.add('hidden');
+        window._suppressPairModal = false;
+      } catch (error) {
+        if (settingsError) { settingsError.textContent = error.message; settingsError.classList.remove('hidden'); }
+      } finally { cancelPairButton.disabled = false; }
+    });
 
     const btnRefreshSync = document.getElementById('btn-refresh-sync-stats');
     const btnRefreshPaired = document.getElementById('btn-refresh-paired-devices');
@@ -26322,6 +26479,9 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
       window.ultronAPI.onMobilePairComplete(() => {
         const modal = document.getElementById('mobile-pair-modal');
         if (modal) modal.classList.add('hidden');
+        pairBanner?.classList.add('hidden');
+        if (_pairCountdown) clearInterval(_pairCountdown);
+        window._suppressPairModal = false;
         loadSyncStats();
       });
     }

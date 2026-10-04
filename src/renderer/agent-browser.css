@@ -133,11 +133,11 @@
   flex: 0 0 auto;
   width: 17px;
   height: 17px;
-  background: url('../../Assets/Brown-white.png') center / contain no-repeat;
+  background: url('../../Assets/browny_white.png') center / contain no-repeat;
 }
 
 [data-theme="light"] .agent-browser-brand {
-  background-image: url('../../Assets/Brown-black.png');
+  background-image: url('../../Assets/browny_black.png');
 }
 
 /* Both header pills hug their content */

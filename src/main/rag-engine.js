@@ -375,9 +375,13 @@ async function extractTextFromPdfBuffer(buffer) {
             const res = await PDFParse(Buffer.from(uint8));
             if (res && res.text && res.text.trim()) return res.text.trim();
           } else {
-            const parser = new PDFParse(uint8);
-            const res = await parser.getText();
-            if (res && res.text && res.text.trim()) return res.text.trim();
+            const parser = new PDFParse({ data: uint8 });
+            try {
+              const res = await parser.getText();
+              if (res && res.text && res.text.trim()) return res.text.trim();
+            } finally {
+              await parser.destroy();
+            }
           }
         } finally {
           console.warn = origWarn;
@@ -411,7 +415,7 @@ async function readFileContent(targetPath) {
 }
 
 // Collect all indexable files
-function collectFiles(sourcePath) {
+function collectFiles(sourcePath, skipped = null) {
   const results = [];
   if (!fs.existsSync(sourcePath)) return results;
 
@@ -420,6 +424,8 @@ function collectFiles(sourcePath) {
     const ext = path.extname(sourcePath).toLowerCase();
     if (SUPPORTED_EXTENSIONS.has(ext) && stat.size <= MAX_FILE_BYTES) {
       results.push(sourcePath);
+    } else if (SUPPORTED_EXTENSIONS.has(ext) && skipped) {
+      skipped.push({ path: sourcePath, reason: 'File is larger than the 1.5 MB indexing limit.' });
     }
     return results;
   }
@@ -441,7 +447,10 @@ function collectFiles(sourcePath) {
             let size = 0;
             try {
               size = fs.statSync(full).size;
-              if (size > MAX_FILE_BYTES) continue;
+              if (size > MAX_FILE_BYTES) {
+                skipped?.push({ path: full, reason: 'File is larger than the 1.5 MB indexing limit.' });
+                continue;
+              }
             } catch { continue; }
             totalBytes += size;
             results.push(full);
@@ -461,12 +470,22 @@ function chunksBelongToSource(chunkPath, sourcePath) {
 
 // Add folders or files to the Knowledge Base
 async function addSources(targetPaths = [], progressCallback = null) {
+  if (!Array.isArray(targetPaths) || !targetPaths.length || targetPaths.some(src => typeof src !== 'string')) {
+    return { success: false, error: 'Select valid files or folders to import.' };
+  }
   const indexData = loadIndex();
   const added = [];
+  const rejected = [];
 
   for (const src of targetPaths) {
-    if (!src || !fs.existsSync(src)) continue;
+    if (!src || !fs.existsSync(src)) { rejected.push({ path: src, reason: 'Path not found.' }); continue; }
     const isDir = fs.statSync(src).isDirectory();
+    if (!isDir && !SUPPORTED_EXTENSIONS.has(path.extname(src).toLowerCase())) {
+      rejected.push({ path: src, reason: 'Unsupported file format.' }); continue;
+    }
+    if (collectFiles(src).length === 0) {
+      rejected.push({ path: src, reason: 'No supported files within the size limits were found.' }); continue;
+    }
     const existing = indexData.sources.find(s => s.path === src);
     if (!existing) {
       const sourceRecord = {
@@ -482,10 +501,11 @@ async function addSources(targetPaths = [], progressCallback = null) {
     }
   }
 
-  saveIndex(indexData);
+  if (rejected.length === targetPaths.length) return { success: false, error: rejected.map(item => `${path.basename(item.path || '')}: ${item.reason}`).join(' '), rejected };
+  if (!saveIndex(indexData)) return { success: false, error: 'Could not save the Knowledge Base. Check available disk space and permissions.' };
   const result = await reindexAll(progressCallback);
   const refreshed = loadIndex();
-  return { success: true, added, sources: refreshed.sources, totalSources: refreshed.sources.length, totalChunks: result.totalChunks };
+  return { ...result, added, rejected, sources: refreshed.sources, totalSources: refreshed.sources.length };
 }
 
 // Remove a source from the Knowledge Base
@@ -493,7 +513,7 @@ async function removeSource(sourcePath) {
   const indexData = loadIndex();
   indexData.sources = indexData.sources.filter(s => s.path !== sourcePath);
   indexData.chunks = indexData.chunks.filter(c => !chunksBelongToSource(c.filePath, sourcePath));
-  saveIndex(indexData);
+  if (!saveIndex(indexData)) return { success: false, error: 'Could not save the source removal.' };
   return { success: true, totalSources: indexData.sources.length };
 }
 
@@ -597,22 +617,29 @@ async function indexFile(filePath) {
 // Reindex all registered sources
 async function reindexAll(progressCallback = null) {
   const indexData = loadIndex();
-  const allChunks = [];
+  const allChunks = (indexData.chunks || []).filter(chunk => chunk.sourceId);
   let totalFilesIndexed = 0;
+  const indexedPaths = new Set();
+  const skipped = [];
 
   for (let i = 0; i < indexData.sources.length; i++) {
     const source = indexData.sources[i];
-    const files = collectFiles(source.path);
+    const files = collectFiles(source.path, skipped);
     source.fileCount = files.length;
     let sourceChunkCount = 0;
 
     for (const filePath of files) {
       const content = await readFileContent(filePath);
-      if (content) {
+      if (content && content.trim()) {
         const fileChunks = chunkText(content, filePath);
         allChunks.push(...fileChunks);
         sourceChunkCount += fileChunks.length;
-        totalFilesIndexed++;
+        if (!indexedPaths.has(filePath)) {
+          indexedPaths.add(filePath);
+          totalFilesIndexed++;
+        }
+      } else {
+        skipped.push({ path: filePath, reason: 'No readable text found. Scanned PDFs need a text layer.' });
       }
       if (typeof progressCallback === 'function') {
         progressCallback({
@@ -627,14 +654,15 @@ async function reindexAll(progressCallback = null) {
     source.lastIndexed = new Date().toISOString();
   }
 
-  indexData.chunks = allChunks;
-  saveIndex(indexData);
+  indexData.chunks = [...new Map(allChunks.map(chunk => [chunk.id, chunk])).values()];
+  if (!saveIndex(indexData)) return { success: false, error: 'Could not save the indexed files.' };
 
   return {
     success: true,
     totalSources: indexData.sources.length,
     totalFiles: totalFilesIndexed,
-    totalChunks: allChunks.length
+    totalChunks: indexData.chunks.length,
+    skipped
   };
 }
 
@@ -805,8 +833,7 @@ function clearIndex() {
     sources: [],
     chunks: []
   };
-  saveIndex(empty);
-  return { success: true };
+  return saveIndex(empty) ? { success: true } : { success: false, error: 'Could not clear the Knowledge Base index.' };
 }
 
 // Get statistics
@@ -831,10 +858,14 @@ function listIndexedFiles(filter = '') {
     if (current) {
       current.chunkCount++;
     } else {
+      let metadata = null;
+      try { metadata = fs.statSync(chunk.filePath); } catch { /* Saved notes and removed files have no disk metadata. */ }
       byFile.set(chunk.filePath, {
         path: chunk.filePath,
         fileName: chunk.fileName || path.basename(chunk.filePath),
-        chunkCount: 1
+        chunkCount: 1,
+        size: metadata?.isFile() ? metadata.size : null,
+        modifiedAt: metadata?.isFile() ? metadata.mtime.toISOString() : null
       });
     }
   }
@@ -847,6 +878,7 @@ function listIndexedFiles(filter = '') {
 }
 
 module.exports = {
+  supportedExtensions: [...SUPPORTED_EXTENSIONS],
   addSources,
   removeSource,
   reindexAll,

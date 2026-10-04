@@ -3971,6 +3971,14 @@ function getInstallationDefaultDataDir() {
     }
   });
 
+  ipcMain.handle('desktop-sync:get-settings', async () => {
+    return require('./desktop-sync-server').getConnectionSettings();
+  });
+  ipcMain.handle('desktop-sync:set-settings', async (_event, settings) => {
+    try { return require('./desktop-sync-server').setConnectionSettings(settings); }
+    catch (err) { return { success: false, error: err.message }; }
+  });
+
   ipcMain.handle('desktop-sync:get-info', async () => {
     try {
       const { getSyncInfo } = require('./desktop-sync-server');
@@ -4085,6 +4093,15 @@ function getInstallationDefaultDataDir() {
   // ==========================================
   // LOCAL VECTOR RAG KNOWLEDGE BASE IPC HANDLERS
   // ==========================================
+  ipcMain.handle('rag:select-files', async () => {
+    if (!mainWindow) return { canceled: true, filePaths: [] };
+    const rag = require('./rag-engine');
+    return dialog.showOpenDialog(mainWindow, {
+      title: 'Import files into Knowledge Base',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Supported knowledge files', extensions: rag.supportedExtensions.map(ext => ext.slice(1)) }]
+    });
+  });
   ipcMain.handle('rag:add-sources', async (event, targetPaths = []) => {
     try {
       const rag = require('./rag-engine');
@@ -4266,6 +4283,34 @@ function getInstallationDefaultDataDir() {
     } catch (err) {
       return { success: false, error: err.message };
     }
+  });
+
+  // ── Privacy-first diagnostic logs (Help & Support → Send Error Log) ────────
+  const errorLogs = require('./error-logs');
+
+  ipcMain.handle('diagnostics:capture', (_event, payload) => {
+    try {
+      const source = payload && payload.source === 'renderer' ? 'renderer' : 'manual';
+      errorLogs.captureError({ message: payload && payload.message, stack: payload && payload.stack }, source);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('diagnostics:list', () => {
+    try { return { success: true, logs: errorLogs.listErrors() }; }
+    catch (err) { return { success: false, error: err.message, logs: [] }; }
+  });
+
+  ipcMain.handle('diagnostics:count', () => {
+    try { return { success: true, count: errorLogs.countErrors() }; }
+    catch (err) { return { success: false, error: err.message, count: 0 }; }
+  });
+
+  ipcMain.handle('diagnostics:send', async () => {
+    try { return { success: true, result: await errorLogs.sendErrorLogs() }; }
+    catch (err) { return { success: false, error: err.message }; }
   });
 }
 

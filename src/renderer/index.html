@@ -183,11 +183,10 @@
   <div id="app-splash-screen" class="app-splash-screen">
     <div class="splash-card">
       <div class="splash-logo-container">
-        <img src="../../Assets/Brown-white.png" class="splash-logo-img" alt="Brown Logo" onerror="this.src='../../Assets/Brown-white.png'">
-        <div class="brown-logo-anim splash-logo-lottie" data-brown-logo="splash" aria-hidden="true"></div>
+        <img src="../../Assets/browny_white.png" class="splash-logo-img" alt="Brown Logo" onerror="this.src='../../Assets/browny_white.png'">
       </div>
       <div class="splash-text-container">
-        <span class="splash-brand-title"><span class="brand-letter">B</span><span class="brand-letter">r</span><span class="brand-letter">o</span><span class="brand-letter">w</span><span class="brand-letter">n</span></span>
+        <span class="splash-brand-title">Brown</span>
       </div>
     </div>
   </div>
@@ -222,7 +221,6 @@
       <!-- Title Header -->
       <div class="brand-header">
         <div class="brand-left">
-          <img src="../../Assets/Brown-white.png" class="brand-logo" alt="Brown Logo" onerror="this.src='../../Assets/Brown-white.png'">
           <span class="brand-name">Brown</span>
         </div>
         <button id="btn-toggle-left-sidebar" class="btn-toggle-left-sidebar" title="Collapse navigation">
@@ -396,7 +394,7 @@
               <span></span>
               <span></span>
             </div>
-            <img src="../../Assets/Brown-white.png" class="voice-mode-logo" alt="Brown">
+            <img src="../../Assets/browny_white.png" class="voice-mode-logo" alt="Brown">
           </div>
           <p id="voice-mode-caption" class="voice-mode-caption" aria-hidden="true" data-role=""></p>
           <button type="button" id="voice-mode-status" class="voice-mode-status">Tap to start listening</button>
@@ -461,8 +459,7 @@
       <!-- WELCOME SCREEN -->
       <div id="welcome-screen" class="welcome-screen">
       <div class="welcome-logo-stack">
-        <img src="../../Assets/Brown-white.png" class="welcome-logo" alt="Brown Logo">
-        <div class="brown-logo-anim welcome-logo-lottie" data-brown-logo="welcome" aria-hidden="true"></div>
+        <img src="../../Assets/browny_white.png" class="welcome-logo" alt="Brown Logo">
       </div>
       <h1 id="welcome-title" class="welcome-title">Good evening, User</h1>
       <p class="welcome-subtitle">How can Brown assist you today?</p>
@@ -1091,7 +1088,11 @@
           </div>
           <div class="settings-tab-btn" data-tab="sounds">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
-            Agent Sounds
+            Sounds
+          </div>
+          <div class="settings-tab-btn" data-tab="voice">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+            Voice
           </div>
           <div class="settings-tab-btn" data-tab="performance">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
@@ -1112,6 +1113,10 @@
           <div class="settings-tab-btn" data-tab="appearance">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
             Appearance
+          </div>
+          <div class="settings-tab-btn" data-tab="help">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            Help &amp; Support
           </div>
           <div class="settings-tab-btn" data-tab="about">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
@@ -1619,20 +1624,25 @@
           <div id="tab-skills" class="tab-pane hidden">
             <div class="skills-hero">
               <div class="skills-hero-text">
-                <h4 class="skills-title"><span class="skills-title-accent">Skills</span></h4>
-                <p class="skills-subtitle">With System Control, Visuals, Developer Tools, Research and more — activated automatically when your request matches.</p>
+                <h4 class="skills-title">Explore <span class="skills-title-mark" aria-hidden="true">T</span> <span class="skills-title-accent">Skills</span></h4>
+                <p class="skills-subtitle">With Productivity, Content Creation, Coding and more.</p>
+              </div>
+              <div class="skills-hero-art" aria-hidden="true">
+                <span class="skills-art-tile skills-art-leaf"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 20C3 8 11 4 20 4c0 9-4 16-13 14M5 20l10-10"/></svg></span>
+                <span class="skills-art-tile skills-art-spark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z"/></svg></span>
+                <span class="skills-art-tile skills-art-doc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 3h9l3 3v15H6ZM9 9h6M9 13h6M9 17h4"/></svg></span>
+                <span class="skills-art-tile skills-art-cube"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 3 8 4v10l-8 4-8-4V7ZM4 7l8 4 8-4M12 11v10"/></svg></span>
               </div>
             </div>
 
             <div class="skills-toolbar">
-              <!-- Horizontal category tabs: faded while Online Models is selected -->
               <div id="skills-filters" class="skills-filter-tabs" role="tablist" aria-label="Filter skills by category"></div>
-              <span id="skills-count" class="skills-count"></span>
+              <div class="skills-sort" role="group" aria-label="Sort skills">
+                <button type="button" class="skills-sort-tab active" data-skill-sort="featured" aria-pressed="true">Featured</button>
+                <button type="button" class="skills-sort-tab" data-skill-sort="name" aria-pressed="false">A–Z</button>
+              </div>
             </div>
-            <div id="skills-filter-lock-note" class="skills-filter-lock-note hidden">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-              <span>Filters apply to Offline (Ollama) models. Switch to Offline Models in the Models tab to enable them.</span>
-            </div>
+            <span id="skills-count" class="skills-count skills-result-count" role="status"></span>
 
             <div id="skills-list" class="skills-grid"></div>
           </div>
@@ -1641,8 +1651,8 @@
           <div id="tab-sounds" class="tab-pane hidden">
             <div class="set-head">
               <div class="set-head-copy">
-                <h4 class="set-title">Agent Sounds</h4>
-                <p class="set-intro">Audio cues for agent events, plus offline speech recognition and neural text-to-speech.</p>
+                <h4 class="set-title">Sounds</h4>
+                <p class="set-intro">Audio cues for agent events, plus offline speech recognition for the mic.</p>
               </div>
               <span class="set-badge">Audio feedback</span>
             </div>
@@ -1792,8 +1802,49 @@
                 </div>
               </div>
             </section>
+          </div>
+          <!-- Voice (TTS personas) Tab -->
+          <div id="tab-voice" class="tab-pane hidden">
+            <div class="set-head">
+              <div class="set-head-copy">
+                <h4 class="set-title">Voice</h4>
+                <p class="set-intro">Choose the persona Brown speaks with. Each voice runs fully offline.</p>
+              </div>
+              <span id="tts-model-status-badge" class="voice-model-status-badge">Checking…</span>
+            </div>
 
             <section class="set-card">
+              <header class="set-card-head">
+                <span class="set-card-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                    <path d="M9 18V5l12-2v13"></path>
+                    <circle cx="6" cy="18" r="3"></circle>
+                    <circle cx="18" cy="16" r="3"></circle>
+                  </svg>
+                </span>
+                <div class="set-card-heading">
+                  <h5 class="set-card-title">Neural personas</h5>
+                  <p class="set-card-desc">Pick a voice to make it active, play it to preview, or download it first.</p>
+                </div>
+              </header>
+
+              <div class="set-rows">
+                <div id="tts-models-list" class="voice-persona-grid"></div>
+                <div id="tts-model-download-progress" class="connector-download-progress hidden">
+                  <div class="connector-download-progress-header">
+                    <span id="tts-model-progress-status">Downloading voice engine…</span>
+                    <span id="tts-model-progress-stats">0%</span>
+                  </div>
+                  <div class="connector-download-progress-track">
+                    <div id="tts-model-progress-bar" class="connector-download-progress-fill"></div>
+                  </div>
+                  <div id="tts-model-progress-detail" class="connector-download-progress-speed">Preparing…</div>
+                </div>
+                <p id="tts-model-feedback" class="text-xs text-muted connector-feedback"></p>
+              </div>
+            </section>
+
+            <section class="set-card set-card-sidebar-bg">
               <header class="set-card-head">
                 <span class="set-card-icon" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
@@ -1803,8 +1854,8 @@
                   </svg>
                 </span>
                 <div class="set-card-heading">
-                  <h5 class="set-card-title">AI voice output</h5>
-                  <p class="set-card-desc">Reads replies aloud with the neural voice below. Skips code and markdown.</p>
+                  <h5 class="set-card-title">Speech</h5>
+                  <p class="set-card-desc">Reads replies aloud with the active persona. Skips code and markdown.</p>
                 </div>
                 <div class="set-switch-group">
                   <span class="set-switch-caption">Auto-speak replies</span>
@@ -1821,252 +1872,68 @@
                   <input type="range" class="set-slider" id="setting-tts-rate" min="0.7" max="1.4" step="0.05" value="1">
                   <span class="set-slider-value" id="setting-tts-rate-label">1.0×</span>
                 </div>
-                <div class="set-row">
-                  <div class="set-row-info">
-                    <span class="set-row-name">Preview voice</span>
-                    <span class="set-row-desc">"Hello, I'm Brown."</span>
-                  </div>
-                  <div class="set-row-side">
-                    <button type="button" id="btn-preview-tts" class="sound-preview-btn set-pill">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13">
-                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                      </svg>
-                      <span>Preview</span>
-                    </button>
-                  </div>
-                </div>
               </div>
               <p class="set-card-foot">Voice chat mode always speaks replies; this switch only controls normal text chats.</p>
             </section>
-
-            <section class="set-card">
-              <header class="set-card-head">
-                <span class="set-card-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
-                    <path d="M9 18V5l12-2v13"></path>
-                    <circle cx="6" cy="18" r="3"></circle>
-                    <circle cx="18" cy="16" r="3"></circle>
-                  </svg>
-                </span>
-                <div class="set-card-heading">
-                  <h5 class="set-card-title">Offline neural voices</h5>
-                  <p class="set-card-desc">5 English voices (3 female, 2 male). Download once, then run fully offline.</p>
-                </div>
-                <span id="tts-model-status-badge" class="voice-model-status-badge">Checking…</span>
-              </header>
-
-              <div class="set-rows">
-                <div id="tts-models-list" class="tts-models-list"></div>
-                <div id="tts-model-download-progress" class="connector-download-progress hidden">
-                  <div class="connector-download-progress-header">
-                    <span id="tts-model-progress-status">Downloading voice engine…</span>
-                    <span id="tts-model-progress-stats">0%</span>
-                  </div>
-                  <div class="connector-download-progress-track">
-                    <div id="tts-model-progress-bar" class="connector-download-progress-fill"></div>
-                  </div>
-                  <div id="tts-model-progress-detail" class="connector-download-progress-speed">Preparing…</div>
-                </div>
-                <p id="tts-model-feedback" class="text-xs text-muted connector-feedback"></p>
-              </div>
-            </section>
           </div>
-          <!-- Knowledge Base (Local Vector RAG) Tab -->
+          <!-- Knowledge Base dashboard -->
           <div id="tab-knowledge" class="tab-pane hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 12px;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <h4 style="margin: 0;">Knowledge Base (Local Vector RAG)</h4>
-                <span class="models-sound-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border-color: rgba(16, 185, 129, 0.3);">100% Offline</span>
+            <div class="kb-dashboard" id="kb-drop-zone">
+              <div class="kb-topbar">
+                <div class="kb-heading"><h4>Your Knowledge Base</h4><p>Your folders, documents, and notes. Ready for Brown to recall.</p></div>
+                <span class="kb-offline">● On this PC</span>
               </div>
-            </div>
-            <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.5;">
-              Index local folders, project notes, PDFs, and code files into a local semantic vector database. Brown retrieves relevant excerpts automatically during chat and agent workflows with zero cloud data transmission.
-            </p>
-
-            <!-- Auto-learn toggle: zero-setup mode for non-technical users -->
-            <div style="display: flex; align-items: flex-start; gap: 12px; background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;">
-              <input type="checkbox" id="rag-auto-toggle" checked style="margin-top: 2px; accent-color: #3b82f6; width: 15px; height: 15px; cursor: pointer; flex-shrink: 0;" />
-              <div>
-                <div style="font-size: 13px; font-weight: 600; color: #ffffff;">Auto-learn from your activity</div>
-                <div style="font-size: 11.5px; color: #a1a1aa; margin-top: 3px; line-height: 1.5;">Brown quietly indexes projects you open and files it works on, then recalls relevant notes automatically during chat. Everything stays on this PC. Turn off anytime.</div>
-              </div>
-            </div>
-
-            <!-- Actions Bar -->
-            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px;">
-              <button id="btn-rag-add-folder" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>
-                <span>Add Folder</span>
-              </button>
-              <button id="btn-rag-reindex" class="btn-faint" style="height: 36px; padding: 0 14px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-                <span>Re-index All</span>
-              </button>
-              <button id="btn-rag-clear" class="btn-faint" style="height: 36px; padding: 0 14px; font-size: 12px; color: #ef4444; border-color: rgba(239, 68, 68, 0.2);">Clear Index</button>
-            </div>
-
-            <!-- Indexing Progress Bar -->
-            <div id="rag-progress-container" class="hidden" style="margin-bottom: 16px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px;">
-              <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;">
-                <span id="rag-progress-label" style="color: #60a5fa;">Indexing documents…</span>
-                <span id="rag-progress-stats" style="color: #a1a1aa;">0 files</span>
-              </div>
-              <div style="width: 100%; height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden;">
-                <div id="rag-progress-bar" style="width: 0%; height: 100%; background: #3b82f6; transition: width 0.2s ease;"></div>
-              </div>
-            </div>
-
-            <!-- Stats Grid -->
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 20px;">
-              <div class="settings-dark-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px;">
-                <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Indexed Sources</div>
-                <div id="rag-stat-sources" style="font-size: 18px; font-weight: 700; color: #ffffff; margin-top: 4px;">0</div>
-              </div>
-              <div class="settings-dark-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px;">
-                <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Vector Chunks</div>
-                <div id="rag-stat-chunks" style="font-size: 18px; font-weight: 700; color: #60a5fa; margin-top: 4px;">0</div>
-              </div>
-              <div class="settings-dark-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px;">
-                <div style="font-size: 11px; color: #a1a1aa; text-transform: uppercase; font-weight: 600;">Search Engine</div>
-                <div style="font-size: 13px; font-weight: 600; color: #10b981; margin-top: 6px;">Cosine Vector Space</div>
-              </div>
-            </div>
-
-            <!-- Sources List -->
-            <div style="margin-bottom: 16px;">
-              <h5 style="margin: 0 0 10px 0;">Indexed Folders &amp; Documents</h5>
-              <div id="rag-sources-list" style="display: flex; flex-direction: column; gap: 8px;">
-                <div class="ui-empty">
-                  <div class="ui-empty-media" aria-hidden="true">
-                    <span class="ui-empty-card ui-empty-card-back"></span>
-                    <span class="ui-empty-card ui-empty-card-mid"></span>
-                    <span class="ui-empty-card ui-empty-card-front">
-                      <span class="ui-empty-thumb"></span>
-                      <span class="ui-empty-bars">
-                        <span class="ui-empty-line ui-empty-line-long"></span>
-                        <span class="ui-empty-line ui-empty-line-short"></span>
-                      </span>
-                    </span>
-                    <span class="ui-empty-fade"></span>
-                  </div>
-                  <div class="ui-empty-title">Nothing indexed yet</div>
-                  <div class="ui-empty-desc">No data here yet. With Auto-learn on, projects you open and files Brown works on appear automatically, or click "Add Folder" to add any folder.</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Test Query Sandbox -->
-            <div class="settings-dark-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
-              <h5 style="margin: 0 0 8px 0;">Semantic Query Test</h5>
-              <p class="text-xs text-muted" style="margin: 0 0 10px 0;">Test how Brown matches natural language queries against your indexed document vector chunks.</p>
-              <div style="display: flex; gap: 8px;">
-                <input type="text" id="input-rag-test-query" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; font-size: 12px;" placeholder="e.g. Find database connection config or API endpoints..." />
-                <button id="btn-rag-test-search" class="btn-faint" style="height: 36px; padding: 0 16px; font-size: 12px;">Search Index</button>
-              </div>
-              <div id="rag-test-results" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;"></div>
+              <header class="kb-welcome">
+                <label class="kb-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="kb-search" type="search" placeholder="Search your knowledge files" aria-label="Search knowledge files"></label>
+                <div class="kb-actions"><button id="btn-rag-add-folder" type="button">＋ Import folder</button><button id="btn-rag-add-files" type="button" class="kb-primary">↑ Import files</button></div>
+              </header>
+              <div id="kb-notice" class="kb-notice hidden" role="status" aria-live="polite"></div>
+              <div id="rag-progress-container" class="kb-progress hidden"><div><span id="rag-progress-label">Indexing files…</span><span id="rag-progress-stats"></span></div><div class="kb-progress-track"><div id="rag-progress-bar"></div></div></div>
+              <section class="kb-section"><div class="kb-section-head"><h5>Folders &amp; sources</h5><span id="rag-stat-sources">0 sources</span></div><div id="rag-sources-list" class="kb-source-grid"></div></section>
+              <section class="kb-section"><div class="kb-section-head"><h5>Browse by file type</h5><button id="kb-reset-filter" class="kb-text-button" type="button">View all</button></div><div id="kb-type-cards" class="kb-type-grid"></div></section>
+              <section class="kb-section kb-files-section">
+                <div class="kb-section-head"><h5>Your indexed files <span id="kb-file-count"></span></h5><span id="rag-stat-chunks"></span></div>
+                <div class="kb-files-tools"><div class="kb-tabs" role="group" aria-label="File list view"><button type="button" data-kb-view="all" class="active" aria-pressed="true">All files</button><button type="button" data-kb-view="recent" aria-pressed="false">Recently modified</button></div><label class="kb-type-select">File type <select id="kb-type-filter"><option value="all">All formats</option><option value="text">Text &amp; notes</option><option value="pdf">PDF</option><option value="code">Code</option><option value="data">Data &amp; config</option></select></label></div>
+                <div class="kb-table-wrap"><table class="kb-table"><thead><tr><th>Name</th><th>Source</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody id="kb-file-rows"></tbody></table></div>
+                <p class="kb-import-hint">Drop supported files or folders here to index them. Text, Markdown, PDF, code, CSV, JSON, and configuration files · up to 1.5 MB per file. Image-only PDFs need a text layer.</p>
+              </section>
+              <footer class="kb-management"><label class="kb-auto"><input type="checkbox" id="rag-auto-toggle"><span>Auto-learn from your activity<small>Adds projects you open and files Brown works on.</small></span></label><div class="kb-actions"><button id="btn-rag-reindex" type="button">↻ Re-index all</button><button id="btn-rag-clear" class="kb-danger" type="button">Clear index</button></div></footer>
+              <details class="kb-retrieval"><summary>Search inside your knowledge</summary><p>Find relevant excerpts from your indexed files.</p><div class="kb-query"><input id="input-rag-test-query" placeholder="Ask about your documents…" aria-label="Search document contents"><button id="btn-rag-test-search" type="button">Search</button></div><div id="rag-test-results"></div></details>
             </div>
           </div>
 
           <!-- Mobile Sync & LAN Companion Tab -->
           <div id="tab-sync" class="tab-pane hidden">
-            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; margin-bottom: 12px;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20" style="color: #60a5fa; flex-shrink: 0;">
-                  <path d="M4 6h10v8H4z"></path>
-                  <path d="M2 17h12l-1.5-3H4.5L2 17z"></path>
-                  <rect x="14" y="8" width="8" height="13" rx="1.5"></rect>
-                  <line x1="17" y1="18" x2="19" y2="18"></line>
-                </svg>
-                <h4 style="margin: 0;">Connection</h4>
-                <span class="models-sound-badge" style="background: rgba(59, 130, 246, 0.15); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3);">LAN Port 49200</span>
-              </div>
-            </div>
-            <p class="text-xs text-muted" style="margin: 0 0 16px 0; line-height: 1.5;">
-              Pair your Android device running the <b>Brown Mobile</b> app with this PC over your local home/office Wi-Fi. Query desktop models, sync chats, and share API configurations privately.
-            </p>
-
-            <!-- Sync Info Card -->
-            <div style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;">
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 14px;">
-                  <div style="display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 0 4px 0 0;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="34" height="34">
-                      <path d="M4 6h10v8H4z"></path>
-                      <path d="M2 17h12l-1.5-3H4.5L2 17z"></path>
-                      <rect x="14" y="8" width="8" height="13" rx="1.5"></rect>
-                      <line x1="17" y1="18" x2="19" y2="18"></line>
-                    </svg>
-                  </div>
-                  <div>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                      <span id="sync-desktop-id" style="font-weight: 700; font-size: 15px; color: #ffffff; font-family: 'JetBrains Mono', monospace;">BROWN-WIN-DETECTING</span>
-                      <span id="sync-status-badge" style="font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">● Ready for Pairing</span>
-                    </div>
-                    <div style="font-size: 12px; color: #94a3b8; margin-top: 2px;">
-                      LAN IP: <span id="sync-desktop-ip" style="color: #cbd5e1; font-family: 'JetBrains Mono', monospace;">127.0.0.1:49200</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #34d399; margin-top: 4px;">
-                      <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.551 0 .9993.4482.9993.9993s-.4483.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993s-.4482.9997-.9993.9997m11.4045-6.02l1.996-3.4572c.1558-.27.0634-.6144-.2066-.7702-.27-.1562-.6144-.0638-.7702.2062l-2.024 3.5056C15.305 8.197 13.69 7.8 12 7.8c-1.69 0-3.305.397-4.8767 1.0058L5.0993 5.3c-.1558-.27-.5002-.3624-.7702-.2062-.27.1558-.3624.5002-.2066.7702l1.996 3.4572C2.6845 11.2396.4 15.0118.4 19.4h23.2c0-4.3882-2.2845-8.1604-5.7195-10.0786"/></svg>
-                      <span>Android Companion Protocol Enabled</span>
-                    </div>
-                  </div>
+            <div class="connection-page">
+              <h4>Mobile</h4>
+              <p class="connection-intro">Use Brown Mobile to chat with desktop models and sync conversations over your local Wi-Fi.</p>
+              <a class="connection-download" href="https://usebrown.online/download" target="_blank" rel="noopener"><span>Download Brown Mobile</span><span class="connection-download-arrow" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M7 7h10v10" /></svg></span></a>
+              <section class="connection-showcase">
+                <div class="connection-copy">
+                  <span class="connection-kicker">Local companion</span>
+                  <h5>Brown for Android</h5>
+                  <p>Connect on the same Wi-Fi. Your desktop stays in control of pairing and chat-sharing approvals.</p>
+                  <div class="connection-download-qr"><span>Scan to download</span><img src="../../Assets/brown-mobile-download-qr.png" width="116" height="116" alt="QR code for the official Brown download page" /></div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <button id="btn-refresh-sync-stats" class="btn-secondary-sm" title="Refresh Live State" style="height: 36px; width: 36px; padding: 0; display: flex; align-items: center; justify-content: center; background: transparent !important; border: none !important; border-radius: 50%; color: #94a3b8; cursor: pointer; transition: all 0.2s ease;">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                    </svg>
-                  </button>
-                  <button id="btn-generate-pair-code" class="btn-primary-sm" style="height: 36px; padding: 0 18px; font-size: 12px; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border-radius: 9999px !important; border: none; cursor: pointer; transition: all 0.2s ease;">
-                    Generate Pair Code
-                  </button>
+                <div class="connection-art"><img src="../../Assets/connection-mobile-preview.png" alt="Brown Mobile chat interface" /></div>
+              </section>
+              <h5 class="connection-section-title">Connection controls <span id="connection-access-status">Loading…</span></h5>
+              <section class="connection-controls">
+                <label class="connection-setting"><span><strong>Allow Brown Mobile to connect</strong><small>Allow paired phones to use desktop models and approved chat sync on this Wi-Fi.</small></span><input id="connection-enabled" type="checkbox" role="switch" disabled /></label>
+                <label class="connection-setting"><span><strong>Keep this desktop awake</strong><small>Prevent system sleep while Brown is running and mobile access is enabled.</small></span><input id="connection-keep-awake" type="checkbox" role="switch" disabled /></label>
+                <p id="connection-settings-error" role="alert" class="hidden"></p>
+              </section>
+              <section class="connection-pair-card">
+                <div><h5>Pair your phone</h5><p>Open Connection on Brown Mobile, then scan the pairing QR or enter this desktop’s Sync ID.</p></div>
+                <div class="connection-desktop-detail"><strong id="sync-desktop-id">Detecting desktop…</strong><span id="sync-lan-endpoint">Detecting Wi-Fi address…</span><span id="sync-status-badge">Checking connection…</span></div>
+                <div class="connection-actions"><button id="btn-generate-pair-code" class="btn-primary-sm" type="button">Connect</button><button id="btn-refresh-sync-stats" class="btn-secondary-sm" type="button">Refresh</button></div>
+                <div id="sync-pair-code-banner" class="hidden connection-pair-banner">
+                  <img id="connection-pair-qr" class="hidden" width="148" height="148" alt="Scan this temporary code in Brown Mobile to pair" />
+                  <div><p>Scan in Brown Mobile or enter this code.</p><strong id="sync-pair-code-display">------</strong><p id="sync-pair-code-timer"></p><button id="btn-cancel-connection-pair" class="btn-secondary-sm" type="button">Cancel</button></div>
                 </div>
-              </div>
-
-              <!-- Pair Code Display Banner (Hidden until generated) -->
-              <div id="sync-pair-code-banner" class="hidden" style="background: rgba(66, 133, 244, 0.08); border: 1px dashed rgba(66, 133, 244, 0.35); border-radius: 8px; padding: 12px; text-align: center; margin-top: 10px;">
-                <p style="margin: 0 0 6px 0; font-size: 12px; color: #93c5fd;">Enter this 6-character code in your Brown Mobile app:</p>
-                <div id="sync-pair-code-display" style="font-family: 'JetBrains Mono', monospace; font-size: 30px; font-weight: 800; letter-spacing: 6px; color: #60a5fa;">------</div>
-                <p id="sync-pair-code-timer" style="margin: 6px 0 0 0; font-size: 11px; color: #a1a1aa;">Code expires in 120s</p>
-              </div>
-            </div>
-
-            <!-- Paired Devices Table -->
-            <div>
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                <h5 style="margin: 0;">Paired Mobile Devices</h5>
-                <button id="btn-refresh-paired-devices" style="display: flex; align-items: center; gap: 5px; background: transparent; border: none; color: #94a3b8; font-size: 11.5px; font-weight: 600; cursor: pointer; padding: 2px 6px;">
-                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                  </svg>
-                  Refresh
-                </button>
-              </div>
-              <div id="sync-paired-devices-container" style="display: flex; flex-direction: column; gap: 8px;">
-                <div class="sync-empty-state-card">
-                  <div class="sync-empty-svg-wrapper sync-connect-images">
-                    <img class="sync-connect-img" src="../../Assets/computer-connect.png" alt="Brown on desktop" />
-                    <div class="sync-connection-bridge">
-                      <div class="sync-bridge-track">
-                        <div class="sync-pulse-particle sync-particle-left"></div>
-                        <div class="sync-pulse-particle sync-particle-right-rev"></div>
-                      </div>
-                      <div class="sync-bridge-node" title="Local Connection Bridge">
-                        <svg class="sync-node-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                          <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
-                        </svg>
-                      </div>
-                      <div class="sync-bridge-track">
-                        <div class="sync-pulse-particle sync-particle-left"></div>
-                        <div class="sync-pulse-particle sync-particle-right-rev"></div>
-                      </div>
-                    </div>
-                    <img class="sync-connect-img sync-connect-mobile" src="../../Assets/connect-mobile.png" alt="Brown on mobile" />
-                  </div>
-                  <h6 class="sync-empty-title">No mobile devices paired yet</h6>
-                  <p class="sync-empty-desc">Click “Generate Pair Code” and enter the code in your mobile app to connect your device.</p>
-                </div>
-              </div>
+              </section>
+              <div class="connection-device-heading"><h5>Paired phones</h5><button id="btn-refresh-paired-devices" class="btn-secondary-sm" type="button">Refresh devices</button></div>
+              <div id="sync-paired-devices-container"></div>
             </div>
           </div>
 
@@ -2097,7 +1964,9 @@
                 <button type="button" class="perf-option-item active" data-mode="auto">
                   <div class="perf-option-icon icon-auto">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                      <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                      <path d="M8 1v3m4-3v3m4-3v3M8 20v3m4-3v3m4-3v3M1 8h3m-3 4h3m-3 4h3m16-8h3m-3 4h3m-3 4h3"></path>
+                      <path d="m9 9 6 6m0-6-6 6"></path>
                     </svg>
                   </div>
                   <div class="perf-option-text">
@@ -2112,7 +1981,9 @@
                 <button type="button" class="perf-option-item" data-mode="gpu">
                   <div class="perf-option-icon icon-gpu">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
-                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                      <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                      <path d="M8 1v3m4-3v3m4-3v3M8 20v3m4-3v3m4-3v3M1 8h3m-3 4h3m-3 4h3m16-8h3m-3 4h3m-3 4h3"></path>
+                      <path d="m13 7-5 6h4l-1 4 5-6h-4z"></path>
                     </svg>
                   </div>
                   <div class="perf-option-text">
@@ -2473,13 +2344,13 @@
                   <path d="M296 52 l0 14 M289 59 l14 0" stroke="#dbeafe" stroke-width="2.4" stroke-linecap="round" opacity="0.55" />
                   <path d="M30 74 l0 12 M24 80 l12 0" stroke="#93c5fd" stroke-width="2.2" stroke-linecap="round" opacity="0.5" />
                 </svg>
-                <img src="../../Assets/Brown-white.png" class="osu-art-mark" alt="" />
+                <img src="../../Assets/browny_white.png" class="osu-art-mark" alt="" />
               </div>
 
               <div class="osu-copy">
                 <div class="osu-kicker" id="update-kicker">Your software is up to date</div>
                 <h5 class="osu-headline" id="update-status-title">Brown v1.0</h5>
-                <p class="osu-legal" id="update-status-subtitle">Updates come from GitHub Releases. Downloading over a metered connection may use data.</p>
+                <p class="osu-legal" id="update-status-subtitle">Updates come from the official release service. Downloading over a metered connection may use data.</p>
 
                 <button id="btn-check-updates" class="osu-btn osu-btn-primary">Check for Updates</button>
 
@@ -2527,7 +2398,7 @@
                 </div>
                 <div class="osu-info-row">
                   <span class="osu-info-label">Source</span>
-                  <span class="osu-info-value">GitHub Releases</span>
+                  <span class="osu-info-value">Official releases</span>
                 </div>
               </div>
             </div>
@@ -2580,7 +2451,7 @@
                 <!-- Top Brand Banner with Logo, Version/Platform Badges, Tagline, and Social Icons -->
                 <div class="about-app-brand" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;">
                   <div style="display: flex; align-items: center; gap: 16px;">
-                    <img src="../../Assets/Brown-white.png" class="about-app-logo" alt="Brown" style="width: 60px; height: 60px; object-fit: contain; flex-shrink: 0;" />
+                    <img src="../../Assets/browny_white.png" class="about-app-logo" alt="Brown" style="width: 60px; height: 60px; object-fit: contain; flex-shrink: 0;" />
                     <div>
                       <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                         <h4 class="about-app-title" style="margin: 0; font-size: 20px; font-weight: 700; color: #ffffff;">Brown</h4>
@@ -2593,9 +2464,6 @@
 
                   <!-- Social Media Icons (Working links) -->
                   <div class="about-social-icons-row" style="display: flex; align-items: center; gap: 8px;">
-                    <a href="https://github.com/vedantwankhade123/Brown" target="_blank" rel="noopener noreferrer" class="about-social-icon-btn" title="GitHub Repository">
-                      <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
-                    </a>
                     <a href="https://www.instagram.com/usebrown.online" target="_blank" rel="noopener noreferrer" class="about-social-icon-btn" title="Instagram (@usebrown.online)">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
                     </a>
@@ -2649,12 +2517,59 @@
                     <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 16px; height: 16px; object-fit: contain;" />
                     <span style="color: #000000 !important;">Download For Android</span>
                   </a>
-                  <a href="https://github.com/vedantwankhade123/Brown/releases" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 22px; background: #ffffff !important; border: none; border-radius: 9999px; color: #000000 !important; text-decoration: none; font-size: 12.5px; font-weight: 700; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s, opacity 0.15s;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#000000" stroke-width="2.2" width="14" height="14"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    <span style="color: #000000 !important;">Releases &amp; Changelog</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Help & Support Tab -->
+          <div id="tab-help" class="tab-pane hidden">
+            <div class="developer-settings-card about-settings-card" style="background: transparent; border: none; padding: 0;">
+
+              <!-- Docs intro / heading -->
+              <div class="help-intro-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px 22px; margin-bottom: 16px;">
+                <p style="margin: 0 0 8px 0; font-size: 11px; font-weight: 600; letter-spacing: 1px; color: #9ca3af;">BROWN GUIDES · UPDATED OCTOBER 3, 2026</p>
+                <h4 style="margin: 0 0 8px 0; font-size: 20px; font-weight: 700; color: #ffffff;">Documentation</h4>
+                <p class="developer-bio-text" style="margin: 0; font-size: 13px; line-height: 1.6; color: #d1d5db;">
+                  Set up Brown on Windows, explore the Android app, and understand models, tools, and device pairing. This guide reflects desktop source version 1.0.7 and mobile source version 1.0.6; published releases may differ.
+                </p>
+              </div>
+
+              <!-- Contact Support -->
+              <div class="settings-feedback-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px;">
+                <h5 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600; color: #ffffff;">Contact Support</h5>
+                <p style="margin: 0 0 14px 0; font-size: 12.5px; color: #9ca3af;">Questions, bugs, or feedback — reach the Brown team directly.</p>
+                <div style="display: flex; gap: 12px; align-items: center; justify-content: flex-start; flex-wrap: wrap;">
+                  <a href="mailto:contact@usebrown.online" class="about-feedback-option-btn" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); color: #ffffff; text-decoration: none; font-size: 12.5px; font-weight: 500;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                    <span>contact@usebrown.online</span>
+                  </a>
+                  <a href="https://www.instagram.com/usebrown.online" target="_blank" rel="noopener noreferrer" class="about-feedback-option-btn" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); color: #ffffff; text-decoration: none; font-size: 12.5px; font-weight: 500;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                    <span>Instagram (@usebrown.online)</span>
                   </a>
                 </div>
               </div>
+
+              <!-- Embedded documentation (rendered natively from renderer.js) -->
+              <div id="help-docs-container" class="help-docs" style="background: transparent; border: 0; border-radius: 0; padding: 0;"></div>
+
+              <!-- Privacy-first diagnostic logs -->
+              <div class="settings-feedback-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 18px 20px; margin-top: 16px;">
+                <h5 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600; color: #ffffff;">Send Diagnostic Logs</h5>
+                <p style="margin: 0 0 10px 0; font-size: 12.5px; line-height: 1.6; color: #9ca3af;">
+                  If Brown crashed or misbehaved, share a sanitized error report with the developer. Reports contain only system/device specs, app version, error timestamps, and code stack traces — never your prompts, chats, files, or credentials.
+                </p>
+                <p id="error-log-count" style="margin: 0 0 12px 0; font-size: 12px; color: #71717a;">Checking cached logs…</p>
+                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                  <button type="button" id="btn-send-error-log" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 22px; border-radius: 9999px; background: #ffffff; border: none; color: #000000; font-size: 12.5px; font-weight: 700; cursor: pointer;">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
+                    <span>Send Error Log</span>
+                  </button>
+                  <span id="error-log-status" role="status" aria-live="polite" style="font-size: 12.5px; color: #9ca3af;"></span>
+                </div>
+              </div>
+
             </div>
           </div>
         </main>
@@ -2707,8 +2622,7 @@
     <div class="onboarding-container">
       <div class="onboarding-brand-badge">
         <div class="onboarding-logo-stack">
-          <img src="../../Assets/Brown-white.png" class="onboarding-logo-img" alt="Brown Logo" />
-          <div class="brown-logo-anim onboarding-logo-lottie" data-brown-logo="onboarding" aria-hidden="true"></div>
+          <img src="../../Assets/browny_white.png" class="onboarding-logo-img" alt="Brown Logo" />
         </div>
         <div id="onboard-brand-word" class="onboarding-brand-word hidden" aria-hidden="true">Brown</div>
       </div>
@@ -3000,7 +2914,7 @@
       <!-- Header -->
       <div class="settings-panel-header" style="padding: 16px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between; background: rgba(0, 0, 0, 0.15);">
         <div style="display: flex; align-items: center; gap: 12px;">
-          <img src="../../Assets/Brown-white.png" class="release-notes-brand-logo" style="height: 24px; width: auto; object-fit: contain;" alt="Brown">
+          <img src="../../Assets/browny_white.png" class="release-notes-brand-logo" style="height: 24px; width: auto; object-fit: contain;" alt="Brown">
           <div>
             <div style="display: flex; align-items: center; gap: 8px;">
               <h3 id="release-notes-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">Brown Release Notes</h3>
@@ -3165,9 +3079,6 @@
     </div>
   </div>
 
-  <script src="../../node_modules/lottie-web/build/player/lottie_light.min.js"></script>
-  <script src="brown-logo-lottie.js"></script>
-  <script src="logo-motion.js"></script>
   <script src="../agent/app-registry.js"></script>
   <script src="../agent/agent-automation-safety.js"></script>
   <script src="../agent/agent-session-permissions.js"></script>
@@ -3206,6 +3117,7 @@
   <script src="motion-effects.js"></script>
   <div id="ultron-toast-stack" class="ultron-toast-stack" aria-live="polite" aria-relevant="additions"></div>
   <script src="agent-browser.js"></script>
+  <script src="knowledge-base.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>
