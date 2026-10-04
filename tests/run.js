@@ -18,6 +18,7 @@ console.log('=============================================\n');
 runAgentTests();
 
 (async () => {
+  await require('./knowledge-base.test').runKnowledgeTests();
   await runSessionSidebarTests();
   if (typeof runAsyncAgentTests === 'function') {
     await runAsyncAgentTests();

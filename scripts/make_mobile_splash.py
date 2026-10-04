@@ -1,5 +1,9 @@
 """Regenerate the mobile splash: logo mark + Brown wordmark underneath.
 
+Also rewrites the five Android drawable-*/splashscreen_image.png copies, because
+expo-splash-screen renders that drawable at runtime (drawable/splashscreen.xml
+only holds the background colour) — forgetting them ships a stale splash.
+
     python scripts/make_mobile_splash.py
 """
 from PIL import Image, ImageDraw, ImageFont
@@ -7,6 +11,13 @@ from PIL import Image, ImageDraw, ImageFont
 SPLASH = "mobile/Assets/Brown-splash.png"
 MARK = "mobile/Assets/Brown-adaptive.png"
 FONT = "mobile/node_modules/@expo-google-fonts/outfit/500Medium/Outfit_500Medium.ttf"
+DRAWABLES = [
+    "mobile/android/app/src/main/res/drawable-mdpi/splashscreen_image.png",
+    "mobile/android/app/src/main/res/drawable-hdpi/splashscreen_image.png",
+    "mobile/android/app/src/main/res/drawable-xhdpi/splashscreen_image.png",
+    "mobile/android/app/src/main/res/drawable-xxhdpi/splashscreen_image.png",
+    "mobile/android/app/src/main/res/drawable-xxxhdpi/splashscreen_image.png",
+]
 
 SIZE = 1280
 WORD = "Brown"
@@ -54,7 +65,9 @@ def main():
     draw_tracked(draw, font, WORD, widths, cx, top + LOGO_H + GAP, (255, 255, 255, 255))
 
     canvas.save(SPLASH)
-    print(f"wrote {SPLASH} {canvas.size} block={block_h} text_w={text_w:.0f}")
+    for path in DRAWABLES:
+        canvas.resize((1536, 1536), Image.LANCZOS).save(path)
+    print(f"wrote {SPLASH} + {len(DRAWABLES)} drawables; block={block_h} text_w={text_w:.0f}")
 
 
 if __name__ == "__main__":

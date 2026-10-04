@@ -134,6 +134,12 @@ def web_favicons(white, black_w):
 
 
 def main():
+    # The current four supplied masters and all aliases share one generator.
+    import runpy
+    from pathlib import Path
+    runpy.run_path(str(Path(__file__).with_name('update_browny_branding.py')), run_name='__main__')
+    runpy.run_path(str(Path(__file__).with_name('make_mobile_splash.py')), run_name='__main__')
+    return
     white = load(SRC_WHITE)
     black = load(SRC_BLACK)
     black_w = load(SRC_BLACK_W)

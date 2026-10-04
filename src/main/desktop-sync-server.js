@@ -7,7 +7,7 @@ const os = require('os');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { app } = require('electron');
+const { app, powerSaveBlocker } = require('electron');
 
 const SYNC_PORT = 49200;
 const PORT_FALLBACKS = [SYNC_PORT, 49201, 49202, 49203];
@@ -46,6 +46,29 @@ function saveConfigPatch(patch) {
   const config = { ...loadConfig(), ...patch };
   fs.writeFileSync(configPath(), JSON.stringify(config, null, 2), 'utf8');
   return config;
+}
+
+let awakeBlockerId = null;
+function getConnectionSettings() {
+  const config = loadConfig();
+  return { enabled: config.mobileConnectionEnabled !== false, keepAwake: config.mobileKeepAwake === true };
+}
+function applyConnectionPower(settings) {
+  if (settings.enabled && settings.keepAwake && awakeBlockerId === null) {
+    awakeBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+  } else if ((!settings.enabled || !settings.keepAwake) && awakeBlockerId !== null) {
+    powerSaveBlocker.stop(awakeBlockerId);
+    awakeBlockerId = null;
+  }
+}
+function setConnectionSettings(settings) {
+  if (!settings || typeof settings.enabled !== 'boolean' || typeof settings.keepAwake !== 'boolean') {
+    throw new Error('Invalid connection settings');
+  }
+  saveConfigPatch({ mobileConnectionEnabled: settings.enabled, mobileKeepAwake: settings.keepAwake });
+  if (!settings.enabled) { denyPendingPair(); resolveChatConsent(false); }
+  applyConnectionPower(settings);
+  return { success: true, ...getConnectionSettings() };
 }
 
 function generateSyncId() {
@@ -407,6 +430,10 @@ async function generatePairQrDataUrl(code) {
 }
 
 async function handleRequest(req, res) {
+  if (!getConnectionSettings().enabled) {
+    json(req, res, 403, { ok: false, error: 'Mobile access is disabled on this desktop' });
+    return;
+  }
   if (req.method === 'OPTIONS') {
     const headers = {};
     const origin = corsOrigin(req);
@@ -777,6 +804,7 @@ function startDesktopSyncServer(opts = {}) {
   syncId = stored || generateSyncId();
   if (!stored) saveConfigPatch({ ultronSyncId: syncId });
 
+  applyConnectionPower(getConnectionSettings());
   if (server) return getSyncInfo();
 
   server = http.createServer((req, res) => {
@@ -830,6 +858,7 @@ function startDesktopSyncServer(opts = {}) {
 }
 
 function stopDesktopSyncServer() {
+  if (awakeBlockerId !== null) { powerSaveBlocker.stop(awakeBlockerId); awakeBlockerId = null; }
   if (server) {
     try { server.close(); } catch {}
     server = null;
@@ -925,6 +954,7 @@ function revokePairedDevice(idOrPrefix) {
 }
 
 async function createDesktopPairCode() {
+  if (!getConnectionSettings().enabled) return { success: false, error: 'Enable mobile access before pairing.' };
   const requestId = crypto.randomBytes(8).toString('hex');
   const code = generatePairCode();
   pendingPair = {
@@ -960,6 +990,8 @@ function denyPendingPair() {
 }
 
 module.exports = {
+  getConnectionSettings,
+  setConnectionSettings,
   SYNC_PORT,
   startDesktopSyncServer,
   stopDesktopSyncServer,

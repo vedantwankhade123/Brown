@@ -41,14 +41,6 @@ const TTS_MODEL_CATALOG = [
     description: 'UK male · crisp, articulate conversational voice',
     sizeEstimate: '~92 MB',
     previewText: "Hello, I'm Brown. This is the Lewis voice."
-  },
-  {
-    key: 'gemini-live-kore',
-    engine: 'gemini-cloud',
-    label: 'Kore',
-    description: 'Cloud voice · natural expressive tone',
-    sizeEstimate: 'Cloud',
-    previewText: "Hello, I'm Brown. This is the Kore voice."
   }
 ];
 
@@ -260,7 +252,7 @@ function getTtsCatalog() {
       description: entry.description,
       sizeEstimate: entry.sizeEstimate,
       previewText: entry.previewText,
-      cloud: Boolean(entry.cloud),
+      cloud: Boolean(entry.cloud || entry.engine === 'gemini-cloud'),
       installed: isModelInstalled(entry.key),
       downloading,
       cacheSize: entry.cloud ? 'Cloud' : formatBytes(cacheBytes),
