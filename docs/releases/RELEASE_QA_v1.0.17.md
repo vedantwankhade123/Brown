@@ -1,4 +1,4 @@
-# Brown AI Desktop v1.0.8 verification
+# Brown AI Desktop v1.0.17 verification
 
 Date: 5 October 2026.
 
@@ -14,7 +14,7 @@ Date: 5 October 2026.
 - Installer passed Windows executable-header, exact-size and SHA-512 checks against latest.yml.
 - Packaged app opened onboarding with email, date of birth and helper-model fields absent.
 - Packaged renderer produced a table, KaTeX formula and SVG chart; chart background matched the sidebar.
-- Packaged v1.0.8 update check correctly returned not-available before the new version was published.
+- Packaged v1.0.17 update check correctly returned not-available before the new version was published.
 - New files were copied to Downloadable Files/Desktop App before the previous v1.0.7 installers were deleted.
 - Website production build, download-tracking tests and SEO checks passed.
 
