@@ -24,7 +24,8 @@
         'Use proper LaTeX constructs: \\frac{}{}, ^{}, _{}, \\sqrt{}, \\sum_{}^{}, \\int_{}^{}, \\alpha \\beta \\theta, \\times, \\pm, \\approx, \\leq, \\geq, \\neq.',
         'After every display formula, define each variable in a short bullet list (e.g. - $n$ — number of compounding periods per year).',
         'Show step-by-step derivation for solves and proofs; box the final result in bold.',
-        'Never write formulas as plain-text ASCII art (no a/b stacked manually, no sqrt() pseudo-syntax) when LaTeX applies.'
+        'Never write formulas as plain-text ASCII art (no a/b stacked manually, no sqrt() pseudo-syntax) when LaTeX applies.',
+        'Check domain restrictions and units, and verify solutions by substitution. Keep delimiters balanced; use aligned environments for multi-line equations and matrices for mathematical arrays. Show useful derivation steps, not private internal reasoning.'
       ].join('\n')
     },
     {
@@ -101,7 +102,9 @@
       instructions: [
         'Write production-grade, secure, and idiomatic code.',
         'Include robust error handling, boundary checks, and concise inline comments.',
-        'Format in clean Markdown code blocks with appropriate language tags.'
+        'Format in clean Markdown code blocks with appropriate language tags.',
+        'Preserve the supplied code context on follow-up requests. Explain specific changes, include all required files and dependencies, and handle invalid inputs. Never claim execution or testing unless tool results confirm it.',
+        'For multi-file examples, label each filename and provide complete contents with correct cross-file imports, stylesheet links, and script references. Distinguish client-side demonstration validation from real authentication and server-side security.'
       ].join('\n')
     },
     {
@@ -264,6 +267,7 @@
         'NEVER use this skill for reminders, timers, alarms, or "remind me in X seconds/minutes" requests — those are real scheduling asks, not diagrams.',
         'When asked to create any system architecture, workflow, flowchart, or diagram, always output a COMPLETE, fully connected Mermaid code block (```mermaid ... ```).',
         'Rules for diagrams:',
+        'Choose the correct notation: flowcharts for decisions, sequence diagrams for interactions, ER diagrams for data relationships, and timelines for events. Use stable IDs and quoted node labels. Explain assumptions and do not invent relationships.',
         '1. Explicit node IDs and complete descriptive labels with brackets, e.g. Lexical[Lexical Analysis] --> Syntax[Syntax Analysis].',
         '2. For linear phases/pipelines/workflows: use a simple flowchart TD with every step connected in order. Do NOT invent placeholder labels like "Step 1" or "Process Steps".',
         '3. Every node must be connected with arrows (-->). Never output bare disconnected lines inside the mermaid block.',

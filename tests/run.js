@@ -39,9 +39,11 @@ runAgentTests();
 
   await runAutonomyTests();
   await runBrowserTests();
+  await require('./answer-experience.test').run();
+  await require('./search-onboarding.test').run();
   const { execFileSync } = require('child_process');
   const path = require('path');
-  for (const file of ['updater.test.js', 'updater-flow.test.js']) {
+  for (const file of ['chat-release.test.js', 'file-intent.test.js', 'file-workflow.test.js', 'desktop-priorities.test.js', 'updater.test.js', 'updater-flow.test.js']) {
     execFileSync(process.execPath, [path.join(__dirname, file)], { stdio: 'inherit' });
   }
   console.log('\n=============================================');

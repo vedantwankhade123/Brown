@@ -1,0 +1,47 @@
+const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+const { resolveFileTarget, createDirectory, listDirectory, moveFileTarget } = require('../src/main/file-targets');
+(async () => {
+  const root = fs.mkdtempSync(path.join(require('os').tmpdir(), 'brown-file-workflow-'));
+  try {
+    const folder = path.join(root, "Folder with spaces and 'quotes' — notes");
+    assert.equal(createDirectory(folder).verified, true);
+    assert.throws(() => resolveFileTarget('ambiguous.txt'), /absolute path/);
+    assert.throws(() => resolveFileTarget(''), /exact/);
+    assert.equal(resolveFileTarget('relative.txt', folder), path.join(folder, 'relative.txt'));
+    const { buildVercelMcpTools } = require('../src/main/agent-harness-mcp-adapter');
+    const target = path.join(folder, 'hello.txt');
+    const denied = await buildVercelMcpTools({ requestApproval: async () => false });
+    assert.equal((await denied.tools.system__write_file.execute({ filePath: target, content: 'no' })).success, false);
+    assert.equal(fs.existsSync(target), false);
+    const observed = [];
+    const allowed = await buildVercelMcpTools({ requestApproval: async action => { observed.push(action); return true; } });
+    let result = await allowed.tools.system__write_file.execute({ filePath: target, content: 'first' });
+    assert.equal(result.verified, true); assert.equal(result.filePath, target);
+    result = await allowed.tools.system__read_file.execute({ filePath: target });
+    assert.equal(result.content, 'first'); assert.equal(result.filePath, target);
+    await allowed.tools.system__write_file.execute({ filePath: target, content: 'updated' });
+    assert.equal(fs.readFileSync(target, 'utf8'), 'updated');
+    const listing = listDirectory(folder);
+    assert.equal(listing.files[0].path, target); assert.equal(listing.items[0].name, 'hello.txt');
+    const destination = path.join(folder, 'renamed.txt');
+    assert.equal(moveFileTarget(target, destination).verified, true);
+    assert.throws(() => moveFileTarget(destination, destination), /already exists/);
+    assert.equal(observed[0].path, target);
+    const controller = new AbortController(); controller.abort();
+    const cancelled = await buildVercelMcpTools({ abortSignal: controller.signal, requestApproval: async () => { throw new Error('Must not ask after stop'); } });
+    assert.equal((await cancelled.tools.system__write_file.execute({ filePath: target, content: 'stopped' })).success, false);
+    assert.equal(fs.existsSync(target), false);
+    const window = { sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} } };
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/agent/agent-session-permissions.js'), 'utf8'), { window });
+    const grants = window.UltronSessionPermissions;
+    grants.grantSession({ type: 'WRITE_FILE', path: destination });
+    assert.equal(grants.hasSessionGrant({ type: 'WRITE_FILE', path: destination }), true);
+    assert.equal(grants.hasSessionGrant({ type: 'WRITE_FILE', path: target }), false);
+    assert.equal(grants.hasSessionGrant({ type: 'DELETE_FILE', path: destination }), false);
+    fs.unlinkSync(destination); assert.equal(listDirectory(folder).files.length, 0);
+    console.log('PASS: exact paths, quoted/unicode folders, create/read/update/list/rename/delete, native denial, cancellation, and scoped grants');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+})().catch(error => { console.error(error); process.exitCode = 1; });

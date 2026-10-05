@@ -50,6 +50,14 @@
       if (event.runId !== runId) return;
 
       switch (event.type) {
+        case 'approval-closed':
+          document.dispatchEvent(new Event('brown:cancel-approval'));
+          break;
+        case 'approval-request':
+          Promise.resolve(window.UltronAgentExecutor?.promptAgentPermission(event.toolCall))
+            .then(decision => window.ultronAPI.respondHarnessApproval({ id: event.id, approved: decision?.approved === true }))
+            .catch(() => window.ultronAPI.respondHarnessApproval({ id: event.id, approved: false }));
+          break;
         case 'text-delta':
           onTextDelta(event.textDelta, event.fullText);
           break;

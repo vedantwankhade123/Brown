@@ -239,7 +239,7 @@ app.whenReady().then(() => {
       process.env.ULTRON_NODE_PATH = nodePath;
     }
 
-    mcpManager.initializeMcp({
+    if (require('../config/release-features').computerActions) mcpManager.initializeMcp({
       userDataPath: getConnectorsRoot(),
       windowsUiaAutoInstall: false
     }).then((status) => {

@@ -1,7 +1,7 @@
-# Brown AI — Autonomous Local-First Windows AI Agent
+# Brown AI — Offline AI Chat for Windows
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-v1.0.2-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v1.0.8-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown/releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
@@ -15,7 +15,9 @@
   <strong><a href="https://usebrown.online/">usebrown.online</a></strong> — Official website with setup guides, docs, and direct downloads.
 </p>
 
-**Brown AI** is an autonomous, privacy-first, local-first artificial intelligence assistant engineered exclusively for **Windows** and **Android**. Powered by local on-device quantized LLMs (via Ollama, GGUF, and Hugging Face) and optional hybrid cloud intelligence (Gemini 2.5/3, Claude 3.7, DeepSeek R1, OpenAI), Brown executes system workflows, local code execution, document analysis, voice synthesis, and desktop orchestration with zero mandatory cloud telemetry.
+**Brown AI** runs local AI models for offline conversations, code answers, document questions, charts, diagrams, tables and mathematical notation. Optional web search and cloud providers connect online only when used. Desktop automation, CRUD actions and approval controls are hidden in this release.
+
+![Brown AI desktop](Assets/Desktop_Mockup.png)
 
 > **Note on Platform Support**: Brown AI is designed and optimized strictly for **Windows (Windows 10 & 11, 64-bit)** and **Android (Android 10+)**. macOS, iOS, or other platforms are not supported.
 
@@ -23,8 +25,8 @@
 
 ## ⚡ Core Capabilities
 
-- **🔒 100% Offline & Private**: Chat history, vector indices, and inference prompts stay strictly local on your silicon.
-- **🧠 Autonomous Decision Engine**: Multi-step task planner (Analyze → Plan → Execute → Reflect), tool decomposition, and loop guard.
+- **🔒 Offline local chat**: Installed local models run on your device. Optional online search and cloud providers send requests to their respective services.
+- **📊 Rich answers**: Charts, diagrams, tables, code blocks and mathematical notation, with validation and supported-format repair.
 - **🎛️ Dynamic Performance Controls**: Switch between **Auto Adaptive**, **GPU Priority** (maximum VRAM offload), and **CPU Only** for power-efficient conversation.
 - **🎙️ Sovereign Neural Voice**: Local Whisper STT and offline Kokoro TTS for ultra-low latency voice interaction without cloud endpoints.
 - **📂 Local Knowledge RAG**: Ingest PDFs, markdown, and local files with hybrid BM25 + dense vector semantic retrieval.
@@ -49,15 +51,15 @@ Official pre-compiled binaries are published in their respective repositories. T
 
 ## 🔄 Release Pipeline
 
-There is no CI. Every artifact is built, installed and tested on this machine first, then tagged
+Artifacts are built locally and checked before they are tagged
 and published to GitHub Releases — which is what the website download buttons and the in-app
 updater read.
 
 | Step | Command |
 | :--- | :--- |
-| Bump, test, build, stage assets | `npm run release:desktop -- --version 1.0.3` |
+| Bump, test, build, stage assets | `npm run release:desktop -- --version 1.0.8` |
 | Install the staged `dist/Brown-AI-Setup.exe`, use it, confirm it works | by hand |
-| Commit the version bump | `git commit -am "chore(release): v1.0.3"` |
+| Commit the version bump | `git commit -am "chore(release): v1.0.8"` |
 | Tag, push the tag, publish the release | `npm run publish:desktop` |
 
 [`scripts/release-desktop.js`](scripts/release-desktop.js) uploads a fixed set of asset names,

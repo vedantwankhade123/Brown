@@ -3,6 +3,7 @@
  * Used for search enrichment and WEB_FETCH agent tool — no API key required.
  */
 const { URL } = require('url');
+const { fetchPublicPage } = require('./public-web');
 
 function stripTags(html) {
   return String(html || '')
@@ -60,14 +61,9 @@ async function fetchWebPage(url, options = {}) {
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 12000);
 
   try {
-    const res = await fetch(target, {
-      method: 'GET',
-      redirect: 'follow',
+    const res = await fetchPublicPage(target, {
       signal: controller.signal,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-      }
+      timeoutMs: options.timeoutMs || 12000
     });
     clearTimeout(timeout);
 

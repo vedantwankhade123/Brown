@@ -79,9 +79,23 @@
         return;
       }
 
-      if (permActionCode) permActionCode.textContent = summary;
+      if (permActionCode) {
+        const target = toolCall.path || toolCall.targetPath || toolCall.filePath || toolCall.url || toolCall.appName || toolCall.target || '';
+        permActionCode.textContent = `${summary}${target && !summary.includes(target) ? '\n\nTarget: ' + target : ''}${toolCall.destination ? '\nDestination: ' + toolCall.destination : ''}`;
+      }
+      const title = document.getElementById('perm-title-text');
+      const description = policy.describeApproval?.(toolCall);
+      if (description && permActionCode) permActionCode.textContent = description.details;
+      if (title) title.textContent = 'Allow this action?';
+      if (btnAcceptSession) btnAcceptSession.classList.toggle('hidden', Boolean(toolCall.onceOnly) || policy.getCurrentSecurityMode?.() === 'Containment');
       if (permOverrideInput) permOverrideInput.value = '';
       if (permReasonText) permReasonText.textContent = risk.reason || 'The agent wants to perform this action.';
+      if (description && permReasonText) {
+        const action = document.createElement('strong');
+        action.className = 'approval-action-highlight';
+        action.textContent = description.action;
+        permReasonText.replaceChildren(action, document.createTextNode(description.message));
+      }
       if (permRiskBadge) {
         permRiskBadge.textContent = `${risk.level === 'high' ? 'High' : risk.level === 'medium' ? 'Medium' : 'Low'} risk`;
         permRiskBadge.className = `perm-risk-badge perm-risk-${risk.level}`;
@@ -90,14 +104,17 @@
 
       if (typeof playUltronSound === 'function') playUltronSound('permission');
       if (typeof logTrace === 'function') logTrace(`Agent permission [${risk.level}/${risk.category}]: ${summary.substring(0, 80)}`, 'permission');
-      if (typeof ensureRightSidebarVisible === 'function') ensureRightSidebarVisible();
-      if (typeof expandRightSidebarSection === 'function') expandRightSidebarSection('section-security');
+      const previousFocus = document.activeElement;
+      btnDeny.focus();
 
       const cleanup = () => {
         btnAccept.removeEventListener('click', onAcceptOnce);
         if (btnAcceptSession) btnAcceptSession.removeEventListener('click', onAcceptSession);
         if (btnAcceptAlways) btnAcceptAlways.removeEventListener('click', onAcceptAlways);
         btnDeny.removeEventListener('click', onDeny);
+        document.removeEventListener('keydown', onKey);
+        document.removeEventListener('brown:cancel-approval', onDeny);
+        previousFocus?.focus?.();
       };
 
       const overrideValue = () => (permOverrideInput ? permOverrideInput.value.trim() : '');
@@ -126,6 +143,16 @@
         resolve({ approved: false, scope: 'deny', category: risk.category });
       };
 
+      const onKey = event => {
+        if (event.key === 'Escape') { event.preventDefault(); onDeny(); }
+        if (event.key === 'Tab') {
+          const buttons = [btnDeny, btnAcceptSession, btnAccept].filter(btn => btn && !btn.classList.contains('hidden'));
+          const index = buttons.indexOf(document.activeElement);
+          event.preventDefault(); buttons[(index + (event.shiftKey ? -1 : 1) + buttons.length) % buttons.length].focus();
+        }
+      };
+      document.addEventListener('keydown', onKey);
+      document.addEventListener('brown:cancel-approval', onDeny, { once: true });
       btnAccept.addEventListener('click', onAcceptOnce);
       if (btnAcceptSession) btnAcceptSession.addEventListener('click', onAcceptSession);
       if (btnAcceptAlways) btnAcceptAlways.addEventListener('click', onAcceptAlways);
@@ -160,6 +187,11 @@
   }
 
   async function validateToolCall(toolCall) {
+    if (['WRITE_FILE', 'READ_FILE', 'LIST_DIR', 'DELETE_FILE', 'REMOVE_FILE', 'CREATE_FOLDER', 'MOVE_FILE'].includes(toolCall.type) && window.ultronAPI.resolveFileTarget) {
+      const resolved = await window.ultronAPI.resolveFileTarget({ path: toolCall.path || toolCall.targetPath || toolCall.filePath || toolCall.target });
+      if (!resolved.success) return getSchema().normalizeToolResult({ success: false, message: resolved.error, errorCode: 'INVALID_PATH' });
+      toolCall.path = toolCall.targetPath = toolCall.target = resolved.path;
+    }
     const policy = getPolicy();
     const mode = policy.getCurrentSecurityMode ? policy.getCurrentSecurityMode() : 'Adaptive';
 
@@ -263,10 +295,10 @@
           errorCode: 'PERMISSION_DENIED'
         });
       }
-      if (memory && riskCategory && !((riskInfo && riskInfo.blacklisted) || false) && memory.hasAlwaysAllow(riskCategory)) {
+      if (mode !== 'Containment' && memory && riskCategory && !((riskInfo && riskInfo.blacklisted) || false) && memory.hasAlwaysAllow(riskCategory)) {
         return null;
       }
-      if (sessionPerms && sessionPerms.hasSessionGrant(toolCall)) {
+      if (mode !== 'Containment' && sessionPerms && sessionPerms.hasSessionGrant(toolCall)) {
         return null;
       }
 
@@ -371,7 +403,9 @@
         const normalized = schema.normalizeToolResult(appRes.success
           ? {
               success: true,
-              message: appRes.message || `${toolCall.action} completed.`,
+              message: appRes.message || (appRes.apps ? `Found ${appRes.apps.length} installed apps.` : `${toolCall.action} completed.`),
+              evidence: appRes.apps ? appRes.apps.map(app => `${app.name}${app.path ? ' — ' + app.path : ''}`).join('\n') : appRes.path || '',
+              raw: appRes,
               resolvedApp: appRes.resolvedApp,
               appIcon: appRes.appIcon || toolCall.appIcon || '',
               suggestions: appRes.suggestions
@@ -422,11 +456,12 @@
       }
 
       if (toolCall.type === 'WRITE_FILE') {
-        const writeRes = await withTimeout(window.ultronAPI.writeFile(toolCall.targetPath, toolCall.content));
+        const target = toolCall.targetPath || toolCall.path || toolCall.filePath || toolCall.target;
+        const writeRes = await withTimeout(window.ultronAPI.writeFile(target, toolCall.content));
         if (writeRes.success && writeRes.undo) pushUndo(writeRes.undo);
         if (writeRes.success && toolCall.targetPath && window.ultronAPI.readFile) {
           try {
-            const verify = await window.ultronAPI.readFile(toolCall.targetPath);
+            const verify = await window.ultronAPI.readFile(writeRes.filePath);
             if (!verify.success) {
               return schema.normalizeToolResult({
                 success: false,
@@ -436,10 +471,12 @@
             }
             const expectedLen = String(toolCall.content || '').length;
             const actualLen = String(verify.content || '').length;
+            if (String(verify.content ?? '') !== String(toolCall.content ?? '')) return schema.normalizeToolResult({ success: false, message: 'Written file contents did not match the requested contents.', errorCode: 'WRITE_VERIFY_FAILED' });
             return schema.normalizeToolResult({
               success: true,
               message: `File written and verified at ${writeRes.filePath || toolCall.targetPath} (${actualLen} chars)`,
-              evidence: verify.content ? verify.content.slice(0, 500) : '',
+              evidence: writeRes.filePath || target,
+              filePath: writeRes.filePath || target,
               undo: writeRes.undo,
               verified: true,
               bytes: actualLen
@@ -456,17 +493,8 @@
       }
 
       if (toolCall.type === 'READ_FILE') {
-        if (window.UltronMcpTools && typeof window.UltronMcpTools.mcpReadFile === 'function') {
-          const mcpContent = await window.UltronMcpTools.mcpReadFile(toolCall.target);
-          if (mcpContent) {
-            return schema.normalizeToolResult({
-              success: true,
-              message: `Read ${toolCall.target} (MCP filesystem)`,
-              evidence: mcpContent
-            });
-          }
-        }
-        const readRes = await withTimeout(window.ultronAPI.readFile(toolCall.target));
+        const target = toolCall.path || toolCall.targetPath || toolCall.filePath || toolCall.target;
+        const readRes = await withTimeout(window.ultronAPI.readFile(target));
         return schema.normalizeToolResult(readRes.success
           ? { success: true, message: `Read ${readRes.filePath}`, evidence: readRes.content }
           : { success: false, message: readRes.error || 'Read failed.', errorCode: 'READ_FAILED' });
@@ -532,6 +560,15 @@
         return schema.normalizeToolResult(delRes.success
           ? { success: true, message: delRes.message || `Deleted ${target}`, evidence: target }
           : { success: false, message: delRes.error || 'Delete failed.', errorCode: 'DELETE_FAILED' });
+      }
+
+      if (toolCall.type === 'CREATE_FOLDER') {
+        const result = await withTimeout(window.ultronAPI.createFolder(toolCall.path || toolCall.targetPath || toolCall.target));
+        return schema.normalizeToolResult({ ...result, message: result.message || result.error, evidence: result.path });
+      }
+      if (toolCall.type === 'MOVE_FILE') {
+        const result = await withTimeout(window.ultronAPI.moveFileTarget({ source: toolCall.path || toolCall.target, destination: toolCall.destination }));
+        return schema.normalizeToolResult({ ...result, message: result.success ? `Moved to ${result.path}` : result.error, evidence: result.path });
       }
 
       if (toolCall.type === 'LIST_DIR') {
@@ -754,6 +791,13 @@ Write-Output "Successfully organized $movedCount files into categorized folders.
   }
 
   async function executeAgentToolCall(toolCall, options = {}) {
+    if (window.BrownReleaseFeatures?.computerActions === false) return getSchema().normalizeToolResult({ success: false, message: 'Computer actions are unavailable in this chat release.', errorCode: 'RELEASE_DISABLED' });
+    if (['WRITE_FILE', 'READ_FILE', 'LIST_DIR', 'DELETE_FILE', 'REMOVE_FILE', 'CREATE_FOLDER', 'MOVE_FILE'].includes(toolCall.type) && window.ultronAPI.resolveFileTarget) {
+      const target = toolCall.path || toolCall.targetPath || toolCall.filePath || toolCall.target;
+      const resolved = await window.ultronAPI.resolveFileTarget({ path: target, basePath: options.workspacePath });
+      if (!resolved.success) return getSchema().normalizeToolResult({ success: false, message: resolved.error, errorCode: 'INVALID_PATH' });
+      toolCall = { ...toolCall, path: resolved.path, targetPath: resolved.path, target: resolved.path };
+    }
     const result = await executeAgentToolCallCore(toolCall, options);
     recordToolAudit(toolCall, result);
     return result;

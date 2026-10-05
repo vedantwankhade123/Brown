@@ -5,7 +5,29 @@ for Windows, [Brown-Mobile](https://github.com/vedantwankhade123/Brown-Mobile/re
 Every release publishes versioned files **and** stable aliases (`Brown-AI-Setup.exe`,
 `Brown-AI-Portable.exe`, `Brown-AI-Mobile.apk`) that always point at the newest build.
 
-## 🌟 Brown AI v1.0.2 (Latest)
+## Brown AI Desktop v1.0.8 (Latest)
+
+## Changes
+- Focus this release on offline AI chat; hide unfinished automation, CRUD tools and approval controls.
+- Improve charts, diagrams, tables, mathematical notation, code answers and visual generation progress.
+- Search the web before composing an answer, with intent-based queries, cited sources and verified product information. Online search requires an internet connection.
+- Create background spoken summaries for rich answers that cannot be read directly by offline voice.
+- Simplify onboarding: remove email, date of birth and the supplementary helper model.
+- Refine dark and light themes, sidebar spacing, settings contrast, voice controls, knowledge search and Help & Support typography.
+- Verify update integrity, interrupted download recovery, concurrent checks/downloads and installer launch failure handling.
+
+## Windows downloads
+- Brown-AI-Setup.exe: recommended Windows 10/11 x64 installer.
+- Brown-AI-Portable.exe: portable edition; replace the executable manually to update.
+- latest.yml: update manifest with installer SHA-512 and size.
+
+## Verification
+Desktop automated tests pass, including updater regressions. Mobile source tests and type checking are run separately; this release does not publish a new Android APK. Packaged Windows smoke checks and live release verification are recorded in docs/releases/RELEASE_QA_v1.0.8.md.
+
+## Requirements and scope
+Model downloads and optional web/cloud services require internet access; installed local models can answer offline. The Windows binaries are not Authenticode signed. A clean-machine installation and a complete installed-app upgrade are not certified by automated updater tests.
+
+## 🌟 Brown AI v1.0.2
 
 Agent, answer-quality and voice release. Full notes: [v1.0.2 on GitHub](https://github.com/vedantwankhade123/Brown/releases/tag/v1.0.2).
 

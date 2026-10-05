@@ -352,7 +352,7 @@ Action Input: Notepad`);
   assert.ok(!catalog.some(m => m.key === 'gemini-3.5-live-translate'), 'TTS picker must not list Gemini 3.5 Live Translate (Voice Mode only)');
   assert.ok(catalog.some(m => m.key === 'kokoro-heart'), 'Catalog should have Kokoro Heart');
   assert.ok(catalog.some(m => m.key === 'kokoro-michael'), 'Catalog should have Kokoro Michael');
-  assert.ok(catalog.some(m => m.key === 'gemini-live-kore'), 'Catalog should keep cloud TTS voice Kore');
+  assert.ok(catalog.some(m => m.key === 'kokoro-george'), 'Catalog should keep the default local TTS voice George');
   console.log('✓ TTS Catalog and Gemini Live models test passed.');
 
   // Test Agent Skills Catalog Matching

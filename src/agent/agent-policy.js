@@ -51,6 +51,10 @@ function classifyRisk(toolCall) {
     return { level: 'high', reason: 'Runs a command on your PC with full local privileges', category: 'EXECUTE' };
   }
 
+  if (['DELETE_FILE', 'REMOVE_FILE', 'MOVE_FILE'].includes(type)) {
+    return { level: 'high', reason: 'Changes or removes an existing file or folder at the shown path.', category: type };
+  }
+  if (type === 'CREATE_FOLDER') return { level: 'medium', reason: 'Creates a folder at the shown path.', category: type };
   if (type === 'WRITE_FILE') {
     const path = String(toolCall.targetPath || toolCall.path || toolCall.target || '');
     if (SYSTEM_PATH_RE.test(path)) {
@@ -133,7 +137,19 @@ function buildPermissionSummary(toolCall) {
   return `${toolCall.type}: ${toolCall.target || ''}`.trim();
 }
 
+function describeApproval(call) {
+  const target = String(call.path || call.targetPath || call.filePath || call.target || call.command || '');
+  const parts = target.split(/[\\/]/);
+  const name = parts.pop() || target;
+  const location = parts.join('\\');
+  const actions = { CREATE_FOLDER: 'Create a folder', WRITE_FILE: 'Create or update a file', READ_FILE: 'Read a file', LIST_DIR: 'Read a folder', MOVE_FILE: 'Move a file or folder', DELETE_FILE: 'Delete a file or folder', REMOVE_FILE: 'Delete a file or folder', EXECUTE: 'Run a command', CAPTURE_SCREEN: 'Capture the screen', SEARCH: 'Search the web', WEB_FETCH: 'Read a web page' };
+  const action = actions[call.type] || String(call.action || call.type || 'Perform an action').toLowerCase().replaceAll('_', ' ');
+  const fileAction = /FILE|FOLDER|LIST_DIR/.test(call.type);
+  return { action, message: fileAction ? ` “${name}”${location ? ' in ' + location : ''}.` : `${call.appName ? ' “' + call.appName + '”' : ''}.`, details: `${target}${call.destination ? '\nDestination: ' + call.destination : ''}` };
+}
+
 window.UltronAgentPolicy = {
+  describeApproval,
   getCurrentSecurityMode,
   isDestructiveToolCall,
   isInteractiveAppAction,

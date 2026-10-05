@@ -46,7 +46,10 @@ AGENTIC DECISION POLICY (follow on every turn):
 3. For (b): pick the single most appropriate tool, call it, read the result, then synthesize a clear final answer that cites what the tool returned. Use system__web_search ONLY for time-sensitive facts (news, prices, weather, current versions, "latest"/"today" questions) or when you are genuinely unsure of a fact.
 4. For (c): briefly plan the steps, execute tools one step at a time, and VERIFY each result before moving on. If a tool fails, change approach once (different args or different tool) instead of repeating the same call; if it fails again, stop and explain the blocker.
 5. NEVER repeat an identical tool call more than twice.
-6. When you have enough information, STOP calling tools and deliver the final answer. Do not trail off after a tool result — always end with a user-facing response.`;
+6. When you have enough information, STOP calling tools and deliver the final answer. Do not trail off after a tool result — always end with a user-facing response.
+7. Track every requested deliverable separately. For follow-up file work, use the exact folder from conversation context and inspect it before writing. If the folder is unknown, ask for its path; never guess. Code-generation requests that ask to save files require actual writes, not just a code answer.
+8. Generate complete content for each requested filename and extension. After writing, read back each file and compare with the intended content. Check references between files and syntax with appropriate tools when available. Repair a mismatch or error with changed content, then verify again. Permission denial or cancellation is a stop, not a reason to bypass approval.
+9. Finish with an accurate summary of verified outputs, their exact paths, and any remaining limitations. Show the generated code in fenced blocks. Do not claim functional testing when only file creation was verified.`;
 
 /**
  * Builds the final system prompt: caller prompt (or default) + agentic policy + skills.
@@ -136,12 +139,14 @@ async function streamAgentHarness({
   maxSteps = 10,
   abortSignal,
   browser,
+  requestApproval,
   onEvent = () => {}
 }) {
   const startTime = Date.now();
+  if (abortSignal?.aborted) return { success: false, cancelled: true, text: '', error: 'Task stopped.', toolCalls: [], toolResults: [], durationMs: 0 };
   const { streamText, stepCountIs } = await import('ai');
   const { model, provider, modelId, isOffline } = await resolveAgentLanguageModel(providerConfig);
-  const { tools, toolMetadata } = browser ? browser.toolset() : await buildVercelMcpTools();
+  const { tools, toolMetadata } = browser ? browser.toolset() : await buildVercelMcpTools({ requestApproval, abortSignal });
 
   const messages = formatCoreMessages(prompt, history);
   const finalSystem = browser ? systemPrompt : buildFinalSystemPrompt(systemPrompt, prompt);
@@ -292,11 +297,12 @@ async function streamAgentHarness({
       return { success: false, text: '', error: abortSignal?.aborted ? 'Browser task stopped. Already submitted website actions cannot be undone.' : (streamError || 'The selected model did not call browser tools. No browser action was performed; choose a tool-capable model or make the browsing request more explicit.'), toolCalls, toolResults, durationMs };
     }
 
-    if (streamError && !accumulatedText) {
+    if (abortSignal?.aborted || streamError || loopTripped) {
       return {
         success: false,
-        error: streamError,
-        text: '',
+        error: abortSignal?.aborted ? 'Task stopped. Actions already performed may still have taken effect.' : (streamError || 'Stopped repeated tool calls before the task could finish.'),
+        cancelled: Boolean(abortSignal?.aborted),
+        text: accumulatedText,
         toolCalls,
         toolResults,
         durationMs,

@@ -968,6 +968,19 @@
    *     "points": [[x,y], ...], "trend": true, "values": [raw numbers for histogram/boxplot] }
    */
   function parseChartData(rawText) {
+    rawText = String(rawText || '').trim();
+    if (rawText.startsWith('{')) {
+      const input = JSON.parse(rawText);
+      if (!['bar','line','area','pie','donut','doughnut','scatter','histogram','box','boxplot','radar','stacked','stackedbar','stacked-bar'].includes(input.type || 'bar')) throw new Error('Unsupported chart type.');
+      if (!input.values?.length && !input.series?.length && !input.points?.length && !input.data?.length) throw new Error('A chart needs data values.');
+      const finiteValues = values => Array.isArray(values) && values.length > 0 && values.length <= 1000 && values.every(v => v !== null && v !== '' && Number.isFinite(Number(v)));
+      if (input.values && !finiteValues(input.values)) throw new Error('Chart values must be finite numbers.');
+      if (input.labels && !Array.isArray(input.labels)) throw new Error('Chart labels must be an array.');
+      if (input.labels?.length && input.values && input.labels.length !== input.values.length) throw new Error('Every chart label needs a matching value.');
+      if (input.series && (!Array.isArray(input.series) || input.series.some(s => !finiteValues(s.values || s.data) || (input.labels?.length && (s.values || s.data).length !== input.labels.length)))) throw new Error('Chart series must match the labels and contain finite numbers.');
+      if (input.points && (!Array.isArray(input.points) || input.points.some(p => !Array.isArray(p) || p.length !== 2 || !finiteValues(p)))) throw new Error('Scatter points need numeric x and y values.');
+      if (/^(pie|donut|doughnut)$/i.test(input.type || '') && input.values?.some(v => Number(v) < 0)) throw new Error('Pie charts cannot contain negative values.');
+    }
     const lines = String(rawText || '').split('\n').map(l => l.trim()).filter(Boolean);
     const data = {
       type: 'bar',
@@ -1674,6 +1687,14 @@
    * Dispatcher for Chart rendering
    */
   function renderChart(rawText) {
+    try { return renderChartCore(rawText); }
+    catch (error) {
+      const safe = String(error.message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<div class="visual-chart-error" role="status">This chart could not be rendered: ${safe}</div>`;
+    }
+  }
+
+  function renderChartCore(rawText) {
     const data = parseChartData(rawText);
     switch (data.type) {
       case 'line':

@@ -4,6 +4,14 @@ Welcome to the central documentation index for the **Brown AI Ecosystem** (Windo
 
 ---
 
+## 📖 Plain-language overview (presentations)
+
+- **[READABLE.md](READABLE.md)**: The whole project explained in simple words — what it does, the stack, how a request travels through the app, plus ASCII diagrams for the agent loop, knowledge base, voice, pairing and release pipeline.
+- **[READABLE.html](READABLE.html)**: The same guide, self-contained and styled for reading or printing (no internet needed).
+- **[Brown-AI-Overview.pptx](Brown-AI-Overview.pptx)**: 16-slide pitch deck built from that guide.
+
+---
+
 ## 📚 Documentation Index
 
 ### 1. 🏛️ [Architecture & Technical Specifications](architecture/)

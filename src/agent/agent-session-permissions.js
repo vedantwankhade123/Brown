@@ -6,6 +6,11 @@
   let _memoryGrants = new Map();
 
   function grantKey(toolCall) {
+    if (['READ_FILE', 'WRITE_FILE', 'LIST_DIR', 'CREATE_FOLDER', 'MOVE_FILE', 'DELETE_FILE', 'REMOVE_FILE'].includes(toolCall.type)) {
+      const target = String(toolCall.path || toolCall.targetPath || toolCall.filePath || toolCall.target || '').replace(/\\/g, '/').toLowerCase();
+      const destination = String(toolCall.destination || '').replace(/\\/g, '/').toLowerCase();
+      return `file:${toolCall.type}:${target}:${destination}`;
+    }
     const caps = window.UltronAgentCapabilities;
     const group = caps && caps.getToolCapabilityGroup ? caps.getToolCapabilityGroup(toolCall) : null;
     if (group) return `cap:${group}`;
