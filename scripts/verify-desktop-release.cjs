@@ -36,7 +36,11 @@ function get(url, remaining = 6) {
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'brown-live-updater-'));
   const handlers = new Map(); const updater = new EventEmitter(); updater.setFeedURL = () => {};
   let previousPercent = -10;
-  const electron = { app: { isPackaged: false, getVersion: () => '1.0.7', getPath: () => profile }, ipcMain: { handle: (name, handler) => handlers.set(name, handler) }, Notification: class { static isSupported() { return false; } } };
+  // The simulated install must be older than the release being verified, otherwise a correct
+  // "already up to date" answer reads as a failure. 1.0.0 is the first public release, so the
+  // default is a pre-release number rather than a past public version.
+  const installed = process.argv.find(arg => arg.startsWith('--installed='))?.slice(12) || '0.0.1';
+  const electron = { app: { isPackaged: false, getVersion: () => installed, getPath: () => profile }, ipcMain: { handle: (name, handler) => handlers.set(name, handler) }, Notification: class { static isSupported() { return false; } } };
   const context = { module: { exports: {} }, console, process: { platform: 'win32', env: {} }, URL, setTimeout: () => {}, setInterval: () => {}, require: name => name === 'electron' ? electron : name === 'electron-updater' ? { autoUpdater: updater } : name === './update-install' ? require('../src/main/update-install') : require(name) };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/main/updater.js'), 'utf8'), context);
   context.module.exports.initAutoUpdater({ isDestroyed: () => false, webContents: { send: (_channel, payload) => { if (payload.status === 'downloading' && payload.percent >= previousPercent + 10) { previousPercent = payload.percent; console.log(`Live updater download: ${payload.percent}%`); } } } });
