@@ -1,0 +1,10 @@
+version: 1.0.8
+files:
+  - url: Brown-AI-Setup.exe
+    sha512: >-
+      nW5E5oc3i/hVQAStGtmx/8LvFeSLcVlAtvi4Zp1IhLY8fmefhWTNp+K/jFHg5LI1SherUqcCgB9DX2J07nIXKA==
+    size: 130558166
+path: Brown-AI-Setup.exe
+sha512: >-
+  nW5E5oc3i/hVQAStGtmx/8LvFeSLcVlAtvi4Zp1IhLY8fmefhWTNp+K/jFHg5LI1SherUqcCgB9DX2J07nIXKA==
+releaseDate: '2026-10-05T16:32:29.223Z'
