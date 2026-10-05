@@ -219,12 +219,78 @@ const SmoothChatScroller = {
 };
 
 /**
+ * Converts pipe-terminated bullet runs that follow a markdown table back into
+ * table rows. Small models often emit the body as "- cell |" bullets in
+ * row-major order instead of real "| a | b | c |" rows; grouping every
+ * headerCols bullets restores the intended table.
+ */
+function convertPipeBulletRunsToTableRows(text) {
+  if (!text || text.indexOf('|') === -1) return text;
+  const lines = text.split('\n');
+  const out = [];
+  const isPipeBullet = (s) => /^[-*+•]\s+\S[\s\S]*\|\s*$/.test(s);
+  let tableCols = 0;
+  let sawTable = false;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    const isRow = trimmed.startsWith('|') && trimmed.endsWith('|') && trimmed.length > 2;
+    if (isRow) {
+      if (!sawTable) {
+        tableCols = Math.max(trimmed.split('|').filter(c => c.trim().length > 0).length, 0);
+        sawTable = true;
+      }
+      out.push(lines[i]);
+      continue;
+    }
+    if (isPipeBullet(trimmed) && sawTable && tableCols >= 2) {
+      const cells = [];
+      let j = i;
+      let runCount = 0;
+      while (j < lines.length) {
+        const b = lines[j].trim();
+        if (b === '') { j++; continue; }
+        if (!isPipeBullet(b)) break;
+        const inner = b.replace(/^[-*+•]\s+/, '').replace(/\|\s*$/, '');
+        const parts = inner.split('|').map(p => p.trim()).filter(Boolean);
+        if (!parts.length) break;
+        cells.push(...parts);
+        runCount++;
+        j++;
+      }
+      if (runCount > 0) {
+        while (out.length && out[out.length - 1].trim() === '') out.pop();
+        for (let k = 0; k < cells.length; k += tableCols) {
+          const row = cells.slice(k, k + tableCols);
+          while (row.length < tableCols) row.push('');
+          out.push('| ' + row.join(' | ') + ' |');
+        }
+        if (j < lines.length && lines[j].trim() !== '') out.push('');
+        i = j - 1;
+        continue;
+      }
+      sawTable = false;
+      tableCols = 0;
+      out.push(lines[i]);
+      continue;
+    }
+    if (trimmed === '') {
+      out.push(lines[i]);
+      continue;
+    }
+    sawTable = false;
+    tableCols = 0;
+    out.push(lines[i]);
+  }
+  return out.join('\n');
+}
+
+/**
  * Balances unclosed markdown syntax (code blocks, inline code, bold) during streaming/typing
  * so marked.parse produces fully formed, valid HTML on every intermediate frame.
  */
 function closeIncompleteMarkdown(md) {
   if (!md || typeof md !== 'string') return '';
-  let closed = md;
+  let closed = convertPipeBulletRunsToTableRows(md);
 
   // 1. Balance code fences (```)
   const codeFences = closed.match(/```/g);
@@ -2719,6 +2785,9 @@ function structureReadableMarkdown(text) {
   }
   t = repairedTableLines.join('\n');
 
+  // 4c. Fold pipe-terminated bullet runs emitted after a table back into table rows
+  t = convertPipeBulletRunsToTableRows(t);
+
   // 5. Separate a bold section header that is glued onto the end of a paragraph.
   // The header must sit on its own line, so bold-led bullets (**Term** — text) stay intact.
   t = t.replace(/([^\n])\s+(\*\*[A-Z][^*\n]{2,40}\*\*:?[ \t]*(?=\n))/g, '$1\n\n$2');
@@ -3685,9 +3754,88 @@ function attachVisualSuggestionChips(contentElement, fullText) {
   return;
 }
 
+/**
+ * Smooth, rAF-batched streaming painter shared by every live-answer path.
+ *
+ * Why this exists: the old code set `container.innerHTML = parsed` on a fixed
+ * 32–40ms timer for the *entire* accumulated answer, which (a) destroyed and
+ * rebuilt the whole subtree every frame so the "Generating visuals" spinner
+ * restarted and visibly stuttered, (b) forced a full reflow each tick, and
+ * (c) made text pop in word-by-word instead of flowing.
+ *
+ * This painter instead: renders into a persistent `.stream-body` child, keeps a
+ * persistent `.visual-loading-state` pill as a sibling (so its CSS spin
+ * animation never restarts), paints at most once per animation frame, skips the
+ * DOM write when the HTML is unchanged, and eases the revealed length toward the
+ * incoming text so bursts flow in smoothly. It auto-stops once its body is
+ * detached (the final `renderMessageContent` wipes it).
+ */
+function createSmoothStreamPainter(container) {
+  let body = container.querySelector(':scope > .stream-body');
+  if (!body) {
+    container.innerHTML = '';
+    body = document.createElement('div');
+    body.className = 'stream-body';
+    container.appendChild(body);
+  }
+  let pill = container.querySelector(':scope > .visual-loading-state');
+  if (!pill) {
+    pill = document.createElement('div');
+    pill.className = 'visual-loading-state';
+    pill.setAttribute('role', 'status');
+    pill.innerHTML = '<span class="visual-loading-spinner" aria-hidden="true"></span>Generating visuals…';
+    pill.hidden = true;
+    container.appendChild(pill);
+  }
+
+  const reduceMotion = typeof matchMedia === 'function'
+    && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let raf = 0, target = '', revealed = 0, lastHtml = '', lastTs = 0;
+
+  function paint() {
+    if (!body.isConnected) { if (raf) cancelAnimationFrame(raf); raf = 0; return; }
+    const slice = target.slice(0, revealed);
+    const visualState = window.BrownVisualLoading?.prepare(slice, { streaming: true }) || { text: slice, pending: false };
+    const closed = renderMathFormulasStream(closeIncompleteMarkdown(visualState.text));
+    let parsed;
+    try { parsed = window.ultronAPI.parseMarkdown(closed); }
+    catch (_) { parsed = escapeHtml(closed); }
+    if (parsed !== lastHtml) { body.innerHTML = parsed; lastHtml = parsed; }
+    pill.hidden = !visualState.pending;
+    if (typeof SmoothChatScroller !== 'undefined') SmoothChatScroller.scrollToBottom();
+  }
+
+  function frame(ts) {
+    raf = 0;
+    if (!body.isConnected) return;
+    const backlog = target.length - revealed;
+    if (backlog <= 0) return;
+    if (reduceMotion) {
+      revealed = target.length;
+    } else {
+      const dt = lastTs ? Math.min(80, ts - lastTs) : 16;
+      lastTs = ts;
+      const step = Math.max(2, Math.min(backlog, Math.ceil(backlog * 0.2) + Math.ceil(dt * 0.05)));
+      revealed += step;
+    }
+    paint();
+    if (revealed < target.length) raf = requestAnimationFrame(frame);
+  }
+
+  return {
+    update(fullText) {
+      target = String(fullText || '');
+      if (target.length < revealed) revealed = target.length;
+      if (!raf && body.isConnected) raf = requestAnimationFrame(frame);
+    },
+    done() { return revealed >= target.length; },
+    cancel() { if (raf) cancelAnimationFrame(raf); raf = 0; }
+  };
+}
+
 function createStreamBubblePainter(contentElement) {
   let streamed = false;
-  let lastPaint = 0;
+  let painter = null;
   const onToken = (fullText) => {
     const displayState = extractStreamingDisplayState(fullText);
     if (displayState.inThinking) {
@@ -3701,21 +3849,8 @@ function createStreamBubblePainter(contentElement) {
     const outputText = displayState.responseText;
     if (!outputText) return;
     streamed = true;
-    const now = Date.now();
-    if (now - lastPaint < 40) return;
-    lastPaint = now;
-    const visualState = window.BrownVisualLoading?.prepare(outputText, { streaming: true }) || { text: outputText, pending: false };
-    const closed = renderMathFormulasStream(closeIncompleteMarkdown(visualState.text));
-    let parsed = '';
-    try {
-      parsed = window.ultronAPI.parseMarkdown(closed);
-    } catch (_) {
-      parsed = escapeHtml(closed);
-    }
-    contentElement.innerHTML = parsed;
-    if (visualState.pending) contentElement.insertAdjacentHTML('beforeend', '<div class="visual-loading-state" role="status"><span class="visual-loading-spinner" aria-hidden="true"></span>Generating visuals…</div>');
-    formatCodeBlocks(contentElement);
-    if (typeof SmoothChatScroller !== 'undefined') SmoothChatScroller.scrollToBottom();
+    if (!painter) painter = createSmoothStreamPainter(contentElement);
+    painter.update(outputText);
   };
   return { streamCallbacks: { onToken }, wasStreamed: () => streamed };
 }
@@ -3817,54 +3952,16 @@ async function typeMessageResponse(contentElement, fullText, options = {}) {
   SmoothChatScroller.resetUserScroll();
   SmoothChatScroller.scrollToBottom();
 
-  // Split into tokens (preserving words and all whitespace characters)
-  const tokens = String(textToAnimate).match(/\S+|\s+/g) || [textToAnimate];
-  const totalTokens = tokens.length;
-
-  let chunkSize = 1;
-  let stepDelay = 20;
-
-  if (totalTokens <= 25) {
-    chunkSize = 1;
-    stepDelay = 24;
-  } else if (totalTokens <= 80) {
-    chunkSize = 2;
-    stepDelay = 20;
-  } else if (totalTokens <= 250) {
-    chunkSize = 3;
-    stepDelay = 18;
-  } else if (totalTokens <= 600) {
-    chunkSize = 5;
-    stepDelay = 16;
-  } else if (totalTokens <= 1200) {
-    chunkSize = 8;
-    stepDelay = 14;
-  } else {
-    chunkSize = Math.max(10, Math.ceil(totalTokens / 90));
-    stepDelay = 12;
+  // Reveal the completed answer with the same eased, rAF-batched painter used
+  // for live streaming, so it flows in smoothly instead of popping word-by-word
+  // and never rebuilds the whole subtree (and restarts animations) every step.
+  const typePainter = createSmoothStreamPainter(targetContainer);
+  typePainter.update(String(textToAnimate));
+  while (!typePainter.done()) {
+    if (_activeTypingSession !== currentSession || (_activeAbortController && _activeAbortController.signal.aborted)) break;
+    await new Promise(r => setTimeout(r, 32));
   }
-
-  let accumulated = '';
-  for (let i = 0; i < totalTokens; i += chunkSize) {
-    if (_activeTypingSession !== currentSession || (_activeAbortController && _activeAbortController.signal.aborted)) {
-      break;
-    }
-
-    accumulated += tokens.slice(i, i + chunkSize).join('');
-
-    const closed = renderMathFormulasStream(closeIncompleteMarkdown(accumulated));
-    let parsed = '';
-    try {
-      parsed = window.ultronAPI.parseMarkdown(closed);
-    } catch (_) {
-      parsed = escapeHtml(closed);
-    }
-
-    targetContainer.innerHTML = parsed;
-    SmoothChatScroller.scrollToBottom();
-
-    await new Promise(r => setTimeout(r, stepDelay));
-  }
+  typePainter.cancel();
 
   // Render completed final content without cursor
   renderMessageContent(contentElement, fullText);
@@ -5664,6 +5761,10 @@ document.addEventListener('click', async (e) => {
 
 window.addEventListener('DOMContentLoaded', () => {
   renderSessionPanel();
+  // Pre-load the installed Kokoro voice shortly after launch (off the critical
+  // path) so the first "Speak" plays instantly instead of freezing while the
+  // ~90 MB ONNX model loads on demand. No-ops when no voice is installed.
+  setTimeout(() => { try { warmupActiveTtsEngine(); } catch (e) { /* ignore */ } }, 2500);
   let queued = false;
   const observer = new MutationObserver(() => {
     if (queued) return;
@@ -12590,8 +12691,8 @@ async function submitPrompt(overridePrompt) {
         const isFollowUp = isFollowUpAboutPriorTurn(routingPrompt);
         const followUpSystem = isFollowUp ? buildFollowUpConversationSystemPrompt(routingPrompt) : null;
         let streamedTokens = false;
-        let lastStreamPaint = 0;
         let response = '';
+        let streamPainter = null;
 
         const handleStreamTokenUpdate = (fullText) => {
           const displayState = extractStreamingDisplayState(fullText);
@@ -12614,21 +12715,9 @@ async function submitPrompt(overridePrompt) {
           if (!outputText) return;
 
           streamedTokens = true;
-          const now = Date.now();
-          if (now - lastStreamPaint < 32) return;
-          lastStreamPaint = now;
-          const visualState = window.BrownVisualLoading?.prepare(outputText, { streaming: true }) || { text: outputText, pending: false };
-          const closed = renderMathFormulasStream(closeIncompleteMarkdown(visualState.text));
-          let parsed = '';
-          try {
-            parsed = window.ultronAPI.parseMarkdown(closed);
-          } catch (_) {
-            parsed = escapeHtml(closed);
-          }
-          aiBubble.innerHTML = parsed;
-          if (visualState.pending) aiBubble.insertAdjacentHTML('beforeend', '<div class="visual-loading-state" role="status"><span class="visual-loading-spinner" aria-hidden="true"></span>Generating visuals…</div>');
-          SmoothChatScroller.scrollToBottom();
-          if (isTtsAutoSpeakEnabled()) feedStreamingAutoSpeak(visualState.text);
+          if (!streamPainter) streamPainter = createSmoothStreamPainter(aiBubble);
+          streamPainter.update(outputText);
+          if (isTtsAutoSpeakEnabled()) feedStreamingAutoSpeak(outputText);
         };
 
         // Execute via native Vercel AI SDK Core + MCP harness
@@ -16198,12 +16287,16 @@ function updateMarkAllCheckboxState() {
 // Bind live apps search filter and Mark All checkbox events
 const appsSearchInput = document.getElementById('apps-search');
 if (appsSearchInput) {
+  let _appsSearchTimer = 0;
   appsSearchInput.addEventListener('input', () => {
-    const savedMap = getSavedAuthorizedAppsMap() || {};
-    cachedSettingsApps.forEach((app) => {
-      if (savedMap[app.name] === undefined) savedMap[app.name] = true;
-    });
-    renderSettingsAppsList(getFilteredSettingsApps(), savedMap);
+    clearTimeout(_appsSearchTimer);
+    _appsSearchTimer = setTimeout(() => {
+      const savedMap = getSavedAuthorizedAppsMap() || {};
+      cachedSettingsApps.forEach((app) => {
+        if (savedMap[app.name] === undefined) savedMap[app.name] = true;
+      });
+      renderSettingsAppsList(getFilteredSettingsApps(), savedMap);
+    }, 120);
   });
 }
 

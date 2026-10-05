@@ -2077,6 +2077,8 @@
 
     let dragging = false;
     let dragStart = { x: 0, y: 0 };
+    let panRaf = 0;
+    let pendingX = 0, pendingY = 0;
     viewport.addEventListener('mousedown', (e) => {
       dragging = true;
       dragStart = { x: e.clientX - tx, y: e.clientY - ty };
@@ -2084,12 +2086,20 @@
     });
     window.addEventListener('mousemove', (e) => {
       if (!dragging || !_diagramPopupEl) return;
-      tx = e.clientX - dragStart.x;
-      ty = e.clientY - dragStart.y;
-      applyTransform();
+      pendingX = e.clientX - dragStart.x;
+      pendingY = e.clientY - dragStart.y;
+      if (panRaf) return;
+      panRaf = requestAnimationFrame(() => {
+        panRaf = 0;
+        if (!dragging || !_diagramPopupEl) return;
+        tx = pendingX;
+        ty = pendingY;
+        applyTransform();
+      });
     });
     window.addEventListener('mouseup', () => {
       dragging = false;
+      if (panRaf) { cancelAnimationFrame(panRaf); panRaf = 0; }
       if (viewport) viewport.classList.remove('dragging');
     });
     viewport.addEventListener('dblclick', () => { scale = 1; tx = 0; ty = 0; applyTransform(); });

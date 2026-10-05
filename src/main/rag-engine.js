@@ -60,15 +60,18 @@ function loadIndex() {
   };
 }
 
-function saveIndex(indexData) {
+async function saveIndex(indexData) {
+  const file = getIndexPath();
+  const tmp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   try {
-    const file = getIndexPath();
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    await fs.promises.mkdir(path.dirname(file), { recursive: true });
     indexData.updatedAt = new Date().toISOString();
-    fs.writeFileSync(file, JSON.stringify(indexData, null, 2), 'utf8');
+    await fs.promises.writeFile(tmp, JSON.stringify(indexData, null, 2), 'utf8');
+    await fs.promises.rename(tmp, file);
     return true;
   } catch (err) {
     console.error('[rag-engine] error saving index:', err.message);
+    try { await fs.promises.unlink(tmp); } catch (_) {}
     return false;
   }
 }
@@ -502,7 +505,7 @@ async function addSources(targetPaths = [], progressCallback = null) {
   }
 
   if (rejected.length === targetPaths.length) return { success: false, error: rejected.map(item => `${path.basename(item.path || '')}: ${item.reason}`).join(' '), rejected };
-  if (!saveIndex(indexData)) return { success: false, error: 'Could not save the Knowledge Base. Check available disk space and permissions.' };
+  if (!(await saveIndex(indexData))) return { success: false, error: 'Could not save the Knowledge Base. Check available disk space and permissions.' };
   const result = await reindexAll(progressCallback);
   const refreshed = loadIndex();
   return { ...result, added, rejected, sources: refreshed.sources, totalSources: refreshed.sources.length };
@@ -513,7 +516,7 @@ async function removeSource(sourcePath) {
   const indexData = loadIndex();
   indexData.sources = indexData.sources.filter(s => s.path !== sourcePath);
   indexData.chunks = indexData.chunks.filter(c => !chunksBelongToSource(c.filePath, sourcePath));
-  if (!saveIndex(indexData)) return { success: false, error: 'Could not save the source removal.' };
+  if (!(await saveIndex(indexData))) return { success: false, error: 'Could not save the source removal.' };
   return { success: true, totalSources: indexData.sources.length };
 }
 
@@ -537,7 +540,7 @@ async function reindexSource(sourcePath) {
   }
   source.chunkCount = sourceChunkCount;
   source.lastIndexed = new Date().toISOString();
-  saveIndex(indexData);
+  await saveIndex(indexData);
   return { success: true, totalFiles: files.length, totalChunks: sourceChunkCount };
 }
 
@@ -557,7 +560,7 @@ async function autoAddSource(targetPath) {
       fileCount: 0,
       chunkCount: 0
     });
-    saveIndex(indexData);
+    await saveIndex(indexData);
   }
   return await reindexSource(targetPath);
 }
@@ -610,7 +613,7 @@ async function indexFile(filePath) {
     source.indexedMtime = stat.mtimeMs;
     source.lastIndexed = new Date().toISOString();
   }
-  saveIndex(indexData);
+  await saveIndex(indexData);
   return { success: true, chunks: chunks.length };
 }
 
@@ -655,7 +658,7 @@ async function reindexAll(progressCallback = null) {
   }
 
   indexData.chunks = [...new Map(allChunks.map(chunk => [chunk.id, chunk])).values()];
-  if (!saveIndex(indexData)) return { success: false, error: 'Could not save the indexed files.' };
+  if (!(await saveIndex(indexData))) return { success: false, error: 'Could not save the indexed files.' };
 
   return {
     success: true,
@@ -821,19 +824,19 @@ async function indexTextContent(id, title, content, metadata = {}) {
   source.chunkCount = textChunks.length;
   source.lastIndexed = new Date().toISOString();
 
-  saveIndex(indexData);
+  await saveIndex(indexData);
   return { success: true, chunksAdded: textChunks.length };
 }
 
 // Clear all indexed knowledge
-function clearIndex() {
+async function clearIndex() {
   const empty = {
     version: '1.0',
     updatedAt: new Date().toISOString(),
     sources: [],
     chunks: []
   };
-  return saveIndex(empty) ? { success: true } : { success: false, error: 'Could not clear the Knowledge Base index.' };
+  return (await saveIndex(empty)) ? { success: true } : { success: false, error: 'Could not clear the Knowledge Base index.' };
 }
 
 // Get statistics

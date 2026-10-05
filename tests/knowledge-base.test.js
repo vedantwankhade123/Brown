@@ -7,7 +7,9 @@ const ui = require('../src/renderer/knowledge-base');
 function loadEngine(root, failSave = false) {
   const filename = path.resolve(__dirname, '../src/main/rag-engine.js');
   const module = { exports: {} };
-  const disk = failSave ? { ...fs, writeFileSync: () => { throw new Error('Disk unavailable'); } } : fs;
+  const disk = failSave
+    ? { ...fs, promises: { ...fs.promises, writeFile: async () => { throw new Error('Disk unavailable'); } }, writeFileSync: () => { throw new Error('Disk unavailable'); } }
+    : fs;
   new Function('require', 'module', 'exports', fs.readFileSync(filename, 'utf8'))(name => {
     if (name === 'electron') return { app: { getPath: () => root } };
     if (name === 'fs') return disk;

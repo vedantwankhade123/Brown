@@ -22453,7 +22453,7 @@ html[data-theme="light"],
 .message-content .visual-chart-wrapper, .message-content .visual-diagram-container,
 .message-content .ultron-search-experience, .message-content .table-responsive-wrapper { width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
 .visual-loading-state { display: flex; align-items: center; gap: 10px; padding: 18px; border-radius: 12px; background: var(--bg-sidebar); color: var(--text-primary); font: 400 14px 'Outfit', sans-serif; }
-.visual-loading-spinner { width: 15px; height: 15px; flex: 0 0 15px; border: 2px solid color-mix(in srgb, var(--text-primary) 20%, transparent); border-top-color: var(--text-primary); border-radius: 50%; animation: brown-visual-spin .8s linear infinite; }
+.visual-loading-spinner { width: 15px; height: 15px; flex: 0 0 15px; border: 2px solid color-mix(in srgb, var(--text-primary) 20%, transparent); border-top-color: var(--text-primary); border-radius: 50%; animation: brown-visual-spin .8s linear infinite; will-change: transform; transform: translateZ(0); }
 @keyframes brown-visual-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .visual-loading-spinner { animation: none; } }
 .search-load-more { margin-top: 12px; padding: 9px 16px; background: var(--bg-sidebar); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 10px; cursor: pointer; font: inherit; }

@@ -385,6 +385,9 @@
   let _panStartY = 0;
   let _scrollStartLeft = 0;
   let _scrollStartTop = 0;
+  let _panRaf = 0;
+  let _panTargetLeft = 0;
+  let _panTargetTop = 0;
 
   function initVisualInspectorControls() {
     const btnZoomIn = document.getElementById('btn-visual-zoom-in');
@@ -434,26 +437,34 @@
         if (e.target.closest('button, input, select, textarea, iframe')) return;
         _isPanningVisual = true;
         viewport.classList.add('is-panning');
-        _panStartX = e.pageX - viewport.offsetLeft;
-        _panStartY = e.pageY - viewport.offsetTop;
+        _panStartX = e.pageX;
+        _panStartY = e.pageY;
         _scrollStartLeft = viewport.scrollLeft;
         _scrollStartTop = viewport.scrollTop;
+        _panTargetLeft = _scrollStartLeft;
+        _panTargetTop = _scrollStartTop;
       });
 
       window.addEventListener('mousemove', (e) => {
         if (!_isPanningVisual || !viewport) return;
         e.preventDefault();
-        const x = e.pageX - viewport.offsetLeft;
-        const y = e.pageY - viewport.offsetTop;
-        const walkX = (x - _panStartX) * 1.2;
-        const walkY = (y - _panStartY) * 1.2;
-        viewport.scrollLeft = _scrollStartLeft - walkX;
-        viewport.scrollTop = _scrollStartTop - walkY;
+        const walkX = (e.pageX - _panStartX) * 1.2;
+        const walkY = (e.pageY - _panStartY) * 1.2;
+        _panTargetLeft = _scrollStartLeft - walkX;
+        _panTargetTop = _scrollStartTop - walkY;
+        if (_panRaf) return;
+        _panRaf = requestAnimationFrame(() => {
+          _panRaf = 0;
+          if (!_isPanningVisual || !viewport) return;
+          viewport.scrollLeft = _panTargetLeft;
+          viewport.scrollTop = _panTargetTop;
+        });
       });
 
       window.addEventListener('mouseup', () => {
         if (_isPanningVisual && viewport) {
           _isPanningVisual = false;
+          if (_panRaf) { cancelAnimationFrame(_panRaf); _panRaf = 0; }
           viewport.classList.remove('is-panning');
         }
       });
