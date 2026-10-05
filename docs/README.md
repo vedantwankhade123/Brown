@@ -41,3 +41,10 @@ Welcome to the central documentation index for the **Brown AI Ecosystem** (Windo
 - **[Website (React / Vite)](../brown-website/)**: Official website and web portal
 - **[Python AI Service](../python/)**: Local Python microservice for custom scrapers and inference
 - **[Scripts & Tooling](../scripts/)**: Installer generation, voice tools, and maintenance scripts
+
+## Current desktop release
+
+- [v1.0.17 release notes](../.release-notes-v1.0.17.md)
+- [v1.0.17 verification and limitations](releases/RELEASE_QA_v1.0.17.md)
+
+This release focuses on offline chat and rich answers. Optional web search connects online; unfinished automation, CRUD actions and approval controls are hidden.

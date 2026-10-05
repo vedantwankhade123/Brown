@@ -10,7 +10,7 @@ Date: 5 October 2026.
 
 ## Local Windows package
 
-- NSIS installer and portable build succeeded locally. Installer size: 130,558,166 bytes; portable size: 130,241,834 bytes.
+- NSIS installer and portable build succeeded locally. Installer size: 130,564,368 bytes; portable size: 130,248,037 bytes.
 - Installer passed Windows executable-header, exact-size and SHA-512 checks against latest.yml.
 - Packaged app opened onboarding with email, date of birth and helper-model fields absent.
 - Packaged renderer produced a table, KaTeX formula and SVG chart; chart background matched the sidebar.
@@ -19,3 +19,5 @@ Date: 5 October 2026.
 - Website production build, download-tracking tests and SEO checks passed.
 
 The live release download is verified with node scripts/verify-desktop-release.cjs --download after publication; this checks discovery, actual download and integrity without launching an installer.
+
+Version selection: v1.0.8 was a historical local tag, so it was preserved. The final build uses the unused v1.0.17 tag and supersedes the older public release.
