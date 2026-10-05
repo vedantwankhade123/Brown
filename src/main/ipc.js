@@ -2715,19 +2715,27 @@ function getInstallationDefaultDataDir() {
     }
   });
 
-  // Save conversation history to local data directory path
-  ipcMain.handle('save-conversations', async (event, dataStr) => {
-    try {
+  // Save conversation history to local data directory path.
+  // Writes are chained so concurrent saves never race on the temp file,
+  // and the latest snapshot always wins (last-write-wins).
+  let _convoWriteChain = Promise.resolve();
+  ipcMain.handle('save-conversations', (event, dataStr) => {
+    const write = async () => {
       const dataDir = process.env.ULTRON_DATA_DIR;
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
       const filePath = path.join(dataDir, 'conversations.json');
-      fs.writeFileSync(filePath, dataStr, 'utf8');
+      const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+      await fs.promises.writeFile(tmpPath, dataStr, 'utf8');
+      await fs.promises.rename(tmpPath, filePath);
       return { success: true };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
+    };
+    _convoWriteChain = _convoWriteChain
+      .catch(() => {})
+      .then(write)
+      .catch(err => ({ success: false, error: err.message }));
+    return _convoWriteChain;
   });
 
   // Load conversation history from local data directory path
@@ -2735,11 +2743,12 @@ function getInstallationDefaultDataDir() {
     try {
       const dataDir = process.env.ULTRON_DATA_DIR;
       const filePath = path.join(dataDir, 'conversations.json');
-      if (fs.existsSync(filePath)) {
-        const data = fs.readFileSync(filePath, 'utf8');
+      try {
+        const data = await fs.promises.readFile(filePath, 'utf8');
         return { success: true, data };
+      } catch (_) {
+        return { success: true, data: '{}' };
       }
-      return { success: true, data: '{}' };
     } catch (err) {
       return { success: false, error: err.message };
     }

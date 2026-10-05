@@ -5,27 +5,34 @@ for Windows, [Brown-Mobile](https://github.com/vedantwankhade123/Brown-Mobile/re
 Every release publishes versioned files **and** stable aliases (`Brown-AI-Setup.exe`,
 `Brown-AI-Portable.exe`, `Brown-AI-Mobile.apk`) that always point at the newest build.
 
-## Brown AI Desktop v1.0.17 (Latest)
+## Brown AI Desktop v1.0.0 (Latest)
 
-## Changes
+First public release, published as **Brown v1**.
+
+### Changes
 - Focus this release on offline AI chat; hide unfinished automation, CRUD tools and approval controls.
-- Improve charts, diagrams, tables, mathematical notation, code answers and visual generation progress.
+- Rich answers: tables, code, mathematical notation (KaTeX) and generated diagrams/charts with a rendered background that matches the app.
 - Search the web before composing an answer, with intent-based queries, cited sources and verified product information. Online search requires an internet connection.
-- Create background spoken summaries for rich answers that cannot be read directly by offline voice.
-- Simplify onboarding: remove email, date of birth and the supplementary helper model.
-- Refine dark and light themes, sidebar spacing, settings contrast, voice controls, knowledge search and Help & Support typography.
-- Verify update integrity, interrupted download recovery, concurrent checks/downloads and installer launch failure handling.
+- Background spoken summaries for rich answers that cannot be read directly by offline voice.
+- Simplified onboarding: no email, no date of birth and no supplementary helper model.
+- Refined dark and light themes, sidebar spacing, settings contrast, voice controls, knowledge search and Help & Support typography.
+- Update integrity checks, interrupted download recovery, concurrent checks/downloads and installer launch-failure handling.
+- Smooth answers: replies reveal as a continuous eased stream instead of word-by-word popping; the "Generating visuals" spinner stays steady while spinning; diagram and canvas pan/zoom are frame-batched; knowledge-base and app search no longer rebuild their whole list per keystroke; chat history, mobile-sync imports and the knowledge index are written off the main thread so long conversations cannot make Windows report "Not Responding"; speech is warmed up at startup.
+- Better tables: comparison tables keep their column structure from the first row to the last, including answers where a small model drifts into a bullet-style layout mid-table, and tables fill in progressively while the answer streams.
 
-## Windows downloads
+### Windows downloads
 - Brown-AI-Setup.exe: recommended Windows 10/11 x64 installer.
 - Brown-AI-Portable.exe: portable edition; replace the executable manually to update.
+- Brown-AI-Setup-v1.0.0.exe / Brown-AI-v1.0.0.exe: versioned copies of the same build.
 - latest.yml: update manifest with installer SHA-512 and size.
 
-## Verification
-Desktop automated tests pass, including updater regressions. Mobile source tests and type checking are run separately; this release does not publish a new Android APK. Packaged Windows smoke checks and live release verification are recorded in docs/releases/RELEASE_QA_v1.0.17.md.
+### Verification
+Desktop automated tests pass, including updater regressions. Mobile source tests and type checking are run separately; this release does not publish a new Android APK. Live release verification is recorded in docs/releases/RELEASE_QA_v1.0.0.md.
 
-## Requirements and scope
+### Requirements and scope
 Model downloads and optional web/cloud services require internet access; installed local models can answer offline. The Windows binaries are not Authenticode signed. A clean-machine installation and a complete installed-app upgrade are not certified by automated updater tests.
+
+> Note: `1.0.17` existed only as an update-feed placeholder while the desktop release was paused, and `1.0.1`–`1.0.7` were pre-rebrand builds. None of them were ever published as GitHub Releases — v1.0.0 is the first official desktop release, and the tags are kept for build history.
 
 ## 🌟 Brown AI v1.0.2
 

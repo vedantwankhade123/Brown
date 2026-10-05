@@ -132,7 +132,12 @@
     $('btn-rag-add-files').addEventListener('click', () => choose(() => pickKnowledgeFiles(api)));
     $('btn-rag-reindex').addEventListener('click', () => run('Re-indexing…', () => api.ragReindex(), true));
     $('btn-rag-clear').addEventListener('click', () => { if (!busy && confirm('Clear the Knowledge Base index? Original files will not be deleted.')) run('Clearing index…', () => api.ragClear()); });
-    $('kb-search').addEventListener('input', event => { search = event.target.value.trim().toLowerCase(); draw(); });
+    let _kbSearchTimer = 0;
+    $('kb-search').addEventListener('input', event => {
+      search = event.target.value.trim().toLowerCase();
+      clearTimeout(_kbSearchTimer);
+      _kbSearchTimer = setTimeout(draw, 140);
+    });
     $('kb-type-filter').addEventListener('change', event => { typeFilter = event.target.value; draw(); });
     $('kb-reset-filter').addEventListener('click', () => { sourceFilter = ''; typeFilter = 'all'; search = ''; $('kb-search').value = ''; $('kb-type-filter').value = 'all'; draw(); });
     document.querySelectorAll('[data-kb-view]').forEach(button => button.addEventListener('click', () => {

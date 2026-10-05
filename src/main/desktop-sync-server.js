@@ -245,10 +245,12 @@ function loadConversationsStore() {
   return {};
 }
 
-function saveConversationsStore(store) {
+async function saveConversationsStore(store) {
   const file = conversationsFile();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(store, null, 2), 'utf8');
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  await fs.promises.writeFile(tmp, JSON.stringify(store, null, 2), 'utf8');
+  await fs.promises.rename(tmp, file);
 }
 
 function toMillis(value) {
@@ -281,7 +283,7 @@ function normalizeSessions(store) {
   });
 }
 
-function mergeIncomingSessions(incoming) {
+async function mergeIncomingSessions(incoming) {
   const store = loadConversationsStore();
   let merged = 0;
   for (const session of incoming || []) {
@@ -319,7 +321,7 @@ function mergeIncomingSessions(incoming) {
     existing.title = session.title || existing.title;
     existing.updatedAt = new Date().toISOString();
   }
-  saveConversationsStore(store);
+  await saveConversationsStore(store);
   return merged;
 }
 
@@ -653,7 +655,7 @@ async function handleRequest(req, res) {
       json(req, res, 403, { ok: false, denied: true, error: consent.error || 'Declined on the PC' });
       return;
     }
-    const merged = mergeIncomingSessions(incoming);
+    const merged = await mergeIncomingSessions(incoming);
     notifyRenderer('mobile-chats-imported', { merged });
     json(req, res, 200, { ok: true, merged });
     return;
