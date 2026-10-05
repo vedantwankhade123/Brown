@@ -70,14 +70,13 @@ function formatBytes(bytes) {
   return `${mb.toFixed(1)} MB`;
 }
 
-function downloadFile(url, destPath, onProgress) {
+function downloadFile(url, destPath, onProgress, signal) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destPath);
     const request = https.get(url, { headers: { 'User-Agent': 'Ultron/1.0' } }, (response) => {
       if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-        file.close();
-        fs.unlink(destPath, () => {});
-        return downloadFile(response.headers.location, destPath, onProgress).then(resolve).catch(reject);
+        response.resume();
+        return file.close(() => downloadFile(new URL(response.headers.location, url).href, destPath, onProgress, signal).then(resolve).catch(reject));
       }
       if (response.statusCode !== 200) {
         file.close();
@@ -109,6 +108,8 @@ function downloadFile(url, destPath, onProgress) {
       });
 
       response.pipe(file);
+      response.on('error', err => { file.destroy(); reject(err); });
+      file.on('error', err => { request.destroy(); reject(err); });
       file.on('finish', () => file.close(() => resolve(destPath)));
     });
     request.on('error', (err) => {
@@ -116,6 +117,11 @@ function downloadFile(url, destPath, onProgress) {
       fs.unlink(destPath, () => {});
       reject(err);
     });
+    request.setTimeout(30000, () => request.destroy(new Error('Download timed out. Please retry.')));
+    const abort = () => { file.destroy(); request.destroy(new Error('Download cancelled.')); };
+    signal?.addEventListener('abort', abort, { once: true });
+    file.on('close', () => signal?.removeEventListener('abort', abort));
+    if (signal?.aborted) abort();
   });
 }
 
@@ -146,11 +152,16 @@ async function ensureWindowsUiaInstalled(options = {}) {
   try {
     fs.mkdirSync(installDir, { recursive: true });
     if (!fs.existsSync(zipPath)) {
-      await downloadFile(RELEASE_URL, zipPath, options.onProgress);
+      const partialPath = zipPath + '.partial';
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try { await downloadFile(RELEASE_URL, partialPath, options.onProgress, options.signal); fs.renameSync(partialPath, zipPath); break; }
+        catch (error) { if (options.signal?.aborted || attempt === 2) throw error; }
+      }
     }
     if (options.onProgress) {
       options.onProgress({ percent: 100, downloaded: null, total: null, speed: '', phase: 'extract' });
     }
+    if (options.signal?.aborted) throw new Error('Download cancelled.');
     await expandZip(zipPath, installDir);
     const exePath = resolveWindowsUiaExecutable({ userDataPath: options.userDataPath });
     if (!exePath) {
@@ -158,7 +169,7 @@ async function ensureWindowsUiaInstalled(options = {}) {
     }
     return { success: true, exePath, installed: true };
   } catch (err) {
-    return { success: false, error: err.message || 'Install failed.' };
+    return { success: false, cancelled: Boolean(options.signal?.aborted), error: err.message || 'Install failed.' };
   }
 }
 

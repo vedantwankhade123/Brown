@@ -31,27 +31,18 @@
 
   function serializeToolCall(toolCall) {
     if (!toolCall) return '';
-    const payload = {
-      type: toolCall.type,
-      action: toolCall.action,
-      appName: toolCall.appName,
-      target: toolCall.target,
-      url: toolCall.url,
-      path: toolCall.path || toolCall.targetPath,
-      keys: toolCall.keys,
-      text: toolCall.text ? String(toolCall.text).slice(0, 120) : undefined
-    };
-    return JSON.stringify(payload);
+    function canonical(value) {
+      if (Array.isArray(value)) return value.map(canonical);
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
+      }
+      return value;
+    }
+    return JSON.stringify(canonical(toolCall));
   }
 
   function hashCall(toolCall) {
-    const raw = serializeToolCall(toolCall);
-    let hash = 0;
-    for (let i = 0; i < raw.length; i++) {
-      hash = ((hash << 5) - hash) + raw.charCodeAt(i);
-      hash |= 0;
-    }
-    return String(hash);
+    return serializeToolCall(toolCall);
   }
 
   function toolLabel(toolCall) {
@@ -85,7 +76,7 @@
 
     if (identicalCount > _config.maxIdenticalCalls) {
       const reason = `Identical call to ${label} repeated ${identicalCount} times (max ${_config.maxIdenticalCalls}).`;
-      return finalizeVerdict(true, reason);
+      return finalizeVerdict(true, reason, `identical:${callHash}`);
     }
 
     const perToolCount = (_perToolCounts.get(label) || 0) + 1;
@@ -93,12 +84,12 @@
     const budget = (label === 'SEARCH' || label === 'WEB_FETCH')
       ? (_config.searchHopBudget || _config.pollToolBudget)
       : _config.pollToolBudget;
-    if (perToolCount > budget) {
+    if (['SEARCH', 'WEB_FETCH', 'CAPTURE_SCREEN'].includes(label) && perToolCount > budget) {
       const reason = `Tool ${label} exceeded poll budget (${budget}).`;
-      return finalizeVerdict(true, reason);
+      return finalizeVerdict(true, reason, `budget:${label}`);
     }
 
-    _toolSequence.push(label);
+    _toolSequence.push(callHash);
     if (_toolSequence.length > _config.pingPongWindow * 2) {
       _toolSequence.splice(0, _toolSequence.length - _config.pingPongWindow * 2);
     }
@@ -110,12 +101,12 @@
     return { blocked: false, warned: false, reason: '' };
   }
 
-  function finalizeVerdict(blocked, reason) {
+  function finalizeVerdict(blocked, reason, cycle = reason) {
     if (!blocked || !_config.warnBeforeBlock) {
       return { blocked, warned: false, reason };
     }
-    if (!_warnedCycles.has(reason)) {
-      _warnedCycles.add(reason);
+    if (!_warnedCycles.has(cycle)) {
+      _warnedCycles.add(cycle);
       return { blocked: false, warned: true, reason };
     }
     return { blocked: true, warned: false, reason };

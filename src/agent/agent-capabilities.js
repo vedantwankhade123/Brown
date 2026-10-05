@@ -8,7 +8,7 @@
     file_system: {
       label: 'Files & folders',
       description: 'Read, write, list files on your PC',
-      toolTypes: ['READ_FILE', 'WRITE_FILE', 'LIST_DIR']
+      toolTypes: ['READ_FILE', 'WRITE_FILE', 'LIST_DIR', 'CREATE_FOLDER', 'MOVE_FILE', 'DELETE_FILE', 'REMOVE_FILE']
     },
     shell: {
       label: 'Shell & terminal',

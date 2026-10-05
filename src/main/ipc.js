@@ -1,3 +1,4 @@
+const { resolveFileTarget, listDirectory, createDirectory, moveFileTarget } = require('./file-targets');
 const { ipcMain, exec, app, shell, dialog, clipboard, desktopCapturer, screen, BrowserWindow } = require('electron');
 const { exec: cpExec } = require('child_process');
 const path = require('path');
@@ -203,6 +204,8 @@ const { profileHardware, queryLocalOllamaModels, getModelRecommendation } = requ
 const { launchWindowsSandbox } = require('./sandbox');
 const { findInstalledAppSmart } = require('./app-matching');
 const { fetchWebPage } = require('./web-fetch');
+const { fetchPublicPage, extractStructuredProducts, budgetForQuery, extractSiteIcon } = require('./public-web');
+const { getMarketSnapshot } = require('./market-snapshot');
 const mcpManager = require('./mcp-manager');
 const { searchHuggingFaceGgufModels, getModelQuantizations } = require('./huggingface-service');
 const { getWindowsNativeLocation } = require('./windows-geolocation');
@@ -1601,19 +1604,21 @@ function setupIpcHandlers() {
 
   // Desktop app control entry point for the agent loop
   ipcMain.handle('app-action', async (event, payload = {}) => {
+    if (!require('../config/release-features').computerActions) return { success: false, error: 'Computer actions are unavailable in this chat release.' };
     try {
       const action = String(payload.action || '').toUpperCase();
 
       if (action === 'LIST_APPS') {
         return {
           success: true,
-          apps: discoverInstalledApps().map(item => ({ name: item.name }))
+          apps: discoverInstalledApps().map(item => ({ name: item.name, path: item.path }))
         };
       }
 
       if (action === 'OPEN_APP') {
         const lookup = findInstalledAppResult(payload.appName || payload.target);
         const match = lookup.match;
+        if (lookup.ambiguous) return { success: false, error: 'Multiple apps match. Choose the exact app name.', ambiguous: true, suggestions: lookup.suggestions || [] };
         if (!match) {
           const suggestionText = lookup.suggestions && lookup.suggestions.length
             ? ` Did you mean: ${lookup.suggestions.join(', ')}?`
@@ -1635,7 +1640,7 @@ function setupIpcHandlers() {
         const icon = await getInstalledAppIcon(match);
         const launchError = await shell.openPath(match.path);
         if (launchError) return { success: false, error: launchError };
-        return { success: true, message: `Opened ${match.name}`, app: match.name, resolvedApp: match.name, appIcon: icon };
+        return { success: true, message: `Opened ${match.name}`, app: match.name, resolvedApp: match.name, appIcon: icon, path: match.path, launchRequested: true };
       }
 
       if (action === 'FOCUS_APP') {
@@ -1872,7 +1877,7 @@ function setupIpcHandlers() {
   ipcMain.handle('delete-file', async (event, targetPath) => {
     try {
       if (!targetPath) return { success: false, error: 'No file path provided.' };
-      const resolved = path.resolve(targetPath);
+      const resolved = resolveFileTarget(targetPath);
       if (isPathBlacklisted(resolved)) {
         return { success: false, error: `Access Denied: Path "${resolved}" is protected by security policy.` };
       }
@@ -2304,7 +2309,16 @@ function setupIpcHandlers() {
     }
   });
 
+  let windowsUiaInstallController = null;
+  ipcMain.handle('cancel-windows-uia-install', () => {
+    windowsUiaInstallController?.abort();
+    return { success: true };
+  });
   ipcMain.handle('install-mcp-windows-uia', async (event) => {
+    if (!require('../config/release-features').computerActions) return { success: false, error: 'Automation engines are unavailable in this chat release.' };
+    if (windowsUiaInstallController) return { success: false, error: 'Windows automation installation is already running.' };
+    const controller = new AbortController();
+    windowsUiaInstallController = controller;
     try {
       const userDataPath = getConnectorsRoot();
       const sendProgress = (data) => {
@@ -2321,9 +2335,11 @@ function setupIpcHandlers() {
       };
       const installed = await mcpManager.ensureWindowsUiaInstalled({
         userDataPath,
+        signal: controller.signal,
         onProgress: sendProgress
       });
       if (!installed.success) return installed;
+      if (controller.signal.aborted) return { success: false, cancelled: true };
       const reconnect = await mcpManager.reconnectWindowsUia({
         userDataPath,
         autoInstall: false,
@@ -2338,7 +2354,7 @@ function setupIpcHandlers() {
       };
     } catch (err) {
       return { success: false, error: err.message };
-    }
+    } finally { windowsUiaInstallController = null; }
   });
 
   // Persistent User Profile Storage across app restarts
@@ -2740,6 +2756,7 @@ function getInstallationDefaultDataDir() {
 
   // Main task execution entry point
   ipcMain.handle('execute-action', async (event, { command, targetPath, isWrite }) => {
+    if (!require('../config/release-features').computerActions) return { success: false, error: 'Command execution is unavailable in this chat release.' };
     try {
       // 1. Hard-coded Blacklist check
       if (isCommandBlacklisted(command)) {
@@ -2809,7 +2826,7 @@ function getInstallationDefaultDataDir() {
   // Read local file contents
   ipcMain.handle('read-file', async (event, filePath) => {
     try {
-      const resolvedPath = path.resolve(filePath);
+      const resolvedPath = resolveFileTarget(filePath);
       if (isPathBlacklisted(resolvedPath)) {
         return { success: false, error: `Access Denied: Path "${resolvedPath}" is restricted by safety policy.` };
       }
@@ -2857,7 +2874,7 @@ function getInstallationDefaultDataDir() {
   // Write content to a local file
   ipcMain.handle('write-file', async (event, { filePath, content }) => {
     try {
-      const resolvedPath = path.resolve(filePath);
+      const resolvedPath = resolveFileTarget(filePath);
       if (isPathBlacklisted(resolvedPath)) {
         return { success: false, error: `Access Denied: Writing to "${resolvedPath}" is restricted by safety policy.` };
       }
@@ -2973,24 +2990,18 @@ function getInstallationDefaultDataDir() {
   });
 
   // List directory contents
-  ipcMain.handle('list-dir', async (event, dirPath) => {
-    try {
-      const targetDir = dirPath ? path.resolve(dirPath) : process.cwd();
-      if (isPathBlacklisted(targetDir)) {
-        return { success: false, error: `Access Denied: Path "${targetDir}" is restricted by safety policy.` };
-      }
-      if (!fs.existsSync(targetDir)) {
-        return { success: false, error: `Directory not found: ${targetDir}` };
-      }
-      const items = fs.readdirSync(targetDir, { withFileTypes: true }).map(item => ({
-        name: item.name,
-        isDirectory: item.isDirectory(),
-        isFile: item.isFile()
-      }));
-      return { success: true, dirPath: targetDir, items };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
+  ipcMain.handle('resolve-file-target', async (_, payload = {}) => {
+    try { return { success: true, path: resolveFileTarget(payload.path, payload.basePath) }; }
+    catch (error) { return { success: false, error: error.message }; }
+  });
+  ipcMain.handle('list-dir', async (_, value) => {
+    try { return listDirectory(value); } catch (error) { return { success: false, error: error.message }; }
+  });
+  ipcMain.handle('create-folder', async (_, value) => {
+    try { return createDirectory(value); } catch (error) { return { success: false, error: error.message }; }
+  });
+  ipcMain.handle('move-file-target', async (_, payload = {}) => {
+    try { return moveFileTarget(payload.source, payload.destination); } catch (error) { return { success: false, error: error.message }; }
   });
 
   // Open URL in default system browser
@@ -3222,15 +3233,7 @@ function getInstallationDefaultDataDir() {
     };
 
     try {
-      let res = await fetch(url, { method: 'HEAD', headers, redirect: 'follow', signal: controller.signal });
-      if (!res.ok || [401, 403, 405, 404, 501].includes(res.status)) {
-        res = await fetch(url, {
-          method: 'GET',
-          headers: { ...headers, Range: 'bytes=0-4096' },
-          redirect: 'follow',
-          signal: controller.signal
-        });
-      }
+      const res = await fetchPublicPage(url, { signal: controller.signal, timeoutMs: 8000 });
 
       clearTimeout(timeout);
       const finalUrl = res.url || url;
@@ -3283,7 +3286,7 @@ function getInstallationDefaultDataDir() {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 6000);
-      const res = await fetch(url, {
+      const res = await fetchPublicPage(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36'
         },
@@ -3309,7 +3312,9 @@ function getInstallationDefaultDataDir() {
       return {
         title: stripTags(title || ''),
         description: stripTags(description || ''),
-        image: normalizeAbsoluteUrl(image, url)
+        image: normalizeAbsoluteUrl(image, url),
+        favicon: extractSiteIcon(html, res.url || url),
+        products: extractStructuredProducts(html, res.url || url)
       };
     } catch (e) {
       return null;
@@ -3425,7 +3430,8 @@ function getInstallationDefaultDataDir() {
 
   // Robust multi-source Web Search handler (DuckDuckGo API + Wiki API + DDG Organic POST + Video + Cache)
   ipcMain.handle('search-web', async (event, query, options = {}) => {
-    let cleanQuery = query ? query.replace(/["']/g, '').trim() : '';
+    let cleanQuery = String(query || '').slice(0, 1000).replace(/["']/g, '').trim();
+    const page = Math.max(0, Math.min(10, Math.floor(Number(options.page) || 0)));
     // Strip common prompt prefixes
     cleanQuery = cleanQuery
       .replace(/\bwbe\b/gi, 'web')
@@ -3437,15 +3443,20 @@ function getInstallationDefaultDataDir() {
       return { success: false, query: '', results: [], products: [], videos: [], answerContext: '', needsClarification: true, clarification: 'Please provide a valid web search query.' };
     }
 
-    const cacheKey = cleanQuery.toLowerCase();
-    if (!options.bypassCache && searchMemoryCache.has(cacheKey)) {
+
+    const excludedUrls = new Set(Array.isArray(options.excludeUrls) ? options.excludeUrls.slice(0, 100) : []);
+    const cacheKey = cleanQuery.toLowerCase() + ':' + String(options.budgetQuery || '').slice(0, 300) + ':' + page;
+    if (!options.bypassCache && !excludedUrls.size && searchMemoryCache.has(cacheKey)) {
       const cachedEntry = searchMemoryCache.get(cacheKey);
-      if (Date.now() - cachedEntry.timestamp < SEARCH_CACHE_TTL_MS) {
+      const ttl = /today|latest|current|stock|market|price|under|below/i.test(cleanQuery) ? 60000 : SEARCH_CACHE_TTL_MS;
+      if (Date.now() - cachedEntry.timestamp < ttl) {
         return { ...cachedEntry.data, cached: true };
       }
     }
 
     const resultBlocks = [];
+    const marketQuotesPromise = /stock|stock market|market data|nifty|sensex|nasdaq|bitcoin|ethereum|share price/i.test(cleanQuery)
+      ? getMarketSnapshot(cleanQuery) : Promise.resolve([]);
     const isVideoQuery = isVideoOrTutorialQuery(cleanQuery);
     const searchQueries = expandSearchQueries(cleanQuery);
     const primarySearchQuery = searchQueries[0] || cleanQuery;
@@ -3518,7 +3529,8 @@ function getInstallationDefaultDataDir() {
             'Content-Type': 'application/x-www-form-urlencoded',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
           },
-          body: `q=${encodeURIComponent(cleanQuery)}`
+          body: `q=${encodeURIComponent(cleanQuery)}&s=${page * 10}`,
+          signal: AbortSignal.timeout(6000)
         });
         if (res.ok) {
           const html = await res.text();
@@ -3581,7 +3593,20 @@ function getInstallationDefaultDataDir() {
       }
     }
 
-    const candidateResults = uniqueResults(resultBlocks).slice(0, 10);
+    if (resultBlocks.filter(item => !excludedUrls.has(item.url)).length < 6) {
+      try {
+        const response = await fetchPublicPage(`https://www.bing.com/search?format=rss&first=${page * 10 + 1}&q=${encodeURIComponent(cleanQuery)}`, { timeoutMs: 6000, maxBytes: 500000 });
+        if (response.ok) {
+          const xml = await response.text();
+          for (const match of xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
+            const read = tag => stripTags((match[1].match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))?.[1] || '').replace(/<!\[CDATA\[|\]\]>/g, ''));
+            const url = read('link');
+            if (isValidResultUrl(url)) resultBlocks.push({ title: read('title'), url, snippet: read('description'), source: getHostname(url) });
+          }
+        }
+      } catch (_) { /* Search fallback failures leave the other providers' results intact. */ }
+    }
+    const candidateResults = uniqueResults(resultBlocks).filter(item => !excludedUrls.has(item.url)).slice(0, 10);
     const verifiedResults = [];
     const verifications = await Promise.all(candidateResults.map(item => verifyUrl(item.url)));
     candidateResults.forEach((item, index) => {
@@ -3608,6 +3633,10 @@ function getInstallationDefaultDataDir() {
     });
 
     const results = verifiedResults.slice(0, 8);
+    const marketQuotes = await marketQuotesPromise;
+    marketQuotes.forEach(quote => {
+      results.unshift({ title: `${quote.name} (${quote.symbol})`, url: quote.source, source: 'Yahoo Finance', snippet: `${quote.price} ${quote.currency}; change ${quote.changePercent === null ? 'unavailable' : quote.changePercent.toFixed(2) + '%'}; as of ${quote.timestamp}. ${quote.timing}`, pageContent: JSON.stringify(quote), verified: true });
+    });
 
     // Fetch page previews and high-res images for top results in parallel
     const previewTargets = results.slice(0, 8);
@@ -3617,6 +3646,8 @@ function getInstallationDefaultDataDir() {
       if (preview.title && preview.title.length > results[index].title.length) results[index].title = preview.title;
       if (preview.description && preview.description.length > results[index].snippet.length) results[index].snippet = preview.description;
       if (preview.image && !results[index].image) results[index].image = preview.image;
+      if (preview.favicon) results[index].favicon = preview.favicon;
+      results[index].products = preview.products || [];
     });
 
     const fetchCount = Math.min(Math.max(Number(options.fetchCount) || 3, 1), 4);
@@ -3633,20 +3664,10 @@ function getInstallationDefaultDataDir() {
     }));
 
     const shopping = isShoppingQuery(cleanQuery);
-    const products = shopping
-      ? results
-          .filter(item => item.title && item.url)
-          .slice(0, 8)
-          .map((item) => ({
-            title: item.title,
-            url: item.url,
-            source: item.source,
-            snippet: item.snippet,
-            price: extractPrice(`${item.title} ${item.snippet} ${item.pageContent || ''}`),
-            image: item.image || '',
-            type: cleanQuery.includes('course') || cleanQuery.includes('tutorial') ? 'course' : 'product'
-          }))
-      : [];
+    const budget = budgetForQuery(options.budgetQuery || cleanQuery);
+    const products = shopping ? results.flatMap(item => item.products || []).filter(item =>
+      item.image && (!budget || ((!budget.currency || item.currency === budget.currency) && item.amount < budget.amount))
+    ).filter((item, index, all) => all.findIndex(other => other.url === item.url) === index).slice(0, 12) : [];
 
     const answerContext = results.map((item, index) => {
       const body = item.pageContent
@@ -3677,6 +3698,8 @@ function getInstallationDefaultDataDir() {
       query: cleanQuery,
       results,
       products,
+      marketQuotes,
+      fetchedAt: new Date().toISOString(),
       videos: videoResults,
       answerContext,
       searchProvider: 'wikipedia+duckduckgo+hybrid',
@@ -3755,8 +3778,16 @@ function getInstallationDefaultDataDir() {
   const { getBrowser, registerBrowserIpc, assertBrowserSender, BROWSER_POLICY } = require('./agent-browser');
   registerBrowserIpc(() => mainWindow);
   const activeHarnessRuns = new Map();
+  const harnessApprovals = new Map();
+  ipcMain.handle('agent:approval-response', (event, payload = {}) => {
+    const pending = harnessApprovals.get(payload.id);
+    if (!pending || pending.sender !== event.sender) return { success: false };
+    pending.finish(payload.approved === true);
+    return { success: true };
+  });
 
   ipcMain.handle('agent:run-harness', async (event, payload = {}) => {
+    if (!require('../config/release-features').computerActions) return { success: false, error: 'Computer actions are unavailable in this chat release.' };
     assertBrowserSender(event, mainWindow);
     const runId = payload.runId || `run_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     if (activeHarnessRuns.has(runId)) throw new Error('Duplicate agent run.');
@@ -3766,6 +3797,7 @@ function getInstallationDefaultDataDir() {
       if (!event.sender.isDestroyed()) event.sender.send('agent:harness-event', { runId, ...data });
     };
     let browser;
+    let approvalQueue = Promise.resolve();
     try {
       if (payload.browserMode === true) {
         browser = getBrowser(mainWindow);
@@ -3786,6 +3818,26 @@ function getInstallationDefaultDataDir() {
         maxSteps: payload.maxSteps || 10,
         abortSignal: controller.signal,
         browser,
+        requestApproval: toolCall => {
+          const pending = approvalQueue.then(() => new Promise(resolve => {
+          if (controller.signal.aborted) { resolve(false); return; }
+          const id = require('crypto').randomUUID();
+          const onAbort = () => finish(false);
+          const finish = approved => {
+            clearTimeout(timer);
+            harnessApprovals.delete(id);
+            controller.signal.removeEventListener('abort', onAbort);
+            onEvent({ type: 'approval-closed', id });
+            resolve(approved);
+          };
+          const timer = setTimeout(() => finish(false), 120000);
+          harnessApprovals.set(id, { sender: event.sender, finish });
+          controller.signal.addEventListener('abort', onAbort, { once: true });
+          onEvent({ type: 'approval-request', id, toolCall });
+          }));
+          approvalQueue = pending.catch(() => false);
+          return pending;
+        },
         onEvent
       });
       return { runId, ...summary };

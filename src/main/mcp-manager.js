@@ -598,6 +598,13 @@ module.exports = {
   startBrowserServer,
   startWindowsMcpServer,
   startWindowsUiaServer,
+  reconnectWindowsUia: async options => {
+    const existing = _servers.get('windows-uia');
+    if (existing) { await existing.client.close(); _servers.delete('windows-uia'); }
+    const server = await startWindowsUiaServer(options);
+    if (!server) throw new Error('Windows automation was installed but could not start.');
+    return { windowsUia: true, tools: server.tools.map(name => `windows-uia:${name}`) };
+  },
   isServerConnected: id => _servers.has(id),
   resolveNpxExecutable,
   resolveNodeExecutable,

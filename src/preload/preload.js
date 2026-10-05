@@ -1,5 +1,30 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Shared lifecycle feed keeps downloads visible across every app section.
+const downloadActivity = new Map();
+const downloadActivityListeners = new Set();
+function publishDownloadActivity(item) {
+  downloadActivity.set(item.modelName.toLowerCase(), item);
+  for (const listener of downloadActivityListeners) {
+    try { listener(item); } catch (_) {}
+  }
+}
+async function invokeDownload(channel, name, kind, ...args) {
+  const item = { modelName: String(name), kind, percent: null, status: 'Downloading…', timestamp: Date.now() };
+  publishDownloadActivity(item);
+  try {
+    const result = await ipcRenderer.invoke(channel, ...args);
+    item.status = result?.cancelled ? 'Cancelled' : (result?.success === false || result?.status === 'error') ? 'Failed' : 'Completed';
+    item.percent = item.status === 'Completed' ? 100 : null;
+    item.error = result?.error || '';
+    publishDownloadActivity({ ...item });
+    return result;
+  } catch (error) {
+    publishDownloadActivity({ ...item, status: 'Failed', error: error.message });
+    throw error;
+  }
+}
+
 // Require the copied CommonJS file directly
 const marked = require('./marked.cjs');
 
@@ -39,6 +64,10 @@ const apiMethods = {
   setSetupTitlebar: (on) => ipcRenderer.send('set-setup-titlebar', !!on),
   // Profiling & setup queries
   profileSystem: () => ipcRenderer.invoke('profile-system'),
+  respondHarnessApproval: (payload) => ipcRenderer.invoke('agent:approval-response', payload),
+  resolveFileTarget: (payload) => ipcRenderer.invoke('resolve-file-target', payload),
+  createFolder: (target) => ipcRenderer.invoke('create-folder', target),
+  moveFileTarget: (payload) => ipcRenderer.invoke('move-file-target', payload),
   getSystemEnvironment: () => ipcRenderer.invoke('system-environment'),
   refreshGeoLocation: () => ipcRenderer.invoke('refresh-geo-location'),
   
@@ -90,11 +119,11 @@ const apiMethods = {
     return () => ipcRenderer.removeListener('agent:harness-event', handler);
   },
   getInstalledApps: () => ipcRenderer.invoke('get-installed-apps'),
-  downloadModel: (modelName) => ipcRenderer.invoke('download-model', modelName),
+  downloadModel: (modelName) => invokeDownload('download-model', modelName, 'Model', modelName),
   cancelDownloadModel: (modelName) => ipcRenderer.invoke('cancel-download-model', modelName),
   searchHuggingFaceModels: (query, limit) => ipcRenderer.invoke('search-huggingface-models', query, limit),
   getHuggingFaceModelQuantizations: (repoId) => ipcRenderer.invoke('get-huggingface-model-quantizations', repoId),
-  installOllama: () => ipcRenderer.invoke('install-ollama'),
+  installOllama: () => invokeDownload('install-ollama', 'Ollama engine', 'Engine'),
   checkOllamaInstalled: () => ipcRenderer.invoke('check-ollama-installed'),
   startOllamaService: (exePath) => ipcRenderer.invoke('start-ollama-service', exePath),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
@@ -116,9 +145,10 @@ const apiMethods = {
    verifyOllamaCloudAuth: () => ipcRenderer.invoke('verify-ollama-cloud-auth'),
    ollamaSignin: () => ipcRenderer.invoke('ollama-signin'),
    ollamaSignout: () => ipcRenderer.invoke('ollama-signout'),
-  installMcpWindowsUia: () => ipcRenderer.invoke('install-mcp-windows-uia'),
+  installMcpWindowsUia: () => invokeDownload('install-mcp-windows-uia', 'Windows automation engine', 'Engine'),
+  cancelWindowsUiaInstall: () => ipcRenderer.invoke('cancel-windows-uia-install'),
   checkMcpWindowsUia: () => ipcRenderer.invoke('check-mcp-windows-uia'),
-  downloadKokoroOnboardingVoices: (voiceIds) => ipcRenderer.invoke('download-kokoro-onboarding-voices', voiceIds),
+  downloadKokoroOnboardingVoices: (voiceIds) => invokeDownload('download-kokoro-onboarding-voices', 'Kokoro voice setup', 'Voice', voiceIds),
   checkHuggingFaceConnection: () => ipcRenderer.invoke('check-huggingface-connection'),
   showItemInFolder: (filePath) => ipcRenderer.invoke('show-item-in-folder', filePath),
   openFileOrPath: (filePath) => ipcRenderer.invoke('open-file-or-path', filePath),
@@ -130,9 +160,15 @@ const apiMethods = {
   loadSetupStatus: () => ipcRenderer.invoke('load-setup-status'),
   deleteModel: (modelName) => ipcRenderer.invoke('delete-model', modelName),
   searchWeb: (query, options) => ipcRenderer.invoke('search-web', query, options),
+  onDownloadActivity: (callback) => {
+    downloadActivityListeners.add(callback);
+    for (const item of downloadActivity.values()) callback(item);
+    return () => downloadActivityListeners.delete(callback);
+  },
   onDownloadProgress: (callback) => {
-    ipcRenderer.on('download-progress', (event, data) => callback(data));
-    return () => ipcRenderer.removeAllListeners('download-progress');
+    const listener = (event, data) => callback(data);
+    ipcRenderer.on('download-progress', listener);
+    return () => ipcRenderer.removeListener('download-progress', listener);
   },
   
   // Human-in-the-loop triggers
@@ -145,7 +181,7 @@ const apiMethods = {
 
   // GitHub Releases Auto-Updater bindings
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
-  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  downloadUpdate: () => invokeDownload('download-update', 'Brown app update', 'App'),
   restartAndInstall: () => ipcRenderer.invoke('restart-and-install'),
   onUpdateStatus: (callback) => {
     const subscription = (event, data) => callback(data);
@@ -161,7 +197,7 @@ const apiMethods = {
     return ipcRenderer.invoke('transcribe-audio', { samples: payload, sampleRate: 16000 });
   },
   getVoiceModelStatus: () => ipcRenderer.invoke('get-voice-model-status'),
-  downloadVoiceModel: () => ipcRenderer.invoke('download-voice-model'),
+  downloadVoiceModel: () => invokeDownload('download-voice-model', 'Whisper speech model', 'Voice'),
   cancelVoiceModelDownload: () => ipcRenderer.invoke('cancel-voice-model-download'),
   deleteVoiceModel: () => ipcRenderer.invoke('delete-voice-model'),
 
@@ -184,7 +220,7 @@ const apiMethods = {
   getTtsModelStatus: (modelKey) => ipcRenderer.invoke('get-tts-model-status', modelKey),
   getActiveTtsModel: () => ipcRenderer.invoke('get-active-tts-model'),
   setActiveTtsModel: (modelKey) => ipcRenderer.invoke('set-active-tts-model', modelKey),
-  downloadTtsModel: (modelKey) => ipcRenderer.invoke('download-tts-model', modelKey),
+  downloadTtsModel: (modelKey) => invokeDownload('download-tts-model', modelKey, 'Voice', modelKey),
   cancelTtsModelDownload: (modelKey) => ipcRenderer.invoke('cancel-tts-model-download', modelKey),
   deleteTtsModel: (modelKey) => ipcRenderer.invoke('delete-tts-model', modelKey),
   warmupTtsModel: (modelKey) => ipcRenderer.invoke('warmup-tts-model', modelKey),

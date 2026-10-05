@@ -3,6 +3,7 @@ const { ipcMain, app, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const { pipeline } = require('stream');
 const { verifyInstaller, startInstaller } = require('./update-install');
 let initialized = false;
 let checkPromise = null;
@@ -114,7 +115,12 @@ function httpsFollow(url, redirectsLeft, onResponse) {
     const target = res.headers.location;
     if ([301, 302, 303, 307, 308].includes(res.statusCode) && target && redirectsLeft > 0) {
       res.resume();
-      httpsFollow(target, redirectsLeft - 1, onResponse);
+      let nextUrl;
+      try {
+        nextUrl = new URL(target, url);
+        if (nextUrl.protocol !== 'https:') throw new Error('Update redirects must use HTTPS.');
+      } catch (error) { onResponse(null, error); return; }
+      httpsFollow(nextUrl.href, redirectsLeft - 1, onResponse);
       return;
     }
     onResponse(res);
@@ -134,8 +140,11 @@ function downloadInstallerFallback(downloadUrl, version) {
     if (fs.existsSync(dest)) {
       try { fs.unlinkSync(dest); } catch (_) {}
     }
-    const out = fs.createWriteStream(dest);
-    out.on('error', (error) => { try { fs.unlinkSync(dest); } catch (_) {} reject(error); });
+    const partial = `${dest}.part`;
+    const out = fs.createWriteStream(partial);
+    const cleanup = () => { try { fs.unlinkSync(partial); } catch (_) {} };
+    out.on('error', reject);
+    out.on('close', () => { if (!out.writableFinished) cleanup(); });
     httpsFollow(downloadUrl, 6, (res, err) => {
       if (err || !res || res.statusCode !== 200) {
         out.destroy();
@@ -155,15 +164,17 @@ function downloadInstallerFallback(downloadUrl, version) {
           }
         }
       });
-      res.pipe(out);
-      res.on('aborted', () => { out.destroy(); reject(new Error('Download interrupted. Please retry.')); });
-      out.on('finish', () => {
-        out.close(() => {
-          if (total && transferred !== total) return reject(new Error('Download incomplete. Please retry.'));
+      pipeline(res, out, (error) => {
+        if (error || (total && transferred !== total)) {
+          cleanup();
+          reject(error || new Error('Download incomplete. Please retry.'));
+          return;
+        }
+        fs.rename(partial, dest, (renameError) => {
+          if (renameError) { cleanup(); reject(renameError); return; }
           resolve(dest);
         });
       });
-      res.on('error', (e) => { out.destroy(); try { fs.unlinkSync(dest); } catch (_) {} reject(e); });
     });
   });
 }

@@ -260,6 +260,9 @@ When an action is needed, output exactly one JSON object and nothing else:
 {"tool":"DELETE_FILE","args":{"path":"C:\\\\path\\\\file.txt"}}
 {"tool":"DOWNLOAD_FILE","args":{"query":"chatgpt logo","targetPath":"C:\\\\path\\\\chatgpt_logo.svg"}}
 {"tool":"LIST_DIR","args":{"path":"C:\\\\path"}}
+{"tool":"CREATE_FOLDER","args":{"path":"C:\\\\path\\\\new-folder"}}
+{"tool":"MOVE_FILE","args":{"source":"C:\\\\path\\\\old.txt","destination":"C:\\\\path\\\\new.txt"}}
+Use exact absolute paths for all file operations. Never guess the user's home folder or a requested destination. Read LIST_DIR results to confirm names and use the returned full paths.
 {"tool":"SEARCH","args":{"query":"web search query"}}
 {"tool":"WEB_FETCH","args":{"url":"https://example.com/page"}}
 {"tool":"EXECUTE","args":{"command":"safe command"}}${captureLines}

@@ -158,6 +158,8 @@ if (!setup) die(`no Setup exe in dist/ — run the prepare step first`);
 const upload = [
   path.join(DIST, 'Brown-AI-Setup.exe'),
   path.join(DIST, 'Brown-AI-Portable.exe'),
+  path.join(DIST, `Brown-AI-Setup-v${version}.exe`),
+  path.join(DIST, `Brown-AI-v${version}.exe`),
 ];
 if (fs.existsSync(path.join(DIST, 'latest.yml'))) upload.push(path.join(DIST, 'latest.yml'));
 if (includeOriginalNames) upload.push(path.join(DIST, setup));

@@ -183,6 +183,7 @@
     if (!cleanPath) return null;
     const sessionId = meta.sessionId || defaultSessionId();
     const isWeb = /^https?:\/\//i.test(cleanPath);
+    if (!isWeb && !/^(?:[a-z]:[\\/]|\\\\)/i.test(cleanPath)) return null;
     const record = {
       id: `art-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       kind: String(kind || (isWeb ? 'web' : 'file')).toLowerCase(),
@@ -225,6 +226,9 @@
     if (!p.trim()) return null;
     const artifacts = getSessionArtifacts(sessionId);
     if (!artifacts.length) return null;
+    if (/\b(?:that|this|same|the)\s+(?:folder|directory)\b|\b(?:folder|directory)\s+(?:(?:you|u)\s+)?(?:just\s+)?created\b/i.test(p)) {
+      return artifacts.filter(a => a.kind === 'folder').sort((a, b) => b.ts - a.ts)[0] || null;
+    }
     const latest = () => artifacts.slice().sort((a, b) => b.ts - a.ts)[0];
     const latestOf = (kinds) => artifacts.filter(a => kinds.includes(a.kind)).sort((a, b) => b.ts - a.ts)[0] || null;
 

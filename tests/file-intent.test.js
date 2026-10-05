@@ -1,0 +1,31 @@
+const assert = require('assert');
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(require('path').join(__dirname, '../src/renderer/renderer.js'), 'utf8');
+const context = { window: { UltronAgentMemory: { resolveArtifactReference: () => ({ kind: 'folder', path: 'C:\\Users\\QA\\Desktop\\vedant' }) } }, currentSessionId: 'qa', _cachedSystemEnv: { homeDir: 'C:\\Users\\QA' }, RESERVED_TOOL_NAMES: new Set() };
+vm.createContext(context);
+for (const name of ['canCreateEmptyFileDirectly', 'requestedFileNames', 'promptWantsFileCreation', 'promptWantsFolderCreation', 'extractFileNameFromPrompt', 'extractFolderNameFromPrompt', 'resolveFolderTargetFromPrompt', 'buildMkdirFromPrompt', 'buildWriteFileFromPrompt', 'shouldContinueAgentLoopAfterTool', 'getExplicitTaskRequirements', 'hasUnfinishedExplicitTask']) {
+  const start = source.indexOf(`function ${name}(`);
+  const end = source.indexOf('\nfunction ', start + 1);
+  vm.runInContext(source.slice(start, end), context);
+}
+const prompt = 'now create three files named as index.html, style.css and script.js in the folder u just created and in these files also add the code for creating a login form and signup form';
+assert.equal(context.promptWantsFileCreation(prompt), true);
+assert.equal(context.promptWantsFolderCreation(prompt), false);
+assert.equal(context.buildWriteFileFromPrompt(prompt), null, 'Generated content must go to the model, never a placeholder shortcut');
+assert.equal(context.resolveFolderTargetFromPrompt(prompt), 'C:\\Users\\QA\\Desktop\\vedant');
+assert.equal(context.shouldContinueAgentLoopAfterTool({ type: 'WRITE_FILE' }, prompt), true, 'Do not stop after the first file');
+assert.equal(context.hasUnfinishedExplicitTask(prompt, ['WRITE_FILE', 'WRITE_FILE:C:\\Users\\QA\\Desktop\\vedant\\index.html']), true);
+assert.equal(context.hasUnfinishedExplicitTask(prompt, ['WRITE_FILE', ...['index.html', 'style.css', 'script.js'].map(name => `WRITE_FILE:C:\\Users\\QA\\Desktop\\vedant\\${name}`)]), false);
+assert.equal(context.shouldContinueAgentLoopAfterTool({ type: 'READ_FILE' }, 'read this file and improve its code'), true);
+assert.equal(context.shouldContinueAgentLoopAfterTool({ type: 'EXECUTE', target: 'node --check script.js' }, prompt), true);
+assert.equal(context.buildWriteFileFromPrompt('create a file named index.html containing a login form'), null);
+const empty = context.buildWriteFileFromPrompt('create an empty file named notes.txt on desktop');
+assert.equal(empty.content, '');
+assert.equal(empty.targetPath, 'C:\\Users\\QA\\Desktop\\notes.txt');
+const folderPrompt = 'create a folder named mama in d drive';
+assert.equal(context.buildMkdirFromPrompt(folderPrompt).path, 'D:\\mama');
+assert.equal(context.buildMkdirFromPrompt(folderPrompt).type, 'CREATE_FOLDER');
+assert.equal(context.promptWantsFolderCreation(folderPrompt + '\n\n[Referenced file: old.txt]'), true);
+assert.equal(context.hasUnfinishedExplicitTask(folderPrompt, ['CREATE_FOLDER']), false);
+console.log('PASS: multi-file code requests bypass shortcuts, reuse the folder path, and continue after writes');
