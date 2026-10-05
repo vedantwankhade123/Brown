@@ -5,7 +5,7 @@ for Windows, [Brown-Mobile](https://github.com/vedantwankhade123/Brown-Mobile/re
 Every release publishes versioned files **and** stable aliases (`Brown-AI-Setup.exe`,
 `Brown-AI-Portable.exe`, `Brown-AI-Mobile.apk`) that always point at the newest build.
 
-## Brown AI Desktop v1.0.8 (Latest)
+## Brown AI Desktop v1.0.17 (Latest)
 
 ## Changes
 - Focus this release on offline AI chat; hide unfinished automation, CRUD tools and approval controls.
@@ -22,7 +22,7 @@ Every release publishes versioned files **and** stable aliases (`Brown-AI-Setup.
 - latest.yml: update manifest with installer SHA-512 and size.
 
 ## Verification
-Desktop automated tests pass, including updater regressions. Mobile source tests and type checking are run separately; this release does not publish a new Android APK. Packaged Windows smoke checks and live release verification are recorded in docs/releases/RELEASE_QA_v1.0.8.md.
+Desktop automated tests pass, including updater regressions. Mobile source tests and type checking are run separately; this release does not publish a new Android APK. Packaged Windows smoke checks and live release verification are recorded in docs/releases/RELEASE_QA_v1.0.17.md.
 
 ## Requirements and scope
 Model downloads and optional web/cloud services require internet access; installed local models can answer offline. The Windows binaries are not Authenticode signed. A clean-machine installation and a complete installed-app upgrade are not certified by automated updater tests.

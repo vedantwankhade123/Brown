@@ -1,7 +1,7 @@
 # Brown AI — Offline AI Chat for Windows
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-v1.0.8-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown/releases/latest)
+[![Release](https://img.shields.io/badge/Release-v1.0.17-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown/releases/latest)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
@@ -57,9 +57,9 @@ updater read.
 
 | Step | Command |
 | :--- | :--- |
-| Bump, test, build, stage assets | `npm run release:desktop -- --version 1.0.8` |
+| Bump, test, build, stage assets | `npm run release:desktop -- --version 1.0.17` |
 | Install the staged `dist/Brown-AI-Setup.exe`, use it, confirm it works | by hand |
-| Commit the version bump | `git commit -am "chore(release): v1.0.8"` |
+| Commit the version bump | `git commit -am "chore(release): v1.0.17"` |
 | Tag, push the tag, publish the release | `npm run publish:desktop` |
 
 [`scripts/release-desktop.js`](scripts/release-desktop.js) uploads a fixed set of asset names,
