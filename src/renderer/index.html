@@ -124,6 +124,11 @@
           </div>
 
           <!-- Initial action buttons (visible when neither section is active) -->
+          <div id="tsd-connection-state" class="hidden" aria-live="polite">
+            <strong id="tsd-connection-title">Phone paired</strong>
+            <p id="tsd-connection-detail"></p>
+            <button id="tsd-manage-connection" class="tsd-sync-btn" type="button">Manage connection</button>
+          </div>
           <div id="tsd-initial-actions" class="tsd-sync-actions">
             <button id="tsd-generate-qr-btn" class="tsd-sync-btn tsd-sync-btn-white">Generate QR</button>
             <button id="tsd-generate-pair-btn" class="tsd-sync-btn">Generate Pair Code</button>
@@ -296,6 +301,7 @@
       </div>
 
       <div class="chat-header-actions">
+              <button type="button" id="btn-mobile-activity" class="mobile-activity-button" aria-expanded="false" aria-controls="mobile-activity-panel" title="View paired phone activity"><span class="mobile-device-inner" data-label>Devices</span></button>
               <!-- Download Activity Tracker in Top-Right -->
               <div id="models-download-tracker" class="models-download-tracker">
                 <button type="button" id="btn-models-download-indicator" class="btn-models-download-indicator" title="Downloads" aria-label="Downloads" aria-expanded="false" aria-controls="models-download-popover">
@@ -1826,28 +1832,41 @@
           <!-- Mobile Sync & LAN Companion Tab -->
           <div id="tab-sync" class="tab-pane hidden">
             <div class="connection-page">
-              <h4>Mobile</h4>
+              <div class="connection-page-heading">
+                <h4>Mobile</h4>
+                <button type="button" id="connection-disconnect" class="connection-disconnect-btn" title="Disconnect this session; pairing stays saved">Disconnect</button>
+              </div>
               <p class="connection-intro">Chat and sync with your desktop over Wi-Fi.</p>
-              <a class="connection-download" href="https://usebrown.online/download" target="_blank" rel="noopener"><span>Download App</span><span class="connection-download-arrow" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M7 7h10v10" /></svg></span></a>
+              
               <section class="connection-showcase">
                 <div class="connection-copy">
                   <span class="connection-kicker">Local companion</span>
-                  <h5>Brown for Android</h5>
-                  <p>Connect on the same Wi-Fi. Your desktop stays in control of pairing and chat-sharing approvals.</p>
-                  <div class="connection-download-qr"><span>Scan to download</span><img src="../../Assets/brown-mobile-download-qr.png" width="116" height="116" alt="QR code for the official Brown download page" /></div>
+                  <h5>Download for Android</h5>
+                  <p>Pair once over Wi-Fi, a phone hotspot, or USB. Add remote access to connect from other networks. Your desktop approves pairing and chat sharing.</p>
+                  <div class="connection-download-options"><a class="connection-download" href="https://usebrown.online/download" target="_blank" rel="noopener"><span>Download App</span><span class="connection-download-arrow" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M7 7h10v10" /></svg></span></a><div class="connection-download-qr"><span>Scan to download</span><img src="../../Assets/brown-mobile-download-qr.png" width="116" height="116" alt="QR code for the official Brown download page" /></div></div>
                 </div>
                 <div class="connection-art"><img src="../../Assets/connection-mobile-preview.png" alt="Brown Mobile chat interface" /></div>
               </section>
               <h5 class="connection-section-title">Connection controls <span id="connection-access-status">Loading…</span></h5>
               <section class="connection-controls">
-                <label class="connection-setting"><span><strong>Allow Brown Mobile to connect</strong><small>Allow paired phones to use desktop models and approved chat sync on this Wi-Fi.</small></span><input id="connection-enabled" type="checkbox" role="switch" disabled /></label>
-                <label class="connection-setting"><span><strong>Keep this desktop awake</strong><small>Prevent system sleep while Brown is running and mobile access is enabled.</small></span><input id="connection-keep-awake" type="checkbox" role="switch" disabled /></label>
+                <label class="connection-setting"><span><strong>Mobile access</strong><small>Use desktop models and share approved chats with paired phones.</small></span><input id="connection-enabled" type="checkbox" role="switch" disabled /></label>
+                <label class="connection-setting"><span><strong>Keep desktop awake</strong><small>Stay available to your phone while Brown is open.</small></span><input id="connection-keep-awake" type="checkbox" role="switch" disabled /></label>
                 <p id="connection-settings-error" role="alert" class="hidden"></p>
+                <details class="connection-remote-settings"><summary><span>Remote access</span><span class="connection-optional-tag">Optional</span></summary>
+                  <div class="connection-remote-body">
+                    <p class="connection-remote-intro">For different networks. Wi-Fi, hotspot, and USB work without this.</p>
+                    <div class="connection-remote-fields">
+                      <label for="connection-direct-url">Desktop address<input id="connection-direct-url" type="url" placeholder="https://desktop.example.com" spellcheck="false" autocapitalize="off" /></label>
+                      <label for="connection-relay-url">Relay address<input id="connection-relay-url" type="url" placeholder="wss://relay.example.com" spellcheck="false" autocapitalize="off" /></label>
+                    </div>
+                    <div class="connection-remote-footer"><p>Save changes, then scan a fresh pairing QR.</p><button id="connection-save-remote" class="btn-secondary-sm" type="button">Save changes</button></div>
+                  </div>
+                </details>
               </section>
               <section class="connection-pair-card">
                 <div><h5>Pair your phone</h5><p>Open Connection on Brown Mobile, then scan the pairing QR or enter this desktop’s Sync ID.</p></div>
                 <div class="connection-desktop-detail"><strong id="sync-desktop-id">Detecting desktop…</strong><span id="sync-lan-endpoint">Detecting Wi-Fi address…</span><span id="sync-status-badge">Checking connection…</span></div>
-                <div class="connection-actions"><button id="btn-generate-pair-code" class="btn-primary-sm" type="button">Connect</button><button id="btn-refresh-sync-stats" class="btn-secondary-sm" type="button">Refresh</button></div>
+                <div class="connection-actions"><button id="btn-generate-pair-code" class="btn-primary-sm" type="button">Connect</button><button id="btn-pair-another-phone" class="btn-secondary-sm hidden" type="button">Pair another phone</button><button id="btn-refresh-sync-stats" class="btn-secondary-sm" type="button">Refresh</button></div>
                 <div id="sync-pair-code-banner" class="hidden connection-pair-banner">
                   <img id="connection-pair-qr" class="hidden" width="148" height="148" alt="Scan this temporary code in Brown Mobile to pair" />
                   <div><p>Scan in Brown Mobile or enter this code.</p><strong id="sync-pair-code-display">------</strong><p id="sync-pair-code-timer"></p><button id="btn-cancel-connection-pair" class="btn-secondary-sm" type="button">Cancel</button></div>
@@ -1954,31 +1973,30 @@
                   <h5 class="set-card-title">App speed</h5>
                   <p class="set-card-desc" id="setting-performance-profile-note">Balanced daily use</p>
                 </div>
-                <div id="perf-profile-seg" class="set-seg" role="group" aria-label="App speed">
-                  <button type="button" class="set-seg-btn" data-value="battery" aria-pressed="false">Battery saver</button>
-                  <button type="button" class="set-seg-btn" data-value="balanced" aria-pressed="true">Balanced</button>
-                  <button type="button" class="set-seg-btn" data-value="performance" aria-pressed="false">High performance</button>
-                </div>
+
               </header>
 
-              <div class="set-rows">
+              <div id="perf-profile-options" class="set-rows" role="radiogroup" aria-label="App speed">
                 <div class="set-row set-row-static" data-profile="battery">
                   <div class="set-row-info">
                     <span class="set-row-name">Battery saver</span>
                     <span class="set-row-desc">Turns off voice warm-up, heavy animations and background polling</span>
                   </div>
+                  <label class="perf-profile-switch"><input type="radio" name="app-speed-profile" data-value="battery" value="battery" aria-label="Battery saver" /><span aria-hidden="true"></span></label>
                 </div>
                 <div class="set-row set-row-static" data-profile="balanced">
                   <div class="set-row-info">
                     <span class="set-row-name">Balanced</span>
                     <span class="set-row-desc">Full features with throttled refresh rates — recommended for daily use</span>
                   </div>
+                  <label class="perf-profile-switch"><input type="radio" name="app-speed-profile" data-value="balanced" value="balanced" aria-label="Balanced" checked /><span aria-hidden="true"></span></label>
                 </div>
                 <div class="set-row set-row-static" data-profile="performance">
                   <div class="set-row-info">
                     <span class="set-row-name">High performance</span>
                     <span class="set-row-desc">Fastest telemetry and every visual effect enabled</span>
                   </div>
+                  <label class="perf-profile-switch"><input type="radio" name="app-speed-profile" data-value="performance" value="performance" aria-label="High performance" /><span aria-hidden="true"></span></label>
                 </div>
               </div>
             </section>
@@ -2978,5 +2996,6 @@
   <script src="agent-browser.js"></script>
   <script src="knowledge-base.js"></script>
   <script src="renderer.js"></script>
+  <script src="mobile-activity.js"></script>
 </body>
 </html>

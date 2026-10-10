@@ -10,8 +10,8 @@ const {
 // environment per process. Kokoro previously ran in a worker_threads Worker,
 // but having native ORT alive in both the main thread and the worker crashes
 // V8 with "FATAL ERROR: Cannot create a handle without a HandleScope".
-// Kokoro therefore runs on the MAIN thread (like Whisper STT); ORT does its
-// math on its own native thread pool, so this does not block the UI.
+// Kokoro inference runs in a dedicated utility process, keeping tokenization,
+// native model loading and audio conversion away from the window's event loop.
 
 const KOKORO_MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 const KOKORO_ENGINE_KEY = 'kokoro-engine';
@@ -34,6 +34,9 @@ function invalidateKokoroModelPathCache() {
 }
 
 function getKokoroCacheDir() {
+  if (process.env.BROWN_KOKORO_WORKER === '1' && process.env.BROWN_KOKORO_CACHE_DIR) {
+    return process.env.BROWN_KOKORO_CACHE_DIR;
+  }
   try {
     const { getOllamaModelsDir } = require('./paths');
     const modelsDir = getOllamaModelsDir();
@@ -114,7 +117,9 @@ function isValidOnnxModelFile(filePath, minBytes = 10 * 1024 * 1024) {
 }
 
 function findKokoroModelOnnxPath() {
-  if (kokoroModelPathCache !== undefined) return kokoroModelPathCache;
+  // Recheck cached files and rescan misses: another process may finish installing
+  // the engine after settings first checks it. A cached miss must not require restart.
+  if (kokoroModelPathCache && isValidOnnxModelFile(kokoroModelPathCache, KOKORO_MIN_MODEL_BYTES)) return kokoroModelPathCache;
   const cacheDir = getKokoroCacheDir();
   if (!fs.existsSync(cacheDir)) {
     kokoroModelPathCache = null;
@@ -280,7 +285,7 @@ async function configureTransformersEnv() {
 }
 
 /**
- * Load the Kokoro pipeline on the MAIN thread (single ORT environment).
+ * Load the Kokoro pipeline inside the dedicated speech process.
  * Reloads when the requested device changes; falls back from GPU to CPU once.
  */
 function getKokoroTts(onProgress) {
@@ -514,21 +519,18 @@ function downloadKokoroEngine(sendProgress) {
 }
 
 async function downloadKokoroVoice(voiceId = 'af_heart', sendProgress) {
-  const result = await downloadKokoroEngine(sendProgress);
-  if (!result.success) return result;
+  if (!isKokoroEngineInstalled()) return { success: false, error: 'Install the shared Kokoro engine first.' };
 
   try {
     // Warm up and cache this specific voice embedding
     const warm = await synthesizeKokoroSpeech('Hello, voice ready.', voiceId);
     if (!warm.success) {
-      console.warn('[voice-kokoro] voice warmup failed (non-fatal):', warm.error);
+      return { success: false, error: warm.error || 'Could not initialize this voice. Retry without reinstalling the engine.' };
     }
     markVoiceInstalled(voiceId);
     return { success: true, installed: true, voiceId };
   } catch (err) {
-    // Still mark installed if base engine is ready
-    markVoiceInstalled(voiceId);
-    return { success: true, installed: true, voiceId };
+    return { success: false, error: err.message || 'Could not initialize this voice.' };
   }
 }
 
@@ -559,6 +561,9 @@ async function downloadKokoroOnboardingDefaults(sendProgress, voiceIds) {
 }
 
 async function warmupKokoroEngine(timeoutMs = 180000) {
+  if (process.env.BROWN_KOKORO_WORKER !== '1') {
+    return require('./voice-kokoro-process').runKokoroJob('warmupKokoroEngine', [timeoutMs], getKokoroCacheDir(), timeoutMs + 1000);
+  }
   if (!isKokoroEngineInstalled()) {
     return { success: false, error: 'Kokoro engine not installed.' };
   }
@@ -650,6 +655,10 @@ try {
 } catch (e) { /* ignore */ }
 
 async function synthesizeKokoroSpeech(text, voiceId = 'af_heart', { speed = 1 } = {}) {
+  if (process.env.BROWN_KOKORO_WORKER !== '1') {
+    const budget = Math.min(180000, 25000 + String(text || '').length * 60);
+    return require('./voice-kokoro-process').runKokoroJob('synthesizeKokoroSpeech', [text, voiceId, { speed }], getKokoroCacheDir(), budget + 1000);
+  }
   const speechRate = Number.isFinite(Number(speed)) ? Math.max(0.5, Math.min(2, Number(speed))) : 1;
   if (!isKokoroEngineInstalled()) {
     return {

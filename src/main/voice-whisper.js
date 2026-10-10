@@ -7,8 +7,10 @@ const WHISPER_MODEL_ID = 'Xenova/whisper-base';
 const WHISPER_ENGINE_KEY = 'whisper-local';
 
 let whisperPipelinePromise = null;
+const runWhisperJob = require('./voice-kokoro-process').createSpeechProcess('whisper');
 
 function getSttCacheDir() {
+  if (process.env.BROWN_SPEECH_ENGINE === 'whisper' && process.env.BROWN_KOKORO_CACHE_DIR) return process.env.BROWN_KOKORO_CACHE_DIR;
   try {
     const { getOllamaModelsDir } = require('./paths');
     return path.join(getOllamaModelsDir(), 'tts-cache', 'stt-whisper');
@@ -233,6 +235,17 @@ async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000) {
   if (!audioSamples || !audioSamples.length) {
     return { success: false, error: 'No audio samples provided.', engine: WHISPER_ENGINE_KEY };
   }
+  if (!Number.isFinite(sampleRate) || sampleRate < 8000 || sampleRate > 192000) {
+    return { success: false, error: 'Invalid microphone sample rate.', engine: WHISPER_ENGINE_KEY };
+  }
+  if (audioSamples.length > sampleRate * 120) {
+    return { success: false, error: 'Recording is longer than two minutes. Please split it into shorter recordings.', engine: WHISPER_ENGINE_KEY };
+  }
+  if (process.env.BROWN_SPEECH_ENGINE !== 'whisper') {
+    const result = await runWhisperJob('transcribeWhisperFloat32', [audioSamples instanceof Float32Array ? audioSamples : Float32Array.from(audioSamples), sampleRate], getSttCacheDir(), 180000);
+    if (result.success) whisperReady = true;
+    return result;
+  }
 
   if (isWhisperInferring) {
     return { success: false, error: 'Whisper engine busy.', engine: WHISPER_ENGINE_KEY, busy: true };
@@ -250,10 +263,8 @@ async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000) {
       return { success: false, error: 'No clear speech detected.', engine: WHISPER_ENGINE_KEY };
     }
 
-    const max16kSamples = 16000 * 25;
-    if (samples16k.length > max16kSamples) {
-      samples16k = samples16k.subarray(samples16k.length - max16kSamples);
-    }
+    // Whisper's chunk/stride processing handles the complete utterance. Taking
+    // only the last 25 seconds silently erased the start of longer dictation.
     samples16k = normalizeAudioPeak(samples16k);
 
     const transcriber = await getWhisperTranscriber();
@@ -295,6 +306,11 @@ async function transcribeWhisperWavBuffer(wavBuffer) {
 }
 
 async function warmupWhisper() {
+  if (process.env.BROWN_SPEECH_ENGINE !== 'whisper') {
+    const result = await runWhisperJob('warmupWhisper', [], getSttCacheDir(), 180000);
+    whisperReady = !!result.success;
+    return result;
+  }
   try {
     await getWhisperTranscriber();
     return { success: true, warmed: true };

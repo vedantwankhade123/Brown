@@ -2039,13 +2039,14 @@ function buildSessionMetaDigest(session, { full = false } = {}) {
 
 async function generateAiSessionMeta(sessionId, { force = false } = {}) {
   const session = conversationsStore[sessionId];
-  if (!session || session.titleLocked || _aiSessionMetaInFlight.has(sessionId)) return;
+  if (!session || _aiSessionMetaInFlight.has(sessionId) || isAwaitingResponse) return;
   const userTurnCount = (session.messages || []).filter(m => !m.isAi).length;
-  if (userTurnCount < 1) return;
+  const answeredMessages = (session.messages || []).filter(m => m.isAi && m.text);
+  if (userTurnCount < 1 || !answeredMessages.length) return;
   const prev = session.aiMeta;
   // A heuristic meta, or one written before any answer existed, is never "fresh"
   const settled = prev && !prev.heuristic && prev.answered;
-  if (!force && settled && (prev.turns || 0) + 3 > userTurnCount) return;
+  if (!force && settled && prev.turns === userTurnCount && prev.answers === answeredMessages.length) return;
   const digest = buildSessionMetaDigest(session, { full: force });
   if (!digest.trim()) return;
 
@@ -2065,19 +2066,22 @@ async function generateAiSessionMeta(sessionId, { force = false } = {}) {
     }
     title = title.replace(/^["'`]+|["'`;]+$/g, '').replace(/\s+/g, ' ').trim().slice(0, 48);
     description = description.replace(/^["'`]+|["'`;]+$/g, '').replace(/\s+/g, ' ').trim().slice(0, 280);
-    if (!title || title.length < 3 || isGenericOrFragmentTitle(title)) return;
+    if (!title || title.length < 3 || isGenericOrFragmentTitle(title)) title = session.title || 'Conversation';
     if (description.split(/\s+/).length < 3) return;
+    if ((session.messages || []).filter(m => !m.isAi).length !== userTurnCount
+      || (session.messages || []).filter(m => m.isAi && m.text).length !== answeredMessages.length) return;
 
     session.aiMeta = {
       title,
       description,
       ts: Date.now(),
       turns: userTurnCount,
-      answered: (session.messages || []).some(m => m.isAi && m.text)
+      answered: true,
+      answers: answeredMessages.length
     };
     touchSession(sessionId);
     saveConversationsToDisk();
-    if (session.title !== title) updateSessionTitle(sessionId, title);
+    if (!session.titleLocked && session.title !== title) updateSessionTitle(sessionId, title);
     if (currentSessionId === sessionId) renderSessionPanel();
     logTrace(`AI session meta generated: "${title}"`, 'system');
   } catch (e) {
@@ -2085,6 +2089,11 @@ async function generateAiSessionMeta(sessionId, { force = false } = {}) {
   } finally {
     _aiSessionMetaInFlight.delete(sessionId);
     if (currentSessionId === sessionId) renderSessionPanel();
+    if (!isAwaitingResponse && conversationsStore[sessionId] === session
+      && ((session.messages || []).filter(m => !m.isAi).length !== userTurnCount
+        || (session.messages || []).filter(m => m.isAi && m.text).length !== answeredMessages.length)) {
+      scheduleAiSessionMeta(sessionId, { delay: 500 });
+    }
   }
 }
 
@@ -3743,7 +3752,7 @@ function finalizeAiMessageBubble(contentElement, fullText, { autoSpeak = true, r
   const messageWrapper = contentElement.closest('.message-wrapper') || contentElement.parentNode;
   const actionsDiv = messageWrapper ? messageWrapper.querySelector('.message-actions') : null;
   if (actionsDiv) wireMessageActionButtons(actionsDiv, fullText);
-  if (autoSpeak) prepareSpokenSummary(fullText).then(() => precacheTtsAudio(fullText)).catch(() => {});
+  if (autoSpeak && isTtsAutoSpeakEnabled()) prepareSpokenSummary(fullText).catch(() => {});
   // renderCreatedFileActionButtons disabled per user request
   // attachVisualSuggestionChips removed per user request
   if (autoSpeak) finishStreamingAutoSpeak(fullText);
@@ -3790,7 +3799,7 @@ function createSmoothStreamPainter(container) {
 
   const reduceMotion = typeof matchMedia === 'function'
     && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let raf = 0, target = '', revealed = 0, lastHtml = '', lastTs = 0;
+  let raf = 0, target = '', revealed = 0, lastHtml = '', lastTs = 0, lastPaintTs = -Infinity;
 
   function paint() {
     if (!body.isConnected) { if (raf) cancelAnimationFrame(raf); raf = 0; return; }
@@ -3810,6 +3819,13 @@ function createSmoothStreamPainter(container) {
     if (!body.isConnected) return;
     const backlog = target.length - revealed;
     if (backlog <= 0) return;
+    // Parsing and replacing the growing Markdown tree at display refresh rate
+    // monopolizes the renderer, especially with formulas and long answers.
+    if (ts - lastPaintTs < 100) {
+      raf = requestAnimationFrame(frame);
+      return;
+    }
+    lastPaintTs = ts;
     if (reduceMotion) {
       revealed = target.length;
     } else {
@@ -3828,7 +3844,7 @@ function createSmoothStreamPainter(container) {
       if (target.length < revealed) revealed = target.length;
       if (!raf && body.isConnected) raf = requestAnimationFrame(frame);
     },
-    done() { return revealed >= target.length; },
+    done() { return !body.isConnected || revealed >= target.length; },
     cancel() { if (raf) cancelAnimationFrame(raf); raf = 0; }
   };
 }
@@ -4252,7 +4268,7 @@ function buildSessionHistoryItemMarkup(id, session) {
   const title = session?.title || 'New chat';
   return `
     <span class="session-row-text" title="Double click to rename">
-      <span class="nav-text text-truncate"><span class="nav-text-inner">${escapeHtml(title)}</span></span>
+      ${session.syncOrigin ? `<span class="session-sync-origin" title="${session.syncOrigin === 'mobile' ? 'Imported from phone' : 'Shared between phone and desktop'}" aria-label="${session.syncOrigin === 'mobile' ? 'Imported from phone' : 'Shared chat'}">${session.syncOrigin === 'mobile' ? '▯' : '⇄'}</span>` : ''}<span class="nav-text text-truncate"><span class="nav-text-inner">${escapeHtml(title)}</span></span>
     </span>
     <button type="button" class="session-rename-btn" data-session-id="${escapeHtml(id)}" title="Rename chat" aria-label="Rename chat">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
@@ -5614,7 +5630,12 @@ function renderSessionPanel() {
   const artifacts = currentSessionId ? memory?.getSessionArtifacts?.(currentSessionId) || [] : [];
   const summary = currentSessionId ? memory?.getConversationSummary?.(currentSessionId) : null;
   const latestPrompt = messages.slice().reverse().find(message => !message.isAi);
-  const summaryText = session?.aiMeta?.description || summary?.text || (latestPrompt ? extractPlainTextFromMessage(latestPrompt.text) : 'Start with an idea. Brown keeps the useful details here as you go.');
+  const latestAnswer = messages.slice().reverse().find(message => message.isAi && message.text);
+  const answerExcerpt = latestAnswer ? extractPlainTextFromMessage(latestAnswer.text).replace(/\s+/g, ' ').trim().slice(0, 280) : '';
+  const metaFresh = session?.aiMeta?.answered && !session.aiMeta.heuristic
+    && session.aiMeta.turns === messages.filter(message => !message.isAi).length
+    && session.aiMeta.answers === messages.filter(message => message.isAi && message.text).length;
+  const summaryText = (metaFresh ? session.aiMeta.description : '') || answerExcerpt || summary?.text || (latestPrompt ? 'Waiting for Brown’s answer to summarize this session.' : 'Start with an idea. Brown keeps the useful details here as you go.');
   const updated = summary?.ts || session?.updatedAt;
   const tasks = activity.tasks || [];
   const tools = new Map();
@@ -5765,11 +5786,12 @@ window.addEventListener('DOMContentLoaded', () => {
   // path) so the first "Speak" plays instantly instead of freezing while the
   // ~90 MB ONNX model loads on demand. No-ops when no voice is installed.
   setTimeout(() => { try { warmupActiveTtsEngine(); } catch (e) { /* ignore */ } }, 2500);
-  let queued = false;
+  let panelTimer = null;
   const observer = new MutationObserver(() => {
-    if (queued) return;
-    queued = true;
-    setTimeout(() => { queued = false; renderSessionPanel(); }, 200);
+    // Scan the conversation once streaming/layout settles, rather than walking
+    // all earlier messages five times per second during a live response.
+    if (panelTimer) clearTimeout(panelTimer);
+    panelTimer = setTimeout(() => { panelTimer = null; renderSessionPanel(); }, 300);
   });
   observer.observe(chatMessagesContainer, { childList: true, subtree: true });
   observer.observe(activeChatTitle, { childList: true, characterData: true, subtree: true });
@@ -12052,7 +12074,7 @@ function triggerAiTitleGeneration(userPrompt, targetSessionIdOverride = null) {
       session.aiMeta = { title: finalTitle, description, ts: Date.now(), turns: 1, heuristic: true };
       if (targetSessionId === currentSessionId) renderSessionPanel();
     }
-    scheduleAiSessionMeta(targetSessionId);
+    // The completed-answer hook generates metadata without competing with chat.
   } catch (e) {
     // Non-fatal
   }
@@ -15324,10 +15346,10 @@ async function loadSession(id, title) {
     if (activeChatTitle) activeChatTitle.textContent = sessionTitle;
 
     // Summarize the whole session on open: missing or stale title/description only.
-    if (savedSession && !savedSession.titleLocked && (savedSession.messages || []).length >= 2) {
+    if (savedSession && (savedSession.messages || []).length >= 2) {
       const meta = savedSession.aiMeta;
       const openUserTurns = savedSession.messages.filter(m => !m.isAi).length;
-      if (!meta || meta.heuristic || !meta.answered || (meta.turns || 0) + 3 < openUserTurns) {
+      if (!meta || meta.heuristic || !meta.answered || meta.turns !== openUserTurns || meta.answers !== savedSession.messages.filter(m => m.isAi && m.text).length) {
         generateAiSessionMeta(id, { force: true }).catch(() => {});
       }
     }
@@ -19765,6 +19787,9 @@ function renderAttachmentPreviews(hasImageWarning = false) {
 // VOICE RECORDING & SPEECH-TO-TEXT ENGINE
 // ==========================================
 let isRecordingVoice = false;
+let voiceStartPending = false;
+let voiceCaptureGeneration = 0;
+let voiceCaptureLimitTimer = null;
 let voiceCaptureActive = false;
 let mediaStream = null;
 let audioContext = null;
@@ -20880,7 +20905,7 @@ function syncPerformanceProfileUI(profile = getPerformanceProfile()) {
   perfProfileSegments.forEach(seg => {
     const active = seg.dataset.value === profile;
     seg.classList.toggle('active', active);
-    seg.setAttribute('aria-pressed', String(active));
+    seg.checked = active;
   });
   document.querySelectorAll('#tab-performance .set-row-static').forEach(row => {
     row.classList.toggle('is-active', row.dataset.profile === profile);
@@ -20888,11 +20913,12 @@ function syncPerformanceProfileUI(profile = getPerformanceProfile()) {
 }
 
 function setupPerformanceProfileToggle() {
-  const group = document.getElementById('perf-profile-seg');
+  const group = document.getElementById('perf-profile-options');
   if (!group) return;
-  perfProfileSegments = Array.from(group.querySelectorAll('.set-seg-btn'));
+  perfProfileSegments = Array.from(group.querySelectorAll('input[name="app-speed-profile"]'));
   perfProfileSegments.forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('change', () => {
+      if (!btn.checked) return;
       const value = btn.dataset.value;
       if (!['battery', 'balanced', 'performance'].includes(value)) return;
       localStorage.setItem('ultron-performance-profile', value);
@@ -21613,10 +21639,13 @@ function handleLiveWindowsSttPartial(text) {
 
 async function startVoiceRecording(options = {}) {
   const voiceMode = options.voiceMode === true || (options.voiceMode !== false && isVoiceChatModeEnabled());
-  if (isRecordingVoice) return;
+  if (isRecordingVoice || voiceStartPending || voiceStopInProgress) return;
+  voiceStartPending = true;
+  const generation = ++voiceCaptureGeneration;
 
   try {
     const modelCheck = await ensureVoiceModelForMic();
+    if (generation !== voiceCaptureGeneration) return;
     if (!modelCheck.ready) {
       logTrace(modelCheck.message || 'Voice input is not available on this device.', 'system');
       alert(modelCheck.message || 'Voice input is not available on this device.');
@@ -21633,7 +21662,7 @@ async function startVoiceRecording(options = {}) {
     resetMicNoiseCalibration();
 
     const selectedDeviceId = getSelectedVoiceInputDeviceId();
-    mediaStream = await navigator.mediaDevices.getUserMedia({
+    const audioOptions = {
       audio: {
         ...(selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : {}),
         echoCancellation: true,
@@ -21643,12 +21672,29 @@ async function startVoiceRecording(options = {}) {
         sampleSize: 16,
         channelCount: 1
       }
+    };
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia(audioOptions); }
+    catch (err) {
+      if (selectedDeviceId && (err.name === 'OverconstrainedError' || err.name === 'NotFoundError')) {
+        delete audioOptions.audio.deviceId;
+        stream = await navigator.mediaDevices.getUserMedia(audioOptions);
+      } else throw err;
+    }
+    if (generation !== voiceCaptureGeneration) {
+      stream.getTracks().forEach(track => track.stop());
+      return;
+    }
+    mediaStream = stream;
+    stream.getAudioTracks().forEach(track => {
+      track.onended = () => { if (isRecordingVoice) stopVoiceRecording(true); };
     });
 
     refreshVoiceInputDevices();
 
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     const audioReady = await ensureAudioContextRunning(audioContext);
+    if (generation !== voiceCaptureGeneration) return;
     if (!audioReady) {
       throw new Error('Microphone audio could not start. Tap “Tap to start listening”, then try again.');
     }
@@ -21694,6 +21740,9 @@ async function startVoiceRecording(options = {}) {
     if (voiceRecordingTimer) voiceRecordingTimer.textContent = '0:00';
     if (voiceTimerInterval) clearInterval(voiceTimerInterval);
     voiceTimerInterval = setInterval(updateVoiceTimer, 200);
+    voiceCaptureLimitTimer = setTimeout(() => {
+      if (isRecordingVoice) stopVoiceRecording(true);
+    }, 90000);
 
     try {
       pcmProcessor = audioContext.createScriptProcessor(4096, 1, 1);
@@ -21706,7 +21755,7 @@ async function startVoiceRecording(options = {}) {
         if (!voiceCaptureActive) return;
         const input = event.inputBuffer.getChannelData(0);
         recordedPcmChunks.push(new Float32Array(input));
-        if (recordedPcmChunks.length > 800) recordedPcmChunks.shift();
+        // Preserve the beginning of the utterance; the session timer bounds memory.
       };
     } catch (pcmErr) {
       console.warn('PCM capture init notice:', pcmErr);
@@ -21793,8 +21842,11 @@ async function startVoiceRecording(options = {}) {
     liveWindowsSttFailed = false;
   } catch (err) {
     console.error('Microphone access error:', err);
+    if (generation !== voiceCaptureGeneration) return;
     voiceCaptureActive = false;
     isRecordingVoice = false;
+    if (voiceCaptureLimitTimer) clearTimeout(voiceCaptureLimitTimer);
+    voiceCaptureLimitTimer = null;
     cancelVoiceOrbAnimation();
     if (voiceTimerInterval) {
       clearInterval(voiceTimerInterval);
@@ -21822,10 +21874,13 @@ async function startVoiceRecording(options = {}) {
         : (err.message || 'Unable to access microphone.');
       alert(msg);
     }
-  }
+  } finally { voiceStartPending = false; }
 }
 
 async function stopVoiceRecording(saveTranscript = true, options = {}) {
+  ++voiceCaptureGeneration;
+  if (voiceCaptureLimitTimer) clearTimeout(voiceCaptureLimitTimer);
+  voiceCaptureLimitTimer = null;
   if (voiceStopInProgress) return;
   voiceStopInProgress = true;
   stopVoiceModeVad();
@@ -21860,7 +21915,7 @@ async function stopVoiceRecording(saveTranscript = true, options = {}) {
 
   if (speechRecognition) {
     speechRecognition.onend = null;
-    await flushSpeechRecognition(250);
+    await flushSpeechRecognition(900);
   }
 
   if (liveWindowsSttActive && window.ultronAPI?.stopLiveSpeech) {
@@ -23317,9 +23372,30 @@ const syncBtn = document.getElementById('titlebar-btn-sync');
 const syncDD = document.getElementById('titlebar-sync-dropdown');
 let _syncQrTimer = null;
 let _syncPairTimer = null;
+let _syncHasPaired = false;
+function applySyncConnectionState(devices = []) {
+  _syncHasPaired = devices.length > 0;
+  const state = document.getElementById('tsd-connection-state');
+  state?.classList.toggle('hidden', !_syncHasPaired);
+  if (_syncHasPaired) {
+    resetToInitialActions();
+    const online = devices.filter(device => device.isConnected);
+    const active = devices.filter(device => device.usingDesktop);
+    document.getElementById('tsd-connection-title').textContent = active.length ? 'Phone using desktop' : online.length ? 'Phone connected' : 'Phone paired · Offline';
+    document.getElementById('tsd-connection-detail').textContent = `${devices.map(device => device.deviceName || 'Phone').join(', ')}. ${online.length ? 'Your local connection is ready.' : 'Pairing saved. Open Brown on your phone to reconnect.'}`;
+    document.getElementById('tsd-qr')?.removeAttribute('src');
+    window._suppressPairModal = false;
+  } else if (document.getElementById('tsd-qr-section')?.classList.contains('hidden') && document.getElementById('tsd-paircode-section')?.classList.contains('hidden')) {
+    document.getElementById('tsd-initial-actions')?.classList.remove('hidden');
+  }
+}
+window.addEventListener('brown-device-activity', event => applySyncConnectionState(event.detail));
+document.getElementById('tsd-manage-connection')?.addEventListener('click', () => { hideDDAnimated(syncDD); openSettingsPanel('sync'); });
 
 async function refreshSyncInfo() {
   try {
+    const devices = await window.ultronAPI?.getMobileActivity?.();
+    if (Array.isArray(devices)) applySyncConnectionState(devices);
     const info = await window.ultronAPI?.getDesktopSyncInfo?.();
     if (info) {
       const nameEl = document.getElementById('tsd-device-name'); if (nameEl) nameEl.textContent = info.syncId || 'This PC';
@@ -23336,6 +23412,7 @@ async function refreshSyncInfo() {
 
 // Show/hide helpers for the three mutually exclusive sections
 function showSyncSection(sectionId) {
+  if (_syncHasPaired) return;
   document.getElementById('tsd-initial-actions')?.classList.add('hidden');
   document.getElementById('tsd-qr-section')?.classList.add('hidden');
   document.getElementById('tsd-paircode-section')?.classList.add('hidden');
@@ -23347,15 +23424,17 @@ function resetToInitialActions() {
   if (_syncPairTimer) { clearInterval(_syncPairTimer); _syncPairTimer = null; }
   document.getElementById('tsd-qr-section')?.classList.add('hidden');
   document.getElementById('tsd-paircode-section')?.classList.add('hidden');
-  document.getElementById('tsd-initial-actions')?.classList.remove('hidden');
+  document.getElementById('tsd-initial-actions')?.classList.toggle('hidden', _syncHasPaired);
 }
 // Flag to suppress the fullscreen pair modal when generating from the dropdown
 window._suppressPairModal = false;
 
 // QR generation flow — only shows QR, no pair modal
 async function generateQR() {
+  if (_syncHasPaired) return;
   window._suppressPairModal = true;
   const res = await window.ultronAPI?.createMobilePairCode?.();
+  if (_syncHasPaired) { window._suppressPairModal = false; return; }
   if (res && res.success && res.code) {
     const codeEl = document.getElementById('tsd-pair-code');
     if (codeEl) { codeEl.textContent = res.code; codeEl.classList.remove('hidden'); }
@@ -23388,8 +23467,10 @@ async function generateQR() {
 
 // Pair Code generation flow — only shows text code, no QR
 async function generatePairCode() {
+  if (_syncHasPaired) return;
   window._suppressPairModal = true;
   const res = await window.ultronAPI?.createMobilePairCode?.();
+  if (_syncHasPaired) { window._suppressPairModal = false; return; }
   if (res && res.success && res.code) {
     const codeDisplay = document.getElementById('tsd-paircode-display');
     if (codeDisplay) codeDisplay.textContent = res.code;
@@ -24675,12 +24756,11 @@ function buildTtsModelCard(model) {
       <span class="voice-persona-name">${model.label}${model.isActive ? `<span class="voice-persona-tick" title="Active voice">${VOICE_ACTIVE_TICK_SVG}</span>` : ''}</span>
       <span class="voice-persona-desc">${model.description || ''}</span>
       <div class="voice-persona-foot">
-        <button type="button" class="voice-persona-play btn-tts-preview" data-key="${model.key}" ${model.installed ? '' : 'disabled'} title="Preview this voice">
+        <button type="button" class="voice-persona-play btn-tts-preview" data-key="${model.key}" ${model.installed ? '' : 'disabled'} title="Preview this voice" aria-label="Preview ${model.label} voice">
           <span class="voice-persona-play-icon" aria-hidden="true">${VOICE_PLAY_SVG}</span>
-          <span class="voice-persona-play-label">Play</span>
         </button>
         <button type="button" class="voice-persona-pill settings-action-btn ${pillClass}" data-key="${model.key}" title="${pillTitle}" ${pillDisabled ? 'disabled' : ''}>
-          <span class="settings-action-icon" aria-hidden="true">${SETTINGS_ACTION_ICONS[pillIcon] || ''}</span>
+          ${['Select', 'Selected'].includes(pillLabel) ? '' : `<span class="settings-action-icon" aria-hidden="true">${SETTINGS_ACTION_ICONS[pillIcon] || ''}</span>`}
           <span class="settings-action-label">${pillLabel}</span>
         </button>
       </div>
@@ -24763,6 +24843,7 @@ function setTtsPreviewPlaying(btn, playing) {
   if (!btn) return;
   btn.classList.toggle('is-playing', playing);
   btn.title = playing ? 'Stop preview' : 'Preview this voice';
+  btn.setAttribute('aria-label', btn.title);
   const icon = btn.querySelector('.voice-persona-play-icon');
   if (icon) icon.innerHTML = playing ? VOICE_STOP_SVG : VOICE_PLAY_SVG;
   const label = btn.querySelector('.voice-persona-play-label');
@@ -26599,16 +26680,53 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
 
     const accessToggle = document.getElementById('connection-enabled');
     const awakeToggle = document.getElementById('connection-keep-awake');
+    const directUrlInput = document.getElementById('connection-direct-url');
+    const relayUrlInput = document.getElementById('connection-relay-url');
     const accessStatus = document.getElementById('connection-access-status');
     const settingsError = document.getElementById('connection-settings-error');
     let connectionSettings = null;
+    let allowAnotherPhone = false;
+    let lastDevicesSignature = '';
+    let pairedPhoneCount = 0;
+    function closePairingUi() {
+      if (_pairCountdown) clearInterval(_pairCountdown);
+      _pairCountdown = null;
+      pairBanner?.classList.add('hidden');
+      if (pairCodeDisplay) pairCodeDisplay.textContent = '------';
+      if (pairTimer) pairTimer.textContent = '';
+      const qr = document.getElementById('connection-pair-qr');
+      qr?.removeAttribute('src'); qr?.classList.add('hidden');
+      document.getElementById('mobile-pair-modal')?.classList.add('hidden');
+      window._suppressPairModal = false;
+      allowAnotherPhone = false;
+    }
+    async function requestTransfer(id, action, feedback) {
+      const result = await window.ultronAPI.requestMobileChatTransfer(id, action);
+      if (!result?.success) throw Error(result?.error || 'Could not request transfer');
+      if (feedback) feedback.textContent = 'Open Connection on your phone to approve this request.';
+      await loadSyncStats();
+    }
+    function showPairConfirmation(data) {
+      document.getElementById('connection-success-dialog')?.remove();
+      const dialog = document.createElement('dialog');
+      dialog.id = 'connection-success-dialog'; dialog.className = 'connection-success-dialog';
+      dialog.setAttribute('aria-labelledby', 'connection-success-title');
+      dialog.innerHTML = `<div class="connection-success-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg></div><h2 id="connection-success-title">Phone connected</h2><p>${escapeHtml(data.deviceName || 'Brown Mobile')} is paired and ready to use desktop models.</p><div class="connection-success-actions"><button type="button" class="btn-secondary-sm" data-done>Done</button><button type="button" class="btn-secondary-sm" data-manage>Manage connection</button></div>`;
+      document.body.appendChild(dialog);
+      dialog.querySelector('[data-done]').onclick = () => dialog.close();
+      dialog.querySelector('[data-manage]').onclick = () => { dialog.close(); if (typeof openSettingsPanel === 'function') openSettingsPanel('sync'); document.getElementById('sync-paired-devices-container')?.scrollIntoView({ block: 'nearest' }); };
+      dialog.addEventListener('close', () => dialog.remove());
+      dialog.showModal();
+    }
     function paintConnectionSettings(settings) {
       connectionSettings = settings;
+      if (directUrlInput) directUrlInput.value = settings.directUrl || '';
+      if (relayUrlInput) relayUrlInput.value = settings.relayUrl || '';
       if (accessToggle) { accessToggle.checked = settings.enabled; accessToggle.disabled = false; }
       if (awakeToggle) { awakeToggle.checked = settings.keepAwake; awakeToggle.disabled = !settings.enabled; }
       if (accessStatus) accessStatus.textContent = settings.enabled ? '• Enabled' : '• Disabled';
       const pairButton = document.getElementById('btn-generate-pair-code');
-      if (pairButton) pairButton.disabled = !settings.enabled;
+      if (pairButton) pairButton.disabled = !settings.enabled || (pairedPhoneCount > 0 && !allowAnotherPhone);
       if (!settings.enabled) document.getElementById('sync-pair-code-banner')?.classList.add('hidden');
     }
     try { paintConnectionSettings(await window.ultronAPI.getMobileConnectionSettings()); }
@@ -26619,7 +26737,8 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
       accessToggle.disabled = true;
       awakeToggle.disabled = true;
       try {
-        const result = await window.ultronAPI.setMobileConnectionSettings({ enabled: accessToggle.checked, keepAwake: awakeToggle.checked });
+        const result = await window.ultronAPI.setMobileConnectionSettings({ enabled: accessToggle.checked, keepAwake: awakeToggle.checked,
+          directUrl: directUrlInput?.value.trim() || '', relayUrl: relayUrlInput?.value.trim() || '' });
         if (!result?.success) throw new Error(result?.error || 'Could not save connection settings.');
         paintConnectionSettings(result);
         settingsError?.classList.add('hidden');
@@ -26631,7 +26750,54 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
     }
     accessToggle?.addEventListener('change', saveConnectionSettings);
     awakeToggle?.addEventListener('change', saveConnectionSettings);
+    document.getElementById('connection-save-remote')?.addEventListener('click', saveConnectionSettings);
 
+    let disconnectingPhones = false;
+    function confirmPhoneDisconnect(phones) {
+      return new Promise(resolve => {
+        const dialog = document.createElement('dialog');
+        dialog.id = 'connection-disconnect-dialog';
+        dialog.className = 'connection-success-dialog connection-disconnect-dialog';
+        dialog.setAttribute('aria-labelledby', 'connection-disconnect-title');
+        dialog.setAttribute('aria-describedby', 'connection-disconnect-description');
+        const hasPhones = phones.length > 0;
+        const heading = hasPhones ? phones.length > 1 ? 'Disconnect all phones?' : 'Disconnect phone?' : 'No phone connected';
+        const description = hasPhones ? `Disconnect ${phones.map(device => escapeHtml(device.deviceName || 'Brown Mobile')).join(', ')} from this desktop for this session?` : 'Connect your paired phone to disconnect its current session.';
+        dialog.innerHTML = `<h2 id="connection-disconnect-title">${heading}</h2><p id="connection-disconnect-description">${description}</p>${hasPhones ? '<p class="connection-success-note">Pairing stays saved. Automatic connection resumes when you reopen either app.</p>' : ''}<div class="connection-success-actions"><button type="button" data-cancel>${hasPhones ? 'Cancel' : 'Close'}</button>${hasPhones ? `<button type="button" id="connection-disconnect-confirm" class="connection-disconnect-btn" data-confirm>${phones.length > 1 ? 'Disconnect all' : 'Disconnect'}</button>` : ''}</div>`;
+        document.body.appendChild(dialog);
+        dialog.querySelector('[data-cancel]').onclick = () => dialog.close('cancel');
+        dialog.querySelector('[data-confirm]')?.addEventListener('click', () => dialog.close('disconnect'));
+        dialog.addEventListener('close', () => { const confirmed = dialog.returnValue === 'disconnect'; dialog.remove(); resolve(confirmed); }, { once: true });
+        dialog.showModal();
+        dialog.querySelector('[data-cancel]').focus();
+      });
+    }
+    const headerDisconnectButton = document.getElementById('connection-disconnect');
+    if (headerDisconnectButton) headerDisconnectButton.onclick = async () => {
+      if (disconnectingPhones) return;
+      disconnectingPhones = true;
+      headerDisconnectButton.disabled = true;
+      try {
+        const current = await window.ultronAPI.getDesktopSyncInfo();
+        const phones = (current?.activeDevices || []).filter(device => device.isConnected);
+        if (await confirmPhoneDisconnect(phones)) {
+          const latest = await window.ultronAPI.getDesktopSyncInfo();
+          const connectedIds = new Set((latest?.activeDevices || []).filter(device => device.isConnected).map(device => device.id));
+          for (const device of phones) {
+            if (!connectedIds.has(device.id)) continue;
+            const result = await window.ultronAPI.disconnectMobileDevice(device.id);
+            if (!result?.success) throw new Error(result?.error || 'Could not disconnect phone.');
+          }
+          settingsError?.classList.add('hidden');
+        }
+      } catch (error) {
+        if (settingsError) { settingsError.textContent = error.message; settingsError.classList.remove('hidden'); }
+      } finally {
+        disconnectingPhones = false;
+        headerDisconnectButton.disabled = false;
+        await loadSyncStats();
+      }
+    };
     async function loadSyncStats() {
       try {
         const info = await window.ultronAPI.getDesktopSyncInfo();
@@ -26648,6 +26814,18 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
 
         const statusBadge = document.getElementById('sync-status-badge');
         const activeDevices = info.activeDevices || [];
+        const connectedPhones = activeDevices.filter(device => device.isConnected);
+        const disconnectButton = document.getElementById('connection-disconnect');
+        if (disconnectButton) {
+          disconnectButton.classList.remove('hidden');
+          disconnectButton.textContent = connectedPhones.length > 1 ? 'Disconnect all' : 'Disconnect';
+          disconnectButton.disabled = disconnectingPhones;
+        }
+        pairedPhoneCount = activeDevices.length;
+        if (pairedPhoneCount && !info.pending) closePairingUi();
+        const connectButton = document.getElementById('btn-generate-pair-code');
+        if (connectButton) { connectButton.textContent = pairedPhoneCount && !allowAnotherPhone ? 'Paired' : allowAnotherPhone ? 'Connect another phone' : 'Connect'; connectButton.disabled = connectionSettings?.enabled === false || (pairedPhoneCount > 0 && !allowAnotherPhone); }
+        document.getElementById('btn-pair-another-phone')?.classList.toggle('hidden', !pairedPhoneCount || connectionSettings?.enabled === false);
         if (statusBadge) {
           if (connectionSettings?.enabled === false) {
             statusBadge.textContent = 'Mobile access disabled';
@@ -26665,7 +26843,9 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
           }
         }
 
-        if (devicesContainer) {
+        const signature = JSON.stringify([activeDevices, info.previousDevices]);
+        if (devicesContainer && signature !== lastDevicesSignature) {
+          lastDevicesSignature = signature;
           if (activeDevices.length === 0) {
             devicesContainer.innerHTML = '<div class="connection-empty">No phones paired yet. Generate a pairing QR above, then scan it in Brown Mobile.</div>';
           } else {
@@ -26693,6 +26873,15 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
                 </div>
                 <button type="button" class="btn-sync-revoke" style="background: #241416; border: 1px solid #5a1c1e; color: #f87171; border-radius: 6px; padding: 5px 14px; font-size: 11.5px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">Unpair</button>
               `;
+              const controls = document.createElement('div');
+              controls.className = 'paired-device-controls';
+              const prefs = d.preferences || { modelAccess: true, voiceAccess: true, profileMode: 'separate' };
+              controls.innerHTML = `<p class="paired-device-state">${d.sessionDisconnected ? 'Disconnected · Pairing saved' : d.isConnected ? '● Online' : 'Paired · Offline'}${d.transferRequest ? ' · Waiting for phone approval' : d.lastTransfer ? ` · Transfer ${escapeHtml(d.lastTransfer.status)}` : ''}</p><label class="connection-setting"><span><strong>Desktop models</strong><small>Use this PC’s models on your phone. Model files stay on the PC.</small></span><input type="checkbox" data-pref="modelAccess" ${prefs.modelAccess ? 'checked' : ''} /></label><label class="connection-setting"><span><strong>Desktop voice recognition</strong><small>Use the PC to transcribe phone recordings.</small></span><input type="checkbox" data-pref="voiceAccess" ${prefs.voiceAccess ? 'checked' : ''} /></label><label class="paired-profile-choice"><span class="paired-section-copy"><strong>Profiles</strong><small>Choose how profiles are shared.</small></span><select data-profile><option value="separate" ${prefs.profileMode === 'separate' ? 'selected' : ''}>Keep separate</option><option value="shared" ${prefs.profileMode === 'shared' ? 'selected' : ''}>Share profile (approve on phone)</option></select></label><section class="paired-chat-section" aria-label="Chat sharing"><div class="paired-section-copy"><strong>Chat sharing</strong><small>Copy conversations or combine both histories.</small></div><div class="paired-chat-actions"><button type="button" class="btn-secondary-sm" data-transfer="import">Import phone chats</button><button type="button" class="btn-secondary-sm" data-transfer="send">Send desktop chats</button><button type="button" class="btn-primary-sm" data-transfer="merge">Merge both histories</button></div><p class="paired-transfer-feedback" role="status">${d.isConnected ? 'Transfers keep existing chats and skip duplicate messages.' : 'Requests wait for the phone to reconnect, for up to 5 minutes.'}</p></section>`;
+              controls.querySelectorAll('[data-pref], [data-profile]').forEach(input => input.addEventListener('change', async () => {
+                try { const result = await window.ultronAPI.setMobileDevicePreferences(d.id, { modelAccess: controls.querySelector('[data-pref="modelAccess"]').checked, voiceAccess: controls.querySelector('[data-pref="voiceAccess"]').checked, profileMode: controls.querySelector('[data-profile]').value }); if (!result?.success) throw Error(result?.error); await loadSyncStats(); }
+                catch (error) { controls.querySelector('.paired-transfer-feedback').textContent = error.message || 'Could not save'; }
+              }));
+              controls.querySelectorAll('[data-transfer]').forEach(button => button.addEventListener('click', async () => { button.disabled = true; try { await requestTransfer(d.id, button.dataset.transfer, controls.querySelector('.paired-transfer-feedback')); } catch (error) { controls.querySelector('.paired-transfer-feedback').textContent = error.message; } finally { button.disabled = false; } }));
               const btnRevoke = row.querySelector('.btn-sync-revoke');
               if (btnRevoke) {
                 btnRevoke.addEventListener('click', async () => {
@@ -26701,6 +26890,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
                 });
               }
               devicesContainer.appendChild(row);
+              devicesContainer.appendChild(controls);
             });
           }
 
@@ -26756,6 +26946,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
     const pairTimer = document.getElementById('sync-pair-code-timer');
 
     let _pairCountdown = null;
+    document.getElementById('btn-pair-another-phone')?.addEventListener('click', () => { allowAnotherPhone = true; btnGenPair.disabled = false; btnGenPair.click(); });
 
     if (btnGenPair) {
       btnGenPair.addEventListener('click', async () => {
@@ -26790,8 +26981,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
           window._suppressPairModal = false;
           if (settingsError) { settingsError.textContent = error.message; settingsError.classList.remove('hidden'); }
         } finally {
-          btnGenPair.textContent = 'Connect';
-          btnGenPair.disabled = connectionSettings?.enabled === false;
+          await loadSyncStats();
         }
       });
     }
@@ -26835,12 +27025,14 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
     if (btnRefreshPaired) btnRefreshPaired.addEventListener('click', () => handleManualRefresh(btnRefreshPaired));
 
     if (window.ultronAPI.onMobilePairComplete) {
-      window.ultronAPI.onMobilePairComplete(() => {
+      window.ultronAPI.onMobilePairComplete((data) => {
         const modal = document.getElementById('mobile-pair-modal');
         if (modal) modal.classList.add('hidden');
         pairBanner?.classList.add('hidden');
         if (_pairCountdown) clearInterval(_pairCountdown);
         window._suppressPairModal = false;
+        closePairingUi();
+        showPairConfirmation(data || {});
         loadSyncStats();
       });
     }
@@ -26855,7 +27047,7 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
     // Auto-refresh sync state every 3.5s if settings view is open
     setInterval(() => {
       const syncPane = document.getElementById('settings-sync-pane') || document.querySelector('.settings-tab-content[data-tab="sync"]');
-      const settingsModal = document.getElementById('settings-modal');
+      const settingsModal = document.getElementById('settings-panel');
       const isVisible = (!settingsModal || !settingsModal.classList.contains('hidden')) && (!syncPane || !syncPane.classList.contains('hidden'));
       if (isVisible) {
         loadSyncStats();

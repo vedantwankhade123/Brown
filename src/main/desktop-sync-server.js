@@ -8,6 +8,35 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { app, powerSaveBlocker } = require('electron');
+const companionCrypto = require('./companion-crypto');
+const { Readable } = require('stream');
+let relayClient = null;
+const encryptedRequests = new Map();
+const phoneActivity = new Map();
+// Runtime-only: restarting either application starts a fresh connection session.
+const phoneSessions = new Map();
+const phoneModelRequests = new Map();
+const disconnectedSessions = new Map();
+function disconnectPairedDevice(identifier) {
+  const record = (loadConfig().mobilePairTokens || []).find(t => !t.revoked && [t.id, t.token, companionCrypto.hash(t.token).slice(0, 16)].includes(identifier));
+  if (!record) return { success: false, error: 'Paired device not found' };
+  for (const controller of phoneModelRequests.get(record.token) || []) controller.abort();
+  disconnectedSessions.set(record.token, phoneSessions.get(record.token) || '');
+  phoneActivity.delete(companionCrypto.hash(record.token).slice(0, 16));
+  notifyRenderer('mobile-paired-devices-updated', {});
+  return { success: true };
+}
+const desktopJobs = new Map();
+function getDeviceActivity() {
+  return getSyncInfo().activeDevices.map(device => {
+    const activity = phoneActivity.get(device.id);
+    const fresh = activity && Date.now() - activity.updatedAt < 12000;
+    if (activity && !fresh) phoneActivity.delete(device.id);
+    return { ...device, usingDesktop: device.isConnected && (desktopJobs.get(device.id)?.count || 0) > 0,
+      desktopModel: desktopJobs.get(device.id)?.model || '',
+      activity: fresh && getConnectionSettings().enabled && device.preferences.livePreview ? activity : null };
+  });
+}
 
 const SYNC_PORT = 49200;
 const PORT_FALLBACKS = [SYNC_PORT, 49201, 49202, 49203];
@@ -51,7 +80,8 @@ function saveConfigPatch(patch) {
 let awakeBlockerId = null;
 function getConnectionSettings() {
   const config = loadConfig();
-  return { enabled: config.mobileConnectionEnabled !== false, keepAwake: config.mobileKeepAwake === true };
+  return { enabled: config.mobileConnectionEnabled !== false, keepAwake: config.mobileKeepAwake === true,
+    directUrl: config.mobileDirectUrl || '', relayUrl: config.mobileRelayUrl || '' };
 }
 function applyConnectionPower(settings) {
   if (settings.enabled && settings.keepAwake && awakeBlockerId === null) {
@@ -65,9 +95,13 @@ function setConnectionSettings(settings) {
   if (!settings || typeof settings.enabled !== 'boolean' || typeof settings.keepAwake !== 'boolean') {
     throw new Error('Invalid connection settings');
   }
-  saveConfigPatch({ mobileConnectionEnabled: settings.enabled, mobileKeepAwake: settings.keepAwake });
+  const current = getConnectionSettings();
+  saveConfigPatch({ mobileConnectionEnabled: settings.enabled, mobileKeepAwake: settings.keepAwake,
+    mobileDirectUrl: companionCrypto.endpoint(settings.directUrl ?? current.directUrl),
+    mobileRelayUrl: companionCrypto.endpoint(settings.relayUrl ?? current.relayUrl, true) });
   if (!settings.enabled) { denyPendingPair(); resolveChatConsent(false); }
   applyConnectionPower(settings);
+  restartRelay();
   return { success: true, ...getConnectionSettings() };
 }
 
@@ -202,7 +236,7 @@ function findToken(token) {
   const tokens = loadConfig().mobilePairTokens || [];
   const rec = tokens.find((t) => t.token === token && !t.revoked);
   if (!rec) return null;
-  const maxAge = 45 * 24 * 60 * 60 * 1000;
+  const maxAge = rec.secureCompanion ? Infinity : 45 * 24 * 60 * 60 * 1000;
   if (rec.createdAt && Date.now() - rec.createdAt > maxAge) return null;
   return rec;
 }
@@ -267,6 +301,7 @@ function normalizeSessions(store) {
     return {
       id: session.id || id,
       title: session.title || 'Desktop chat',
+      syncOrigin: session.syncOrigin || 'desktop',
       modelId: session.modelId || 'desktop',
       createdAt: toMillis(session.createdAt),
       updatedAt: toMillis(session.updatedAt),
@@ -300,6 +335,7 @@ async function mergeIncomingSessions(incoming) {
       store[session.id] = {
         id: session.id,
         title: session.title || 'Mobile chat',
+        syncOrigin: session.syncOrigin === 'desktop' ? 'both' : 'mobile',
         createdAt: new Date(toMillis(session.createdAt)).toISOString(),
         updatedAt: new Date(toMillis(session.updatedAt) || Date.now()).toISOString(),
         messages: desktopMessages,
@@ -319,6 +355,7 @@ async function mergeIncomingSessions(incoming) {
       merged++;
     }
     existing.title = session.title || existing.title;
+    existing.syncOrigin = 'both';
     existing.updatedAt = new Date().toISOString();
   }
   await saveConversationsStore(store);
@@ -398,6 +435,7 @@ function discoverPayload() {
     version: app.getVersion ? app.getVersion() : '1.0.0',
     port: activePort,
     addresses: getLanAddresses(),
+    companion: companionInfo(),
     ollama: 'http://127.0.0.1:11434',
   };
 }
@@ -405,7 +443,7 @@ function discoverPayload() {
 function pairQrPayload(code) {
   const ips = getLanAddresses();
   return JSON.stringify({
-    v: 1,
+    v: 2,
     type: 'brown-pair',
     name: `${os.hostname() || 'Brown-PC'} (Brown Desktop)`,
     ip: ips[0] || '127.0.0.1',
@@ -413,6 +451,7 @@ function pairQrPayload(code) {
     port: activePort,
     code,
     syncId,
+    companion: { ...companionInfo(), bootstrapKey: pendingPair?.bootstrapKey, keyId: pendingPair?.requestId },
   });
 }
 
@@ -453,6 +492,11 @@ async function handleRequest(req, res) {
 
   const url = new URL(req.url, `http://127.0.0.1:${SYNC_PORT}`);
   const route = url.pathname.replace(/\/+$/, '') || '/';
+  if (req.method === 'POST' && route === '/companion') {
+    try { json(req, res, 200, await handleEncryptedRequest(await readBody(req))); }
+    catch { json(req, res, 401, { ok: false, error: 'Companion authentication failed' }); }
+    return;
+  }
 
   if (req.method === 'GET' && (route === '/discover' || route === '/health')) {
     json(req, res, 200, discoverPayload());
@@ -471,6 +515,7 @@ async function handleRequest(req, res) {
     if (!pendingPair || Date.now() > pendingPair.expiresAt) {
       pendingPair = {
         requestId: crypto.randomBytes(8).toString('hex'),
+        bootstrapKey: crypto.randomBytes(32).toString('hex'),
         code: generatePairCode(),
         deviceName: clientDevice,
         expiresAt: Date.now() + PAIR_TTL_MS,
@@ -544,6 +589,9 @@ async function handleRequest(req, res) {
 
     updatedTokens.push({
       token,
+      secureCompanion: req.secureCompanion === true,
+      preferences: { modelAccess: true, voiceAccess: true, profileMode: 'separate' },
+      lastSeen: Date.now(),
       createdAt: Date.now(),
       deviceName: clientDevName,
       platform: clientPlatform,
@@ -551,12 +599,12 @@ async function handleRequest(req, res) {
     });
     saveConfigPatch({ mobilePairTokens: updatedTokens, ultronSyncId: syncId });
     pendingPair = null;
-    notifyRenderer('mobile-pair-complete', { deviceName: clientDevName, platform: clientPlatform });
+    notifyRenderer('mobile-pair-complete', { deviceName: clientDevName, platform: clientPlatform, id: companionCrypto.hash(token).slice(0, 16) });
     json(req, res, 200, {
       ok: true,
       token,
-      desktop: { ...discoverPayload(), geminiApiKey: loadConfig().geminiApiKey || '' },
-      profile: getSyncedProfile(),
+      desktop: discoverPayload(),
+      preferences: { modelAccess: true, voiceAccess: true, profileMode: 'separate' },
     });
     return;
   }
@@ -586,19 +634,68 @@ async function handleRequest(req, res) {
   // The token proves who the device is; the fingerprint proves it is asking from the network
   // it was paired on. Checked on every protected route — a token lifted on one LAN must not
   // work from another. networksOverlap() only needs one /24 in common, so normal roaming is fine.
-  if (tokenRec && tokenRec.lanFingerprint && !networksOverlap(tokenRec.lanFingerprint)) {
+  if (tokenRec && !req.secureCompanion && tokenRec.lanFingerprint && !networksOverlap(tokenRec.lanFingerprint)) {
     json(req, res, 401, { ok: false, needReauth: true, error: 'Network changed' });
     return;
   }
 
+  if (tokenRec) {
+    const session = String(req.headers['x-brown-session'] || '').slice(0, 100);
+    if (session) {
+      const previous = phoneSessions.get(tokenRec.token);
+      if (previous && previous !== session) disconnectedSessions.delete(tokenRec.token);
+      phoneSessions.set(tokenRec.token, session);
+    }
+    if (disconnectedSessions.has(tokenRec.token)) {
+      json(req, res, route === '/session' ? 200 : 409, { ok: route === '/session', syncId, disconnected: true, error: 'Disconnected for this session. Reopen either app to reconnect.' });
+      return;
+    }
+  }
+  if (req.method === 'POST' && route === '/sync/disconnect') {
+    json(req, res, 200, disconnectPairedDevice(tokenRec.token)); return;
+  }
   if (req.method === 'GET' && route === '/session') {
+    if (Date.now() - (tokenRec.lastSeen || 0) > 10000) patchDevice(tokenRec.token, { lastSeen: Date.now() });
     json(req, res, 200, {
       ok: true,
       syncId,
-      profile: getSyncedProfile(),
+      profile: devicePreferences(tokenRec).profileMode === 'shared' ? getSyncedProfile() : undefined,
+      preferences: devicePreferences(tokenRec),
+      transferRequest: tokenRec.transferRequest?.expiresAt > Date.now() ? tokenRec.transferRequest : null,
       addresses: getLanAddresses(),
+      companion: companionInfo(),
     });
     return;
+  }
+
+  if (req.method === 'POST' && route === '/sync/preferences') {
+    const body = await readBody(req);
+    json(req, res, 200, updateDevicePreferences(tokenRec.token, body));
+    return;
+  }
+  if (req.method === 'POST' && route === '/sync/ack') {
+    const body = await readBody(req);
+    if (!tokenRec.transferRequest || tokenRec.transferRequest.expiresAt <= Date.now() || body.id !== tokenRec.transferRequest.id || typeof body.success !== 'boolean') { json(req, res, 409, { error: 'Transfer request expired or invalid' }); return; }
+    patchDevice(tokenRec.token, { transferRequest: null, lastTransfer: { status: body.success ? 'completed' : 'declined', ts: Date.now() } });
+    json(req, res, 200, { ok: true }); return;
+  }
+  if (req.method === 'POST' && route === '/sync/activity') {
+    const body = await readBody(req);
+    const id = companionCrypto.hash(tokenRec.token).slice(0, 16);
+    if (!devicePreferences(tokenRec).livePreview) { phoneActivity.delete(id); json(req, res, 403, { error: 'Enable live chat preview on the phone first.' }); return; }
+    if (body.visible === false) phoneActivity.delete(id);
+    else {
+      if (!Array.isArray(body.messages) || body.messages.length > 60 || JSON.stringify(body).length > 200000) { json(req, res, 400, { error: 'Preview is too large' }); return; }
+      phoneActivity.set(id, { updatedAt: Date.now(), sessionId: String(body.sessionId || '').slice(0, 200), title: String(body.title || 'New chat').slice(0, 200), model: String(body.model || '').slice(0, 200), generating: body.generating === true,
+        messages: body.messages.map(m => ({ id: String(m.id || '').slice(0, 200), role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content || ''), isStreaming: m.isStreaming === true, statusLabel: String(m.statusLabel || '').slice(0, 100) })) });
+    }
+    json(req, res, 200, { ok: true }); return;
+  }
+  if ((route === '/profile' || route === '/gemini-key') && devicePreferences(tokenRec).profileMode !== 'shared') {
+    json(req, res, 403, { ok: false, error: 'Profiles are kept separate. Enable shared profile on both devices to share settings.' }); return;
+  }
+  if ((route.startsWith('/ollama') && !devicePreferences(tokenRec).modelAccess) || (route.startsWith('/stt') && !devicePreferences(tokenRec).voiceAccess)) {
+    json(req, res, 403, { ok: false, error: 'Desktop access is disabled for this phone.' }); return;
   }
 
   if (req.method === 'GET' && route === '/profile') {
@@ -625,7 +722,7 @@ async function handleRequest(req, res) {
     const store = loadConversationsStore();
     const sessions = normalizeSessions(store);
     const messageCount = sessions.reduce((n, s) => n + (s.messages ? s.messages.length : 0), 0);
-    const consent = await requestChatConsent({
+    const consent = hasRequestedTransfer(tokenRec, 'send') ? { approved: true } : await requestChatConsent({
       direction: 'pc-to-phone',
       title: 'Send desktop chats to your phone?',
       detail: `Brown Mobile wants to copy ${sessions.length} conversation${sessions.length === 1 ? '' : 's'} (${messageCount} messages) from this PC to the phone.`,
@@ -644,7 +741,7 @@ async function handleRequest(req, res) {
     const body = await readBody(req);
     const incoming = Array.isArray(body.sessions) ? body.sessions : [];
     const messageCount = incoming.reduce((n, s) => n + ((s.messages && s.messages.length) || 0), 0);
-    const consent = await requestChatConsent({
+    const consent = hasRequestedTransfer(tokenRec, 'import') ? { approved: true } : await requestChatConsent({
       direction: 'phone-to-pc',
       title: 'Save phone chats on this PC?',
       detail: `Brown Mobile wants to export ${incoming.length} conversation${incoming.length === 1 ? '' : 's'} (${messageCount} messages) from the phone onto this workstation.`,
@@ -661,7 +758,7 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if (req.method === 'POST' && (route === '/pair/unpair' || route === '/sync/unpair' || route === '/pair/disconnect' || route === '/sync/disconnect')) {
+  if (req.method === 'POST' && (route === '/pair/unpair' || route === '/sync/unpair' || route === '/pair/disconnect')) {
     if (tokenRec) {
       revokePairedDevice(tokenRec.id || tokenRec.token);
     }
@@ -691,9 +788,16 @@ async function handleRequest(req, res) {
 
   if (req.method === 'POST' && route === '/ollama/chat') {
     const body = await readBody(req);
+    const deviceId = companionCrypto.hash(tokenRec.token).slice(0, 16);
+    const controller = new AbortController();
+    const controllers = phoneModelRequests.get(tokenRec.token) || new Set();
+    controllers.add(controller); phoneModelRequests.set(tokenRec.token, controllers);
+    const job = desktopJobs.get(deviceId) || { count: 0 };
+    desktopJobs.set(deviceId, { count: job.count + 1, model: String(body.model || '') });
     try {
       let response = await fetch('http://127.0.0.1:11434/api/chat', {
         method: 'POST',
+        signal: controller.signal,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: body.model,
@@ -710,6 +814,7 @@ async function handleRequest(req, res) {
         try {
           const cpuResponse = await fetch('http://127.0.0.1:11434/api/chat', {
             method: 'POST',
+        signal: controller.signal,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               model: body.model,
@@ -740,6 +845,11 @@ async function handleRequest(req, res) {
       json(req, res, 200, { ok: true, ...data });
     } catch (err) {
       json(req, res, 502, { ok: false, error: `Desktop connection error: ${err.message}` });
+    } finally {
+      controllers.delete(controller); if (!controllers.size) phoneModelRequests.delete(tokenRec.token);
+      const current = desktopJobs.get(deviceId);
+      if (current?.count > 1) desktopJobs.set(deviceId, { ...current, count: current.count - 1 });
+      else desktopJobs.delete(deviceId);
     }
     return;
   }
@@ -780,6 +890,9 @@ async function handleRequest(req, res) {
       json(req, res, 413, { ok: false, error: 'Recording too long (max ~30 seconds)' });
       return;
     }
+    const deviceId = companionCrypto.hash(tokenRec.token).slice(0, 16);
+    const job = desktopJobs.get(deviceId) || { count: 0 };
+    desktopJobs.set(deviceId, { count: job.count + 1, model: 'Voice recognition' });
     try {
       const { transcribeWhisperWavBuffer } = require('./voice-whisper');
       const wav = Buffer.from(b64, 'base64');
@@ -793,11 +906,101 @@ async function handleRequest(req, res) {
       }
     } catch (err) {
       json(req, res, 502, { ok: false, error: err.message || 'Whisper transcription failed' });
+    } finally {
+      const current = desktopJobs.get(deviceId);
+      if (current?.count > 1) desktopJobs.set(deviceId, { ...current, count: current.count - 1 });
+      else desktopJobs.delete(deviceId);
     }
     return;
   }
 
   json(req, res, 404, { ok: false, error: 'Not found' });
+}
+
+function devicePreferences(record) {
+  return { modelAccess: record?.preferences?.modelAccess !== false, voiceAccess: record?.preferences?.voiceAccess !== false,
+    livePreview: record?.preferences?.livePreview === true,
+    profileMode: record?.preferences?.profileMode === 'shared' ? 'shared' : 'separate' };
+}
+function patchDevice(identifier, patch) {
+  const cfg = loadConfig();
+  let matched = false;
+  const tokens = (cfg.mobilePairTokens || []).map(t => {
+    if (t.revoked || ![t.token, t.id, companionCrypto.hash(t.token).slice(0, 16)].includes(identifier)) return t;
+    matched = true; return { ...t, ...patch };
+  });
+  if (!matched) throw Error('Paired phone not found');
+  saveConfigPatch({ mobilePairTokens: tokens });
+  notifyRenderer('mobile-paired-devices-updated', {});
+}
+function updateDevicePreferences(identifier, settings) {
+  if (typeof settings.modelAccess !== 'boolean' || typeof settings.voiceAccess !== 'boolean' || !['shared', 'separate'].includes(settings.profileMode)) throw Error('Invalid device preferences');
+  const record = (loadConfig().mobilePairTokens || []).find(t => !t.revoked && [t.token, t.id, companionCrypto.hash(t.token).slice(0, 16)].includes(identifier));
+  if (!record) throw Error('Paired phone not found');
+  // Profile sharing needs both ends to opt in. The phone's authenticated request
+  // is its consent; desktop-side selection alone does not disclose credentials.
+  const preferences = { ...settings, livePreview: identifier === record.token && typeof settings.livePreview === 'boolean' ? settings.livePreview : record.preferences?.livePreview === true, profileMode: settings.profileMode === 'shared' && identifier !== record.token && record.preferences?.profileMode !== 'shared' ? 'separate' : settings.profileMode };
+  patchDevice(identifier, { preferences });
+  if (settings.profileMode === 'shared' && preferences.profileMode === 'separate') queueChatTransfer(identifier, 'profile');
+  return { success: true, ok: true, preferences };
+}
+function queueChatTransfer(identifier, action) {
+  if (!['import', 'send', 'merge', 'profile'].includes(action)) throw Error('Invalid transfer action');
+  const record = (loadConfig().mobilePairTokens || []).find(t => !t.revoked && [t.token, t.id, companionCrypto.hash(t.token).slice(0, 16)].includes(identifier));
+  if (record?.transferRequest?.expiresAt > Date.now()) throw Error('A request is already waiting for phone approval. Complete it or wait for it to expire.');
+  const transferRequest = { id: crypto.randomBytes(16).toString('hex'), action, expiresAt: Date.now() + 300000 };
+  patchDevice(identifier, { transferRequest });
+  return { success: true, transferRequest };
+}
+function hasRequestedTransfer(record, direction) {
+  const request = record?.transferRequest;
+  return request?.expiresAt > Date.now() && [direction, 'merge'].includes(request.action);
+}
+
+function companionInfo() {
+  const settings = getConnectionSettings();
+  const owner = loadConfig().mobileRelayOwner;
+  return { v: 2, addresses: getLanAddresses(), directUrl: settings.directUrl,
+    relayUrl: settings.relayUrl, relayRoom: owner ? companionCrypto.hash(owner) : '' };
+}
+
+function restartRelay() {
+  relayClient?.stop(); relayClient = null;
+  const settings = getConnectionSettings();
+  if (!server || !settings.enabled || !settings.relayUrl) return;
+  let owner = loadConfig().mobileRelayOwner;
+  if (!owner) { owner = crypto.randomBytes(32).toString('hex'); saveConfigPatch({ mobileRelayOwner: owner }); }
+  const { CompanionRelayClient } = require('./companion-relay-client');
+  relayClient = new CompanionRelayClient(settings.relayUrl, owner, handleEncryptedRequest);
+}
+
+async function handleEncryptedRequest(envelope) {
+  if (!getConnectionSettings().enabled) throw Error('Disabled');
+  let secret, token;
+  if (pendingPair && pendingPair.requestId === envelope.keyId && Date.now() < pendingPair.expiresAt) secret = pendingPair.bootstrapKey;
+  else {
+    const record = (loadConfig().mobilePairTokens || []).find(t => !t.revoked && companionCrypto.hash(t.token).slice(0, 32) === envelope.keyId);
+    if (!record || !findToken(record.token)) throw Error('Revoked');
+    secret = token = record.token;
+  }
+  const payload = companionCrypto.open(secret, envelope, 'request');
+  if (!Number.isFinite(payload.ts) || Math.abs(Date.now() - payload.ts) > 300000) throw Error('Expired request');
+  for (const [id, ts] of encryptedRequests) if (Date.now() - ts > 300000) encryptedRequests.delete(id);
+  const replayId = `${envelope.keyId}:${envelope.id}`;
+  if (encryptedRequests.has(replayId) || encryptedRequests.size >= 4096) throw Error('Repeated request');
+  encryptedRequests.set(replayId, Date.now());
+  if (!['GET', 'POST'].includes(payload.method) || !/^\/(discover|session|profile|chats|gemini-key|sync\/(preferences|ack|activity|disconnect)|ollama\/(tags|chat)|stt(?:\/(warmup|status))?|pair\/(verify|unpair))$/.test(payload.path)) throw Error('Invalid route');
+  if (!token && !['/pair/verify', '/discover'].includes(payload.path)) throw Error('Pairing required');
+  const req = Readable.from([Buffer.from(payload.body || '{}')]);
+  req.method = payload.method; req.url = payload.path; req.secureCompanion = true;
+  req.headers = token ? { authorization: `Bearer ${token}`, 'x-brown-session': String(payload.sessionId || '').slice(0, 100) } : {};
+  return new Promise((resolve, reject) => {
+    let status = 200;
+    const res = { writeHead(code) { status = code; }, end(body) {
+      try { resolve(companionCrypto.seal(secret, envelope.keyId, envelope.id, 'response', { status, body: JSON.parse(body || '{}') })); } catch (err) { reject(err); }
+    } };
+    handleRequest(req, res).catch(reject);
+  });
 }
 
 function startDesktopSyncServer(opts = {}) {
@@ -835,6 +1038,7 @@ function startDesktopSyncServer(opts = {}) {
       server.removeListener('error', onError);
       activePort = port;
       console.log(`[desktop-sync] listening on 0.0.0.0:${port} id=${syncId}`);
+      restartRelay();
     };
     const onError = (err) => {
       server.removeListener('listening', onListening);
@@ -860,6 +1064,8 @@ function startDesktopSyncServer(opts = {}) {
 }
 
 function stopDesktopSyncServer() {
+  relayClient?.stop(); relayClient = null;
+  encryptedRequests.clear();
   if (awakeBlockerId !== null) { powerSaveBlocker.stop(awakeBlockerId); awakeBlockerId = null; }
   if (server) {
     try { server.close(); } catch {}
@@ -883,11 +1089,16 @@ function getSyncInfo() {
   }
 
   const activeDevices = Array.from(byNameActive.values()).map(t => ({
-    id: t.id || t.token?.slice(0, 8),
+    id: t.id || companionCrypto.hash(t.token).slice(0, 16),
     tokenPrefix: t.token?.slice(0, 8) || '',
     deviceName: t.deviceName || 'Brown Mobile',
     platform: t.platform || 'android',
     createdAt: t.createdAt || Date.now(),
+    sessionDisconnected: disconnectedSessions.has(t.token),
+    isConnected: !disconnectedSessions.has(t.token) && getConnectionSettings().enabled && Date.now() - (t.lastSeen || 0) < 45000,
+    preferences: devicePreferences(t),
+    transferRequest: t.transferRequest?.expiresAt > Date.now() ? t.transferRequest : null,
+    lastTransfer: t.lastTransfer,
   }));
 
   // Deduplicate previous devices by deviceName
@@ -944,8 +1155,9 @@ function clearPreviousDevices() {
 function revokePairedDevice(idOrPrefix) {
   const tokens = loadConfig().mobilePairTokens || [];
   const updated = tokens.map(t => {
-    const match = (t.id && t.id === idOrPrefix) || (t.token && t.token.startsWith(idOrPrefix));
+    const match = (t.id && t.id === idOrPrefix) || (t.token && (t.token.startsWith(idOrPrefix) || companionCrypto.hash(t.token).slice(0, 16) === idOrPrefix));
     if (match) {
+      phoneActivity.delete(companionCrypto.hash(t.token).slice(0, 16));
       return { ...t, revoked: true, revokedAt: Date.now() };
     }
     return t;
@@ -962,6 +1174,7 @@ async function createDesktopPairCode() {
   pendingPair = {
     requestId,
     code,
+    bootstrapKey: crypto.randomBytes(32).toString('hex'),
     deviceName: 'Brown Mobile Companion',
     expiresAt: Date.now() + PAIR_TTL_MS,
     attempts: 0,
@@ -992,6 +1205,10 @@ function denyPendingPair() {
 }
 
 module.exports = {
+  getDeviceActivity,
+  disconnectPairedDevice,
+  updateDevicePreferences,
+  queueChatTransfer,
   getConnectionSettings,
   setConnectionSettings,
   SYNC_PORT,

@@ -383,6 +383,14 @@
   // `body > [id^="dmermaid"]` (stray error containers), which would collapse
   // every diagram's text measurement to 0x0.
   async function renderMermaidDiagram(code, idPrefix = 'bdiag_') {
+    const input = String(code || '');
+    // Model output can contain enormous graphs; layout is synchronous CPU work
+    // even though Mermaid exposes an async API. Keep that work bounded.
+    if (input.length > 12000 || input.split('\n').length > 160
+        || (input.match(/-->|---|==>|-\.->|->>|-->>/g) || []).length > 100) {
+      return '<div class="chart-empty">This diagram is too large to display smoothly. Ask Brown to split it into smaller diagrams.</div>';
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
     purgeMermaidErrorArtifacts();
     await initMermaid();
     const rawCode = stripMermaidFences(code);
