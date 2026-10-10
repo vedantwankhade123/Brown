@@ -33,10 +33,12 @@ async function run() {
   assert.equal(requests, 1); assert.equal(summaries[0], summaries[1]);
   assert.match(summaries[0], /twice A/);
   await vm.runInContext('prepareSpokenSummary(answer)', context); assert.equal(requests, 1);
-  assert.deepEqual(prepare('Hello\n```chart\n{"type":"bar"'), { text: 'Hello\n', pending: true });
+  assert.deepEqual(prepare('Hello\n```chart\n{"type":"bar"', { streaming: true }), { text: 'Hello\n', pending: true });
+  assert.equal(prepare('Hello\n```chart\n{"type":"bar"').pending, false, 'finished malformed visual cannot keep loading');
+  assert.equal(prepare('JavaScript makes pages interactive.', { streaming: true }).pending, false);
   assert.equal(prepare('```chart\n{}\n```').pending, false);
   assert.equal(prepare('```javascript\nconst a=1;').pending, false);
-  assert.equal(prepare('```chart\n{}\n```\n```mermaid\nflowchart TD').pending, true);
+  assert.equal(prepare('```chart\n{}\n```\n```mermaid\nflowchart TD', { streaming: true }).pending, true);
   const html = '<script type="application/ld+json">' + JSON.stringify({ '@graph': [
     { '@type': 'Product', name: 'Shoe', image: 'https://shop.example.com/a.jpg', offers: { price: '2499', priceCurrency: 'INR', url: '/shoe' } },
     { '@type': 'Product', name: 'Fake', image: 'file:///secret', offers: { price: 100, priceCurrency: 'INR' } },

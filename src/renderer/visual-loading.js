@@ -14,7 +14,7 @@
       else opening = { index: match.index, language: match[1].trim().toLowerCase() };
     }
     if (!opening || !/^(mermaid|chart|json-chart|data-chart|gen-ui|widget|generative-ui|flowchart|graph|mindmap)$/.test(opening.language)) return { text: value, pending: false };
-    return { text: value.slice(0, opening.index), pending: true };
+    return { text: value.slice(0, opening.index), pending: streaming };
   }
   const api = { prepare };
   if (typeof module !== 'undefined') module.exports = api;

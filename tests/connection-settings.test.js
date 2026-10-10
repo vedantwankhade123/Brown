@@ -15,6 +15,7 @@ function setup() {
     require(name) {
       if (name === 'electron') return { app: { getPath: () => directory }, powerSaveBlocker: { start: type => { events.push(['start', type]); return 7; }, stop: id => events.push(['stop', id]) } };
       if (name === 'http') return { createServer(callback) { handler = callback; return { on() {}, once() {}, listen() {}, close() {} }; } };
+      if (name.startsWith('./')) return require(path.join(__dirname, '../src/main', name));
       return require(name);
     }
   };

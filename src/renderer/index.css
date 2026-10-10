@@ -16917,7 +16917,7 @@ button {
   --scrollbar-thumb: rgba(0, 0, 0, 0.26);
 }
 
-[data-theme="light"] body,
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body),
 [data-theme="light"] .sidebar,
 [data-theme="light"] .settings-panel,
 [data-theme="light"] .settings-sidebar,
@@ -18422,7 +18422,7 @@ button {
    as one continuous surface. (Was #ffffff !important — a stale rule from the
    old palette that re-introduced white stripes + glare behind the card.) */
 html[data-theme="light"],
-[data-theme="light"] body {
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) {
   background-color: var(--bg-sidebar) !important;
 }
 
@@ -21587,6 +21587,100 @@ html[data-theme="light"],
 #sync-pair-code-display { font-size: 28px; letter-spacing: 5px; font-family: monospace; }
 .connection-device-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
 #connection-settings-error { color: #ffaaaa; margin: 12px 0 0; font-size: 13px; }
+.connection-controls { padding: 10px 20px; margin-bottom: 16px; }
+.connection-controls .connection-setting { padding: 10px 0; }
+.connection-controls .connection-setting strong { margin-bottom: 3px; }
+.connection-controls .connection-setting > span { min-width: 0; }
+.connection-remote-settings { margin-top: 4px; border-top: 1px solid #373737; }
+.connection-remote-settings > summary { display: flex; align-items: center; gap: 10px; padding: 10px 0; list-style: none; cursor: pointer; font-size: 14px; font-weight: 500; }
+.connection-remote-settings > summary::-webkit-details-marker { display: none; }
+.connection-remote-settings > summary::before { content: ''; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); margin-right: 5px; transition: transform .15s; }
+.connection-remote-settings[open] > summary::before { transform: rotate(45deg); }
+.connection-remote-settings > summary:focus-visible { outline: 2px solid #93c5fd; outline-offset: 4px; border-radius: 4px; }
+.connection-optional-tag { color: #a8adb5; font-size: 11px; font-weight: 400; border: 1px solid #484848; border-radius: 20px; padding: 3px 8px; }
+.connection-remote-body { padding-top: 16px; }
+.connection-remote-intro, .connection-remote-footer p { margin: 0; color: #a8adb5; font-size: 13px; line-height: 1.6; }
+.connection-remote-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin-top: 20px; }
+.connection-remote-fields label { display: flex; flex-direction: column; gap: 9px; font-size: 13px; font-weight: 500; min-width: 0; }
+.connection-remote-fields input { width: 100%; min-width: 0; box-sizing: border-box; padding: 12px 14px; border: 1px solid #484848; border-radius: 9px; background: #141414; color: #f5f5f5; font: inherit; font-weight: 400; }
+.connection-remote-fields input::placeholder { color: #858585; }
+.connection-remote-fields input:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+.connection-remote-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-top: 22px; }
+.connection-remote-footer button { flex-shrink: 0; }
+.paired-device-controls { margin: -2px 0 20px; padding: 14px 20px 20px; border: 1px solid var(--border-color, #373737); border-top: 0; border-radius: 0 0 12px 12px; background: #1b1b1b; }
+.paired-device-state, .paired-transfer-feedback { font-size: 12px; color: #a8adb5; line-height: 1.6; }
+.paired-device-state { color: #9ad9b1; }
+.paired-profile-choice { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 0; margin-top: 4px; border-top: 1px solid #373737; }
+.paired-section-copy { display: block; min-width: 0; }
+.paired-section-copy strong { display: block; font-size: 14px; font-weight: 600; line-height: 1.4; }
+.paired-section-copy small { display: block; margin-top: 3px; color: #a8adb5; font-size: 12px; line-height: 1.5; }
+.paired-profile-choice select { color: #eee; background: #141414; border: 1px solid #484848; border-radius: 9px; padding: 10px 12px; width: 280px; max-width: 55%; font: inherit; font-size: 13px; cursor: pointer; }
+.paired-profile-choice select:focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
+.paired-chat-section { border-top: 1px solid #373737; padding-top: 14px; }
+.paired-chat-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.paired-chat-actions button { width: 100%; min-height: 38px; padding: 9px 12px; border-radius: 9px; font-size: 12px; line-height: 1.4; white-space: normal; }
+.paired-chat-section .paired-transfer-feedback { margin: 10px 0 0; font-size: 12px; color: #a8adb5; line-height: 1.5; }
+@media (max-width: 600px) { .paired-profile-choice { align-items: stretch; flex-direction: column; gap: 10px; } .paired-profile-choice select { width: 100%; max-width: 100%; } .paired-chat-actions { grid-template-columns: 1fr; gap: 8px; } }
+.connection-success-dialog { position: fixed; inset: 50% auto auto 50%; transform: translate(-50%, -50%); margin: 0; width: min(380px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; box-sizing: border-box; padding: 24px; border: 1px solid #a8d5b5; border-radius: 18px; background: #e0f3e5; color: #163d2b; text-align: center; font-family: inherit; }
+.connection-success-dialog::backdrop { background: rgba(0,0,0,.7); }
+.connection-success-icon { width: 48px; height: 48px; margin: 0 auto 14px; display: grid; place-items: center; border-radius: 50%; background: #c4e8ce; color: #247044; border: 1px solid #96caa6; }
+.connection-success-icon svg { width: 32px; height: 32px; }
+.connection-success-dialog h2 { font-size: 21px; font-weight: 700; line-height: 1.25; color: #163d2b; margin: 0 0 8px; }
+.connection-success-dialog p { font-size: 14px; line-height: 1.5; color: #345b43; margin: 0; overflow-wrap: anywhere; }
+.connection-success-dialog .connection-success-note { font-size: 13px; color: #a8adb5; margin-top: 16px; }
+.connection-success-actions { display: flex; gap: 12px; justify-content: center; margin-top: 26px; }
+.connection-success-dialog .connection-success-actions { gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+.connection-success-dialog .connection-success-actions button { min-height: 40px; padding: 10px 16px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.session-sync-origin { color: #93c5fd; font-size: 13px; flex-shrink: 0; margin-right: 6px; }
+.mobile-activity-button { display: inline-flex; align-items: center; position: relative; isolation: isolate; padding: 2px; border: 0; border-radius: 999px; background: radial-gradient(circle 80px at 80% -10%, #fff, #181b1b); color: #fff; font: inherit; font-size: 12px; cursor: pointer; box-shadow: -5px 5px 18px #0051ff20; }
+.mobile-activity-button::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: radial-gradient(circle 60px at 0% 100%, #3fe9ff, #0000ff80, transparent); pointer-events: none; }
+.mobile-activity-button::after { content: ''; position: absolute; width: 65%; height: 60%; top: 0; right: 0; border-radius: inherit; box-shadow: 0 0 20px #ffffff38; z-index: -1; pointer-events: none; }
+.mobile-device-inner { display: block; position: relative; z-index: 1; padding: 8px 16px; border-radius: 999px; color: #fff; background: radial-gradient(circle 80px at 80% -50%, #777, #0f1111); white-space: nowrap; }
+.mobile-device-inner::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: radial-gradient(circle 60px at 0% 100%, #00e1ff1a, #0000ff11, transparent); pointer-events: none; }
+.mobile-activity-button:hover { filter: brightness(1.15); }
+.mobile-activity-button:active { filter: brightness(.95); }
+body.mobile-preview-open > .session-context-rail, body.mobile-preview-open > #right-sidebar-resizer { display: none !important; }
+.mobile-activity-panel { flex: 0 0 360px; width: 360px; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding: 14px; margin: 0 6px 6px 0; border-radius: 16px; background: #161616; color: #eee; box-sizing: border-box; overflow: hidden; }
+.mobile-panel-heading { display: flex; justify-content: space-between; align-items: center; }
+.mobile-panel-heading strong { display: block; font-size: 15px; }
+.mobile-panel-heading small { display: block; color: #9097a2; font-size: 11px; margin-top: 3px; }
+.mobile-activity-panel button, .mobile-device-picker select { border: 1px solid #373737; background: #242424; color: #eee; border-radius: 8px; padding: 8px 10px; cursor: pointer; font: inherit; font-size: 12px; }
+.mobile-activity-panel button:disabled { opacity: .4; cursor: default; }
+.mobile-device-picker { display: flex; align-items: center; gap: 10px; color: #a8adb5; font-size: 12px; }
+.mobile-device-picker select { flex: 1; min-width: 0; }
+.mobile-panel-status { font-size: 12px; line-height: 1.5; margin: 0; color: #a8adb5; }
+.mobile-phone-frame { flex: 1; min-height: 180px; display: flex; flex-direction: column; overflow: hidden; background: #000; border: 5px solid #373737; border-radius: 34px; box-shadow: 0 8px 24px #0006; }
+.mobile-phone-camera { margin: 9px auto 7px; width: 70px; height: 14px; background: #202020; border-radius: 10px; flex-shrink: 0; }
+.mobile-phone-header { padding: 9px 16px 12px; border-bottom: 1px solid #252525; }
+.mobile-phone-header strong, .mobile-phone-header small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-phone-header strong { font-size: 14px; }.mobile-phone-header small { margin-top: 4px; color: #8e959f; font-size: 11px; }
+.mobile-phone-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 12px; }
+.mobile-preview-message { margin-bottom: 16px; font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mobile-preview-message.user { background: #202020; border: 1px solid #303030; border-radius: 16px; padding: 10px 12px; margin-left: 22px; }
+.mobile-preview-message.assistant { padding: 3px 5px; }.mobile-preview-message small { display: block; color: #8e959f; font-size: 10px; margin-bottom: 4px; }
+.mobile-preview-empty { font-size: 13px; line-height: 1.7; color: #8e959f; text-align: center; padding: 24px 8px; }
+.mobile-preview-generating { color: #93c5fd; font-size: 11px; }.mobile-phone-footer { padding: 12px 8px; color: #767d87; font-size: 10px; text-align: center; border-top: 1px solid #252525; }
+.mobile-panel-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }.mobile-panel-tools label { font-size: 11px; color: #a8adb5; display: flex; align-items: center; gap: 5px; }
+.mobile-activity-panel { -webkit-app-region: no-drag; }
+.mobile-activity-panel { position: relative; gap: 10px; padding: 14px 12px 10px; }
+.mobile-panel-header-actions { display: flex; gap: 6px; }
+.mobile-panel-header-actions button { width: 32px; height: 32px; padding: 0; font-size: 20px; display: grid; place-items: center; }
+.mobile-panel-header-actions [data-close] { font-size: 14px; }
+.mobile-preview-options { position: absolute; z-index: 20; top: 54px; right: 12px; width: 250px; padding: 10px; border: 1px solid #404040; background: #202020; border-radius: 14px; box-shadow: 0 12px 28px #0009; }
+.mobile-preview-options button, .mobile-follow-option { display: flex; align-items: center; width: 100%; box-sizing: border-box; padding: 10px; margin-top: 3px; background: transparent; border: 0; text-align: left; font-size: 13px; }
+.mobile-preview-options button:hover, .mobile-follow-option:hover { background: #303030; border-radius: 8px; }
+.mobile-follow-option { gap: 8px; cursor: pointer; }.mobile-preview-options .mobile-device-picker { padding: 4px 4px 10px; border-bottom: 1px solid #373737; margin-bottom: 6px; }
+.mobile-preview-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.mobile-phone-stage { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; }
+.mobile-phone-frame.pixel-nine { position: absolute; flex: none; width: 424px; height: 940px; min-height: 0; box-sizing: border-box; border: 6px solid #343536; outline: 1px solid #606164; border-radius: 48px; overflow: visible; transform: scale(var(--phone-scale, .75)); transform-origin: center; background: #000; box-shadow: 0 16px 44px #0008, inset 0 0 0 1px #777; }
+.pixel-nine::before, .pixel-nine::after { content: ''; position: absolute; right: -9px; width: 3px; background: #606164; border-radius: 0 2px 2px 0; }
+.pixel-nine::before { top: 178px; height: 45px; }.pixel-nine::after { top: 264px; height: 85px; }
+.pixel-nine-camera { position: absolute; z-index: 3; top: 12px; left: 50%; transform: translateX(-50%); width: 12px; height: 12px; border: 2px solid #1c1d20; box-sizing: border-box; border-radius: 50%; background: #08090b; box-shadow: inset 0 0 0 2px #101725; pointer-events: none; }
+.mobile-phone-screen { display: block; width: 412px; height: 928px; border: 0; border-radius: 42px; overflow: hidden; background: #000; }
+.mobile-phone-messages { user-select: text; }
+.mobile-activity-button:focus-visible, .mobile-activity-panel button:focus-visible, .mobile-device-picker select:focus-visible { outline: 2px solid #93c5fd; outline-offset: 3px; }
+@media (max-width: 1000px) { .mobile-activity-panel { position: fixed; right: 6px; top: 44px; bottom: 6px; z-index: 150; box-shadow: -10px 0 35px #0008; width: min(360px, calc(100vw - 24px)); } }
+@media (max-width: 680px) { .connection-remote-fields { grid-template-columns: 1fr; gap: 16px; } }
 @media (max-width: 700px) { .connection-showcase { grid-template-columns: 1fr; } .connection-copy { padding: 24px; } .connection-download-qr { padding-top: 20px; } .connection-art { min-height: 280px; } .connection-art img { height: 280px; } }
 
 #tab-sync .connection-page { font-family: 'Outfit', 'Segoe UI', sans-serif; }
@@ -22453,6 +22547,7 @@ html[data-theme="light"],
 .message-content .visual-chart-wrapper, .message-content .visual-diagram-container,
 .message-content .ultron-search-experience, .message-content .table-responsive-wrapper { width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
 .visual-loading-state { display: flex; align-items: center; gap: 10px; padding: 18px; border-radius: 12px; background: var(--bg-sidebar); color: var(--text-primary); font: 400 14px 'Outfit', sans-serif; }
+.visual-loading-state[hidden] { display: none; }
 .visual-loading-spinner { width: 15px; height: 15px; flex: 0 0 15px; border: 2px solid color-mix(in srgb, var(--text-primary) 20%, transparent); border-top-color: var(--text-primary); border-radius: 50%; animation: brown-visual-spin .8s linear infinite; will-change: transform; transform: translateZ(0); }
 @keyframes brown-visual-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .visual-loading-spinner { animation: none; } }
@@ -22753,3 +22848,407 @@ html[data-theme="light"],
 [data-theme="light"] #tab-help .help-docs-toc a { color: #1d4ed8 !important; }
 :root:not([data-theme="light"]) #tab-help #help-docs-container .help-docs-toc a { color: #60a5fa !important; }
 :root:not([data-theme="light"]) #tab-help .help-docs-toc a::before { color: #a1a1aa !important; }
+/* User-supplied transparent Pixel frame; the chat sits inside its screen opening. */
+.mobile-phone-frame.pixel-nine { width: 474px; height: 948px; border: 0; outline: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.pixel-nine::before, .pixel-nine::after { content: none; }
+.pixel-nine-frame-image { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; object-fit: contain; }
+.pixel-nine .mobile-phone-screen { position: absolute; left: 32px; top: 34px; width: 412px; height: 868px; border-radius: 50px; }
+@property --device-border-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+.mobile-activity-button { background: #3b3b3f; box-shadow: none; }
+.mobile-activity-button::before { background: none; }
+.mobile-activity-button::after, .mobile-device-inner::before { content: none; }
+.mobile-activity-button.is-connected::before, .mobile-activity-button.connection-changing::before { background: conic-gradient(from var(--device-border-angle), #323236 0deg, #56565c 85deg, #f4f4f5 130deg, #56565c 175deg, #323236 230deg, #323236 360deg); animation: device-border-orbit 4s linear infinite; }
+.mobile-activity-button.connection-changing:not(.is-connected)::before { animation: device-border-orbit 1.2s ease-out 1; }
+@keyframes device-border-orbit { to { --device-border-angle: 360deg; } }
+@media (prefers-reduced-motion: reduce) { .mobile-activity-button::before { animation: none !important; } }
+/* Shared static button surface, matching the device control. */
+:root { --brown-button-surface: radial-gradient(circle 80px at 80% -50%, #777777, #0f1111); }
+body button:not(.connection-disconnect-btn):not(#btn-mobile-activity):not(.models-view-tab-btn):not(.model-selector-btn):not(.btn-plus-menu):not(.titlebar-opt-btn):not(.welcome-card):not(.mention-toggle):not(.side-section-head):not(#btn-choose-project):not(#btn-input-mentions) { background: var(--brown-button-surface) !important; color: #f4f4f5 !important; }
+body button:not(#btn-mobile-activity):disabled { opacity: .45; }
+body button[class*="danger"], body button[class*="delete"], body button[class*="unpair"] { color: #fca5a5 !important; }
+#tsd-connection-state { padding-top: 10px; }
+#tsd-connection-title { font-size: 14px; color: #f4f4f5; }
+#tsd-connection-detail { margin: 8px 0 14px; font-size: 12px; line-height: 1.6; color: #b4b4be; overflow-wrap: anywhere; }
+#tsd-manage-connection { width: 100%; }
+/* Keep these lightweight navigation and menu rows free of button surfaces. */
+body button.titlebar-opt-btn,
+body button#btn-choose-project,
+body button#btn-input-mentions,
+body button.welcome-card,
+body button.mention-toggle,
+body button.side-section-head { background: transparent !important; box-shadow: none !important; }
+/* Selected settings segments and aligned skill controls. */
+body .models-connection-tabs button.models-view-tab-btn.active,
+body .models-connection-tabs button.models-view-tab-btn[aria-selected="true"],
+body #perf-profile-seg button.set-seg-btn[aria-pressed="true"] { background: #fff !important; color: #111 !important; }
+body .models-connection-tabs button.models-view-tab-btn.active svg,
+body .models-connection-tabs button.models-view-tab-btn[aria-selected="true"] svg { stroke: currentColor; }
+#tab-skills .skills-toolbar { display: flex; align-items: center !important; gap: 16px; }
+#tab-skills .skills-filter-tabs { min-width: 0; align-items: center; margin: 0; padding: 3px 0; }
+#tab-skills .skills-filter-tab { min-height: 36px; border-radius: 999px; white-space: nowrap; }
+#tab-skills .skills-sort { align-items: center; border-radius: 999px; padding: 3px; align-self: center; }
+#tab-skills .skills-sort-tab { min-height: 36px; border-radius: 999px; white-space: nowrap; }
+body #tab-sync :is(.connection-actions, .connection-device-heading, .connection-pair-banner) button,
+body #tab-sync .connection-download { background: var(--brown-button-surface) !important; color: #f4f4f5 !important; border-color: #414145; }
+body #tab-sync .connection-download-arrow { background: #2563eb; color: #ffffff; }
+.connection-download-options { margin-top: auto; padding-top: 40px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.connection-download-options .connection-download-qr { margin: 0; padding-top: 0; flex-shrink: 0; }
+
+#tab-sync .connection-download-options .connection-download { margin: 0; white-space: nowrap; }
+@media (max-width: 700px) { .connection-download-options { padding-top: 24px; gap: 12px; } }
+/* Explicitly transparent in every interaction state. */
+body .titlebar-opt-btn, body .titlebar-opt-btn:hover, body .titlebar-opt-btn:active,
+body .welcome-card, body .welcome-card:hover, body .welcome-card:active { background: transparent !important; background-image: none !important; box-shadow: none !important; }
+/* Match the download link surface, including hover and the disabled Paired state. */
+body #tab-sync .connection-page :is(.connection-actions, .connection-device-heading, .connection-pair-banner) button,
+body #tab-sync .connection-page :is(.connection-actions, .connection-device-heading, .connection-pair-banner) button:hover:not(:disabled) { background: var(--brown-button-surface) !important; border-color: #414145 !important; color: #f4f4f5 !important; }
+/* The selected model segment stays pure white above the shared button surface. */
+body #tab-models .models-view-tabs button.models-view-tab-btn.active,
+body #tab-models .models-view-tabs button.models-view-tab-btn[aria-selected="true"],
+body #tab-models .models-view-tabs button.models-view-tab-btn.active:hover { background: #ffffff !important; background-image: none !important; color: #111111 !important; }
+body #tab-models .models-view-tabs button.models-view-tab-btn.active *,
+body #tab-models .models-view-tabs button.models-view-tab-btn[aria-selected="true"] * { color: #111111 !important; }
+body #tab-models .models-view-tabs button.models-view-tab-btn.active svg,
+body #tab-models .models-view-tabs button.models-view-tab-btn[aria-selected="true"] svg { stroke: #111111 !important; }
+#tab-voice .voice-persona-foot .voice-persona-play { width: 36px; min-width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: 50%; }
+/* App speed selected state overrides the shared button gradient. */
+body #perf-profile-seg button.set-seg-btn[aria-pressed="true"],
+body #perf-profile-seg button.set-seg-btn.active,
+body #perf-profile-seg button.set-seg-btn[aria-pressed="true"]:hover { background: #ffffff !important; background-image: none !important; color: #111111 !important; }
+body #perf-profile-seg button.set-seg-btn[aria-pressed="true"] * { color: #111111 !important; }
+/* Model segments use a surface only for the selected option. */
+body #tab-models .models-view-tabs button.models-view-tab-btn[aria-selected="false"],
+body #tab-models .models-view-tabs button.models-view-tab-btn[aria-selected="false"]:hover {
+  background: transparent !important;
+  background-image: none !important;
+  color: #d4d4d8 !important;
+  box-shadow: none !important;
+}
+body #tab-models .models-view-tabs button.models-view-tab-btn[aria-selected="false"] * { color: inherit !important; }
+body #tab-models .models-view-tabs button.models-view-tab-btn[aria-selected="false"] svg { stroke: currentColor !important; }
+
+/* Phone options: compact, quiet rows instead of shared gradient buttons. */
+body #mobile-activity-panel .mobile-preview-options { width: 280px; padding: 12px; border-radius: 18px; background: #1b1b1d; box-shadow: 0 16px 48px #0009; }
+body #mobile-activity-panel .mobile-preview-options button { background: transparent !important; background-image: none !important; border-radius: 10px; padding: 11px 12px; min-height: 40px; font-family: inherit; color: #e8e8ed !important; }
+body #mobile-activity-panel .mobile-preview-options button:hover:not(:disabled) { background: #ffffff0b !important; }
+body #mobile-activity-panel .mobile-device-picker { display: flex; flex-direction: column; align-items: stretch; gap: 8px; padding: 0 0 12px; font-size: 12px; color: #a1a1aa; }
+body #mobile-activity-panel .mobile-device-picker select { width: 100%; min-width: 0; padding: 10px 12px; border-radius: 10px; background: #252528; color: #ededf0; font-family: inherit; }
+body #mobile-activity-panel .mobile-follow-option { padding: 11px 12px; border-radius: 10px; gap: 10px; }
+body #mobile-activity-panel .mobile-menu-divider { height: 1px; background: #ffffff12; margin: 8px 0; }
+body #mobile-activity-panel .mobile-menu-hint { display: block; padding: 0 12px 6px; color: #93939c; font-size: 11px; }
+body #mobile-activity-panel .mobile-preview-options [data-disconnect] { color: #f6aaa5 !important; }
+/* Override the app-wide button surface within the options menu. */
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options button { background: transparent !important; background-image: none !important; box-shadow: none !important; color: #e8e8ed !important; }
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options button:hover:not(:disabled) { background: #ffffff0b !important; }
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options [data-disconnect] { color: #f6aaa5 !important; }
+/* The enabled Chat return action uses the standard button surface in Settings. */
+body:has(.chat-main.settings-open) button#titlebar-btn-chat:not(:disabled),
+body:has(.chat-main.settings-open) button#titlebar-btn-chat:not(:disabled):hover {
+  background: var(--brown-button-surface) !important;
+  color: #f4f4f5 !important;
+  border-radius: 9999px;
+}
+/* Phone activity belongs only to the main chat, never Settings. */
+body:has(.chat-main.settings-open) #btn-mobile-activity,
+body:has(.chat-main.settings-open) #mobile-activity-panel { display: none !important; }
+/* Place the download action immediately after the copy and above the QR. */
+#tab-sync .connection-download-options {
+  margin-top: 18px;
+  padding-top: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 20px;
+  flex-wrap: nowrap;
+}
+/* Segmented model options are exempt from the shared button gradient. */
+body #tab-models button:is(#tab-btn-offline-models, #tab-btn-online-models, #tab-btn-installed-models, #tab-btn-download-models) {
+  background: transparent !important;
+  background-image: none !important;
+  color: #d4d4d8 !important;
+  box-shadow: none !important;
+}
+body #tab-models button:is(#tab-btn-offline-models, #tab-btn-online-models, #tab-btn-installed-models, #tab-btn-download-models)[aria-selected="true"] {
+  background: #ffffff !important;
+  color: #111111 !important;
+}
+body #tab-models button:is(#tab-btn-offline-models, #tab-btn-online-models, #tab-btn-installed-models, #tab-btn-download-models) * { color: inherit !important; }
+body #tab-models button:is(#tab-btn-offline-models, #tab-btn-online-models, #tab-btn-installed-models, #tab-btn-download-models) svg { stroke: currentColor !important; }
+/* Match preview menu actions to the three-dot control surface. */
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options button,
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options button:hover:not(:disabled),
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options .mobile-follow-option {
+  background: var(--brown-button-surface) !important;
+  border-radius: 9999px;
+  color: #f4f4f5 !important;
+}
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options [data-disconnect],
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options [data-disconnect]:hover:not(:disabled) {
+  background: radial-gradient(circle 80px at 80% -50%, #b65a5a, #291112) !important;
+  color: #ffe7e7 !important;
+}
+/* Scale the plus control's soft gray surface to fit the wider model selector. */
+:root { --brown-input-control-surface: radial-gradient(ellipse 180% 180% at 80% -50%, #777777, #0f1111); }
+body button#model-selector-btn,
+body button#btn-plus-menu {
+  background: var(--brown-input-control-surface) !important;
+  color: #f4f4f5 !important;
+}
+/* Active model segments share the prompt selector's soft gray surface. */
+body #tab-models button:is(#tab-btn-offline-models, #tab-btn-online-models, #tab-btn-installed-models, #tab-btn-download-models)[aria-selected="true"] {
+  background: var(--brown-input-control-surface) !important;
+  color: #f4f4f5 !important;
+}
+/* Stretch the menu highlight across the full row rather than one end. */
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options button,
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options button:hover:not(:disabled),
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options .mobile-follow-option {
+  background: var(--brown-input-control-surface) !important;
+  color: #f4f4f5 !important;
+}
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options [data-disconnect],
+body #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options [data-disconnect]:hover:not(:disabled) {
+  background: radial-gradient(ellipse 180% 180% at 80% -50%, #b65a5a, #291112) !important;
+  color: #ffe7e7 !important;
+}
+/* Connection actions use the same full-width gray highlight as the prompt selector. */
+#tab-sync .connection-page { --brown-button-surface: var(--brown-input-control-surface); }
+body #tab-sync .connection-page select {
+  background: var(--brown-input-control-surface);
+  color: #f4f4f5;
+}
+/* Center phone menu content on the same surface as the main chat sidebar. */
+body #mobile-activity-panel #mobile-preview-options {
+  background: var(--bg-app);
+}
+body #mobile-activity-panel #mobile-preview-options button,
+body #mobile-activity-panel #mobile-preview-options .mobile-follow-option {
+  justify-content: center;
+  text-align: center;
+}
+body #mobile-activity-panel #mobile-preview-options .mobile-device-picker {
+  text-align: center;
+}
+body #mobile-activity-panel #mobile-preview-options .mobile-device-picker select {
+  text-align: center;
+  text-align-last: center;
+}
+body #mobile-activity-panel #mobile-preview-options .mobile-menu-hint {
+  margin-top: 10px;
+  text-align: center;
+}
+/* Exclusive App speed controls, one aligned switch per mode. */
+#perf-profile-options .set-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+#perf-profile-options .set-row-info { flex: 1; min-width: 0; }
+.perf-profile-switch { width: 44px; height: 24px; flex: 0 0 44px; position: relative; cursor: pointer; }
+.perf-profile-switch input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; z-index: 1; }
+.perf-profile-switch span { display: block; width: 100%; height: 100%; border-radius: 9999px; background: #404044; transition: background .18s ease; }
+.perf-profile-switch span::before { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #e4e4e7; transition: transform .18s ease, background .18s ease; }
+.perf-profile-switch input:checked + span { background: #ffffff; }
+.perf-profile-switch input:checked + span::before { transform: translateX(20px); background: #171719; }
+.perf-profile-switch input:focus-visible + span { outline: 2px solid #93c5fd; outline-offset: 4px; }
+@media (prefers-reduced-motion: reduce) { .perf-profile-switch span, .perf-profile-switch span::before { transition: none; } }
+#tab-sync .paired-chat-actions button[data-transfer="merge"] { border-radius: 9999px !important; }
+
+/* Session disconnect belongs beside the Mobile title. */
+#tab-sync .connection-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
+#tab-sync .connection-page-heading h4 { font-size: 26px; font-weight: 600; line-height: 1.2; margin: 0; }
+body #tab-sync button.connection-disconnect-btn {
+  background: #92363b !important;
+  background-image: none !important;
+  color: #ffffff !important;
+  border: 1px solid #b45a60 !important;
+  border-radius: 9999px !important;
+  min-height: 42px;
+  padding: 10px 22px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+body #tab-sync button.connection-disconnect-btn:hover:not(:disabled) { background: #a84046 !important; }
+body #tab-sync button.connection-disconnect-btn:focus-visible { outline: 2px solid #f7b3b8; outline-offset: 3px; }
+body #tab-sync button.connection-disconnect-btn:disabled { opacity: .6; cursor: wait; }
+
+/* Align skill filters and sorting controls by their buttons, not the scrollbar. */
+#tab-skills .skills-toolbar { align-items: flex-start !important; flex-wrap: nowrap; gap: 16px; }
+#tab-skills .skills-filter-tabs { flex: 1 1 0; min-width: 0; flex-basis: 0; padding: 3px 0; margin: 0; }
+#tab-skills .skills-sort { flex: 0 0 auto; align-self: flex-start; padding: 3px; margin: 0; }
+#tab-skills :is(.skills-filter-tab, .skills-sort-tab) {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 14px;
+  line-height: 1;
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Soft white dividers for App speed and Storage & Memory options. */
+.app-speed-card > .set-card-head,
+#perf-profile-options > .set-row:not(:last-child),
+#tab-storage .set-card > .set-card-head,
+#tab-storage .set-rows > .set-row:not(:last-child) {
+  border-bottom: 1px solid #6b6b6b;
+}
+
+body button#connection-disconnect-confirm {
+  background: #92363b !important; background-image: none !important; color: #fff !important;
+  border: 1px solid #b45a60; border-radius: 9999px; padding: 11px 22px;
+}
+body button#connection-disconnect-confirm:hover { background: #a84046 !important; }
+.connection-disconnect-dialog .connection-success-actions button { min-height: 42px; padding: 11px 22px; border-radius: 9999px; font: inherit; font-weight: 600; cursor: pointer; }
+
+/* Refined phone device control and supporting labels. */
+body #mobile-activity-panel #mobile-preview-options .mobile-device-picker {
+  font-family: 'Outfit', 'Segoe UI', sans-serif;
+  font-size: 14px; font-weight: 500; line-height: 1.4; color: #d4d4d8; gap: 10px;
+}
+body #mobile-activity-panel #mobile-preview-options .mobile-device-picker select {
+  appearance: none; border-radius: 9999px; min-height: 46px; box-sizing: border-box;
+  padding: 11px 38px 11px 18px; border: 1px solid #484848;
+  background-color: #272727; color: #f4f4f5;
+  font-family: 'Outfit', 'Segoe UI', sans-serif; font-size: 13px; font-weight: 500; line-height: 1.4;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23d4d4d8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 16px center;
+}
+body #mobile-activity-panel #mobile-preview-options .mobile-device-picker select:hover { border-color: #727272; }
+body #mobile-activity-panel #mobile-preview-options .mobile-menu-hint {
+  font-family: 'Outfit', 'Segoe UI', sans-serif; font-size: 13px; font-weight: 400;
+  line-height: 1.5; color: #b8b8bf; margin-top: 14px; padding-bottom: 0;
+}
+#tab-storage .set-card-head:has(#setting-memory-toggle),
+#tab-storage .set-card-head:has(#btn-clear-chats) { border-bottom: none; }
+/* Keep path inputs full width while actions sit beside the row heading. */
+#tab-storage .set-row-path { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 16px; align-items: start; }
+#tab-storage .set-row-path .set-row-info { display: contents; }
+#tab-storage .set-row-path :is(.set-row-name, .set-row-desc) { grid-column: 1; min-width: 0; }
+#tab-storage .set-row-path .set-row-side { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
+#tab-storage .set-row-path .set-input {
+  grid-column: 1 / -1; width: 100%; min-width: 0; height: 42px; padding: 0 14px;
+  background: #272727; color: #f4f4f5; border: 1px solid #484848; border-radius: 12px;
+  font-family: 'Outfit', 'Segoe UI', sans-serif; font-size: 14px;
+}
+#tab-storage .set-row-path .set-input:focus { border-color: #aaaaaf; box-shadow: 0 0 0 2px #ffffff0d; }
+[data-theme="light"] #tab-storage .set-row-path .set-input { background: #ededee; border-color: #c3c3c7; color: #242424; }
+[data-theme="light"] :is(.app-speed-card > .set-card-head, #perf-profile-options > .set-row:not(:last-child), #tab-storage .set-card > .set-card-head, #tab-storage .set-rows > .set-row:not(:last-child)) { border-bottom-color: #c3c3c7; }
+
+/* Light theme surfaces for chat controls and the companion panel. */
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) button:is(.plus-menu-item, .model-selector-btn, .input-action-btn, #btn-models-download-indicator),
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #mobile-activity-panel .mobile-panel-header-actions button {
+  background: linear-gradient(180deg, #ffffff, #dedee3) !important;
+  color: #20242d !important;
+  border-color: #c9cbd2 !important;
+}
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) .plus-menu-item .plus-menu-item-title,
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) .plus-menu-item .plus-menu-option-icon,
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) .model-selector-btn :is(span, svg),
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #btn-models-download-indicator .download-icon-inner {
+  color: #20242d !important;
+}
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) .plus-menu-item .plus-menu-item-desc { color: #596171 !important; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #mobile-activity-panel { background: #eeeff3; color: #20242d; border: 1px solid #d4d6dd; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #mobile-activity-panel .mobile-panel-heading strong { color: #20242d; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #mobile-activity-panel .mobile-panel-heading small { color: #596171; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #mobile-activity-panel #mobile-preview-options { background: #f6f7fa; border-color: #d4d6dd; color: #20242d; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options button,
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #mobile-activity-panel #mobile-preview-options#mobile-preview-options#mobile-preview-options .mobile-follow-option {
+  background: linear-gradient(180deg, #ffffff, #dedee3) !important;
+  color: #20242d !important;
+}
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #mobile-activity-panel #mobile-preview-options .mobile-device-picker,
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #mobile-activity-panel #mobile-preview-options .mobile-menu-hint { color: #596171; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #mobile-activity-panel #mobile-preview-options .mobile-device-picker select { background: #ffffff; color: #20242d; border-color: #c9cbd2; }
+
+/* Readable light-theme model segments, file categories, and hardware options. */
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-models button:is(#tab-btn-offline-models, #tab-btn-online-models, #tab-btn-installed-models, #tab-btn-download-models) {
+  background: #e5e7ec !important;
+  color: #394150 !important;
+}
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-models button:is(#tab-btn-offline-models, #tab-btn-online-models, #tab-btn-installed-models, #tab-btn-download-models)[aria-selected="true"] {
+  background: #ffffff !important;
+  color: #172033 !important;
+  box-shadow: 0 1px 4px #00000018;
+}
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-models button:is(#tab-btn-offline-models, #tab-btn-online-models, #tab-btn-installed-models, #tab-btn-download-models) * { color: inherit !important; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-models :is(.connector-title, .catalog-section-title, .model-name-text) { color: #172033 !important; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-models :is(.model-badge-pill, .model-tag, .model-meta, .model-feature) { color: #596171 !important; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) img[src$="ollama-white-logo.png"] { filter: brightness(0); }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) .connector-logo-img[src$="ollama-white-logo.png"] { background: #ffffff !important; filter: none; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-knowledge button.kb-type-card,
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-knowledge button.kb-type-card:hover {
+  background: #f7f8fa !important;
+  color: #172033 !important;
+  border: 1px solid #d2d6de;
+}
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-knowledge .kb-type-card :is(strong, h5) { color: #172033 !important; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-knowledge #kb-reset-filter { padding: 8px 16px; min-height: 36px; background: #ffffff !important; color: #263044 !important; border: 1px solid #cbd0d9; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-performance .perf-settings-options .perf-option-item,
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-performance .perf-settings-options .perf-option-item:hover {
+  background: #f7f8fa !important;
+  color: #172033 !important;
+}
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-performance .perf-option-title { color: #172033 !important; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-performance .perf-option-desc { color: #596171 !important; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-performance .perf-option-icon:not(.icon-gpu) { color: #526078; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #btn-models-download-indicator,
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #btn-models-download-indicator:hover { background: linear-gradient(180deg, #ffffff, #dedee3) !important; color: #20242d !important; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-models .card-tag-pill { color: #596171 !important; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-knowledge .kb-type-title { color: #172033 !important; } [data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-knowledge .kb-type-count { color: #596171 !important; }
+
+/* Keep the three chat toolbar controls on one shared gray surface. */
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) :is(#btn-mobile-activity, #btn-models-download-indicator, #btn-toggle-session-rail),
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #btn-mobile-activity .mobile-device-inner {
+  background: radial-gradient(circle 80px at 80% -50%, #777777, #0f1111) !important;
+  color: #f4f4f5 !important;
+}
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #btn-models-download-indicator .download-icon-inner { color: #f4f4f5 !important; }
+[data-theme="light"] #btn-mobile-activity::before,
+[data-theme="light"] #btn-mobile-activity::after,
+[data-theme="light"] #btn-mobile-activity .mobile-device-inner::before { display: none !important; }
+
+/* Indexed files remain readable in light mode, including hover and empty rows. */
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-knowledge { --kb-line: #d5d9e1; --kb-muted: #596171; }
+[data-theme="light"] #tab-knowledge :is(.kb-table-wrap, .kb-table, .kb-table tbody, .kb-table tbody tr, .kb-table tbody tr:hover, .kb-table td) { background: #ffffff !important; color: #263044 !important; border-color: #d5d9e1 !important; }
+[data-theme="light"] #tab-knowledge .kb-table th { background: #f1f3f7 !important; color: #172033 !important; border-color: #d5d9e1 !important; }
+[data-theme="light"] #tab-knowledge .kb-table .kb-empty { color: #596171 !important; padding: 22px 16px; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-knowledge .kb-tabs button { background: #e9ecf2 !important; color: #394150 !important; border: 1px solid #cbd1dc; padding: 9px 14px; }
+[data-theme="light"] body:is(#light-mode-controls, body):is(#light-mode-surfaces, body):is(#light-mode-contrast, body) #tab-knowledge .kb-tabs button.active { background: #ffffff !important; color: #172033 !important; border-color: #8994a7; }
+
+/* Pairing status must contrast with the light Sync popup. */
+[data-theme="light"] #tsd-connection-title { color: #172033 !important; }
+[data-theme="light"] #tsd-connection-detail { color: #596171 !important; }
+[data-theme="light"] #tsd-connection-state { opacity: 1; }
+
+/* Chat header controls share the prompt model selector surface. */
+body #btn-mobile-activity#btn-mobile-activity#btn-mobile-activity#btn-mobile-activity#btn-mobile-activity#btn-mobile-activity,
+body #btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator,
+body #btn-toggle-session-rail#btn-toggle-session-rail#btn-toggle-session-rail#btn-toggle-session-rail#btn-toggle-session-rail#btn-toggle-session-rail,
+body #btn-mobile-activity#btn-mobile-activity#btn-mobile-activity#btn-mobile-activity#btn-mobile-activity#btn-mobile-activity .mobile-device-inner {
+  background: var(--brown-input-control-surface) !important;
+  color: #ffffff !important;
+}
+body #btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator .download-icon-inner,
+body #btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator#btn-models-download-indicator .lottie-download-svg,
+body #btn-toggle-session-rail#btn-toggle-session-rail#btn-toggle-session-rail#btn-toggle-session-rail#btn-toggle-session-rail#btn-toggle-session-rail svg {
+  color: #ffffff !important;
+  stroke: #ffffff !important;
+}
+body #btn-mobile-activity::before,
+body #btn-mobile-activity::after,
+body #btn-mobile-activity .mobile-device-inner::before { display: none !important; }
+body #mobile-activity-panel #mobile-preview-options .mobile-device-picker { border-bottom: none !important; }
+
+/* Appearance menu options are plain rows rather than gradient buttons. */
+body #titlebar-settings-dropdown #tsd-appearance-sub button.tsd-theme {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  color: var(--text-primary) !important;
+}
+body #titlebar-settings-dropdown #tsd-appearance-sub button.tsd-theme:hover { background: var(--bg-hover, rgba(128,128,128,.1)) !important; }
+body #titlebar-settings-dropdown #tsd-appearance-sub button.tsd-theme.active { color: #2563eb !important; }
+body #titlebar-settings-dropdown #tsd-appearance-sub button.tsd-theme span { color: inherit !important; }

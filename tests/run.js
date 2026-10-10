@@ -43,7 +43,7 @@ runAgentTests();
   await require('./search-onboarding.test').run();
   const { execFileSync } = require('child_process');
   const path = require('path');
-  for (const file of ['chat-release.test.js', 'file-intent.test.js', 'file-workflow.test.js', 'desktop-priorities.test.js', 'updater.test.js', 'updater-flow.test.js']) {
+  for (const file of ['companion-connection.test.js', 'connection-settings.test.js', 'desktop-responsiveness.test.js', 'chat-release.test.js', 'file-intent.test.js', 'file-workflow.test.js', 'desktop-priorities.test.js', 'updater.test.js', 'updater-flow.test.js']) {
     execFileSync(process.execPath, [path.join(__dirname, file)], { stdio: 'inherit' });
   }
   console.log('\n=============================================');

@@ -4048,6 +4048,15 @@ function getInstallationDefaultDataDir() {
       return { success: false, error: err.message };
     }
   });
+  ipcMain.handle('desktop-sync:activity', async () => require('./desktop-sync-server').getDeviceActivity());
+  ipcMain.handle('desktop-sync:device-preferences', async (_event, id, settings) => {
+    try { return require('./desktop-sync-server').updateDevicePreferences(id, settings); }
+    catch (err) { return { success: false, error: err.message }; }
+  });
+  ipcMain.handle('desktop-sync:request-transfer', async (_event, id, action) => {
+    try { return require('./desktop-sync-server').queueChatTransfer(id, action); }
+    catch (err) { return { success: false, error: err.message }; }
+  });
 
   ipcMain.handle('desktop-sync:list-devices', async () => {
     try {
@@ -4057,6 +4066,8 @@ function getInstallationDefaultDataDir() {
       return { success: false, error: err.message, devices: [] };
     }
   });
+
+  ipcMain.handle('desktop-sync:disconnect-device', async (_event, id) => require('./desktop-sync-server').disconnectPairedDevice(id));
 
   ipcMain.handle('desktop-sync:revoke-device', async (_event, idOrPrefix) => {
     try {

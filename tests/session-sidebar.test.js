@@ -501,7 +501,8 @@ function testContextCardEmptyAndMessageCounts() {
     const footers = [...h.content.innerHTML.matchAll(/<div class="session-context-meta">([^<]*)<\/div>/g)].map(match => match[1]);
     assert.deepEqual(footers, count ? [count === 1 ? '1 message' : '2 messages'] : []);
     assert.doesNotMatch(h.content.innerHTML, /session-context-state|\b(?:idle|ready)\b/i);
-    if (count) assert.match(h.content.innerHTML, /class="session-context-summary">Help with a plan<\/p>/);
+    if (count === 2) assert.match(h.content.innerHTML, /class="session-context-summary">Here is a plan<\/p>/);
+    else if (count === 1) assert.match(h.content.innerHTML, /Waiting for Brown’s answer/);
     else assert.doesNotMatch(h.content.innerHTML, /session-context-meta/);
   }
 }

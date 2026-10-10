@@ -248,6 +248,8 @@ const apiMethods = {
     return () => ipcRenderer.removeListener('floating-bar:session-created', subscription);
   },
   getDesktopSyncInfo: () => ipcRenderer.invoke('desktop-sync:get-info'),
+  setMobileDevicePreferences: (id, settings) => ipcRenderer.invoke('desktop-sync:device-preferences', id, settings),
+  requestMobileChatTransfer: (id, action) => ipcRenderer.invoke('desktop-sync:request-transfer', id, action),
   listMobilePairedDevices: () => ipcRenderer.invoke('desktop-sync:list-devices'),
   revokeMobilePairedDevice: (id) => ipcRenderer.invoke('desktop-sync:revoke-device', id),
   clearPreviousMobileDevices: () => ipcRenderer.invoke('desktop-sync:clear-previous-devices'),
@@ -277,6 +279,8 @@ const apiMethods = {
     ipcRenderer.on('mobile-paired-devices-updated', subscription);
     return () => ipcRenderer.removeListener('mobile-paired-devices-updated', subscription);
   },
+  disconnectMobileDevice: (id) => ipcRenderer.invoke('desktop-sync:disconnect-device', id),
+  getMobileActivity: () => ipcRenderer.invoke('desktop-sync:activity'),
   onMobileChatConsent: (callback) => {
     const subscription = (event, data) => callback(data);
     ipcRenderer.on('mobile-chat-consent', subscription);
