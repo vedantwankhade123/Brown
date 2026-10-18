@@ -17,6 +17,25 @@ async function run() {
   vm.createContext(context); vm.runInContext(renderer.slice(start, end), context);
   assert.equal(await context.buildWebSearchQuery('Can you find shoes below 3000 rupees?'), 'India running shoes INR 3000');
   assert.equal(planned, 1, 'The planner must run even for short prompts');
+  context.window.BrownSearchPlan = require('../src/agent/search-plan');
+  assert.match(await context.buildWebSearchQuery('shoes below 2000 rupees'), /2000/, 'A planner cannot silently increase the budget to 3000');
+  context.queryOfflineLLM = async () => 'Diwali date 2022';
+  const year = new Date().getFullYear();
+  assert.match(await context.buildWebSearchQuery('when is diwali coming this year?'), new RegExp(String(year)), 'Old model-generated years must be replaced before search');
+  const routeStart = renderer.indexOf('function isFactualOrCurrentEventsQuery(');
+  const routeEnd = renderer.indexOf('function isStaleOrUncertainResponse(', routeStart);
+  Object.assign(context, { isMathOrCalculationQuery: () => false, isSystemControlQuery: () => false, hasExplicitSearchIntent: () => false, isInformationalOrHowToQuery: () => false });
+  vm.runInContext(renderer.slice(routeStart, routeEnd), context);
+  assert.equal(context.isFactualOrCurrentEventsQuery('when is diwali coming this year?'), true, 'Festival dates must enter the live-search route');
+  assert.equal(context.isFactualOrCurrentEventsQuery('Explain why Diwali is celebrated'), false, 'Stable cultural explanations need not search');
+  const cardStart = renderer.indexOf('function getWebSearchCardHtml(');
+  const cardEnd = renderer.indexOf('function getStepExecCardHtml(', cardStart);
+  context.escapeHtml = value => value;
+  vm.runInContext(renderer.slice(cardStart, cardEnd), context);
+  assert(!context.getWebSearchCardHtml('Understanding your request and preparing the lookup...').includes('Searching for'), 'Planning statuses must not be mislabeled as searches');
+  const plan = context.window.BrownSearchPlan.plan('when is diwali coming this year?');
+  assert.match(plan.brief, /diwali/i);
+  assert(plan.brief.includes(String(year)) && plan.steps[1].includes(String(year)), 'Show the resolved year in the brief and plan');
   console.log('PASS: search plans queries before answering; desktop/mobile onboarding has no DOB/email or helper');
 }
 module.exports = { run };

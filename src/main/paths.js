@@ -6,6 +6,10 @@ const os = require('os');
 const STORAGE_CONFIG_NAME = 'storage-config.json';
 const LEGACY_CONFIG_NAME = 'config.json';
 
+function isStoreEdition() {
+  return !!(process.windowsStore || (typeof app?.getAppPath === 'function' && require(path.join(app.getAppPath(), 'package.json')).distributionChannel === 'microsoft-store'));
+}
+
 /** Dev: brown-local | Production: Ultron-AI */
 function getUltronFolderName() {
   return app?.isPackaged ? 'Ultron-AI' : 'brown-local';
@@ -46,6 +50,12 @@ function driveRootFrom(anyPath) {
  * - Dev: {repo}\brown-local
  */
 function getDefaultUltronRoot() {
+  // Store installation directories are immutable and change with package updates.
+  if (isStoreEdition()) {
+    const root = app.getPath('userData');
+    if (!ensureDir(root)) throw new Error('Brown could not create its Store app data folder.');
+    return root;
+  }
   const folderName = getUltronFolderName();
 
   if (!app?.isPackaged) {
@@ -359,6 +369,7 @@ function getDevProjectDataDir() {
 }
 
 module.exports = {
+  isStoreEdition,
   getInstallRoot,
   getDefaultUltronRoot,
   getUltronRootBesideOllama,

@@ -34,13 +34,18 @@ const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
   assert.equal(metrics._liveMetricsPending, false);
   metrics.document.hidden = true; await metrics.refreshLiveMetrics(); assert.equal(calls, 1);
 
-  const setupSource = renderer.slice(renderer.indexOf('  async function finishOnboarding()'), renderer.indexOf('  // Pre-fill existing user info'));
-  const stored = new Map(); let hidden = false, saveFails = true;
-  const setup = { Date, Error, window: { localStorage: { setItem: (k, v) => stored.set(k, v) }, ultronAPI: { saveSetupStatus: async () => ({ success: !saveFails, error: 'Disk full' }) } }, onboardingScreen: { classList: { add: () => { hidden = true; } } }, loadAccountDetails: async () => {}, updateWelcomeGreeting() {}, logTrace() {} };
+  const setupStart = renderer.indexOf('  async function finishOnboarding()');
+  const setupEnd = /\r?\n  }\r?\n/.exec(renderer.slice(setupStart));
+  assert(setupStart >= 0 && setupEnd, 'The onboarding completion function must be present');
+  const setupSource = renderer.slice(setupStart, setupStart + setupEnd.index + setupEnd[0].length);
+  const stored = new Map(); let hidden = false, saveFails = true, voicePickerDestroyed = false, queued = 0;
+  const setup = { Date, Error, setupChoices: {}, persistOnboardingVoiceChoice: () => ({ enabled: true, key: 'kokoro-heart' }), window: { BrownOnboardingSetup: { saveSelection() {}, resume: async () => { assert(hidden); queued++; } }, BrownOnboardingVoices: { downloadAfterSetup: async () => { assert(hidden); queued++; } }, localStorage: { setItem: (k, v) => stored.set(k, v) }, ultronAPI: { saveSetupStatus: async () => ({ success: !saveFails, error: 'Disk full' }) } }, onboardingVoicePicker: { destroy: () => { voicePickerDestroyed = true; } }, onboardingScreen: { classList: { add: () => { hidden = true; } } }, loadAccountDetails: async () => {}, updateWelcomeGreeting() {}, logTrace() {} };
   vm.createContext(setup); vm.runInContext(setupSource, setup);
   await assert.rejects(setup.finishOnboarding(), /Disk full/);
   assert.equal(stored.has('ultron-setup-completed'), false); assert.equal(hidden, false);
+  assert.equal(voicePickerDestroyed, false); assert.equal(queued, 0);
   saveFails = false; await setup.finishOnboarding(); assert.equal(stored.get('ultron-setup-completed'), 'true'); assert.equal(hidden, true);
+  assert.equal(voicePickerDestroyed, true); assert.equal(queued, 1);
 
   const stopStart = renderer.indexOf('    // 1. Abort fetch controller', renderer.indexOf('// Stop / cancel generation button'));
   const stopSource = renderer.slice(stopStart, renderer.indexOf('    // 5. Stop active thinking widget', stopStart));
@@ -76,7 +81,7 @@ const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
         callback(response); response.write('MZxx');
         if (interrupted) response.destroy(new Error('connection lost')); else response.end('xxxx');
       }); return request;
-    } } : name === './update-install' ? {} : require(name) };
+    } } : ['./update-install', './update-cache'].includes(name) ? {} : require(name) };
   vm.createContext(env); vm.runInContext(read('src/main/updater.js'), env);
   try {
     await assert.rejects(env.downloadInstallerFallback('https://example.test/setup.exe', '1.2.3'), /connection lost/);

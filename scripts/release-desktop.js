@@ -97,13 +97,17 @@ if (fs.existsSync(versionedNotes)) {
 // ----------------------------------------------------------------------------- prepare
 if (!publish) {
   if (!arg('skip-tests')) sh('npm test');
-  if (!arg('skip-build')) sh(`npm run dist:ci -- --config.directories.output="${DIST}"`);
+  if (!arg('skip-build')) sh(`npm run dist:ci -- --config.directories.output="${DIST}"${arg('require-signing') ? ' --config.forceCodeSigning=true' : ''}`);
 
   const exes = fs.existsSync(DIST) ? fs.readdirSync(DIST).filter((f) => f.endsWith('.exe')) : [];
   const setup = exes.find((f) => f === `Brown AI Setup v${version}.exe`);
   const portable = exes.find((f) => f === `Brown AI v${version}.exe`);
   if (!setup || !portable) {
     die(`Need both a Setup and a portable exe in dist/, found: ${exes.join(', ') || 'nothing'}`);
+  }
+  if (arg('require-signing')) {
+    const { verifyWindowsRelease } = require('./verify-windows-release.cjs');
+    for (const file of [setup, portable]) console.log(JSON.stringify(verifyWindowsRelease(path.join(DIST, file)), null, 2));
   }
 
   // electron-builder names files with spaces; the release aliases are the stable names.
@@ -139,6 +143,12 @@ if (!publish) {
 }
 
 // ----------------------------------------------------------------------------- publish
+// Unsigned GitHub releases require an explicit opt-in; Store signing is separate.
+if (arg('allow-unsigned')) console.warn('[release] Publishing unsigned GitHub installers: SmartScreen warnings may appear.');
+for (const file of arg('allow-unsigned') ? [] : ['Brown-AI-Setup.exe', 'Brown-AI-Portable.exe']) {
+  console.log(JSON.stringify(require('./verify-windows-release.cjs').verifyWindowsRelease(path.join(DIST, file)), null, 2));
+}
+
 // The tag must point at a commit whose own package.json declares this version, otherwise the
 // release is unbuildable from what is on GitHub.
 if (sh('git status --porcelain -- package.json', { pipe: true }).trim()) {

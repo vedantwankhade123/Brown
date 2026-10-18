@@ -494,7 +494,7 @@ async function handleRequest(req, res) {
   const route = url.pathname.replace(/\/+$/, '') || '/';
   if (req.method === 'POST' && route === '/companion') {
     try { json(req, res, 200, await handleEncryptedRequest(await readBody(req))); }
-    catch { json(req, res, 401, { ok: false, error: 'Companion authentication failed' }); }
+    catch (error) { json(req, res, 401, { ok: false, error: 'Companion authentication failed', pairingRevoked: error.message === 'Revoked' }); }
     return;
   }
 
@@ -627,7 +627,7 @@ async function handleRequest(req, res) {
     route === '/chats' ||
     route === '/session';
   if (protectedRoute && !tokenRec) {
-    json(req, res, 401, { ok: false, error: 'Unauthorized', needReauth: true });
+    json(req, res, 401, { ok: false, error: 'Unauthorized', needReauth: true, pairingRevoked: true });
     return;
   }
 

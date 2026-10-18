@@ -5,7 +5,7 @@
   const panel = document.createElement('aside');
   panel.id = 'mobile-activity-panel'; panel.className = 'mobile-activity-panel hidden';
   panel.setAttribute('aria-label', 'Live phone activity');
-  panel.innerHTML = `<div class="mobile-panel-heading"><div><strong>Phone activity</strong><small data-device-name>Live companion view</small></div><div class="mobile-panel-header-actions"><button type="button" data-menu aria-label="Phone preview options" aria-expanded="false" aria-controls="mobile-preview-options">⋮</button><button type="button" data-close aria-label="Close phone preview">✕</button></div></div><div id="mobile-preview-options" class="mobile-preview-options hidden"><label class="mobile-device-picker">Device<select data-device aria-label="Choose paired phone"></select></label><button type="button" data-pause>Pause preview</button><button type="button" data-copy>Copy chat</button><label class="mobile-follow-option"><input type="checkbox" data-follow checked> Auto-scroll</label><button type="button" data-manage>Manage connection</button><div class="mobile-menu-divider"></div><button type="button" data-disconnect>Disconnect phone</button><small class="mobile-menu-hint">Pairing stays saved</small></div><p class="mobile-panel-status mobile-preview-sr-only" role="status"></p><div class="mobile-phone-stage"><div class="mobile-phone-frame pixel-nine"><img class="pixel-nine-frame-image" src="../../Assets/android-frame.png" alt="" aria-hidden="true"><iframe class="mobile-phone-screen" title="Read-only Brown mobile chat preview" src="phone-preview/index.html"></iframe></div></div>`;
+  panel.innerHTML = `<div class="mobile-panel-heading"><div><strong>Phone activity</strong><small data-device-name>Live companion view</small></div><div class="mobile-panel-header-actions"><button type="button" data-menu aria-label="Phone preview options" aria-expanded="false" aria-controls="mobile-preview-options">⋮</button><button type="button" data-close aria-label="Close phone preview">✕</button></div></div><div id="mobile-preview-options" class="mobile-preview-options hidden"><label class="mobile-device-picker"><select data-device aria-label="Choose paired phone" disabled><option value="" disabled selected>No device connected</option></select></label><button type="button" data-pause>Pause preview</button><button type="button" data-copy>Copy chat</button><label class="mobile-follow-option"><input type="checkbox" data-follow checked> Auto-scroll</label><button type="button" data-manage>Manage connection</button><div class="mobile-menu-divider"></div><button type="button" data-disconnect disabled>Disconnect phone</button><small class="mobile-menu-hint">Pairing stays saved</small></div><p class="mobile-panel-status mobile-preview-sr-only" role="status"></p><div class="mobile-phone-stage"><div class="mobile-phone-frame pixel-nine"><img class="pixel-nine-frame-image" src="../../Assets/android-frame.png" alt="" aria-hidden="true"><iframe class="mobile-phone-screen" title="Read-only Brown mobile chat preview" src="phone-preview/index.html"></iframe></div></div>`;
   document.body.appendChild(panel);
   let opened = false, paused = false, selected = '', devices = [], shown = null, signature = '', busy = false;
   const picker = panel.querySelector('[data-device]');
@@ -14,10 +14,42 @@
   const menuButton = panel.querySelector('[data-menu]');
   let hint = '';
   function sendPreview() { frame.contentWindow?.postMessage({ type: 'brown-phone-preview', snapshot: shown, hint, follow: panel.querySelector('[data-follow]').checked }, '*'); }
-  function toggleMenu(open) { menu.classList.toggle('hidden', !open); menuButton.setAttribute('aria-expanded', String(open)); }
+  let menuOpened = false, menuAnimation = null, menuRevision = 0;
+  function positionDeviceMenu() {
+    const panelBounds = panel.getBoundingClientRect();
+    const headerBounds = panel.querySelector('.mobile-panel-heading').getBoundingClientRect();
+    const buttonBounds = menuButton.getBoundingClientRect();
+    const top = Math.max(headerBounds.bottom, buttonBounds.bottom) - panelBounds.top - panel.clientTop + 8;
+    panel.style.setProperty('--phone-menu-top', `${Math.ceil(top)}px`);
+  }
+  function toggleMenu(open, immediate = false) {
+    if (open === menuOpened && !immediate) return;
+    const revision = ++menuRevision;
+    const wasHidden = menu.classList.contains('hidden');
+    const currentTransform = wasHidden ? null : getComputedStyle(menu).transform;
+    menuAnimation?.cancel(); menuAnimation = null;
+    menuOpened = open;
+    menuButton.setAttribute('aria-expanded', String(open));
+    menu.inert = !open;
+    menu.setAttribute('aria-hidden', String(!open));
+    panel.classList.toggle('device-menu-open', open);
+    if (open) { positionDeviceMenu(); menu.classList.remove('hidden'); }
+    const finish = () => {
+      if (revision !== menuRevision) return;
+      if (!menuOpened) menu.classList.add('hidden');
+      menuAnimation?.cancel(); menuAnimation = null;
+    };
+    if (immediate || wasHidden && !open || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { finish(); return; }
+    menuAnimation = menu.animate([
+      { transform: currentTransform && currentTransform !== 'none' ? currentTransform : open ? 'translateY(-8px)' : 'translateY(0)', opacity: open ? 0 : 1 },
+      { transform: open ? 'translateY(0)' : 'translateY(-8px)', opacity: open ? 1 : 0 }
+    ], { duration: 260, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'both' });
+    menuAnimation.onfinish = finish;
+  }
   function fitPhone() {
     const stage = panel.querySelector('.mobile-phone-stage');
     panel.style.setProperty('--phone-scale', Math.max(.15, Math.min(stage.clientWidth / 474, stage.clientHeight / 948)));
+    if (menuOpened) positionDeviceMenu();
   }
   const resize = new ResizeObserver(fitPhone); resize.observe(panel.querySelector('.mobile-phone-stage'));
   let panelAnimation = null, toggleRevision = 0, wasConnected = null, stateTimer = null;
@@ -54,7 +86,7 @@
       );
       panelAnimation.onfinish = finish;
     }
-    button.setAttribute('aria-expanded', String(open)); toggleMenu(false);
+    button.setAttribute('aria-expanded', String(open)); toggleMenu(false, true);
     if (open) { fitPhone(); poll(); panel.querySelector('[data-close]').focus(); } else if (chatAvailable()) button.focus();
   }
   const navigationObserver = new MutationObserver(() => {
@@ -93,16 +125,24 @@
       wasConnected = online > 0;
       button.classList.toggle('is-active', active > 0); button.classList.toggle('is-connected', online > 0);
       if (!opened) return;
-      if (!devices.some(d => d.id === selected)) selected = devices[0]?.id || '';
-      const names = JSON.stringify(devices.map(d => [d.id, d.deviceName]));
-      if (picker.dataset.signature !== names) { picker.replaceChildren(); for (const d of devices) { const option = document.createElement('option'); option.value = d.id; option.textContent = d.deviceName; picker.appendChild(option); } picker.dataset.signature = names; }
-      picker.value = selected; picker.disabled = devices.length < 2; render();
+      if (!devices.some(d => d.id === selected)) selected = devices.find(d => d.isConnected)?.id || devices[0]?.id || '';
+      const connected = devices.some(d => d.isConnected);
+      const names = JSON.stringify(devices.map(d => [d.id, d.deviceName, d.isConnected]));
+      if (picker.dataset.signature !== names) {
+        picker.replaceChildren();
+        if (!connected) {
+          const empty = document.createElement('option'); empty.value = ''; empty.textContent = 'No device connected'; empty.disabled = true; picker.appendChild(empty);
+        }
+        for (const d of devices) { const option = document.createElement('option'); option.value = d.id; option.textContent = `${d.deviceName || 'Paired phone'}${d.isConnected ? '' : ' · Offline'}`; picker.appendChild(option); }
+        picker.dataset.signature = names;
+      }
+      picker.value = connected ? selected : ''; picker.disabled = devices.length < 2; render();
     } catch { panel.querySelector('.mobile-panel-status').textContent = 'Could not refresh phone activity. Retrying…'; }
     finally { busy = false; }
   }
   button.onclick = () => toggle(!opened);
   panel.querySelector('[data-close]').onclick = () => toggle(false);
-  menuButton.onclick = () => toggleMenu(menu.classList.contains('hidden'));
+  menuButton.onclick = () => toggleMenu(!menuOpened);
   picker.onchange = () => { selected = picker.value; paused = false; panel.querySelector('[data-pause]').textContent = 'Pause preview'; signature = ''; render(); };
   panel.querySelector('[data-pause]').onclick = event => { paused = !paused; event.target.textContent = paused ? 'Resume preview' : 'Pause preview'; render(); };
   panel.querySelector('[data-follow]').onchange = sendPreview;
@@ -110,7 +150,7 @@
   panel.querySelector('[data-disconnect]').onclick = async () => { const device = devices.find(d => d.id === selected) || devices[0]; if (!device?.isConnected) return; const result = await window.ultronAPI.disconnectMobileDevice(device.id); if (result.success) { toggleMenu(false); await poll(); } else panel.querySelector('.mobile-panel-status').textContent = result.error; };
   panel.querySelector('[data-manage]').onclick = () => { toggle(false); if (typeof openSettingsPanel === 'function') openSettingsPanel('sync'); else { document.getElementById('btn-settings')?.click(); document.querySelector('.settings-tab-btn[data-tab="sync"]')?.click(); } };
   document.addEventListener('pointerdown', event => { if (!menu.contains(event.target) && !menuButton.contains(event.target)) toggleMenu(false); });
-  document.addEventListener('keydown', event => { if (opened && event.key === 'Escape') { if (!menu.classList.contains('hidden')) { toggleMenu(false); menuButton.focus(); } else toggle(false); } });
+  document.addEventListener('keydown', event => { if (opened && event.key === 'Escape') { if (menuOpened) { toggleMenu(false); menuButton.focus(); } else toggle(false); } });
   window.addEventListener('message', event => { if (event.source === frame.contentWindow && event.data?.type === 'brown-phone-preview-ready') sendPreview(); });
   frame.addEventListener('load', sendPreview);
   window.addEventListener('beforeunload', () => { clearInterval(timer); resize.disconnect(); navigationObserver.disconnect(); });

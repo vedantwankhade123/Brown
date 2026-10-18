@@ -4,6 +4,7 @@
  */
 const { URL } = require('url');
 const { fetchPublicPage } = require('./public-web');
+const { extractWebContent } = require('./web-content');
 
 function stripTags(html) {
   return String(html || '')
@@ -58,6 +59,9 @@ async function fetchWebPage(url, options = {}) {
 
   const maxChars = Number(options.maxChars) > 0 ? Number(options.maxChars) : 12000;
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  options.signal?.addEventListener('abort', abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 12000);
 
   try {
@@ -82,19 +86,25 @@ async function fetchWebPage(url, options = {}) {
 
     const titleMatch = raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
     const title = stripTags(titleMatch ? titleMatch[1] : '');
-    const markdown = htmlToMarkdown(raw).slice(0, maxChars);
-    const plain = stripTags(raw).slice(0, maxChars);
+    const readable = extractWebContent(raw, finalUrl);
+    const markdown = readable.markdown.slice(0, maxChars);
+    const plain = readable.plain.slice(0, maxChars);
 
     return {
       success: true,
       url: finalUrl,
       title: title || finalUrl,
       markdown: markdown || plain,
-      plain
+      plain,
+      image: readable.image,
+      links: readable.links
     };
   } catch (err) {
     clearTimeout(timeout);
     return { success: false, error: err.message || 'Fetch failed', url: target };
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', abort);
   }
 }
 

@@ -113,7 +113,10 @@
   }
 
   function closeModal() {
-    if (_modalEl) _modalEl.classList.add('hidden');
+    if (_modalEl) {
+      if (typeof window.closeAppModal === 'function') window.closeAppModal(_modalEl);
+      else _modalEl.classList.add('hidden');
+    }
   }
 
   function renderHistoryList(filterQuery = '') {

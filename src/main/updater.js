@@ -5,6 +5,7 @@ const fs = require('fs');
 const https = require('https');
 const { pipeline } = require('stream');
 const { verifyInstaller, startInstaller } = require('./update-install');
+const { createUpdateCache } = require('./update-cache');
 let initialized = false;
 let checkPromise = null;
 let downloadPromise = null;
@@ -184,6 +185,21 @@ function initAutoUpdater(mainWindow) {
   if (initialized) return;
   initialized = true;
 
+  const storeEdition = process.windowsStore || (typeof app.getAppPath === 'function' && require(path.join(app.getAppPath(), 'package.json')).distributionChannel === 'microsoft-store');
+  if (storeEdition) {
+    const status = () => ({ status: 'store-managed', version: app.getVersion() });
+    ipcMain.handle('check-for-updates', async () => status());
+    ipcMain.handle('download-update', async () => status());
+    ipcMain.handle('restart-and-install', async () => status());
+    ipcMain.handle('open-store-updates', async () => {
+      try {
+        await require('electron').shell.openExternal('ms-windows-store://pdp/?ProductId=9PGCR6DSJNCN');
+        return status();
+      } catch { return { status: 'error', error: 'Could not open Microsoft Store. Open its Library to check for Brown AI updates.' }; }
+    });
+    return;
+  }
+
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowDowngrade = false;
@@ -242,10 +258,34 @@ function initAutoUpdater(mainWindow) {
     downloadedInstaller = info.downloadedFile || autoUpdater.installerPath;
   });
 
+  const cache = createUpdateCache(path.join(app.getPath('userData'), 'updates'));
+  let cacheRestored = false;
+  async function restoreDownloadedUpdate() {
+    if (cacheRestored) return;
+    const saved = await cache.restore(app.getVersion(), compareSemver);
+    cacheRestored = true;
+    if (saved) {
+      downloadedInstaller = saved.path;
+      downloadedExpected = saved.expected;
+      lastUpdatePayload = saved.payload;
+      downloadPhase = 'downloaded';
+      sendToRenderer('update-status', { ...lastUpdatePayload, status: 'downloaded' });
+    }
+  }
+  async function retainDownloadedUpdate(source, expected) {
+    const saved = await cache.save(source, lastUpdatePayload, expected);
+    downloadedInstaller = saved.path;
+    downloadedExpected = saved.expected;
+  }
+
   function checkForUpdatesQuietly() {
     if (checkPromise) return checkPromise;
-    if (['downloading', 'downloaded', 'installing'].includes(downloadPhase)) return Promise.resolve({ status: downloadPhase, version: lastUpdatePayload?.version });
-    checkPromise = performCheck().finally(() => { checkPromise = null; });
+    if (['downloading', 'downloaded', 'installing'].includes(downloadPhase)) return Promise.resolve({ ...lastUpdatePayload, status: downloadPhase });
+    checkPromise = restoreDownloadedUpdate().then(() => downloadPhase === 'downloaded' ? { ...lastUpdatePayload, status: 'downloaded' } : performCheck()).catch(() => {
+      const result = { status: 'error', error: 'The saved update is temporarily unavailable. Please retry shortly.', version: lastUpdatePayload?.version || app.getVersion() };
+      sendToRenderer('update-status', result);
+      return result;
+    }).finally(() => { checkPromise = null; });
     return checkPromise;
   }
 
@@ -316,14 +356,15 @@ function initAutoUpdater(mainWindow) {
   });
 
   async function performDownload() {
-    if (['downloaded', 'installing'].includes(downloadPhase)) return { status: downloadPhase };
-    downloadPhase = 'downloading';
     try {
+      await restoreDownloadedUpdate();
+      if (['downloaded', 'installing'].includes(downloadPhase)) return { ...lastUpdatePayload, status: downloadPhase };
+      downloadPhase = 'downloading';
       console.log('[AUTO-UPDATER] Starting update download...');
       if (app.isPackaged && electronUpdaterHasUpdate) {
         const files = await autoUpdater.downloadUpdate();
         downloadedInstaller = files?.find(file => /\.exe$/i.test(file)) || autoUpdater.installerPath;
-        await verifyInstaller(downloadedInstaller, downloadedExpected);
+        await retainDownloadedUpdate(downloadedInstaller, downloadedExpected);
         downloadPhase = 'downloaded';
         sendToRenderer('update-status', { status: 'downloaded', version: lastUpdatePayload?.version });
         notifyUpdateReady(lastUpdatePayload?.version);
@@ -335,8 +376,7 @@ function initAutoUpdater(mainWindow) {
         sendToRenderer('update-status', { status: 'downloading', percent: 0, version });
         const dest = await downloadInstallerFallback(lastUpdatePayload.downloadUrl, version);
         await verifyInstaller(dest, lastUpdatePayload.expected);
-        downloadedInstaller = dest;
-        downloadedExpected = lastUpdatePayload.expected;
+        await retainDownloadedUpdate(dest, lastUpdatePayload.expected);
         downloadPhase = 'downloaded';
         sendToRenderer('update-status', { status: 'downloaded', version });
         notifyUpdateReady(version);
@@ -360,9 +400,14 @@ function initAutoUpdater(mainWindow) {
     if (installPromise) return installPromise;
     installPromise = (async () => {
       try {
+        await restoreDownloadedUpdate();
         if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE) throw new Error('Use the Setup installer to update this edition of Brown.');
         if (downloadPhase !== 'downloaded' || !downloadedInstaller) throw new Error('Download the update before restarting.');
-        await verifyInstaller(downloadedInstaller, downloadedExpected);
+        try { await verifyInstaller(downloadedInstaller, downloadedExpected); }
+        catch (error) {
+          if (!['EACCES', 'EPERM', 'EBUSY'].includes(error.code)) downloadedInstaller = null;
+          throw error;
+        }
         downloadPhase = 'installing';
         await startInstaller(downloadedInstaller, path.dirname(app.getPath('exe')));
         sendToRenderer('update-status', { status: 'installing', version: lastUpdatePayload?.version });
@@ -370,7 +415,8 @@ function initAutoUpdater(mainWindow) {
         return { status: 'installing' };
       } catch (error) {
         downloadPhase = downloadedInstaller ? 'downloaded' : 'idle';
-        sendToRenderer('update-status', { status: 'install-error', error: error.message });
+        lastStatusKey = '';
+        sendToRenderer('update-status', { ...lastUpdatePayload, status: downloadedInstaller ? 'downloaded' : lastUpdatePayload ? 'available' : 'error', installError: error.message, error: error.message });
         installPromise = null;
         return { status: 'error', error: error.message };
       }

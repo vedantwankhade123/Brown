@@ -10,13 +10,13 @@ function publishDownloadActivity(item) {
   }
 }
 async function invokeDownload(channel, name, kind, ...args) {
-  const item = { modelName: String(name), kind, percent: null, status: 'Downloading…', timestamp: Date.now() };
+  const item = { modelName: String(name), kind, percent: null, status: kind === 'Connection' ? 'Checking…' : 'Downloading…', timestamp: Date.now() };
   publishDownloadActivity(item);
   try {
     const result = await ipcRenderer.invoke(channel, ...args);
-    item.status = result?.cancelled ? 'Cancelled' : (result?.success === false || result?.status === 'error') ? 'Failed' : 'Completed';
+    item.status = result?.cancelled ? 'Cancelled' : (result?.success === false || result?.reachable === false || result?.status === 'error') ? 'Failed' : 'Completed';
     item.percent = item.status === 'Completed' ? 100 : null;
-    item.error = result?.error || '';
+    item.error = result?.error || (result?.reachable === false ? 'Connection unavailable. Retry when online.' : '');
     publishDownloadActivity({ ...item });
     return result;
   } catch (error) {
@@ -150,6 +150,12 @@ const apiMethods = {
   checkMcpWindowsUia: () => ipcRenderer.invoke('check-mcp-windows-uia'),
   downloadKokoroOnboardingVoices: (voiceIds) => invokeDownload('download-kokoro-onboarding-voices', 'Kokoro voice setup', 'Voice', voiceIds),
   checkHuggingFaceConnection: () => ipcRenderer.invoke('check-huggingface-connection'),
+  checkHuggingFaceSetup: () => invokeDownload('check-huggingface-connection', 'Hugging Face connection', 'Connection'),
+  startOllamaSetup: (exePath) => invokeDownload('start-ollama-service', 'Ollama engine', 'Engine', exePath),
+  queueOnboardingActivities: (jobs) => {
+    const names = { voice: ['Kokoro voice setup', 'Voice'], ollama: ['Ollama engine', 'Engine'], hf: ['Hugging Face connection', 'Connection'] };
+    for (const job of jobs) if (names[job]) publishDownloadActivity({ modelName: names[job][0], kind: names[job][1], percent: null, status: 'Queued', timestamp: Date.now() });
+  },
   showItemInFolder: (filePath) => ipcRenderer.invoke('show-item-in-folder', filePath),
   openFileOrPath: (filePath) => ipcRenderer.invoke('open-file-or-path', filePath),
   fileExists: (filePath) => ipcRenderer.invoke('file-exists', filePath),
@@ -181,6 +187,7 @@ const apiMethods = {
 
   // GitHub Releases Auto-Updater bindings
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  openStoreUpdates: () => ipcRenderer.invoke('open-store-updates'),
   downloadUpdate: () => invokeDownload('download-update', 'Brown app update', 'App'),
   restartAndInstall: () => ipcRenderer.invoke('restart-and-install'),
   onUpdateStatus: (callback) => {

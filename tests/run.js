@@ -41,9 +41,12 @@ runAgentTests();
   await runBrowserTests();
   await require('./answer-experience.test').run();
   await require('./search-onboarding.test').run();
+  await require('./onboarding-profile.test').run();
+  await require('./onboarding-voices.test').run();
+  await require('./web-search.test').run();
   const { execFileSync } = require('child_process');
   const path = require('path');
-  for (const file of ['companion-connection.test.js', 'connection-settings.test.js', 'desktop-responsiveness.test.js', 'chat-release.test.js', 'file-intent.test.js', 'file-workflow.test.js', 'desktop-priorities.test.js', 'updater.test.js', 'updater-flow.test.js']) {
+  for (const file of ['companion-connection.test.js', 'connection-settings.test.js', 'desktop-responsiveness.test.js', 'chat-release.test.js', 'file-intent.test.js', 'file-workflow.test.js', 'desktop-priorities.test.js', 'updater.test.js', 'updater-flow.test.js', 'update-cache.test.js', 'onboarding-install-status.test.js', 'onboarding-setup-queue.test.js']) {
     execFileSync(process.execPath, [path.join(__dirname, file)], { stdio: 'inherit' });
   }
   console.log('\n=============================================');

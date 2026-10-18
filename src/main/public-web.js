@@ -1,6 +1,7 @@
 const http = require('node:http');
 const https = require('node:https');
 const { parsePublicUrl, resolvePublicHost } = require('./agent-browser-network');
+const { parseHTML } = require('linkedom');
 
 // Pin every connection to a validated public address, including redirect hops.
 async function fetchPublicPage(value, { timeoutMs = 10000, maxBytes = 2000000, redirects = 4, signal } = {}) {
@@ -51,22 +52,33 @@ function extractStructuredProducts(html, pageUrl) {
     if (Array.isArray(value)) { value.slice(0, 100).forEach(v => walk(v, depth + 1)); return; }
     const types = [].concat(value['@type'] || []);
     if (types.includes('Product')) {
-      const offer = [].concat(value.offers || []).find(o => o && (o.price !== undefined || o.lowPrice !== undefined));
-      const amount = Number(offer?.price ?? offer?.lowPrice);
-      const currency = String(offer?.priceCurrency || '').toUpperCase();
+      const offer = [].concat(value.offers || []).find(o => o && (o.price !== undefined || o.priceSpecification?.price !== undefined || (o.lowPrice !== undefined && o.lowPrice === o.highPrice)));
+      const amount = Number(offer?.price ?? offer?.priceSpecification?.price ?? offer?.lowPrice);
+      const currency = String(offer?.priceCurrency || offer?.priceSpecification?.priceCurrency || '').toUpperCase();
       const image = [].concat(value.image || [])[0];
       try {
         const url = parsePublicUrl(new URL(offer?.url || value.url || pageUrl, pageUrl).href).href;
+        // A product mention inside an editorial page is not a purchasable offer.
+        if (/\/(?:articles?|blogs?|news|reviews?|guides?|search|collections?|category)\//i.test(new URL(url).pathname)) return;
         const imageUrl = image ? parsePublicUrl(new URL(typeof image === 'string' ? image : image.url, pageUrl).href).href : '';
         if (value.name && Number.isFinite(amount) && amount > 0 && /^[A-Z]{3}$/.test(currency) && !seen.has(url)) {
-          seen.add(url); products.push({ title: String(value.name).slice(0, 200), url, image: imageUrl, amount, currency, price: `${currency} ${amount}`, type: 'product', source: new URL(pageUrl).hostname, verifiedAt: new Date().toISOString(), availability: String(offer.availability || '') });
+          const rating = Number(value.aggregateRating?.ratingValue);
+          const ratingCount = Number(value.aggregateRating?.ratingCount || value.aggregateRating?.reviewCount);
+          seen.add(url); products.push({ title: String(value.name).slice(0, 200), url, image: imageUrl, amount, currency, price: `${currency} ${amount}`, type: 'product', source: new URL(pageUrl).hostname, verifiedAt: new Date().toISOString(), availability: String(offer.availability || ''),
+            ...(rating > 0 && rating <= 5 && ratingCount > 0 ? { rating, ratingCount } : {}),
+            snippet: String(value.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 220) });
         }
       } catch (_) { /* Ignore nonpublic/malformed structured data. */ }
     }
     Object.values(value).slice(0, 100).forEach(v => walk(v, depth + 1));
   }
-  for (const match of String(html).matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
-    try { walk(JSON.parse(match[1])); } catch (_) { /* A broken block must not suppress other products. */ }
+  const { document } = parseHTML(String(html));
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    try { walk(JSON.parse(script.textContent)); } catch (_) { /* A broken block must not suppress other products. */ }
+  }
+  for (const node of document.querySelectorAll('[itemscope][itemtype$="/Product"]')) {
+    const property = name => { const el = node.querySelector(`[itemprop="${name}"]`); return el?.getAttribute('content') || el?.getAttribute('href') || el?.getAttribute('src') || el?.textContent?.trim(); };
+    walk({ '@type': 'Product', name: property('name'), image: property('image'), url: property('url') || pageUrl, offers: { price: property('price'), priceCurrency: property('priceCurrency'), availability: property('availability') } });
   }
   // Some storefronts expose product offers as Open Graph metadata rather than JSON-LD.
   const meta = {};

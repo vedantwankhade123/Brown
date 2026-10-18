@@ -10,7 +10,8 @@ const { applyStoragePaths, getConnectorsRoot } = require('./paths');
 
 // Electron cache/config only — user data lives next to install (see paths.js)
 const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Local');
-const dataFolder = app.isPackaged ? 'UltronData' : 'UltronDataDev';
+const storeEdition = process.windowsStore || require('../../package.json').distributionChannel === 'microsoft-store';
+const dataFolder = storeEdition ? 'BrownAIStore' : app.isPackaged ? 'UltronData' : 'UltronDataDev';
 app.setPath('userData', path.join(localAppData, dataFolder));
 
 // Disable GPU and HTTP disk cache locks on Windows

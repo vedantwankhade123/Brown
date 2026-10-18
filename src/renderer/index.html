@@ -171,10 +171,6 @@
             <span>Blogs &amp; Articles</span>
           </div>
           <div class="tsd-divider"></div>
-          <div class="tsd-item" id="thd-release-notes">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-            <span>Release Notes</span>
-          </div>
           <div class="tsd-item" id="thd-website">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
             <span>Visit Website</span>
@@ -336,6 +332,7 @@
                       <span>Downloads</span>
                     </div>
                     <span id="download-popover-status-summary" class="download-popover-status-summary">Downloading</span>
+                    <button type="button" id="btn-download-clear-all" class="btn-download-clear-all hidden">Clear all</button>
                   </div>
 
                   <div id="download-popover-items" class="download-popover-items">
@@ -363,7 +360,6 @@
               <div id="tud-title" class="tud-title">New Update Available</div>
               <div id="tud-subtitle" class="tud-subtitle">Version details</div>
             </div>
-            <div id="tud-notes" class="tud-notes">Release notes</div>
             <div id="tud-progress" class="tud-progress hidden">
               <div class="tud-ring-wrap">
                 <svg class="tud-ring" viewBox="0 0 72 72" aria-hidden="true">
@@ -389,9 +385,9 @@
               </button>
               <button id="tud-btn-restart" class="tud-btn tud-btn-restart hidden" type="button">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-                <span>Restart</span>
+                <span>Update now</span>
               </button>
-              <button id="tud-btn-later" class="tud-btn tud-btn-ghost hidden" type="button"><span>Do it later</span></button>
+              <button id="tud-btn-later" class="tud-btn tud-btn-ghost hidden" type="button"><span>Update later</span></button>
             </div>
           </div>
         </div>
@@ -1157,17 +1153,19 @@
                 </label>
               </div>
               <div class="account-location-row">
+                <div class="account-location-field">
                 <input type="text" id="setting-home-location" class="override-input account-input account-location-input" placeholder="e.g. Mumbai, India" />
-                <button id="btn-detect-location" type="button" class="btn-faint account-detect-btn is-detected" title="Location detection status">
-                  <span class="account-detect-spinner hidden" aria-hidden="true"></span>
-                  <span class="account-detect-label">Detected</span>
-                </button>
                 <button id="btn-refresh-location" type="button" class="btn-faint account-refresh-btn" title="Re-detect location manually" aria-label="Re-detect location">
                   <svg class="account-refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
                     <path d="M23 4v6h-6"></path>
                     <path d="M1 20v-6h6"></path>
                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
                   </svg>
+                </button>
+                </div>
+                <button id="btn-detect-location" type="button" class="btn-faint account-detect-btn is-detected" title="Location detection status">
+                  <span class="account-detect-spinner hidden" aria-hidden="true"></span>
+                  <span class="account-detect-label">Detected</span>
                 </button>
               </div>
               <p id="setting-location-status" class="text-xs text-muted account-location-status"></p>
@@ -1834,7 +1832,7 @@
             <div class="connection-page">
               <div class="connection-page-heading">
                 <h4>Mobile</h4>
-                <button type="button" id="connection-disconnect" class="connection-disconnect-btn" title="Disconnect this session; pairing stays saved">Disconnect</button>
+                <button type="button" id="connection-disconnect" class="connection-disconnect-btn" title="Disconnect this session; pairing stays saved" disabled>Disconnect</button>
               </div>
               <p class="connection-intro">Chat and sync with your desktop over Wi-Fi.</p>
               
@@ -2286,7 +2284,8 @@
 
                 <div id="update-action-container" class="osu-action-row">
                   <button id="btn-download-update" class="osu-btn osu-btn-primary">Download Update</button>
-                  <button id="btn-restart-install" class="osu-btn osu-btn-ghost">Restart to Install Update</button>
+                  <button id="btn-restart-install" class="osu-btn osu-btn-ghost">Update now</button>
+                  <button id="btn-update-later" class="osu-btn osu-btn-ghost" style="display:none">Update later</button>
                 </div>
 
                 <div id="update-progress-wrap" class="osu-progress">
@@ -2300,14 +2299,6 @@
             </div>
 
             <div class="osu-columns">
-              <div class="osu-card osu-card-notes">
-                <div class="osu-card-title">What's new in this update</div>
-                <div class="osu-notes-scroll">
-                  <ul id="update-notes-list" class="osu-notes-list hidden"></ul>
-                  <p id="update-notes-empty" class="osu-notes-empty">Nothing to install — you are on the newest release. Check for updates to pull in the latest changes.</p>
-                </div>
-              </div>
-
               <div class="osu-card">
                 <div class="osu-card-title">App update information</div>
                 <div class="osu-info-row">
@@ -2395,13 +2386,13 @@
                   <!-- Social Media Icons (Working links) -->
                   <div class="about-social-icons-row" style="display: flex; align-items: center; gap: 8px;">
                     <a href="https://www.instagram.com/usebrown.online" target="_blank" rel="noopener noreferrer" class="about-social-icon-btn" title="Instagram (@usebrown.online)">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg><span>Instagram</span>
                     </a>
                     <a href="mailto:contact@usebrown.online" class="about-social-icon-btn" title="Email (contact@usebrown.online)">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg><span>Email</span>
                     </a>
                     <a href="https://usebrown.online" target="_blank" rel="noopener noreferrer" class="about-social-icon-btn" title="Official Website (usebrown.online)">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg><span>Website</span>
                     </a>
                   </div>
                 </div>
@@ -2428,21 +2419,17 @@
                     </a>
                     <a href="https://www.instagram.com/usebrown.online" id="btn-settings-instagram" class="about-feedback-option-btn" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); color: #ffffff; text-decoration: none; font-size: 12.5px; font-weight: 500; transition: all 0.15s ease;">
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-                      <span>Instagram (@usebrown.online)</span>
+                      <span>Instagram</span>
                     </a>
                     <a href="mailto:contact@usebrown.online" id="btn-settings-email" class="about-feedback-option-btn" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); color: #ffffff; text-decoration: none; font-size: 12.5px; font-weight: 500; transition: all 0.15s ease;">
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-                      <span>contact@usebrown.online</span>
+                      <span>Email</span>
                     </a>
                   </div>
                 </div>
 
                 <!-- Footer Quick Links -->
                 <div class="developer-links-container" style="margin-top: 6px; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;">
-                  <button type="button" id="btn-open-release-notes" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 22px; border-radius: 9999px; background: #ffffff !important; border: none; color: #000000 !important; font-size: 12.5px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s, opacity 0.15s;">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-                    <span style="color: #000000 !important;">View Release Notes</span>
-                  </button>
                   <a href="https://usebrown.online/#download" target="_blank" rel="noopener noreferrer" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 22px; background: #ffffff !important; border: none; border-radius: 9999px; color: #000000 !important; text-decoration: none; font-size: 12.5px; font-weight: 700; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35); transition: transform 0.15s, opacity 0.15s;">
                     <img src="../../Assets/Brand-Assets/android-logo.png" alt="Android" style="width: 16px; height: 16px; object-fit: contain;" />
                     <span style="color: #000000 !important;">Download For Android</span>
@@ -2472,11 +2459,11 @@
                 <div style="display: flex; gap: 12px; align-items: center; justify-content: flex-start; flex-wrap: wrap;">
                   <a href="mailto:contact@usebrown.online" class="about-feedback-option-btn" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); color: #ffffff; text-decoration: none; font-size: 12.5px; font-weight: 500;">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-                    <span>contact@usebrown.online</span>
+                    <span>Email</span>
                   </a>
                   <a href="https://www.instagram.com/usebrown.online" target="_blank" rel="noopener noreferrer" class="about-feedback-option-btn" style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: 9999px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); color: #ffffff; text-decoration: none; font-size: 12.5px; font-weight: 500;">
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-                    <span>Instagram (@usebrown.online)</span>
+                    <span>Instagram</span>
                   </a>
                 </div>
               </div>
@@ -2543,10 +2530,12 @@
   <div id="onboarding-screen" class="onboarding-screen hidden">
     <!-- Passive legal notice, pinned to the bottom of every onboarding step. -->
     <div class="onboard-legal-footer">
-      By continuing, you agree to our
-      <a href="https://usebrown.online/terms" class="onboard-legal-link">Terms of Service</a>
-      and have read our
-      <a href="https://usebrown.online/privacy" class="onboard-legal-link">Privacy Policy</a>.
+      <div>By continuing, you agree to our</div>
+      <div class="onboard-legal-links">
+        <a href="https://usebrown.online/terms" class="onboard-legal-link">Terms of Service</a>
+        <span aria-hidden="true"> · </span>
+        <a href="https://usebrown.online/privacy" class="onboard-legal-link">Privacy Policy</a>
+      </div>
     </div>
 
     <div class="onboarding-container">
@@ -2573,7 +2562,7 @@
           <div id="onboard-step-1" class="onboard-step hidden">
             <div class="onboard-form-group">
               <div class="onboard-field">
-                <input type="text" id="onboard-full-name" class="onboard-input" placeholder=" " autocomplete="name" aria-label="Name" />
+                <input type="text" id="onboard-full-name" class="onboard-input" placeholder=" " autocomplete="off" aria-label="Name" />
               </div>
             </div>
             <div id="onboard-step-1-error" class="onboard-error-msg hidden">Please enter your name.</div>
@@ -2605,19 +2594,12 @@
                     </div>
                   </div>
                   <div class="onboard-comp-actions">
-                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action" aria-label="Download voice engine and models" title="Download voice engine and models"></button>
+                    <button type="button" id="btn-onboard-action-kokoro" class="btn-onboard-comp-action" aria-label="Select Kokoro voice engine" aria-pressed="true" title="Selected for background setup">✓</button>
                   </div>
                 </div>
 
-                <!-- Voice model picker (downloaded with the engine) -->
-                <div id="onboard-voice-picker" class="onboard-voice-picker">
-                  <div class="onboard-voice-chips" role="group" aria-label="Voice models to download">
-                    <button type="button" class="onboard-voice-chip" data-voice-id="af_heart" data-model-key="kokoro-heart">Heart</button>
-                    <button type="button" class="onboard-voice-chip" data-voice-id="am_michael" data-model-key="kokoro-michael">Michael</button>
-                    <button type="button" class="onboard-voice-chip selected" data-voice-id="bm_george" data-model-key="kokoro-george">George</button>
-                    <button type="button" class="onboard-voice-chip" data-voice-id="bm_lewis" data-model-key="kokoro-lewis">Lewis</button>
-                  </div>
-                </div>
+                <!-- A single selected voice, with portraits and actions in its dropdown. -->
+                <div id="onboard-voice-picker" class="onboard-voice-picker"></div>
               </div>
             </div>
           </div>
@@ -2626,7 +2608,7 @@
             <div class="onboard-requirements-container">
               <div class="onboard-components-grid">
                 <!-- Ollama -->
-                <div class="onboard-comp-card" id="onboard-tile-ollama" title="Check or install Ollama">
+                <div class="onboard-comp-card" id="onboard-tile-ollama" title="Select Ollama for background setup">
                   <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
                       <img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" />
@@ -2644,7 +2626,7 @@
                 </div>
 
                 <!-- Hugging Face -->
-                <div class="onboard-comp-card" id="onboard-tile-hf" title="Check Hugging Face connection">
+                <div class="onboard-comp-card" id="onboard-tile-hf" title="Select a background Hugging Face connection check">
                   <div class="onboard-comp-main">
                     <div class="onboard-comp-icon">
                       <img src="../../Assets/Brand-Assets/hf-logo.png" alt="Hugging Face" />
@@ -2671,13 +2653,7 @@
         <div id="onboard-footer-actions" class="onboard-footer-actions">
           <button id="btn-onboard-next" type="button" class="btn-onboard-primary btn-onboard-action-btn">Continue</button>
           <button id="btn-onboard-finish" type="button" class="btn-onboard-primary btn-onboard-action-btn hidden">Finish</button>
-          <button id="btn-onboard-back" type="button" class="btn-onboard-link hidden">
-            <span class="btn-onboard-back-arrow" aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="19" y1="12" x2="5" y2="12"></line>
-                <polyline points="12 19 5 12 12 5"></polyline>
-              </svg>
-            </span>
+          <button id="btn-onboard-back" type="button" class="btn-onboard-link btn-onboard-action-btn hidden">
             <span>Back</span>
           </button>
 
@@ -2733,6 +2709,7 @@
   <div id="confirm-action-modal" class="confirm-action-modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-action-title">
     <div class="confirm-action-backdrop" data-confirm-dismiss="true"></div>
     <div class="confirm-action-card">
+      <div class="confirm-action-heading">
       <div class="confirm-action-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
           <polyline points="3 6 5 6 21 6"></polyline>
@@ -2742,6 +2719,7 @@
         </svg>
       </div>
       <h4 id="confirm-action-title" class="confirm-action-title">Confirm action</h4>
+      </div>
       <p id="confirm-action-message" class="confirm-action-message">Are you sure?</p>
       <div class="confirm-action-buttons">
         <button type="button" id="btn-confirm-action-cancel" class="confirm-action-btn confirm-action-btn-cancel">Cancel</button>
@@ -2781,166 +2759,6 @@
     </div>
   </div>
 
-  <!-- RELEASE NOTES MODAL (Centered Modal Popup Dialog) -->
-  <div id="release-notes-modal" class="settings-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="release-notes-title">
-    <div class="settings-panel-card release-notes-card">
-      <!-- Header -->
-      <div class="settings-panel-header" style="padding: 16px 24px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); display: flex; align-items: center; justify-content: space-between; background: rgba(0, 0, 0, 0.15);">
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <img src="../../Assets/browny_white.png" class="release-notes-brand-logo" style="height: 24px; width: auto; object-fit: contain;" alt="Brown">
-          <div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <h3 id="release-notes-title" style="margin: 0; font-size: 15px; font-weight: 700; color: #fff;">Brown Release Notes</h3>
-              <span style="font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 5px; background: rgba(59, 130, 246, 0.18); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3);">v1.0</span>
-            </div>
-          </div>
-        </div>
-        <button type="button" id="btn-release-notes-close" class="btn-release-notes-close" title="Close release notes">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-      </div>
-
-      <!-- Text-based Editorial Changelog Body (Scrollable) -->
-      <div class="release-notes-scroll-area">
-        <!-- Metadata bar -->
-        <div style="display: flex; align-items: center; gap: 10px; font-size: 12px; color: #94a3b8; font-weight: 500;">
-          <span style="color: #38bdf8; font-weight: 600;">Privacy &amp; Security</span>
-          <span style="opacity: 0.4;">•</span>
-          <span>August 24, 2026</span>
-          <span style="opacity: 0.4;">•</span>
-          <span>Official BETA Release</span>
-        </div>
-
-        <!-- Big Headline (matching user's reference image style) -->
-        <div>
-          <h2 style="margin: 0 0 10px 0; font-size: 26px; font-weight: 800; color: #ffffff; line-height: 1.25; letter-spacing: -0.4px;">Why 100% Offline Local AI is the Future of Desktop Productivity &amp; Privacy</h2>
-          <p style="margin: 0; font-size: 14px; color: #94a3b8; line-height: 1.5; font-weight: 400;">How running LLMs on your own silicon eliminates cloud telemetry, subscription bloat, and enterprise data leaks.</p>
-        </div>
-
-        <!-- Author & Tags Row -->
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 14px 0; border-top: 1px solid rgba(255, 255, 255, 0.08); border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
-          <div style="display: flex; align-items: center; gap: 10px;">
-            <div style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #3b82f6, #8b5cf6); display: flex; align-items: center; justify-content: center; color: #ffffff; font-weight: 700; font-size: 13px;">
-              VW
-            </div>
-            <div>
-              <div style="font-size: 13px; font-weight: 700; color: #ffffff;">Vedant Wankhade</div>
-              <div style="font-size: 11.5px; color: #94a3b8;">Lead Architect &amp; Creator</div>
-            </div>
-          </div>
-          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-            <span style="padding: 4px 10px; border-radius: 6px; background: rgba(255, 255, 255, 0.06); font-size: 11px; color: #cbd5e1; font-weight: 500;">#LocalLLMs</span>
-            <span style="padding: 4px 10px; border-radius: 6px; background: rgba(255, 255, 255, 0.06); font-size: 11px; color: #cbd5e1; font-weight: 500;">#Privacy</span>
-            <span style="padding: 4px 10px; border-radius: 6px; background: rgba(255, 255, 255, 0.06); font-size: 11px; color: #cbd5e1; font-weight: 500;">#Ollama</span>
-            <span style="padding: 4px 10px; border-radius: 6px; background: rgba(255, 255, 255, 0.06); font-size: 11px; color: #cbd5e1; font-weight: 500;">#OfflineAI</span>
-            <span style="padding: 4px 10px; border-radius: 6px; background: rgba(255, 255, 255, 0.06); font-size: 11px; color: #cbd5e1; font-weight: 500;">#AgentAutonomy</span>
-          </div>
-        </div>
-
-        <!-- Editorial Intro -->
-        <p style="margin: 0; font-size: 13.5px; color: #d1d5db; line-height: 1.65;">
-          For the past three years, the tech industry has treated the cloud as the default runtime for Artificial Intelligence. Every query, codebase snippet, meeting note, and sensitive document was routinely dispatched over the wire to distant servers. Brown was engineered to restore sovereign computing: an intelligent agent running directly on your Windows hardware with zero mandatory subscriptions, zero telemetry, and complete offline capability.
-        </p>
-
-        <!-- Detailed Feature 1: Performance Engine -->
-        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" style="flex-shrink: 0;">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-            </svg>
-            <h4 style="margin: 0; font-size: 15.5px; font-weight: 700; color: #ffffff;">Smart Dynamic GPU / CPU Performance Engine</h4>
-          </div>
-          <p style="margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.6;">
-            A toggle button in the top-right header lets you choose between <strong>Auto Adaptive</strong>, <strong>GPU Priority</strong>, and <strong>CPU Only</strong>. In Auto Adaptive mode, lightweight conversational chat automatically executes on the CPU with minimal memory overhead, preventing unnecessary VRAM consumption and thermal throttling. When you initiate demanding workloads—such as code generation, deep research, or vision analysis—Brown dynamically engages your dedicated GPU with maximum layer offload.
-          </p>
-        </div>
-
-        <!-- Detailed Feature 2: Zero-Lag Anti-Freeze Engine -->
-        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" style="flex-shrink: 0;">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
-            <h4 style="margin: 0; font-size: 15.5px; font-weight: 700; color: #ffffff;">Zero-Lag Anti-Freeze Engine &amp; Microsecond Native Load Calculation</h4>
-          </div>
-          <p style="margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.6;">
-            Previous versions could experience UI micro-stutters during heavy conversational turns due to background process queue locks and eager audio pre-caching. Beta 1 introduces native microsecond CPU delta measurement and fully decouples background synthesis tasks, guaranteeing 60 FPS UI responsiveness and instant response streaming even during intensive multitasking.
-          </p>
-        </div>
-
-        <!-- Detailed Feature 3: Autonomous Agent Engine -->
-        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#c084fc" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" style="flex-shrink: 0;">
-              <path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"></path>
-              <line x1="9" y1="21" x2="15" y2="21"></line>
-            </svg>
-            <h4 style="margin: 0; font-size: 15.5px; font-weight: 700; color: #ffffff;">Sovereign Autonomous Agent &amp; Cognitive Operating Environment</h4>
-          </div>
-          <p style="margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.6;">
-            Brown is more than a chatbot—it is a full cognitive agent. Equipped with an autonomous Loop Guard, tool decomposition planner, contextual memory architecture, and local vector RAG document engine. The 3-tier Action Authorization selector (<em>Review Mode</em>, <em>Approve for me</em>, and <em>Always Approve</em>) allows you to calibrate execution autonomy while retaining total command over terminal execution, file system writes, and MCP extensions.
-          </p>
-        </div>
-
-        <!-- Detailed Feature 4: Multi-Provider Hub -->
-        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" style="flex-shrink: 0;">
-              <circle cx="12" cy="12" r="3"></circle>
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-            </svg>
-            <h4 style="margin: 0; font-size: 15.5px; font-weight: 700; color: #ffffff;">Unified Multi-Provider Hub &amp; Hugging Face Ecosystem</h4>
-          </div>
-          <p style="margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.6;">
-            Effortlessly connect to local Ollama installations, explore Hugging Face GGUF models directly within the app, connect to LM Studio or local VLLM endpoints, and optionally interface with cloud models including Gemini Live and OpenRouter when external connectivity is desired.
-          </p>
-        </div>
-
-        <!-- Detailed Feature 5: Mobile Companion -->
-        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#fb923c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" style="flex-shrink: 0;">
-              <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
-              <line x1="12" y1="18" x2="12.01" y2="18"></line>
-            </svg>
-            <h4 style="margin: 0; font-size: 15.5px; font-weight: 700; color: #ffffff;">Desktop Sync &amp; Mobile Companion Pairing</h4>
-          </div>
-          <p style="margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.6;">
-            Brown Mobile seamlessly pairs with your Windows machine using secure peer-to-peer PIN verification over your local area network. Keep your sovereign agent state unified, import chat sessions, and command your workstation securely from your phone.
-          </p>
-        </div>
-
-        <!-- Community & Feedback Row -->
-        <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 8px;">
-          <div>
-            <div style="font-size: 13px; font-weight: 700; color: #ffffff;">Join the Official Community &amp; Direct Feedback</div>
-            <div style="font-size: 11.5px; color: #9ca3af; margin-top: 2px;">Connect directly with the creator, share suggestions, and request new capabilities.</div>
-          </div>
-          <div style="display: flex; gap: 16px; align-items: center;">
-            <a href="https://www.instagram.com/usebrown.online" id="btn-rn-instagram" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #e11d48; text-decoration: none; font-size: 12.5px; font-weight: 600;">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
-              <span>@usebrown.online</span>
-            </a>
-            <a href="mailto:contact@usebrown.online" id="btn-rn-email" style="display: inline-flex; align-items: center; gap: 6px; padding: 0; background: transparent; border: none; color: #94a3b8; text-decoration: none; font-size: 12.5px; font-weight: 500;">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#ef4444" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
-              <span>contact@usebrown.online</span>
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <!-- Footer -->
-      <div class="release-notes-footer" style="padding: 14px 24px; border-top: 1px solid rgba(255, 255, 255, 0.08); background: rgba(0, 0, 0, 0.25); display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-        <span style="font-size: 11.5px; color: #64748b;">Revisit anytime in <strong>Settings → About → Release Notes</strong></span>
-        <button type="button" id="btn-release-notes-dismiss" class="btn-release-notes-dismiss">Get Started</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Global drag-and-drop target: any file dragged into the window lands in the composer -->
   <div id="file-drop-overlay" class="file-drop-overlay hidden" aria-hidden="true">
     <div class="file-drop-card">
@@ -2970,6 +2788,7 @@
   <script src="../agent/location-context.js"></script>
   <script src="../agent/agent-entity-extractor.js"></script>
   <script src="../agent/agent-research.js"></script>
+  <script src="../agent/search-plan.js"></script>
   <script src="../agent/agent-mcp-tools.js"></script>
   <script src="../agent/agent-memory.js"></script>
   <script src="../agent/agent-entity-tracker.js"></script>
@@ -2995,6 +2814,8 @@
   <div id="ultron-toast-stack" class="ultron-toast-stack" aria-live="polite" aria-relevant="additions"></div>
   <script src="agent-browser.js"></script>
   <script src="knowledge-base.js"></script>
+  <script src="onboarding-voices.js"></script>
+  <script src="onboarding-setup.js"></script>
   <script src="renderer.js"></script>
   <script src="mobile-activity.js"></script>
 </body>

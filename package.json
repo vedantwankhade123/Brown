@@ -1,6 +1,6 @@
 {
   "name": "brown",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Offline AI chat, code generation and visual answers for Windows (Brown)",
   "author": "Vedant Wankhade",
   "license": "Proprietary",
@@ -11,7 +11,7 @@
     "stop": "powershell -Command \"Stop-Process -Name electron -Force -ErrorAction SilentlyContinue\"",
     "build:win": "electron-builder --win nsis",
     "build:portable": "electron-builder --win portable",
-    "build:store": "electron-builder --win appx",
+    "build:store": "electron-builder --config electron-builder.store.cjs --win appx --x64 --publish never",
     "dist": "electron-builder --win",
     "dist:ci": "electron-builder --win --publish never",
     "release": "electron-builder --win --publish always",
@@ -90,18 +90,16 @@
           ]
         }
       ],
-      "icon": "Assets/Brown.ico",
-      "certificateFile": null,
-      "cscLink": null
+      "icon": "Assets/Brown.ico"
     },
     "portable": {
       "artifactName": "Brown AI v${version}.${ext}"
     },
     "appx": {
       "applicationId": "BrownAI",
-      "identityName": "YOUR_PUBLISHER_IDENTITY_NAME",
-      "publisher": "CN=YOUR_PUBLISHER_ID_HERE",
-      "publisherDisplayName": "Vedant Wankhade",
+      "identityName": "BinaryThings.BrownAI",
+      "publisher": "CN=CE1F94E9-2491-422F-86EF-F824C694E0B6",
+      "publisherDisplayName": "BinaryThings",
       "displayName": "Brown AI",
       "languages": [
         "en-US"
@@ -132,10 +130,12 @@
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server-filesystem": "^2026.7.10",
+    "@mozilla/readability": "0.6.0",
     "ai": "^7.0.114",
     "dompurify": "^3.4.14",
     "electron-updater": "^6.3.9",
     "kokoro-js": "^1.2.1",
+    "linkedom": "0.18.12",
     "lottie-web": "^5.13.0",
     "marked": "^18.0.6",
     "mcp-fetch-server": "^1.1.2",
@@ -145,6 +145,7 @@
     "pdf-parse": "^2.4.5",
     "qrcode": "^1.5.4",
     "systeminformation": "^5.23.5",
+    "turndown": "7.2.4",
     "ws": "^8.21.1",
     "zod": "^4.6.5"
   },

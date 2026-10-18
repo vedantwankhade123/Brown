@@ -443,7 +443,8 @@ function reconcileInstallFirstRunMarker() {
       return { forced: false };
     }
     const { getInstallRoot } = require('./paths');
-    const markerPath = path.join(getInstallRoot(), INSTALL_FIRST_RUN_MARKER);
+    const markerRoot = require('./paths').isStoreEdition() ? app.getPath('userData') : getInstallRoot();
+    const markerPath = path.join(markerRoot, INSTALL_FIRST_RUN_MARKER);
     if (fs.existsSync(markerPath)) {
       return { forced: false };
     }
@@ -2427,7 +2428,8 @@ function setupIpcHandlers() {
       if (config.setupCompleted && app.isPackaged) {
         try {
           const { getInstallRoot } = require('./paths');
-          const markerPath = path.join(getInstallRoot(), INSTALL_FIRST_RUN_MARKER);
+          const markerRoot = require('./paths').isStoreEdition() ? app.getPath('userData') : getInstallRoot();
+          const markerPath = path.join(markerRoot, INSTALL_FIRST_RUN_MARKER);
           fs.writeFileSync(
             markerPath,
             JSON.stringify({
@@ -3438,289 +3440,23 @@ function getInstallationDefaultDataDir() {
   }
 
   // Robust multi-source Web Search handler (DuckDuckGo API + Wiki API + DDG Organic POST + Video + Cache)
-  ipcMain.handle('search-web', async (event, query, options = {}) => {
-    let cleanQuery = String(query || '').slice(0, 1000).replace(/["']/g, '').trim();
-    const page = Math.max(0, Math.min(10, Math.floor(Number(options.page) || 0)));
-    // Strip common prompt prefixes
-    cleanQuery = cleanQuery
-      .replace(/\bwbe\b/gi, 'web')
-      .replace(/\bspiderman\b/gi, 'Spider-Man')
-      .replace(/^(please\s+)?(can\s+you\s+|could\s+you\s+)?(search\s+(web\s+for|online\s+for|for)?|look\s+up|google|find\s+out|find)\s+/i, '')
-      .replace(/^(tell\s+me|show\s+me|give\s+me)\s+(about\s+)?/i, '')
-      .trim();
-    if (!cleanQuery) {
-      return { success: false, query: '', results: [], products: [], videos: [], answerContext: '', needsClarification: true, clarification: 'Please provide a valid web search query.' };
+  ipcMain.handle('search-web', async (_event, query, options = {}) => {
+    const clean = String(query || '').trim().slice(0, 1000);
+    const key = JSON.stringify([clean, options.budgetQuery || '', options.page || 0]);
+    const cached = searchMemoryCache.get(key);
+    if (!options.bypassCache && !options.excludeUrls?.length && cached && Date.now() - cached.timestamp < 60000) return { ...cached.data, cached: true };
+    const payload = await require('./web-search-service').searchWeb(clean, options);
+    if (/stock|stock market|market data|nifty|sensex|nasdaq|bitcoin|ethereum|share price/i.test(clean)) {
+      payload.marketQuotes = await getMarketSnapshot(clean);
+      for (const quote of payload.marketQuotes) payload.results.unshift({ title: `${quote.name} (${quote.symbol})`, url: quote.source, source: 'Yahoo Finance', snippet: `${quote.price} ${quote.currency}; as of ${quote.timestamp}. ${quote.timing}`, pageContent: JSON.stringify(quote), verified: true });
     }
-
-
-    const excludedUrls = new Set(Array.isArray(options.excludeUrls) ? options.excludeUrls.slice(0, 100) : []);
-    const cacheKey = cleanQuery.toLowerCase() + ':' + String(options.budgetQuery || '').slice(0, 300) + ':' + page;
-    if (!options.bypassCache && !excludedUrls.size && searchMemoryCache.has(cacheKey)) {
-      const cachedEntry = searchMemoryCache.get(cacheKey);
-      const ttl = /today|latest|current|stock|market|price|under|below/i.test(cleanQuery) ? 60000 : SEARCH_CACHE_TTL_MS;
-      if (Date.now() - cachedEntry.timestamp < ttl) {
-        return { ...cachedEntry.data, cached: true };
-      }
+    if (isVideoOrTutorialQuery(clean)) payload.videos = await fetchYouTubeVideoResults(clean);
+    if (payload.results.length || payload.products.length || payload.videos.length || payload.marketQuotes?.length) {
+      payload.success = true;
+      payload.needsClarification = false;
     }
-
-    const resultBlocks = [];
-    const marketQuotesPromise = /stock|stock market|market data|nifty|sensex|nasdaq|bitcoin|ethereum|share price/i.test(cleanQuery)
-      ? getMarketSnapshot(cleanQuery) : Promise.resolve([]);
-    const isVideoQuery = isVideoOrTutorialQuery(cleanQuery);
-    const searchQueries = expandSearchQueries(cleanQuery);
-    const primarySearchQuery = searchQueries[0] || cleanQuery;
-
-    // Parallel multi-source fetch: DDG Instant Answer + Wikipedia OpenSearch/REST + YouTube
-    const parallelTasks = [
-      (async () => {
-        try {
-          for (const q of searchQueries) {
-            const ddgApiUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`;
-            const res = await fetch(ddgApiUrl, { signal: AbortSignal.timeout(4500) });
-            if (!res.ok) continue;
-            const data = await res.json();
-            if (data.AbstractText && data.AbstractURL && isValidResultUrl(data.AbstractURL)) {
-              resultBlocks.push({
-                title: data.Heading || q,
-                url: data.AbstractURL,
-                snippet: decodeHTMLEntities(data.AbstractText),
-                source: getHostname(data.AbstractURL),
-                image: data.Image ? normalizeAbsoluteUrl(data.Image, data.AbstractURL) : '',
-                type: 'article',
-                pageContent: decodeHTMLEntities(data.AbstractText)
-              });
-              break;
-            }
-            if (data.RelatedTopics && data.RelatedTopics.length > 0) {
-              data.RelatedTopics
-                .flatMap(t => t.Topics || [t])
-                .filter(t => t.Text && t.FirstURL && isValidResultUrl(t.FirstURL))
-                .slice(0, 4)
-                .forEach((topic) => {
-                  resultBlocks.push({
-                    title: topic.Text.split(' - ')[0] || q,
-                    url: topic.FirstURL,
-                    snippet: decodeHTMLEntities(topic.Text),
-                    source: getHostname(topic.FirstURL),
-                    image: topic.Icon?.URL ? normalizeAbsoluteUrl(topic.Icon.URL, 'https://duckduckgo.com') : '',
-                    type: 'article'
-                  });
-                });
-              if (resultBlocks.length) break;
-            }
-          }
-        } catch (e) {
-          console.error('DDG API error:', e.message);
-        }
-      })(),
-      (async () => {
-        const wikiResults = await fetchWikipediaSummaries(primarySearchQuery);
-        wikiResults.forEach((item) => resultBlocks.push(item));
-      })()
-    ];
-
-    let videoResults = [];
-    if (isVideoQuery) {
-      parallelTasks.push((async () => {
-        videoResults = await fetchYouTubeVideoResults(cleanQuery);
-      })());
-    }
-
-    await Promise.all(parallelTasks);
-
-    // DuckDuckGo HTML organic results when instant answers are thin
-    if (resultBlocks.length < 6) {
-      try {
-        const ddgHtmlUrl = `https://html.duckduckgo.com/html/`;
-        const res = await fetch(ddgHtmlUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-          },
-          body: `q=${encodeURIComponent(cleanQuery)}&s=${page * 10}`,
-          signal: AbortSignal.timeout(6000)
-        });
-        if (res.ok) {
-          const html = await res.text();
-          const beforeOrganicCount = resultBlocks.length;
-          const matches = html.matchAll(/<div class="result[\s\S]*?<\/div>\s*<\/div>/g);
-          for (const match of matches) {
-            const block = match[0];
-            const titleMatch = block.match(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-            const snippetMatch = block.match(/<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/i) || block.match(/<div class="result__snippet"[^>]*>([\s\S]*?)<\/div>/i);
-            if (!titleMatch) continue;
-            const url = normalizeDdgUrl(titleMatch[1]);
-            const title = stripTags(titleMatch[2]);
-            const snippetText = stripTags(snippetMatch ? snippetMatch[1] : '');
-            // Filter out junk/SEO aggregator boilerplates
-            if (title && url && isValidResultUrl(url) && resultBlocks.length < 12 && !snippetText.toLowerCase().includes('stopwatch timer countdown') && !snippetText.toLowerCase().includes('calculator')) {
-              resultBlocks.push({
-                title,
-                url,
-                snippet: snippetText,
-                source: getHostname(url),
-                type: url.includes('youtube.com') ? 'video' : 'web'
-              });
-            }
-          }
-          if (resultBlocks.length === beforeOrganicCount) {
-            const titleMatches = [...html.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
-            const snippetMatches = [...html.matchAll(/<(?:a|div)[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|div)>/gi)];
-            titleMatches.slice(0, 8).forEach((titleMatch, index) => {
-              const url = normalizeDdgUrl(titleMatch[1]);
-              const title = stripTags(titleMatch[2]);
-              const snippetText = stripTags(snippetMatches[index] ? snippetMatches[index][1] : '');
-              if (title && url && isValidResultUrl(url) && resultBlocks.length < 12) {
-                resultBlocks.push({
-                  title,
-                  url,
-                  snippet: snippetText,
-                  source: getHostname(url),
-                  type: url.includes('youtube.com') ? 'video' : 'web'
-                });
-              }
-            });
-          }
-        }
-      } catch (e) {
-        console.error('DDG HTML error:', e.message);
-      }
-    }
-
-    // Secondary fallback: DuckDuckGo Lite open HTML organic results (high reliability, low rate limiting)
-    if (resultBlocks.length < 6) {
-      try {
-        const liteItems = await fetchDdgLiteOrganicResults(cleanQuery);
-        for (const item of liteItems) {
-          if (!resultBlocks.some(r => r.url === item.url) && resultBlocks.length < 12) {
-            resultBlocks.push(item);
-          }
-        }
-      } catch (e) {
-        console.error('DDG Lite organic error:', e.message);
-      }
-    }
-
-    if (resultBlocks.filter(item => !excludedUrls.has(item.url)).length < 6) {
-      try {
-        const response = await fetchPublicPage(`https://www.bing.com/search?format=rss&first=${page * 10 + 1}&q=${encodeURIComponent(cleanQuery)}`, { timeoutMs: 6000, maxBytes: 500000 });
-        if (response.ok) {
-          const xml = await response.text();
-          for (const match of xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)) {
-            const read = tag => stripTags((match[1].match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))?.[1] || '').replace(/<!\[CDATA\[|\]\]>/g, ''));
-            const url = read('link');
-            if (isValidResultUrl(url)) resultBlocks.push({ title: read('title'), url, snippet: read('description'), source: getHostname(url) });
-          }
-        }
-      } catch (_) { /* Search fallback failures leave the other providers' results intact. */ }
-    }
-    const candidateResults = uniqueResults(resultBlocks).filter(item => !excludedUrls.has(item.url)).slice(0, 10);
-    const verifiedResults = [];
-    const verifications = await Promise.all(candidateResults.map(item => verifyUrl(item.url)));
-    candidateResults.forEach((item, index) => {
-      const verification = verifications[index];
-      if (verification.ok) {
-        verifiedResults.push({
-          ...item,
-          url: verification.finalUrl || item.url,
-          source: getHostname(verification.finalUrl || item.url),
-          status: verification.status,
-          verified: true
-        });
-        return;
-      }
-      if (item.url && isValidResultUrl(item.url)) {
-        verifiedResults.push({
-          ...item,
-          url: item.url,
-          source: getHostname(item.url),
-          status: verification.status || 0,
-          verified: false
-        });
-      }
-    });
-
-    const results = verifiedResults.slice(0, 8);
-    const marketQuotes = await marketQuotesPromise;
-    marketQuotes.forEach(quote => {
-      results.unshift({ title: `${quote.name} (${quote.symbol})`, url: quote.source, source: 'Yahoo Finance', snippet: `${quote.price} ${quote.currency}; change ${quote.changePercent === null ? 'unavailable' : quote.changePercent.toFixed(2) + '%'}; as of ${quote.timestamp}. ${quote.timing}`, pageContent: JSON.stringify(quote), verified: true });
-    });
-
-    // Fetch page previews and high-res images for top results in parallel
-    const previewTargets = results.slice(0, 8);
-    const previews = await Promise.all(previewTargets.map(item => fetchPagePreview(item.url)));
-    previews.forEach((preview, index) => {
-      if (!preview) return;
-      if (preview.title && preview.title.length > results[index].title.length) results[index].title = preview.title;
-      if (preview.description && preview.description.length > results[index].snippet.length) results[index].snippet = preview.description;
-      if (preview.image && !results[index].image) results[index].image = preview.image;
-      if (preview.favicon) results[index].favicon = preview.favicon;
-      results[index].products = preview.products || [];
-    });
-
-    const fetchCount = Math.min(Math.max(Number(options.fetchCount) || 3, 1), 4);
-
-    await Promise.all(results.slice(0, fetchCount).map(async (item) => {
-      const page = await fetchWebPage(item.url, { maxChars: 4000, timeoutMs: 8000 });
-      if (page.success && page.markdown && page.markdown.length > 120) {
-        item.pageContent = page.markdown;
-        if (page.title && page.title.length > 2) item.title = page.title;
-        if (!item.snippet || item.snippet.length < 80) {
-          item.snippet = page.plain.slice(0, 280);
-        }
-      }
-    }));
-
-    const shopping = isShoppingQuery(cleanQuery);
-    const budget = budgetForQuery(options.budgetQuery || cleanQuery);
-    const products = shopping ? results.flatMap(item => item.products || []).filter(item =>
-      item.image && (!budget || ((!budget.currency || item.currency === budget.currency) && item.amount < budget.amount))
-    ).filter((item, index, all) => all.findIndex(other => other.url === item.url) === index).slice(0, 12) : [];
-
-    const answerContext = results.map((item, index) => {
-      const body = item.pageContent
-        ? `Content excerpt:\n${item.pageContent.slice(0, 3000)}`
-        : `Snippet: ${item.snippet || 'No snippet available.'}`;
-      return `[${index + 1}] ${item.title}\nURL: ${item.url}\nSource: ${item.source}${item.verified === false ? ' (unverified link)' : ''}\n${body}`;
-    }).join('\n\n');
-
-    if (results.length === 0 && videoResults.length === 0) {
-      return {
-        success: true,
-        query: cleanQuery,
-        results: [],
-        products: [],
-        videos: [],
-        answerContext: '',
-        needsClarification: true,
-        clarification: `I could not find reliable web results for "${cleanQuery}". Try adding a brand, location, budget, or date range.`
-      };
-    }
-
-    const hasRichResult = results.some(item =>
-      (item.snippet || '').trim().length > 40 || (item.pageContent || '').trim().length > 80
-    ) || videoResults.length > 0;
-
-    const payload = {
-      success: true,
-      query: cleanQuery,
-      results,
-      products,
-      marketQuotes,
-      fetchedAt: new Date().toISOString(),
-      videos: videoResults,
-      answerContext,
-      searchProvider: 'wikipedia+duckduckgo+hybrid',
-      needsClarification: results.length === 0 || !hasRichResult,
-      clarification: results.length === 0
-        ? `I could not find web results for "${cleanQuery}". Try adding a brand, location, budget, or date range.`
-        : (!hasRichResult ? `I found links for "${cleanQuery}" but could not extract enough detail. Try a more specific query.` : '')
-    };
-
-    // Save into semantic memory cache
-    searchMemoryCache.set(cacheKey, { timestamp: Date.now(), data: payload });
-
+    if (searchMemoryCache.size >= 100) searchMemoryCache.delete(searchMemoryCache.keys().next().value);
+    if (payload.success && !options.excludeUrls?.length) searchMemoryCache.set(key, { timestamp: Date.now(), data: payload });
     return payload;
   });
 
@@ -3999,7 +3735,8 @@ function getInstallationDefaultDataDir() {
       return await downloadKokoroOnboardingDefaults((payload) => {
         if (event.sender && !event.sender.isDestroyed()) {
           event.sender.send('download-progress', {
-            modelName: 'tts-kokoro-onboarding',
+            modelName: 'Kokoro voice setup',
+            kind: 'Voice',
             ...payload
           });
         }
