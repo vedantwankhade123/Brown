@@ -12033,7 +12033,7 @@ button.hidden,
 }
 
 /* ==========================================
-   CURSOR-STYLE AGENT TRANSCRIPT (muted lines)
+   AGENT TRANSCRIPT (muted lines)
    ========================================== */
 .agent-progress-feed {
   display: flex;
@@ -13238,7 +13238,7 @@ span.settings-action-btn.is-ready {
   background: rgba(96, 165, 250, 0.22);
 }
 
-/* FIRST-TIME ONBOARDING — Cursor-inspired */
+/* FIRST-TIME ONBOARDING */
 .onboarding-screen {
   position: fixed;
   inset: 0;

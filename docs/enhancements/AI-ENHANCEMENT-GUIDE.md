@@ -398,7 +398,6 @@ Inspired by:
 - ChatGPT (OpenAI) - Conversational clarity
 - Claude (Anthropic) - Thinking transparency
 - GitHub Copilot - Code assistance
-- Cursor - AI-native development
 
 ## License
 

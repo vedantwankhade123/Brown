@@ -186,9 +186,9 @@ Action Input: Notepad`);
   assert.strictEqual(hasDesktopActionCues("create a folder named test on desktop"), true);
 
   // Test 4: How-to and Knowledge search queries
-  const cursorHowToPrompt = "how to donwlaod and use the cursor ai";
-  assert.strictEqual(isInformationalOrHowToQuery(cursorHowToPrompt), true);
-  assert.strictEqual(hasDesktopActionCues(cursorHowToPrompt), false);
+  const editorHowToPrompt = "how to donwlaod and use the windsurf ai";
+  assert.strictEqual(isInformationalOrHowToQuery(editorHowToPrompt), true);
+  assert.strictEqual(hasDesktopActionCues(editorHowToPrompt), false);
 
   // Test 5: Meaningless prompt check does not flag normal questions or documents
   const isMeaninglessPrompt = (text) => {
@@ -299,7 +299,7 @@ Action Input: Notepad`);
   assert.strictEqual(classifyIntent("play next track"), 'system_control');
   assert.strictEqual(classifyIntent("how much is 100000 + 10000 -1902939 / 10"), 'math');
   assert.strictEqual(classifyIntent("analyze the resume for me"), 'conversation');
-  assert.strictEqual(classifyIntent("how to donwlaod and use the cursor ai"), 'search');
+  assert.strictEqual(classifyIntent("how to donwlaod and use the windsurf ai"), 'search');
   assert.strictEqual(classifyIntent("📄 **Attached Document [resume.pdf]**:\n```pdf\nSkills: JavaScript, Node.js\n```\n\nAnalyze this resume for me"), 'conversation');
 
   console.log('✓ Content generation and intent classification tests passed.');

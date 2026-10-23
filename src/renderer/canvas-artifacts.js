@@ -1156,7 +1156,7 @@
     return { written, failed };
   }
 
-  /** Read every code file from a folder on disk into workspace tabs (Cursor/Qoder-style reopen). */
+  /** Read every code file from a folder on disk into workspace tabs. */
   async function loadProjectFromDisk(dirPath) {
     if (!dirPath || !window.ultronAPI || !window.ultronAPI.listDir || !window.ultronAPI.readFile) return 0;
     const res = await window.ultronAPI.listDir(dirPath).catch(() => null);

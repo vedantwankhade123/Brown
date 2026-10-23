@@ -577,7 +577,7 @@ ${resultType.structure.map(s => `  1. ${s}`).join('\n')}
 
   function isModernTechOrSoftwareQuery(prompt) {
     const p = normalizePrompt(prompt).toLowerCase();
-    return /\b(antigravity(\s*ide)?|cursor(\s*ai)?|windsurf|trae|v0\.dev|bolt\.new|sora|midjourney|chatgpt|copilot|claude|gemini|ollama|deepseek|qwen|grok|llama|mistral|phi4?|bun(\s*js)?|deno|vite|next\.?js|nuxt|astro|tailwind|fastapi|pydantic|langchain|llamaindex|huggingface|pytorch|tensorflow|docker|kubernetes|supabase|firebase|appwrite|electron|flutter|react\s*native|qoder|perplexity|lovable|replit|vercel|netlify|cloudflare|warp|ghostty|zed(\s*editor)?|helix(\s*editor)?|neovim|nvim)\b/i.test(p)
+    return /\b(antigravity(\s*ide)?|windsurf|trae|v0\.dev|bolt\.new|sora|midjourney|chatgpt|copilot|claude|gemini|ollama|deepseek|qwen|grok|llama|mistral|phi4?|bun(\s*js)?|deno|vite|next\.?js|nuxt|astro|tailwind|fastapi|pydantic|langchain|llamaindex|huggingface|pytorch|tensorflow|docker|kubernetes|supabase|firebase|appwrite|electron|flutter|react\s*native|perplexity|lovable|replit|vercel|netlify|cloudflare|warp|ghostty|zed(\s*editor)?|helix(\s*editor)?|neovim|nvim)\b/i.test(p)
       || /\b(ide|sdk|api|frameworks?|librar(?:y|ies)|models?|agents?|repos?|github|ai\s*tools?|ai\s*coding|extensions?|plugins?)\b/i.test(p);
   }
 

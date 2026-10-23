@@ -724,7 +724,7 @@ function parseMarkdownChecklist(text) {
   return tasks.length > 0 ? tasks : null;
 }
 
-// Tiny muted icons per progress step type (Cursor-style transcript lines)
+// Tiny muted icons per progress step type (compact transcript lines)
 const PROGRESS_LINE_ICONS = {
   THINKING: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>',
   SCREEN: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>',
@@ -756,7 +756,7 @@ function getProgressLineIcon(type) {
   return PROGRESS_LINE_ICONS.DOT;
 }
 
-// Cursor-style transcript: muted one-line entries with timestamps and status
+// Compact activity transcript: muted one-line entries with timestamps and status
 function renderActivityFeedHtml(stepsList, options = {}) {
   if (!stepsList || stepsList.length === 0) return '';
 
@@ -861,7 +861,7 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Shimmering gray status line for the action currently running (like Cursor's
+// Shimmering gray status line for the action currently running (a compact
 // "Planning next moves" indicator) — per-char 3D wave via motion-effects.js
 function getAgentShimmerLineHtml(text) {
   return `<div class="agent-shimmer-line" data-actual-activity="${escapeHtml(String(text || 'Working'))}">${window.UltronMotion.renderTextShimmer(String(text || 'Working...'))}</div>`;
@@ -1591,7 +1591,7 @@ function renderAgentLiveContent(contentEl, { widgetsHtml = '', shimmerText = 'Th
 }
 
 // Compose the final agent chat message: the work transcript collapses into a
-// "Worked for Xs" summary (Cursor-style), followed by the actual answer.
+// "Worked for Xs" summary (timed summary), followed by the actual answer.
 // Widgets stay raw HTML; the answer is converted from Markdown up-front so the
 // mix never hits the markdown parser again.
 function composeAgentFinalContent(agentSubgoals, activitySteps, finalResponse, durationMs = 0, taskTitle = 'Tasks', options = {}) {
@@ -3437,7 +3437,7 @@ async function materializeMissingFile(filename, fullText) {
 }
 
 // Live disk → workspace sync: mirror an agent WRITE_FILE into the open split
-// workspace tabs (Cursor/Qoder-style) without stealing focus when it is closed.
+// workspace tabs without stealing focus when it is closed.
 function pushWrittenFileToWorkspace(filePath, content) {
   try {
     if (!filePath || !window.UltronCanvas || typeof window.UltronCanvas.upsertFile !== 'function') return;
@@ -9776,8 +9776,8 @@ function isFactualOrCurrentEventsQuery(prompt) {
   if (isInformationalOrHowToQuery(p)) return true;
   if (/\b(right now|currently|at present|as of now|today|this week|this month|in 2026|live update|happening now|breaking news)\b/i.test(p)) return true;
   if (/\b(live\s+score|match\s+score|winner\s+of|weather\s+in|stock\s+price|crypto\s+price|current\s+price|download\s+link|official\s+download|how\s+to\s+download|how\s+to\s+install)\b/i.test(p)) return true;
-  if (/\b(cursor(\s+ai)?|midjourney|sora|v0\.dev|bolt\.new|antigravity(\s+ide)?|deepseek|windsurf|qoder|perplexity|lovable|replit)\b/i.test(p)) return true;
-  if (/\b(what\s+is|who\s+is|tell\s+me\s+about)\s+(antigravity|cursor|windsurf|trae|deepseek|qwen|grok|sora|bolt|v0|qoder|perplexity|lovable|replit)\b/i.test(p)) return true;
+  if (/\b(midjourney|sora|v0\.dev|bolt\.new|antigravity(\s+ide)?|deepseek|windsurf|perplexity|lovable|replit)\b/i.test(p)) return true;
+  if (/\b(what\s+is|who\s+is|tell\s+me\s+about)\s+(antigravity|windsurf|trae|deepseek|qwen|grok|sora|bolt|v0|perplexity|lovable|replit)\b/i.test(p)) return true;
   if (/\b(what\s+is|tell\s+me\s+about)\b.+\b(ide|sdk|api|frameworks?|librar(?:y|ies)|models?|agents?|ai\s+tools?)\b/i.test(p)) return true;
   if (window.UltronPromptAnalyzer && typeof window.UltronPromptAnalyzer.isModernTechOrSoftwareQuery === 'function') {
     if (window.UltronPromptAnalyzer.isModernTechOrSoftwareQuery(prompt)) return true;
@@ -9828,7 +9828,7 @@ function shouldFallbackToWebSearch(prompt, response) {
   if (isTravelOrTransitQuery(prompt)) return true;
   const isModern = (window.UltronPromptAnalyzer && typeof window.UltronPromptAnalyzer.isModernTechOrSoftwareQuery === 'function')
     ? window.UltronPromptAnalyzer.isModernTechOrSoftwareQuery(prompt)
-    : /\b(antigravity|ide|sdk|api|cursor|windsurf|deepseek|sora|v0|bolt)\b/i.test(prompt);
+    : /\b(antigravity|ide|sdk|api|windsurf|deepseek|sora|v0|bolt)\b/i.test(prompt);
   if (isModern && (hasExplicitSearchIntent(prompt) || isFactualOrCurrentEventsQuery(prompt))) return true;
   return isFactualOrCurrentEventsQuery(prompt) || isInformationalOrHowToQuery(prompt) || isStaleOrUncertainResponse(response);
 }
@@ -9873,7 +9873,7 @@ function isGeneralKnowledgeQuery(prompt) {
     return false;
   }
   // Modern tech, tools, frameworks, IDEs, software, and AI models are NOT static timeless general knowledge
-  if (/\b(antigravity|ide|sdk|api|frameworks?|librar(?:y|ies)|models?|agents?|repos?|github|ai\s*tools?|ai\s*coding|extensions?|plugins?|cursor|windsurf|trae|v0|bolt|sora|deepseek|qwen|grok|bun\b|deno\b|vite\b|qoder|perplexity|lovable|replit)\b/i.test(p)) {
+  if (/\b(antigravity|ide|sdk|api|frameworks?|librar(?:y|ies)|models?|agents?|repos?|github|ai\s*tools?|ai\s*coding|extensions?|plugins?|windsurf|trae|v0|bolt|sora|deepseek|qwen|grok|bun\b|deno\b|vite\b|perplexity|lovable|replit)\b/i.test(p)) {
     return false;
   }
   if (window.UltronPromptAnalyzer && typeof window.UltronPromptAnalyzer.isModernTechOrSoftwareQuery === 'function') {
@@ -13192,7 +13192,7 @@ function getToolTargetLabel(toolCall) {
   return String(toolCall.target || toolCall.appName || toolCall.url || toolCall.path || toolCall.keys || toolCall.action || toolCall.type || '').trim();
 }
 
-// Short, human-readable step label for the task plan (Cursor-style todos)
+// Short, human-readable step label for the task plan (compact checklist)
 function humanizeToolCallLabel(toolCall) {
   if (!toolCall) return 'Run action';
   const trim = (s, n = 40) => {
@@ -14319,7 +14319,7 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
     }
   }
 
-  // Cursor-style first frame: think first. Do not invent or expose a task plan
+  // Initial response frame: think first. Do not invent or expose a task plan
   // until the model has selected its first action.
   activeSubgoals = [];
   renderChecklist(showTaskPlan ? agentSubgoals : []);
@@ -14452,7 +14452,7 @@ async function runAgenticLoop(userPrompt, aiBubble, intent = 'action', imagePayl
       rawResponse = '';
     }
 
-    // Replace the live "deciding..." entry with a Cursor-style timed line
+    // Replace the live "deciding..." entry with a compact timed line
     const agentThought = extractReactThought(rawResponse);
     if (agentThought) {
       activitySteps.push({

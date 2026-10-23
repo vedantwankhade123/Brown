@@ -155,7 +155,7 @@
     {
       id: 'web-intelligence-synthesis',
       name: 'Web Intelligence & Multi-Source Synthesis',
-      triggers: ['search the web', 'look up online', 'latest news', 'current price', 'live weather', 'download cursor ai', 'official documentation', 'recent update'],
+      triggers: ['search the web', 'look up online', 'latest news', 'current price', 'live weather', 'download windsurf ai', 'official documentation', 'recent update'],
       instructions: [
         'Perform focused live web search for external, time-sensitive, or specific product/software data.',
         'Deduplicate results across domains and extract verified factual answers.',
