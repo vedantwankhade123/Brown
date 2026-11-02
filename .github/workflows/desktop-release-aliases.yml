@@ -1,0 +1,73 @@
+name: Stage desktop release aliases
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft release tag (vX.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  aliases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Wait for verified installer uploads in a draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          mkdir -p staging
+          for attempt in $(seq 1 100); do
+            gh release view "$RELEASE_TAG" --json isDraft,assets > release.json
+            python3 - <<'PY'
+          import json
+          release = json.load(open('release.json'))
+          assert release['isDraft'], 'Only draft releases may be modified'
+          PY
+            if python3 - <<'PY'
+          import json, sys
+          names = {a['name'] for a in json.load(open('release.json'))['assets']}
+          sys.exit(0 if {'Brown-AI-Setup.exe', 'Brown-AI-Portable.exe', 'latest.yml'} <= names else 1)
+          PY
+            then break; fi
+            if [ "$attempt" = 100 ]; then echo 'Installer uploads did not complete in time'; exit 1; fi
+            sleep 20
+          done
+          gh release download "$RELEASE_TAG" --pattern Brown-AI-Setup.exe --pattern Brown-AI-Portable.exe --pattern latest.yml --dir staging
+          gh release view "$RELEASE_TAG" --json assets > release.json
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          assets = {a['name']: a for a in json.load(open('release.json'))['assets']}
+          for file in pathlib.Path('staging').iterdir():
+              data = file.read_bytes()
+              asset = assets[file.name]
+              assert len(data) == asset['size'], file.name + ': size mismatch'
+              assert 'sha256:' + hashlib.sha256(data).hexdigest() == asset['digest'], file.name + ': checksum mismatch'
+          PY
+      - name: Upload versioned aliases and verify matching contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
+          cp staging/Brown-AI-Setup.exe "staging/Brown-AI-Setup-${RELEASE_TAG}.exe"
+          cp staging/Brown-AI-Portable.exe "staging/Brown-AI-${RELEASE_TAG}.exe"
+          gh release upload "$RELEASE_TAG" "staging/Brown-AI-Setup-${RELEASE_TAG}.exe" "staging/Brown-AI-${RELEASE_TAG}.exe" --clobber
+          gh release view "$RELEASE_TAG" --json assets > release.json
+          python3 - <<'PY'
+          import json, os
+          assets = {a['name']: a for a in json.load(open('release.json'))['assets']}
+          tag = os.environ['RELEASE_TAG']
+          for source, alias in [('Brown-AI-Setup.exe', f'Brown-AI-Setup-{tag}.exe'), ('Brown-AI-Portable.exe', f'Brown-AI-{tag}.exe')]:
+              assert assets[source]['size'] == assets[alias]['size'], alias + ': size mismatch'
+              assert assets[source]['digest'] == assets[alias]['digest'], alias + ': checksum mismatch'
+              print('Verified: ' + alias)
+          PY
