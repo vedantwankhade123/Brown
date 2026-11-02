@@ -1,7 +1,9 @@
 # Brown AI — Offline AI Chat for Windows
 
+Workspace navigation: [Directory guide](docs/DIRECTORY-GUIDE.md) · [Documentation index](docs/README.md)
+
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
-[![Release](https://img.shields.io/badge/Release-v1.0.17-0078D4?logo=github)](https://github.com/vedantwankhade123/Brown/releases/latest)
+[![Desktop build](https://img.shields.io/badge/Desktop_build-v1.0.19-0078D4?logo=github)](docs/releases/desktop/v1.0.19.md)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown/releases)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
@@ -57,15 +59,15 @@ updater read.
 
 | Step | Command |
 | :--- | :--- |
-| Bump, test, build, stage assets | `npm run release:desktop -- --version 1.0.17` |
+| Bump, test, build, stage assets | `npm run release:desktop -- --version X.Y.Z` |
 | Install the staged `dist/Brown-AI-Setup.exe`, use it, confirm it works | by hand |
-| Commit the version bump | `git commit -am "chore(release): v1.0.17"` |
+| Commit the version bump | `git commit -am "chore(release): v1.0.19"` |
 | Tag, push the tag, publish the release | `npm run publish:desktop` |
 
 [`scripts/release-desktop.js`](scripts/release-desktop.js) uploads a fixed set of asset names,
 because those names are live links: `Brown-AI-Setup.exe` and `Brown-AI-Portable.exe` (the
 version-free aliases the download page uses), `Brown-AI-Setup-vX.Y.Z.exe`, `Brown-AI-vX.Y.Z.exe`,
-plus `latest.yml` for the auto-updater. Drop a `.release-notes-vX.Y.Z.md` in the repo to control the
+plus `latest.yml` for the auto-updater. Drop a `docs/releases/desktop/vX.Y.Z.md` in the repo to control the
 release notes; without it the script drafts them from `git log` for you to edit before publishing.
 
 The Android app follows the same shape in [`mobile/`](mobile) with `npm run release:apk` and

@@ -1,0 +1,31 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const { parseHTML } = require('linkedom');
+const { document } = parseHTML('<html><body><div id="answer"><p>Hello <strong>brave</strong> new world.</p><p>Hello again.</p><pre>ignore source code</pre></div></body></html>');
+document.createRange = () => ({ setStart(node, offset) { this.startNode = node; this.start = offset; }, setEnd(node, offset) { this.endNode = node; this.end = offset; } });
+const highlights = new Map();
+const root = { CSS: { highlights }, Highlight: class { constructor(range) { this.range = range; } } };
+vm.runInNewContext(fs.readFileSync(require.resolve('../src/renderer/speech-highlight.js'), 'utf8'), { window: root, document });
+const content = document.getElementById('answer');
+const original = content.innerHTML;
+const highlighter = new root.BrownSpeechHighlight(content);
+function highlighted() {
+  const range = highlights.get('brown-spoken-word')?.range;
+  return range ? range.startNode.textContent.slice(range.start, range.end) : '';
+}
+highlighter.update('Hello brave new world.', 0, 0);
+assert.equal(highlighted(), 'Hello');
+highlighter.update('Hello brave new world.', 0.5, 0);
+assert.equal(highlighted(), 'brave');
+highlighter.update('Hello brave new world.', 0.95, 0);
+assert.equal(highlighted(), 'world');
+highlighter.update('Hello again.', 0, 100);
+assert.equal(highlighted(), 'Hello');
+assert.equal(highlights.get('brown-spoken-word').range.startNode.parentElement, content.querySelectorAll('p')[1], 'repeated words map to the next spoken position');
+assert.equal(content.innerHTML, original, 'highlighting does not rewrite message markup');
+highlighter.update('An unrelated spoken summary.', 0.5, 200);
+assert.equal(highlighted(), '', 'do not highlight unrelated summary text');
+highlighter.clear();
+assert.equal(highlights.size, 0);
+console.log('PASS: moving single-word highlight, formatted text, repeated words, summary mismatch and cleanup.');

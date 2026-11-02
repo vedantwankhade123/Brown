@@ -49,7 +49,7 @@ async function run() {
     { text: 'Explain JavaScript', isAi: false }, { text: 'JavaScript adds interaction to websites.', isAi: true }
   ], aiMeta: { heuristic: true, description: 'Explain JavaScript' } };
   const meta = vm.createContext({ conversationsStore: { a: session }, currentSessionId: 'a',
-    isAwaitingResponse: true, window: {}, extractPlainTextFromMessage: text => text,
+    isAwaitingResponse: true, window: {}, extractPlainTextFromMessage: text => text, isThinkingMarkup:()=>false,
     renderSessionPanel() {}, touchSession() {}, saveConversationsToDisk() {}, logTrace() {},
     isGenericOrFragmentTitle: () => false, updateSessionTitle() { throw Error('Renamed title overwritten'); },
     async queryOfflineLLM() { metaCalls++; return JSON.stringify({ title: 'JavaScript', description: 'Explains how JavaScript adds interactive behavior to websites.' }); }
@@ -71,7 +71,7 @@ async function run() {
   const body = { isConnected: true, set innerHTML(value) { paints++; } }, pill = {};
   const ui = vm.createContext({ window: { ultronAPI: { parseMarkdown: text => text } },
     matchMedia: () => ({ matches: false }), requestAnimationFrame: fn => { callback = fn; return 1; },
-    cancelAnimationFrame() {}, renderMathFormulasStream: text => text,
+    cancelAnimationFrame() {}, renderChatMarkdown: text => text,
     closeIncompleteMarkdown: text => text, escapeHtml: text => text });
   const start = source.indexOf('function createSmoothStreamPainter(');
   vm.runInContext(source.slice(start, source.indexOf('\nfunction createStreamBubblePainter(', start)), ui);

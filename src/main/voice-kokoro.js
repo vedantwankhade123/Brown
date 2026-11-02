@@ -261,7 +261,7 @@ function isKokoroDownloading() {
   return kokoroDownloadState.inProgress;
 }
 
-async function configureTransformersEnv() {
+async function configureTransformersEnv(offline = false) {
   const cacheDir = getKokoroCacheDir();
   fs.mkdirSync(cacheDir, { recursive: true });
   // Transformers.js v3 does not honor TRANSFORMERS_CACHE / HF_HOME alone —
@@ -274,6 +274,7 @@ async function configureTransformersEnv() {
   transformers.env.cacheDir = cacheDir;
   transformers.env.useFSCache = true;
   transformers.env.allowLocalModels = true;
+  transformers.env.allowRemoteModels = !offline;
   if ('useBrowserCache' in transformers.env) {
     transformers.env.useBrowserCache = false;
   }
@@ -289,15 +290,36 @@ async function configureTransformersEnv() {
  * Reloads when the requested device changes; falls back from GPU to CPU once.
  */
 function getKokoroTts(onProgress) {
+  const offline = !onProgress;
   const wanted = getKokoroDevicePreference();
   if (kokoroPromise && kokoroLoadedDevice === wanted) return kokoroPromise;
 
   kokoroLoadedDevice = wanted;
   kokoroPromise = (async () => {
-    await configureTransformersEnv();
+    await configureTransformersEnv(offline);
     const { KokoroTTS } = await import('kokoro-js');
+    const loadCpu = async () => {
+      // kokoro-js 1.2 drops session_options in its convenience loader. Construct
+      // the same pipeline explicitly so ORT does not use every CPU core.
+      const { StyleTextToSpeech2Model, AutoTokenizer } = await import('@huggingface/transformers');
+      const available = require('os').availableParallelism?.() || require('os').cpus().length;
+      const override = Number(process.env.ULTRON_KOKORO_THREADS);
+      const threads = Number.isInteger(override) && override > 0
+        ? Math.min(override, available, 16) : Math.min(4, available);
+      console.log(`[voice-kokoro] CPU inference threads=${threads}`);
+      const [model, tokenizer] = await Promise.all([
+        StyleTextToSpeech2Model.from_pretrained(KOKORO_MODEL_ID, {
+          dtype: 'q8', device: 'cpu', progress_callback: onProgress || null,
+          local_files_only: offline,
+          session_options: { intraOpNumThreads: threads, interOpNumThreads: 1, executionMode: 'sequential' }
+        }),
+        AutoTokenizer.from_pretrained(KOKORO_MODEL_ID, { local_files_only: offline })
+      ]);
+      return new KokoroTTS(model, tokenizer);
+    };
     console.log(`[voice-kokoro] loading Kokoro with device=${wanted}`);
     try {
+      if (wanted === 'cpu') return await loadCpu();
       return await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
         dtype: 'q8',
         device: wanted,
@@ -308,11 +330,7 @@ function getKokoroTts(onProgress) {
         console.warn('[voice-kokoro] GPU load failed, falling back to CPU:', err.message);
         forceKokoroDevice('cpu');
         kokoroLoadedDevice = 'cpu';
-        return KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
-          dtype: 'q8',
-          device: 'cpu',
-          progress_callback: onProgress || null
-        });
+        return loadCpu();
       }
       throw err;
     }
@@ -654,10 +672,10 @@ try {
   ensureKokoroVoiceFiles();
 } catch (e) { /* ignore */ }
 
-async function synthesizeKokoroSpeech(text, voiceId = 'af_heart', { speed = 1 } = {}) {
+async function synthesizeKokoroSpeech(text, voiceId = 'af_heart', { speed = 1, format = 'wav' } = {}) {
   if (process.env.BROWN_KOKORO_WORKER !== '1') {
     const budget = Math.min(180000, 25000 + String(text || '').length * 60);
-    return require('./voice-kokoro-process').runKokoroJob('synthesizeKokoroSpeech', [text, voiceId, { speed }], getKokoroCacheDir(), budget + 1000);
+    return require('./voice-kokoro-process').runKokoroJob('synthesizeKokoroSpeech', [text, voiceId, { speed, format }], getKokoroCacheDir(), budget + 1000);
   }
   const speechRate = Number.isFinite(Number(speed)) ? Math.max(0.5, Math.min(2, Number(speed))) : 1;
   if (!isKokoroEngineInstalled()) {
@@ -689,10 +707,10 @@ async function synthesizeKokoroSpeech(text, voiceId = 'af_heart', { speed = 1 } 
       }
 
       const merged = mergeKokoroAudioSegments(segments);
-      const wavBuffer = rawAudioToWavBuffer(merged, 24000);
+      const wavBuffer = format === 'pcm' ? null : rawAudioToWavBuffer(merged, 24000);
       return {
         success: true,
-        wavBase64: wavBuffer.toString('base64'),
+        ...(format === 'pcm' ? { pcm: merged } : { wavBase64: wavBuffer.toString('base64') }),
         sampleRate: 24000,
         mimeType: 'audio/wav',
         engine: 'kokoro',

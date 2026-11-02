@@ -16,6 +16,12 @@ app.whenReady().then(async () => {
     const result = await speech.synthesizeKokoroSpeech('Hello. Brown is ready to speak while the desktop stays responsive.', 'bm_george');
     assert.equal(result.success, true, result.error);
     assert.ok(result.wavBase64.length > 100);
+    const pcm = await speech.synthesizeKokoroSpeech('Continuous speech.', 'bm_george', { format: 'pcm' });
+    assert.equal(pcm.success, true, pcm.error);
+    assert.ok(pcm.pcm instanceof Float32Array, 'binary PCM survives utility-process IPC');
+    assert.ok(pcm.pcm.length > 100);
+    assert.equal(pcm.sampleRate, 24000);
+    assert.equal(pcm.wavBase64, undefined, 'streaming avoids WAV/base64 conversion');
     assert.ok(ticks > 0, 'main event loop continued during inference');
     assert.ok(maxDelay < 500, `main event loop blocked for ${maxDelay}ms`);
     console.log(`PASS: real Kokoro audio; ${ticks} main-loop ticks, maximum interval ${maxDelay}ms`);

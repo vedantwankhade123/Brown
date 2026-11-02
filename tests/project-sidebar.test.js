@@ -1,0 +1,67 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const {parseHTML}=require('linkedom');const {createStore}=require('../src/renderer/project-workspaces');
+const values=new Map(),storage={getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)};
+const store=createStore(storage),a=store.create('Authentication'),b=store.create('Research');store.select(a.id);
+const {document}=parseHTML('<section id="projects"></section>');const moduleObject={exports:{}};
+vm.runInNewContext(fs.readFileSync(require.resolve('../src/renderer/project-sidebar'),'utf8'),{document,module:moduleObject,console});
+const sessions={one:{id:'one',projectId:a.id,title:'Fix authentication',updatedAt:'2026-10-31'},two:{id:'two',projectId:b.id,title:'Research notes'},personal:{id:'personal',title:'Personal chat'}};
+const actions=[];const hooks={state:()=>({sessions,currentSessionId:'one'}),activate:async id=>{store.select(id);actions.push(['activate',id]);},newChat:id=>actions.push(['new',id]),openChat:id=>actions.push(['chat',id]),settings:id=>actions.push(['settings',id]),create:()=>actions.push(['create']),chatMenu:id=>actions.push(['menu',id]),rename:id=>actions.push(['rename',id]),remove:id=>actions.push(['remove',id]),error:error=>{throw error;}};
+const view=moduleObject.exports.init({container:document.getElementById('projects'),store,storage,hooks});
+const group=id=>[...document.querySelectorAll('.project-sidebar-group')].find(el=>el.dataset.projectId===id);
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+(async()=>{
+  assert(group(a.id).textContent.includes('Fix authentication'));assert(!group(a.id).textContent.includes('Research notes'));assert(!document.getElementById('projects').textContent.includes('Personal chat'));
+  assert(document.querySelector('[data-session-id="one"]').classList.contains('active'));
+  assert.equal(group(a.id).querySelector('.project-sidebar-disclosure'),null,'project row has no leading chevron');
+  group(a.id).querySelector('.project-sidebar-name').click();await tick();assert.equal(group(a.id).querySelector('.project-sidebar-chat-collapse').getAttribute('aria-hidden'),'true');
+  const animatedBody=document.querySelector('#projects > .sidebar-collapse');
+  view.render();assert.equal(document.querySelector('#projects > .sidebar-collapse'),animatedBody,'data updates preserve the section animation element');assert.equal(group(a.id).querySelector('.project-sidebar-chat-collapse').getAttribute('aria-hidden'),'true','manual collapse survives rerender');
+  group(a.id).querySelector('.project-sidebar-name').click();await tick();assert.equal(group(a.id).querySelector('.project-sidebar-chat-collapse').getAttribute('aria-hidden'),'false');assert.equal(actions.length,0,'title toggle does not navigate or create chats');
+  group(b.id).querySelector('.project-sidebar-chat-title').click();await tick();assert.deepEqual(actions.at(-1),['chat','two']);
+  group(a.id).querySelector('[aria-label="New chat in Authentication"]').click();await tick();assert.deepEqual(actions.at(-1),['new',a.id]);
+  group(a.id).querySelector('.session-menu-btn').click();await tick();assert.deepEqual(actions.at(-1),['menu','one']);
+  assert.equal(group(a.id).querySelector('.session-rename-btn'),null);
+  assert.equal(group(a.id).querySelector('.session-delete-btn'),null);
+  sessions.one.starred=true;view.render();assert(group(a.id).querySelector('.session-star-badge'));
+  sessions.one.starred=false;view.render();assert.equal(group(a.id).querySelector('.session-star-badge'),null);
+  group(a.id).querySelector('[aria-label="Settings for Authentication"]').click();await tick();assert.deepEqual(actions.at(-1),['settings',a.id]);
+  for(let i=0;i<4;i++)store.create('Project '+i);view.render();assert.equal(document.querySelectorAll('.project-sidebar-group').length,5);document.querySelector('.project-sidebar-show-more').click();await tick();assert.equal(document.querySelectorAll('.project-sidebar-group').length,6);
+  const source=fs.readFileSync(require.resolve('../src/renderer/renderer.js'),'utf8'),start=source.indexOf('function addSessionToHistory('),end=source.indexOf('\nfunction generateInstantSmartTitle(',start);
+  const context=vm.createContext({document:{getElementById:()=>({querySelector:()=>null})},currentSessionId:'one',conversationsStore:{one:{id:'one',projectId:a.id,messages:[{text:'Keep context'}]}},touchSession(){},rebuildSessionHistoryList(){},saveConversationsToDisk(){}});
+  vm.runInContext(source.slice(start,end),context);context.addSessionToHistory('Updated title');
+  assert.equal(context.currentSessionId,'one');assert.equal(context.conversationsStore.one.messages[0].text,'Keep context');
+  const state=moduleObject.exports.contentState();state.sync([]);assert(!state.open);state.sync(['a']);assert(state.open);state.toggle();state.sync(['a']);assert(!state.open);state.sync(['a','b']);assert(state.open);state.sync([]);assert(!state.open);
+  const freshStore=createStore({getItem:()=>null,setItem(){}}),emptyContainer=document.createElement('section');
+  moduleObject.exports.init({container:emptyContainer,store:freshStore,storage:{getItem:()=>null,setItem(){}},hooks:{...hooks,state:()=>({sessions:{},currentSessionId:null})}});
+  assert.equal(emptyContainer.querySelector('.project-sidebar-section-toggle').getAttribute('aria-expanded'),'false');assert(emptyContainer.textContent.includes('No Projects'));assert(!emptyContainer.textContent.includes('Create a project to organize'));
+  const recents=document.createElement('section');recents.innerHTML='<button class="project-sidebar-section-toggle"><span class="sidebar-section-icon"></span><span>Recents</span><span class="project-sidebar-chevron"></span></button><div class="sidebar-collapse"><div id="recent-test-list"></div></div>';
+  const recentSessions={};const recentsView=moduleObject.exports.initRecents({container:recents,list:recents.querySelector('#recent-test-list'),storage:{getItem:()=>null,setItem(){}},hooks:{sessions:()=>recentSessions}});
+  const recentToggle=recents.querySelector('button');assert.equal(recentToggle.getAttribute('aria-expanded'),'false');recentSessions.first={id:'first'};recentsView.render();assert.equal(recentToggle.getAttribute('aria-expanded'),'true');recentToggle.click();assert.equal(recentToggle.getAttribute('aria-expanded'),'false');recentsView.render();assert.equal(recentToggle.getAttribute('aria-expanded'),'false');recentSessions.second={id:'second'};recentsView.render();assert.equal(recentToggle.getAttribute('aria-expanded'),'true');delete recentSessions.first;delete recentSessions.second;recentsView.render();assert.equal(recentToggle.getAttribute('aria-expanded'),'false');
+  const deleteStore=createStore({getItem:()=>null,setItem(){}}),deleting=deleteStore.create('Delete me'),keep=deleteStore.create('Keep me');deleteStore.select(deleting.id);
+  let confirmed=false,saved=0,navigated=null;
+  const deletionContext=vm.createContext({window:{BrownWorkspaceStore:deleteStore},isAwaitingResponse:false,currentSessionId:'deleteChat',conversationsStore:{deleteChat:{projectId:deleting.id},keepChat:{projectId:keep.id}},
+    showConfirmDialog:async options=>{assert(options.destructive);assert(options.message.includes('original folder and files stay'));return confirmed;},
+    saveConversationsToDisk:()=>saved++,activateProjectWorkspace:async project=>{navigated=project.id;},rebuildSessionHistoryList(){}});
+  const deletionStart=source.indexOf('removeProject: async id => {'),deletionEnd=source.indexOf('\n      error: error => showToast',deletionStart);
+  vm.runInContext('this.deleteProject=({'+source.slice(deletionStart,deletionEnd)+'}).removeProject',deletionContext);
+  await deletionContext.deleteProject(deleting.id);assert(deleteStore.list().some(p=>p.id===deleting.id));assert(deletionContext.conversationsStore.deleteChat);assert.equal(saved,0,'cancel preserves workspace and chats');
+  confirmed=true;await deletionContext.deleteProject(deleting.id);assert(!deleteStore.list().some(p=>p.id===deleting.id));assert(!deletionContext.conversationsStore.deleteChat);assert(deletionContext.conversationsStore.keepChat);assert.equal(navigated,'personal');assert.equal(saved,1);
+  assert.throws(()=>deleteStore.remove('personal'),/cannot be deleted/);
+  let chatSequence=0;const newChatStore=createStore({getItem:()=>null,setItem(){}}),newProject=newChatStore.create('Workspace');newChatStore.select('personal');
+  const newContext=vm.createContext({window:{BrownWorkspaceStore:newChatStore,crypto:{randomUUID:()=>String(++chatSequence)}},document:{getElementById:()=>({querySelectorAll:()=>[]}),querySelector:()=>null},
+    _mentionChips:[],renderMentionChips(){},clearPromptTurnState(){},chatMessagesContainer:{innerHTML:''},currentSessionId:null,setSendingState(){},updateWelcomeGreeting(){},logTrace(){},activeSubgoals:[],renderChecklist(){},activeChatTitle:{textContent:''},
+    conversationsStore:{},nowIso:()=>new Date().toISOString(),saveConversationsToDisk(){},rebuildSessionHistoryList(){},touchSession(){}});
+  vm.runInContext(source.slice(source.indexOf('function addSessionToHistory('),source.indexOf('\nfunction generateInstantSmartTitle(')),newContext);
+  vm.runInContext(source.slice(source.indexOf('const triggerNewChat ='),source.indexOf('\nif (btnNewChat)',source.indexOf('const triggerNewChat =')))+'\nthis.newChat=triggerNewChat;',newContext);
+  newContext.newChat();const personalId=newContext.currentSessionId;assert.equal(newContext.conversationsStore[personalId].projectId,'personal');assert.equal(newContext.conversationsStore[personalId].title,'New chat');
+  newContext.newChat();assert.equal(newContext.currentSessionId,personalId,'repeated New chat reuses the blank personal chat');
+  newChatStore.select(newProject.id);newContext.newChat();assert.equal(newContext.currentSessionId,personalId,'selecting a workspace alone does not route the top New chat into it');
+  newContext.newChat({projectId:newProject.id});assert.notEqual(newContext.currentSessionId,personalId);assert.equal(newContext.conversationsStore[newContext.currentSessionId].projectId,newProject.id);
+  const blankProjectId=newContext.currentSessionId;newContext.newChat();assert.equal(newContext.currentSessionId,blankProjectId,'inside a project chat New chat reuses its existing blank');
+  newContext.conversationsStore[blankProjectId].messages=[{isAi:false,text:'Project work'}];
+  newContext.newChat();assert.notEqual(newContext.currentSessionId,blankProjectId);assert.equal(newContext.conversationsStore[newContext.currentSessionId].projectId,newProject.id,'inside a populated project chat creates the next project draft');
+  const secondDraft=newContext.currentSessionId;newContext.newChat();assert.equal(newContext.currentSessionId,secondDraft,'project drafts are not duplicated');
+  const draftId=newContext.currentSessionId;newContext.addSessionToHistory('First prompt title');assert.equal(newContext.currentSessionId,draftId);assert.equal(Object.keys(newContext.conversationsStore).length,3,'first prompt reuses the visible new chat');
+  newContext.currentSessionId=null;newChatStore.select(newProject.id);newContext.newChat();assert.equal(newContext.currentSessionId,personalId,'outside a project conversation New chat always goes to Recents');
+  console.log('PASS: sidebar grouping, collapse persistence, matching chat controls, confirmed project deletion and cancellation, and keeping other project chats.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

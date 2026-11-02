@@ -13,7 +13,7 @@ function loadEngine(root, failSave = false) {
   new Function('require', 'module', 'exports', fs.readFileSync(filename, 'utf8'))(name => {
     if (name === 'electron') return { app: { getPath: () => root } };
     if (name === 'fs') return disk;
-    return require(name);
+    return require(name.startsWith('./') ? path.resolve('src/main',name) : name);
   }, module, module.exports);
   return module.exports;
 }
@@ -49,19 +49,19 @@ async function runKnowledgeTests() {
   const note = path.join(notes, 'guide.MD'); fs.writeFileSync(note, '# Brown\nThe aurora knowledge guide includes offline document indexing.');
   const csv = path.join(notes, 'budget.csv'); fs.writeFileSync(csv, 'item,cost\nAurora,42');
   fs.writeFileSync(path.join(notes, 'empty.txt'), '');
-  fs.writeFileSync(path.join(notes, 'picture.png'), 'unsupported');
+  fs.writeFileSync(path.join(notes, 'archive.bin'), 'unsupported');
   fs.writeFileSync(path.join(notes, '.env'), 'SECRET=do-not-index');
   fs.mkdirSync(path.join(notes, 'node_modules')); fs.writeFileSync(path.join(notes, 'node_modules', 'ignored.txt'), 'Do not index dependencies');
   fs.writeFileSync(path.join(notes, 'manual.pdf'), pdf('Aurora PDF documentation is searchable.'));
   const rag = loadEngine(root);
   assert.strictEqual((await rag.addSources([{ filePaths: [notes] }])).success, false);
-  assert.strictEqual((await rag.addSources([path.join(notes, 'picture.png')])).success, false);
+  assert.strictEqual((await rag.addSources([path.join(notes, 'archive.bin')])).success, false);
   assert.strictEqual((await rag.addSources([path.join(root, 'missing')])).success, false);
   const progress = [];
   const result = await rag.addSources([notes], item => progress.push(item));
   assert.strictEqual(result.success, true);
   assert.strictEqual(result.totalFiles, 3, 'Markdown, CSV, and real PDF must be indexed');
-  assert.strictEqual(result.skipped.length, 1, 'Empty supported files must be reported');
+  assert(result.skipped.some(item=>item.path.endsWith('empty.txt'))&&result.skipped.some(item=>item.path.endsWith('archive.bin')), 'Empty and unsupported files must be reported');
   assert(progress.length >= 3);
   assert.strictEqual(rag.listIndexedFiles().files.length, 3);
   const indexedNote = rag.listIndexedFiles().files.find(file => file.path === note);

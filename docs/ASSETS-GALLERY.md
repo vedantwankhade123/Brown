@@ -1,0 +1,11 @@
+# Assets gallery
+
+Open **Assets** below **Search** in the left sidebar. Assets is a full library page in the work area: the left navigation stays available while the chat and right sidebar are hidden. It does not open a modal or replace the saved conversation. **Back to chat**, a linked chat, New chat, Search, Settings, or the title-bar Chat control restores the normal layout. The gallery lists user attachments and files explicitly mentioned with @ across saved chats. Automatic retrieved-source citations and generated outputs are not included.
+
+Search by filename, path or chat title. Use the file-type tabs for Images, PDFs, Documents, Code or Other; sort by newest or name and switch between grid and list views. The library starts with the full-width collection; selecting a card opens a details pane that can be dismissed. A shared disk path appears once with all chat links; identical filenames at different paths remain separate. Images have thumbnails when a retained preview or original path is available. **Open file** uses the default desktop app, **Show in folder** locates the original, and a chat link opens that conversation near its attachment.
+
+**Delete asset** asks for confirmation, removes its attachment/reference records from every linked chat, and saves the change. Original files and existing chat text remain. Cancel leaves the records unchanged. A failed save restores the records and shows an error. Stop an active response before deleting assets or switching chats.
+
+Older upload history is included where possible. Some older records have only a filename and chat location, because previous releases did not persist attachment paths or previews. These records can still link to their chat but cannot reconstruct the original file. New attachments persist their metadata, available image previews and original paths alongside messages. History persistence follows the app's existing chat-memory setting; it does not upload files or make archival copies of every original file. Moved/deleted originals may no longer open.
+
+Verification: `node tests/assets-gallery.test.js`; run `tests/assets-gallery-electron.test.js` with Electron for layout, search/filter, linked-chat navigation, cancellation, shared-asset deletion and save rollback checks. The Node test is also included in `npm test`.

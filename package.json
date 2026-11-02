@@ -1,6 +1,6 @@
 {
   "name": "brown",
-  "version": "1.0.2",
+  "version": "1.0.19",
   "description": "Offline AI chat, code generation and visual answers for Windows (Brown)",
   "author": "Vedant Wankhade",
   "license": "Proprietary",
@@ -44,6 +44,9 @@
     "files": [
       "src/**/*",
       "scripts/**/*",
+      "!scripts/*-local.cjs",
+      "!scripts/*.publish-backup",
+      "!scripts/preview-*.cjs",
       "Assets/**/*",
       "package.json",
       "node_modules/**/*",
@@ -131,6 +134,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server-filesystem": "^2026.7.10",
     "@mozilla/readability": "0.6.0",
+    "@napi-rs/canvas": "0.1.80",
     "ai": "^7.0.114",
     "dompurify": "^3.4.14",
     "electron-updater": "^6.3.9",
@@ -147,6 +151,7 @@
     "systeminformation": "^5.23.5",
     "turndown": "7.2.4",
     "ws": "^8.21.1",
+    "yauzl": "3.2.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

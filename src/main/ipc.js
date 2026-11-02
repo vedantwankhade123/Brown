@@ -1072,6 +1072,29 @@ function runCommandWithTimeout(command, options = {}) {
   });
 }
 
+function registerClipboardIpcHandlers() {
+  if (registerClipboardIpcHandlers._done) return;
+  ipcMain.handle('clipboard:write-text', (_event, text) => {
+    if (typeof text !== 'string') return { success: false, error: 'Clipboard content must be text.' };
+    try {
+      clipboard.writeText(text);
+      return { success: true };
+    } catch (error) { return { success: false, error: error.message || 'Unable to copy text.' }; }
+  });
+  registerClipboardIpcHandlers._done = true;
+}
+
+function registerVisualIpcHandlers() {
+  if (registerVisualIpcHandlers._done) return;
+  ipcMain.handle('render-visual-diagram', async (event, code) => {
+    try {
+      const { renderDiagram } = require('./visual-render-process');
+      return { success: true, html: await renderDiagram(code, event.sender) };
+    } catch (error) { return { success: false, error: error.message || 'Unable to render diagram.' }; }
+  });
+  registerVisualIpcHandlers._done = true;
+}
+
 /**
  * Voice STT + neural TTS IPC — registered first so mic/TTS work even if later setup throws.
  */
@@ -1083,7 +1106,7 @@ function registerAudioIpcHandlers() {
   // transcription doesn't pay the model-load cost.
   setImmediate(() => {
     try {
-      require('./voice-whisper').warmupWhisper().catch((e) => {
+      require('./voice-whisper').warmupWhisper({ offline: true }).catch((e) => {
         console.warn('[ipc] Whisper warmup notice:', e.message);
       });
     } catch (e) {
@@ -1098,7 +1121,6 @@ function registerAudioIpcHandlers() {
       if (!win) return;
       const p = (payload && typeof payload === 'object') ? payload : { theme: payload };
       const ts = require('./theme-state');
-      ts.state.light = String(p.theme) === 'light';
       if (p.user) ts.state.splashDone = true;
       const { color, symbolColor } = ts.overlayColors();
       win.setTitleBarOverlay({ color, symbolColor, height: 36 });
@@ -1143,15 +1165,17 @@ function registerAudioIpcHandlers() {
       // readiness gate here.
       try {
         if (payload.wavBase64) {
-          const whisperRes = await transcribeWhisperWavBuffer(Buffer.from(payload.wavBase64, 'base64'));
+          const whisperRes = await transcribeWhisperWavBuffer(Buffer.from(payload.wavBase64, 'base64'), { offline: payload.offlineOnly === true });
           if (whisperRes?.success && whisperRes?.text) return whisperRes;
         } else if (hasSamples) {
-          const whisperRes = await transcribeWhisperFloat32(Float32Array.from(samples), sampleRate);
+          const whisperRes = await transcribeWhisperFloat32(Float32Array.from(samples), sampleRate, { offline: payload.offlineOnly === true });
           if (whisperRes?.success && whisperRes?.text) return whisperRes;
         }
       } catch (wErr) {
         console.warn('[ipc] Whisper transcribe notice:', wErr.message);
       }
+
+      if (payload.offlineOnly) return { success: false, error: 'No clear speech recognized by the offline model.' };
 
       // 2) Built-in Windows speech engine as fallback.
       let windowsResult = null;
@@ -1289,8 +1313,9 @@ function registerAudioIpcHandlers() {
       const modelKey = payload.modelKey || null;
       const apiKey = String(payload.apiKey || payload.geminiApiKey || '').trim();
       const speed = Number.isFinite(Number(payload.speed)) ? Math.max(0.5, Math.min(2, Number(payload.speed))) : 1;
-      if (modelKey) return await synthesizeWithModel(modelKey, text, { apiKey, speed });
-      return await synthesizeSpeech(text, undefined, { apiKey, speed });
+      const format = payload.format === 'pcm' ? 'pcm' : 'wav';
+      if (modelKey) return await synthesizeWithModel(modelKey, text, { apiKey, speed, format });
+      return await synthesizeSpeech(text, undefined, { apiKey, speed, format });
     } catch (err) {
       console.error('[ipc] synthesize-speech error:', err);
       return { success: false, error: err.message || 'Speech synthesis failed.' };
@@ -1347,7 +1372,129 @@ function registerAudioIpcHandlers() {
 /**
  * Setup IPC handlers for the main Electron process.
  */
+function registerKnowledgeIpcHandlers() {
+  if (registerKnowledgeIpcHandlers._done) return;
+  const knowledgeUpdates = require('./rag-updates');
+  ipcMain.handle('rag:update-status', () => knowledgeUpdates.status());
+  ipcMain.handle('rag:read-evidence', (_event, filePath, options) => require('./rag-engine').readEvidence(filePath,{includeImage:options?.includeImage===true}));
+  ipcMain.handle('rag:auto-updates', (_event, enabled) => knowledgeUpdates.setEnabled(enabled));
+  ipcMain.handle('rag:check-updates', () => knowledgeUpdates.check(true));
+  ipcMain.handle('rag:select-files', async () => {
+    if (!mainWindow) return { canceled: true, filePaths: [] };
+    const rag = require('./rag-engine');
+    return dialog.showOpenDialog(mainWindow, {
+      title: 'Import files into Knowledge Base',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Supported knowledge files', extensions: rag.supportedExtensions.map(ext => ext.slice(1)) }]
+    });
+  });
+  ipcMain.handle('rag:add-sources', async (event, targetPaths = []) => {
+    try {
+      const rag = require('./rag-engine');
+      return await rag.addSources(targetPaths, (progress) => {
+        event.sender.send('rag:index-progress', progress);
+      });
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:remove-source', async (_event, sourcePath) => {
+    try {
+      const rag = require('./rag-engine');
+      return await rag.removeSource(sourcePath);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:reindex', async (event) => {
+    try {
+      const rag = require('./rag-engine');
+      return await rag.reindexAll((progress) => {
+        event.sender.send('rag:index-progress', progress);
+      });
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:auto-add', async (_event, sourcePath) => {
+    try {
+      const rag = require('./rag-engine');
+      return await rag.autoAddSource(sourcePath);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:index-file', async (_event, filePath) => {
+    try {
+      const rag = require('./rag-engine');
+      return await rag.indexFile(filePath);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:index-text', async (_event, payload = {}) => {
+    try {
+      const rag = require('./rag-engine');
+      const { id, title, content, metadata } = payload;
+      return await rag.indexTextContent(id, title, content, metadata);
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:search', async (_event, payload = {}) => {
+    try {
+      const rag = require('./rag-engine');
+      const query = typeof payload === 'string' ? payload : (payload.query || '');
+      const options = typeof payload === 'object' ? payload : {};
+      // searchKnowledge already returns { success, results: [] } — wrapping it again
+      // would hand the renderer an object where it expects an array.
+      return await rag.searchKnowledge(query, options);
+    } catch (err) {
+      return { success: false, error: err.message, results: [] };
+    }
+  });
+
+  ipcMain.handle('rag:clear', async () => {
+    try {
+      const rag = require('./rag-engine');
+      return rag.clearIndex();
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:get-stats', async () => {
+    try {
+      const rag = require('./rag-engine');
+      return { success: true, ...rag.getStats() };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('rag:list-files', async (_event, filter) => {
+    try {
+      const rag = require('./rag-engine');
+      return rag.listIndexedFiles(filter);
+    } catch (err) {
+      return { success: false, error: err.message, files: [] };
+    }
+  });
+
+  registerKnowledgeIpcHandlers._done = true;
+  knowledgeUpdates.start(status => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('rag:update-status', status); });
+}
+
 function setupIpcHandlers() {
+  registerKnowledgeIpcHandlers();
+  registerClipboardIpcHandlers();
+  registerVisualIpcHandlers();
   registerAudioIpcHandlers();
 
   // Location is resolved lazily, on the first request that actually needs it. Eagerly
@@ -2835,6 +2982,14 @@ function getInstallationDefaultDataDir() {
   });
 
   // Read local file contents
+  ipcMain.handle('asset-preview', async (_event, filePath) => {
+    try {
+      if (typeof filePath !== 'string' || !filePath) return { success: false };
+      const resolvedPath = resolveFileTarget(filePath);
+      if (isPathBlacklisted(resolvedPath)) return { success: false };
+      return { success: true, ...await require('./asset-preview').preview(resolvedPath) };
+    } catch { return { success: false }; }
+  });
   ipcMain.handle('read-file', async (event, filePath) => {
     try {
       const resolvedPath = resolveFileTarget(filePath);
@@ -3902,114 +4057,6 @@ function getInstallationDefaultDataDir() {
   // ==========================================
   // LOCAL VECTOR RAG KNOWLEDGE BASE IPC HANDLERS
   // ==========================================
-  ipcMain.handle('rag:select-files', async () => {
-    if (!mainWindow) return { canceled: true, filePaths: [] };
-    const rag = require('./rag-engine');
-    return dialog.showOpenDialog(mainWindow, {
-      title: 'Import files into Knowledge Base',
-      properties: ['openFile', 'multiSelections'],
-      filters: [{ name: 'Supported knowledge files', extensions: rag.supportedExtensions.map(ext => ext.slice(1)) }]
-    });
-  });
-  ipcMain.handle('rag:add-sources', async (event, targetPaths = []) => {
-    try {
-      const rag = require('./rag-engine');
-      return await rag.addSources(targetPaths, (progress) => {
-        event.sender.send('rag:index-progress', progress);
-      });
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('rag:remove-source', async (_event, sourcePath) => {
-    try {
-      const rag = require('./rag-engine');
-      return await rag.removeSource(sourcePath);
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('rag:reindex', async (event) => {
-    try {
-      const rag = require('./rag-engine');
-      return await rag.reindexAll((progress) => {
-        event.sender.send('rag:index-progress', progress);
-      });
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('rag:auto-add', async (_event, sourcePath) => {
-    try {
-      const rag = require('./rag-engine');
-      return await rag.autoAddSource(sourcePath);
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('rag:index-file', async (_event, filePath) => {
-    try {
-      const rag = require('./rag-engine');
-      return await rag.indexFile(filePath);
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('rag:index-text', async (_event, payload = {}) => {
-    try {
-      const rag = require('./rag-engine');
-      const { id, title, content, metadata } = payload;
-      return await rag.indexTextContent(id, title, content, metadata);
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('rag:search', async (_event, payload = {}) => {
-    try {
-      const rag = require('./rag-engine');
-      const query = typeof payload === 'string' ? payload : (payload.query || '');
-      const options = typeof payload === 'object' ? payload : {};
-      // searchKnowledge already returns { success, results: [] } — wrapping it again
-      // would hand the renderer an object where it expects an array.
-      return await rag.searchKnowledge(query, options);
-    } catch (err) {
-      return { success: false, error: err.message, results: [] };
-    }
-  });
-
-  ipcMain.handle('rag:clear', async () => {
-    try {
-      const rag = require('./rag-engine');
-      return rag.clearIndex();
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('rag:get-stats', async () => {
-    try {
-      const rag = require('./rag-engine');
-      return { success: true, ...rag.getStats() };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('rag:list-files', async (_event, filter) => {
-    try {
-      const rag = require('./rag-engine');
-      return rag.listIndexedFiles(filter);
-    } catch (err) {
-      return { success: false, error: err.message, files: [] };
-    }
-  });
-
   // ==========================================
   // NATIVE WINDOWS SYSTEM CONTROLS IPC HANDLERS
   // ==========================================

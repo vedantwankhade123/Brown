@@ -69,11 +69,13 @@ const tag = `v${version}`;
 console.log(`[release] version ${version}  tag ${tag}  repo ${REPO}`);
 
 // ----------------------------------------------------------------------------- release notes
-const notesPath = path.join(ROOT, '.release-notes.md');
-const versionedNotes = path.join(ROOT, `.release-notes-v${version}.md`);
+const notesDir = path.join(ROOT, 'docs', 'releases', 'desktop');
+fs.mkdirSync(notesDir, { recursive: true });
+const notesPath = path.join(notesDir, 'draft.md');
+const versionedNotes = path.join(notesDir, `v${version}.md`);
 if (fs.existsSync(versionedNotes)) {
   fs.copyFileSync(versionedNotes, notesPath);
-  console.log(`[release] notes from .release-notes-v${version}.md`);
+  console.log(`[release] notes from docs/releases/desktop/v${version}.md`);
 } else if (!fs.existsSync(notesPath)) {
   const lines = sh('git log -n 12 --oneline --no-merges', { pipe: true }).split('\n').filter(Boolean);
   const body = [
@@ -89,9 +91,9 @@ if (fs.existsSync(versionedNotes)) {
     '',
   ].join('\n');
   fs.writeFileSync(notesPath, body, 'utf8');
-  console.log('[release] generated .release-notes.md from git history — edit it before --publish');
+  console.log('[release] generated docs/releases/desktop/draft.md from git history — edit it before --publish');
 } else {
-  console.log('[release] using the existing .release-notes.md');
+  console.log('[release] using the existing docs/releases/desktop/draft.md');
 }
 
 // ----------------------------------------------------------------------------- prepare
@@ -195,7 +197,7 @@ const exists = sh(`gh release view ${tag} --json assets > NUL 2>&1 && echo yes |
 if (exists) {
   if (sh(`gh release view ${tag} --json isDraft --jq .isDraft`, { pipe: true }).trim() !== 'true') die('This version is already published. Use a new version rather than replacing live update files.');
 } else {
-  sh(`gh release create ${tag} --draft --verify-tag --title "Brown AI Desktop v${version}" --notes-file .release-notes.md`);
+  sh(`gh release create ${tag} --draft --verify-tag --title "Brown AI Desktop v${version}" --notes-file "${notesPath}"`);
 }
 for (const file of upload) {
   sh(`node "${path.join(__dirname, 'upload-release-asset.js')}" ${tag} "${file}"`);
@@ -209,7 +211,7 @@ for (const file of upload) {
   const sha256 = require('crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   if (!asset || asset.state !== 'uploaded' || asset.size !== fs.statSync(file).size || asset.digest !== `sha256:${sha256}`) die(`Release asset failed verification: ${path.basename(file)}. The release remains a draft.`);
 }
-sh(`gh release edit ${tag} --draft=false --latest --title "Brown AI Desktop v${version}" --notes-file .release-notes.md`);
+sh(`gh release edit ${tag} --draft=false --latest --title "Brown AI Desktop v${version}" --notes-file "${notesPath}"`);
 
 // Prove the user-facing link actually resolves instead of assuming the upload worked.
 const resolved = sh(

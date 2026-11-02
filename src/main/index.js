@@ -116,13 +116,6 @@ function createWindow() {
         "document.body.classList.add('platform-win32')",
         true
       ).catch(() => {});
-      mainWindow.webContents
-        .executeJavaScript("localStorage.getItem('ultron-theme')", true)
-        .then((mode) => {
-          themeState.state.light = mode === 'light';
-          applyWinTitleBarOverlay(mainWindow);
-        })
-        .catch(() => {});
     });
 
     // Fallback in case the renderer never reports the splash as dismissed.

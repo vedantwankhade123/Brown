@@ -1,0 +1,60 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const status = require('../src/renderer/activity-status');
+assert.deepEqual(status.labels('hi'), ['Thinking']);
+assert.equal(status.profile('Write an essay about Python errors').kind, 'essay');
+assert.equal(status.profile('Write a poem about bugs').kind, 'story');
+assert.equal(status.profile('Fix this Python exception').kind, 'debug');
+assert.equal(status.profile('Summarize this article').kind, 'summary');
+assert.equal(status.profile('Draft an email to the API team').kind, 'email');
+assert.equal(status.profile('Draw an API diagram', { visual: true }).kind, 'visual');
+assert.equal(status.profile('Find laptop prices', { intent: 'search' }).kind, 'search');
+assert.equal(status.tool('WRITE_FILE', { path: 'D:\\Projects\\app.js' }), 'Updating app.js');
+assert.equal(status.tool('READ_FILE', { path: 'D:\\Projects\\app.js' }), 'Reading app.js');
+assert.equal(status.tool('web_search'), 'Searching the web');
+assert.equal(status.tool('search_files'), 'Searching local files');
+assert.equal(status.tool('execute_command'), 'Running a command');
+assert.equal(status.reasoning('We need to identify missing details'), 'Considering missing details');
+assert(!status.reasoning('Sensitive raw reasoning').includes('Sensitive'));
+assert.equal(status.skillLabel({id:'math-computation',name:'Math'}), 'Using “Math” for calculations');
+assert.equal(status.skillLabel({id:'custom',name:'Custom skill'}), 'Using “Custom skill” for this response');
+const source = fs.readFileSync(require.resolve('../src/renderer/renderer.js'), 'utf8');
+const start = source.indexOf('class DynamicThinkingController');
+const end = source.indexOf('\nfunction extractStreamingDisplayState', start);
+let tick = null, cleared = 0;
+const context = vm.createContext({ window: { BrownActivityStatus: status, UltronMotion: { renderTextShimmer: text => text } },
+  escapeHtml: text => text, Date,
+  setInterval: callback => { tick = callback; return 1; }, clearInterval: () => { tick = null; cleared++; }
+});
+vm.runInContext(source.slice(start, end) + '\nthis.Controller = DynamicThinkingController;', context);
+const controller = new context.Controller(null, 'Write an email about the release');
+assert.equal(controller.currentLabel, 'Planning your email');
+assert.match(controller.renderWidgetHtml(), /role="status" aria-live="polite"/);
+controller.start(); controller.setPhase('generate');
+controller.setSkills([{id:'math-computation',name:'Math'}]);
+assert.match(controller.renderWidgetHtml(), /Using “Math” for calculations/);
+controller.setPhase('generate');
+assert.match(controller.renderWidgetHtml(), /Using “Math” for calculations/, 'skill usage stays visible across thinking phases');
+assert.equal(controller.currentLabel, 'Drafting your email');
+tick(); assert.equal(controller.currentLabel, 'Working on the wording');
+controller.updateToolAction('READ_FILE', { path: 'D:\\notes.txt' });
+assert.equal(controller.currentLabel, 'Reading notes.txt'); assert.equal(tick, null, 'tool events suspend generated progress');
+controller.setPhase('generate'); assert(tick);
+controller.updateReasoningText('We should compare the options.');
+assert.equal(controller.currentLabel, 'Considering different approaches'); assert.equal(tick, null);
+controller.setPhase('generate'); const lateTick = tick; controller.stop();
+assert.equal(tick, null); const label = controller.currentLabel; lateTick();
+assert.equal(controller.currentLabel, label, 'a stale timer never alters a completed response');
+assert(cleared > 0);
+const greeting = new context.Controller(null, 'hi'); greeting.start();
+assert.equal(greeting.currentLabel, 'Thinking'); assert.equal(tick, null, 'no unnecessary timed stages for a greeting');
+const selectedSkills=[{id:'math-computation',name:'Math'}];let announced=null,enabled=true,section='Math instructions';
+const skillsContext=vm.createContext({window:{UltronAgentSkills:{findSkillsForPrompt:()=>selectedSkills,buildSkillsPromptSection:()=>section}},
+  getAgentRuntimeSettings:()=>({skillsEnabled:enabled}),isReminderOrTimerRequest:()=>false,
+  updateSidebarActivity(){},currentSessionId:'test',_activeThinkingController:{setSkills:skills=>{announced=skills;}}});
+vm.runInContext(source.slice(source.indexOf('function buildAgentSkillsSnippet('),source.indexOf('\nfunction persistTaskMemory(')),skillsContext);
+assert.equal(skillsContext.buildAgentSkillsSnippet('Calculate 2 + 2'),'Math instructions');assert.equal(JSON.stringify(announced),JSON.stringify(selectedSkills));
+announced=null;enabled=false;skillsContext.buildAgentSkillsSnippet('Calculate 2 + 2');assert.equal(announced,null,'disabled skills are not announced');
+enabled=true;section='';skillsContext.buildAgentSkillsSnippet('Calculate 2 + 2');assert.equal(announced,null,'unused skill instructions are not announced');
+console.log('PASS: context-aware activity catalog, artifact priority, actual tool labels, accessible status and timer cleanup.');

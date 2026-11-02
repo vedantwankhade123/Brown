@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" style="background-color: #000000; color: #ffffff;">
+<html lang="en" data-theme="dark" style="background-color: #000000; color: #ffffff; color-scheme: dark;">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -81,6 +81,8 @@
           </div>
         </div>
       </div>
+      <button id="titlebar-btn-projects" class="titlebar-opt-btn" title="Project workspaces">Projects</button>
+      <button id="titlebar-btn-model-health" class="titlebar-opt-btn" title="Local model health">Model health</button>
       <div class="titlebar-settings-wrap" style="position: relative;">
         <button id="titlebar-btn-knowledge" class="titlebar-opt-btn" title="Knowledge Base & Documents" aria-label="Knowledge Base & Documents">Knowledge</button>
         <div id="titlebar-knowledge-dropdown" class="titlebar-settings-dropdown hidden">
@@ -138,19 +140,6 @@
       <div class="titlebar-settings-wrap" style="position: relative;">
         <button id="titlebar-btn-settings" class="titlebar-opt-btn" title="Settings" aria-label="Settings">Settings</button>
         <div id="titlebar-settings-dropdown" class="titlebar-settings-dropdown hidden" style="min-width: 220px;">
-          <!-- Appearance dropdown -->
-          <div class="tsd-item open" id="tsd-appearance-toggle">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
-            <span>Appearance</span>
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-left: auto;"><polyline points="6 9 12 15 18 9"></polyline></svg>
-          </div>
-          <div id="tsd-appearance-sub" class="tsd-sub">
-            <button type="button" class="tsd-theme" data-theme-choice="system"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line></svg><span>System Default</span></button>
-            <button type="button" class="tsd-theme" data-theme-choice="light"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg><span>Light Mode</span></button>
-            <button type="button" class="tsd-theme" data-theme-choice="dark"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg><span>Dark Mode</span></button>
-          </div>
-
-          <div class="tsd-divider"></div>
           <div class="tsd-item" id="tsd-go-all-settings"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg><span>All Settings</span></div>
           <div class="tsd-item" id="tsd-about"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg><span>About Brown</span></div>
         </div>
@@ -247,15 +236,28 @@
             <circle cx="11" cy="11" r="8"></circle>
             <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
           </svg>
-          <span class="nav-text">Search chats</span>
+          <span class="nav-text">Search</span>
         </div>
+        <button type="button" class="nav-item" id="nav-assets" title="Assets">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 16 5-5 4 4 3-3 6 6"/></svg>
+          <span class="nav-text">Assets</span>
+        </button>
       </nav>
 
+      <button type="button" id="nav-projects-compact" class="nav-item compact-projects-link" title="Projects" aria-label="Projects"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v12H3Z"/></svg></button>
+      <button type="button" id="sidebar-background-work" class="sidebar-background-work" hidden aria-label="Background chat activity"></button>
+
       <!-- Recent Section -->
-      <div class="sidebar-section">
-        <span class="section-title">Recents</span>
+      <section id="sidebar-projects" class="sidebar-projects" aria-label="Project workspaces"></section>
+      <div id="sidebar-recents" class="sidebar-section sidebar-recents">
+        <div class="project-sidebar-heading">
+          <button type="button" class="project-sidebar-section-toggle" aria-label="Toggle recents" aria-expanded="true"><span class="sidebar-section-icon" aria-hidden="true"></span><span>Recents</span><span class="project-sidebar-chevron" aria-hidden="true"></span></button>
+          <button type="button" class="project-sidebar-icon-button recents-new-chat" title="New chat in Recents" aria-label="New chat in Recents"></button>
+        </div>
+        <div class="sidebar-collapse">
         <div id="session-history-list" class="section-list">
           <!-- populated dynamically, no dummy data -->
+        </div>
         </div>
       </div>
 
@@ -407,80 +409,6 @@
     <div class="chat-session-layout">
     <div id="chat-view" class="chat-view">
 
-    <!-- Voice Mode Stage — full-screen mesh gradient -->
-    <div id="voice-mode-stage" class="voice-mode-stage hidden" aria-hidden="true" data-orb-state="idle">
-      <div class="voice-gradient-bg" aria-hidden="true">
-        <div class="voice-mesh-layer"></div>
-        <div class="voice-mesh-shimmer"></div>
-      </div>
-      <div class="voice-mode-overlay">
-        <div class="voice-mode-copy">
-          <div class="voice-mode-logo-wrap">
-            <div class="voice-listen-aura" aria-hidden="true">
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
-            <img src="../../Assets/browny_white.png" class="voice-mode-logo" alt="Brown">
-          </div>
-          <p id="voice-mode-caption" class="voice-mode-caption" aria-hidden="true" data-role=""></p>
-          <button type="button" id="voice-mode-status" class="voice-mode-status">Tap to start listening</button>
-        </div>
-      </div>
-      <div class="voice-mode-dock">
-        <div class="voice-mode-models-wrap">
-          <button type="button" id="voice-mode-models-toggle" class="voice-mode-models-toggle" title="Switch model" aria-expanded="false">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
-              <rect x="4" y="4" width="16" height="16" rx="2"></rect>
-              <path d="M9 9h6M9 12h6M9 15h4"></path>
-            </svg>
-            <span id="voice-mode-models-label">Select Model</span>
-            <svg class="voice-model-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
-              <polyline points="18 15 12 9 6 15"></polyline>
-            </svg>
-          </button>
-          <div id="voice-mode-models-panel" class="voice-mode-models-panel hidden" role="listbox" aria-label="Switch chat model">
-            <div id="voice-mode-models-list" class="voice-mode-models-list"></div>
-          </div>
-        </div>
-        <div id="voice-mode-engine-toggle" class="voice-mode-engine-toggle" role="group" aria-label="Voice Engine Toggle">
-          <button type="button" id="btn-voice-engine-local" class="voice-engine-btn active" title="Local Offline Voice (Ollama + Kokoro TTS)">
-            <span class="engine-dot-icon">🎙️</span> Local Voice
-          </button>
-          <button type="button" id="btn-voice-engine-gemini" class="voice-engine-btn" title="Gemini Live (Native Audio Dialog, Vision & Translate)">
-            <span class="engine-dot-icon">⚡</span> Gemini Live
-          </button>
-        </div>
-        <div id="voice-mode-bar" class="voice-mode-bar hidden">
-          <button type="button" id="voice-mode-pause" class="voice-mode-bar-btn" title="Pause conversation">
-            <svg class="voice-mode-icon-pause" viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
-              <rect x="6" y="5" width="4" height="14" rx="1"></rect>
-              <rect x="14" y="5" width="4" height="14" rx="1"></rect>
-            </svg>
-            <svg class="voice-mode-icon-resume hidden" viewBox="0 0 24 24" fill="currentColor" width="22" height="22">
-              <polygon points="8 5 19 12 8 19"></polygon>
-            </svg>
-          </button>
-          <button type="button" id="voice-mode-stop-mic" class="voice-mode-bar-btn" title="Toggle microphone">
-            <svg class="voice-mode-mic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-              <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
-            </svg>
-            <svg class="voice-mode-mic-off hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-              <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 19v4M8 23h8"></path>
-            </svg>
-          </button>
-          <button type="button" id="voice-mode-exit" class="voice-mode-bar-btn voice-mode-bar-exit" title="Exit voice mode">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </div>
-      </div>
-    </div>
-
     <!-- LEFT CHAT PANE COLUMN -->
     <div id="chat-pane-column" class="chat-pane-column">
       <!-- WELCOME SCREEN -->
@@ -556,29 +484,12 @@
       <!-- PROMPT TOP HEADER BAR: project + mentions left, permission + screen right -->
       <div id="prompt-top-bar" class="prompt-top-bar prompt-docked-bar">
         <div class="prompt-top-left docked-bar-left">
-          <!-- Text / Voice Mode Toggle Switcher (Voice Mode Disabled for Beta 1) -->
-          <div class="chat-mode-toggle" role="tablist" aria-label="Chat mode" style="display: none !important;">
-            <button type="button" id="btn-chat-mode-text" class="chat-mode-btn active" data-mode="text" role="tab" aria-selected="true" title="Text mode">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
-                <path d="M17 6.1H3M21 12.1H3M15.8 18.1H3"></path>
-              </svg>
-              <span>Text</span>
-            </button>
-            <button type="button" id="btn-chat-mode-voice" class="chat-mode-btn" data-mode="voice" role="tab" aria-selected="false" title="Voice mode (In Development)" disabled>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-                <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
-              </svg>
-              <span>Voice</span>
-            </button>
-          </div>
-
           <!-- CHOOSE PROJECT: pick a folder, index it into the local knowledge base -->
           <button type="button" id="btn-choose-project" class="docked-bar-btn project-btn" title="Select a project folder and index it locally">
             <svg class="project-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
             </svg>
-            <span id="choose-project-label" class="project-label">Choose project</span>
+            <span id="choose-project-label" class="project-label">Select Project</span>
             <span id="choose-project-count" class="project-count hidden"></span>
             <span id="choose-project-badge" class="project-synced-dot hidden" aria-hidden="true"></span>
             <span id="choose-project-spinner" class="project-spinner hidden" role="progressbar" aria-label="Indexing project"></span>
@@ -612,28 +523,7 @@
               <div id="mention-file-list" class="mention-file-list" aria-live="polite">
                 <div class="mention-empty">No project indexed yet — choose a folder to make its files mentionable.</div>
               </div>
-              <div class="mention-divider"></div>
-              <div class="mention-section-label">Tools</div>
-              <button type="button" class="mention-toggle" id="mention-toggle-agent-tools" data-key="ultron-agent-tools-enabled" role="menuitemcheckbox" aria-checked="true">
-                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>
-                <span class="mention-toggle-text"><span class="mention-toggle-title">Agent tools</span><span class="mention-toggle-desc">Run desktop actions &amp; file ops</span></span>
-                <span class="mention-toggle-state"></span>
-              </button>
-              <button type="button" class="mention-toggle" id="mention-toggle-web-search" data-key="ultron-web-search-enabled" role="menuitemcheckbox" aria-checked="true">
-                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></span>
-                <span class="mention-toggle-text"><span class="mention-toggle-title">Web search</span><span class="mention-toggle-desc">Allow live web lookups</span></span>
-                <span class="mention-toggle-state"></span>
-              </button>
-              <button type="button" class="mention-toggle" id="mention-toggle-screen-aware" data-key="ultron-screen-aware-enabled" role="menuitemcheckbox" aria-checked="true">
-                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></span>
-                <span class="mention-toggle-text"><span class="mention-toggle-title">Screen aware</span><span class="mention-toggle-desc">Capture desktop for vision tasks</span></span>
-                <span class="mention-toggle-state"></span>
-              </button>
-              <button type="button" class="mention-toggle" id="mention-toggle-knowledge" data-key="ultron-rag-auto" role="menuitemcheckbox" aria-checked="true">
-                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></span>
-                <span class="mention-toggle-text"><span class="mention-toggle-title">Project knowledge</span><span class="mention-toggle-desc">Answer from your indexed local files</span></span>
-                <span class="mention-toggle-state"></span>
-              </button>
+
             </div>
           </div>
         </div>
@@ -720,6 +610,7 @@
 
         <!-- Attachment Carousel Preview Bar (inside input pill) -->
         <div id="attachment-preview-bar" class="attachment-preview-bar hidden"></div>
+        <div id="artifact-revision-preview" class="artifact-revision-preview" hidden></div>
 
         <!-- Hidden Native File Input -->
         <input type="file" id="hidden-file-input" multiple style="display: none;" />
@@ -749,6 +640,28 @@
                   </div>
                   <span id="model-capability-badge" class="model-capability-badge badge-text">Text</span>
                 </button>
+              <div class="mention-divider"></div>
+              <div class="mention-section-label">Tools</div>
+              <button type="button" class="mention-toggle" id="mention-toggle-agent-tools" data-key="ultron-agent-tools-enabled" role="menuitemcheckbox" aria-checked="true">
+                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg></span>
+                <span class="mention-toggle-text"><span class="mention-toggle-title">Agent tools</span><span class="mention-toggle-desc">Run desktop actions &amp; file ops</span></span>
+                <span class="mention-toggle-state"></span>
+              </button>
+              <button type="button" class="mention-toggle" id="mention-toggle-web-search" data-key="ultron-web-search-enabled" role="menuitemcheckbox" aria-checked="true">
+                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg></span>
+                <span class="mention-toggle-text"><span class="mention-toggle-title">Web search</span><span class="mention-toggle-desc">Allow live web lookups</span></span>
+                <span class="mention-toggle-state"></span>
+              </button>
+              <button type="button" class="mention-toggle" id="mention-toggle-screen-aware" data-key="ultron-screen-aware-enabled" role="menuitemcheckbox" aria-checked="true">
+                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></span>
+                <span class="mention-toggle-text"><span class="mention-toggle-title">Screen aware</span><span class="mention-toggle-desc">Capture desktop for vision tasks</span></span>
+                <span class="mention-toggle-state"></span>
+              </button>
+              <button type="button" class="mention-toggle" id="mention-toggle-knowledge" data-key="ultron-rag-auto" role="menuitemcheckbox" aria-checked="true">
+                <span class="mention-toggle-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg></span>
+                <span class="mention-toggle-text"><span class="mention-toggle-title">Project knowledge</span><span class="mention-toggle-desc">Answer from your indexed local files</span></span>
+                <span class="mention-toggle-state"></span>
+              </button>
               </div>
             </div>
             <!-- Custom Upward Model Selector -->
@@ -856,7 +769,7 @@
       </div>
 
       <!-- Inline @ mention autocomplete (anchored above the input card) -->
-      <div id="at-mention-dropdown" class="at-mention-dropdown hidden" role="listbox" aria-label="Mention suggestions"></div>
+      <p class="composer-disclaimer">Brown AI can make mistakes. Verify important information and protect your personal data.</p>
       </div>
     </div>
     </div>
@@ -1077,10 +990,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
             Software Updates
           </div>
-          <div class="settings-tab-btn" data-tab="appearance">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
-            Appearance
-          </div>
+
           <div class="settings-tab-btn" data-tab="help">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             Help &amp; Support
@@ -1713,16 +1623,6 @@
                   </div>
                   <select id="setting-voice-input-device" class="tts-select"></select>
                 </div>
-                <div class="set-slider-row">
-                  <span class="set-slider-label">Voice sensitivity</span>
-                  <input type="range" class="set-slider" id="setting-voice-sensitivity" min="2.4" max="5" step="0.1" value="3.6">
-                  <span class="set-slider-value" id="setting-voice-sensitivity-label">Balanced</span>
-                </div>
-                <div class="set-slider-row">
-                  <span class="set-slider-label">Pause before send</span>
-                  <input type="range" class="set-slider" id="setting-voice-pause" min="500" max="2000" step="100" value="700">
-                  <span class="set-slider-value" id="setting-voice-pause-label">0.7s</span>
-                </div>
               </div>
             </section>
           </div>
@@ -1809,7 +1709,7 @@
                 <span class="kb-offline">● On this PC</span>
               </div>
               <header class="kb-welcome">
-                <label class="kb-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="kb-search" type="search" placeholder="Search your knowledge files" aria-label="Search knowledge files"></label>
+                <div class="kb-search-shell"><label class="kb-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><input id="kb-search" type="search" placeholder="Search your knowledge files" aria-label="Search knowledge files" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="kb-search-results"></label><div id="kb-search-results" class="kb-search-results" role="listbox" aria-label="Indexed file matches" hidden></div></div>
                 <div class="kb-actions"><button id="btn-rag-add-folder" type="button">＋ Import folder</button><button id="btn-rag-add-files" type="button" class="kb-primary">↑ Import files</button></div>
               </header>
               <div id="kb-notice" class="kb-notice hidden" role="status" aria-live="polite"></div>
@@ -1818,11 +1718,18 @@
               <section class="kb-section"><div class="kb-section-head"><h5>Browse by file type</h5><button id="kb-reset-filter" class="kb-text-button" type="button">View all</button></div><div id="kb-type-cards" class="kb-type-grid"></div></section>
               <section class="kb-section kb-files-section">
                 <div class="kb-section-head"><h5>Your indexed files <span id="kb-file-count"></span></h5><span id="rag-stat-chunks"></span></div>
-                <div class="kb-files-tools"><div class="kb-tabs" role="group" aria-label="File list view"><button type="button" data-kb-view="all" class="active" aria-pressed="true">All files</button><button type="button" data-kb-view="recent" aria-pressed="false">Recently modified</button></div><label class="kb-type-select">File type <select id="kb-type-filter"><option value="all">All formats</option><option value="text">Text &amp; notes</option><option value="pdf">PDF</option><option value="code">Code</option><option value="data">Data &amp; config</option></select></label></div>
+                <div class="kb-files-tools"><div class="kb-tabs" role="group" aria-label="File list view"><button type="button" data-kb-view="all" class="active" aria-pressed="true">All files</button><button type="button" data-kb-view="recent" aria-pressed="false">Recently modified</button></div><label class="kb-type-select">File type <select id="kb-type-filter"><option value="all">All formats</option><option value="text">Text &amp; notes</option><option value="pdf">PDF</option><option value="documents">Documents &amp; slides</option><option value="images">Images &amp; scans</option><option value="code">Code</option><option value="data">Data &amp; config</option></select></label></div>
                 <div class="kb-table-wrap"><table class="kb-table"><thead><tr><th>Name</th><th>Source</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody id="kb-file-rows"></tbody></table></div>
-                <p class="kb-import-hint">Drop supported files or folders here to index them. Text, Markdown, PDF, code, CSV, JSON, and configuration files · up to 1.5 MB per file. Image-only PDFs need a text layer.</p>
+                  <p class="kb-import-hint">Import text, code, PDF, DOCX, PPTX, XLSX, OpenDocument, RTF and images. Text files: up to 2 MB; documents and images: up to 32 MB. Windows OCR reads images and scanned pages locally; language support depends on installed OCR languages. Legacy DOC/XLS/PPT and other unsupported formats need conversion.</p>
+                  <details id="kb-import-report" class="kb-retrieval" hidden><summary>Import notices and skipped files</summary><div id="kb-import-report-items"></div></details>
               </section>
               <footer class="kb-management"><label class="kb-auto"><input type="checkbox" id="rag-auto-toggle"><span>Auto-learn from your activity<small>Adds projects you open and files Brown works on.</small></span></label><div class="kb-actions"><button id="btn-rag-reindex" type="button">↻ Re-index all</button><button id="btn-rag-clear" class="kb-danger" type="button">Clear index</button></div></footer>
+              <section class="kb-auto-updates">
+                <label class="kb-auto"><input type="checkbox" id="kb-auto-updates-toggle"><span>Automatic knowledge updates<small>Watch indexed sources and refresh changed files locally.</small></span></label>
+                <p id="kb-update-status" role="status" aria-live="polite">Checking automatic updates…</p>
+                <button type="button" id="kb-check-updates">Check for file changes</button>
+                <details><summary>Update details and skipped files</summary><div id="kb-update-details"></div></details>
+              </section>
               <details class="kb-retrieval"><summary>Search inside your knowledge</summary><p>Find relevant excerpts from your indexed files.</p><div class="kb-query"><input id="input-rag-test-query" placeholder="Ask about your documents…" aria-label="Search document contents"><button id="btn-rag-test-search" type="button">Search</button></div><div id="rag-test-results"></div></details>
             </div>
           </div>
@@ -2325,46 +2232,6 @@
             </div>
           </div>
 
-          <!-- Appearance Tab -->
-          <div id="tab-appearance" class="tab-pane hidden">
-            <div class="developer-settings-card about-settings-card" style="background: transparent; border: none; padding: 0; gap: 4px;">
-              <h4 style="margin: 0 0 4px 0;">Appearance</h4>
-              <p class="text-xs text-muted" style="margin: 0 0 12px 0;">Choose how Brown looks. “System” follows your OS color scheme.</p>
-              <div class="appearance-cards">
-                <button type="button" class="theme-card" data-theme-choice="system">
-                  <span class="theme-card-preview">
-                    <img src="../../Assets/default-theme.png" alt="System Theme" class="theme-card-img">
-                  </span>
-                  <span class="theme-card-label">System Theme
-                    <span class="theme-card-checkbox">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    </span>
-                  </span>
-                </button>
-                <button type="button" class="theme-card" data-theme-choice="light">
-                  <span class="theme-card-preview">
-                    <img src="../../Assets/light-theme.png" alt="Light Theme" class="theme-card-img">
-                  </span>
-                  <span class="theme-card-label">Light Theme
-                    <span class="theme-card-checkbox">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    </span>
-                  </span>
-                </button>
-                <button type="button" class="theme-card" data-theme-choice="dark">
-                  <span class="theme-card-preview">
-                    <img src="../../Assets/dark-theme.png" alt="Dark Theme" class="theme-card-img">
-                  </span>
-                  <span class="theme-card-label">Dark Theme
-                    <span class="theme-card-checkbox">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    </span>
-                  </span>
-                </button>
-              </div>
-            </div>
-          </div>
-
           <!-- About Tab -->
           <div id="tab-about" class="tab-pane hidden">
             <div class="developer-settings-card about-settings-card" style="background: transparent; border: none; padding: 0;">
@@ -2518,8 +2385,10 @@
           <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" fill="none"></path>
         </svg>
 
-        <button id="btn-close-search" class="btn-close-search">&times;</button>
       </div>
+      <button id="btn-close-search" class="btn-close-search" type="button" aria-label="Close search" title="Close search">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
       <div id="chat-search-results" class="search-results-container hidden">
         <!-- Search results list populated dynamically -->
       </div>
@@ -2808,6 +2677,21 @@
   <script src="../../node_modules/mermaid/dist/mermaid.min.js"></script>
   <script src="visual-engine.js"></script>
   <script src="visual-loading.js"></script>
+  <script src="request-pipeline.js"></script>
+  <script src="artifact-runtime.js"></script>
+  <script src="illustration-design.js"></script>
+  <script src="geometry-diagrams.js"></script>
+  <script src="visual-planner.js"></script>
+  <script src="visual-model-stream.js"></script>
+  <script src="activity-status.js"></script>
+  <script src="conversation-context.js"></script>
+  <script src="chat-jobs.js"></script>
+  <script src="chat-job-executor.js"></script>
+  <script src="chat-job-ui.js"></script>
+  <script src="message-workflows.js"></script>
+  <script src="artifact-composer.js"></script>
+  <script src="evidence-viewer.js"></script>
+  <script src="message-copy.js"></script>
   <script src="spoken-summary.js"></script>
 
   <script src="motion-effects.js"></script>
@@ -2816,6 +2700,13 @@
   <script src="knowledge-base.js"></script>
   <script src="onboarding-voices.js"></script>
   <script src="onboarding-setup.js"></script>
+  <script src="speech-highlight.js"></script>
+  <script src="speech-pcm-player.js"></script>
+  <script src="project-workspaces.js"></script>
+  <script src="model-health.js"></script>
+  <script src="project-workspace-ui.js"></script>
+  <script src="project-sidebar.js"></script>
+  <script src="assets-gallery.js"></script>
   <script src="renderer.js"></script>
   <script src="mobile-activity.js"></script>
 </body>

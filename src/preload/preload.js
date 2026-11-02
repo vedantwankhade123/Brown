@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // Shared lifecycle feed keeps downloads visible across every app section.
 const downloadActivity = new Map();
@@ -80,6 +80,7 @@ const apiMethods = {
   executeAction: (payload) => ipcRenderer.invoke('execute-action', payload),
   launchSandbox: (hostPath) => ipcRenderer.invoke('launch-sandbox', hostPath),
   readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+  getAssetPreview: (filePath) => ipcRenderer.invoke('asset-preview', filePath),
   extractPdfText: (payload) => ipcRenderer.invoke('extract-pdf-text', payload),
   writeFile: (filePath, content) => ipcRenderer.invoke('write-file', { filePath, content }),
   deleteFile: (filePath) => ipcRenderer.invoke('delete-file', filePath),
@@ -157,6 +158,7 @@ const apiMethods = {
     for (const job of jobs) if (names[job]) publishDownloadActivity({ modelName: names[job][0], kind: names[job][1], percent: null, status: 'Queued', timestamp: Date.now() });
   },
   showItemInFolder: (filePath) => ipcRenderer.invoke('show-item-in-folder', filePath),
+  getAttachmentPath: (file) => webUtils.getPathForFile(file),
   openFileOrPath: (filePath) => ipcRenderer.invoke('open-file-or-path', filePath),
   fileExists: (filePath) => ipcRenderer.invoke('file-exists', filePath),
   getActiveWindow: () => ipcRenderer.invoke('get-active-window'),
@@ -217,11 +219,14 @@ const apiMethods = {
     return () => ipcRenderer.removeListener('voice-stt-live:partial', subscription);
   },
 
+  renderVisualDiagram: code => ipcRenderer.invoke('render-visual-diagram', code),
+  copyText: text => ipcRenderer.invoke('clipboard:write-text', text),
   synthesizeSpeech: (text, modelKey, options = {}) => ipcRenderer.invoke('synthesize-speech', {
     text,
     modelKey,
     apiKey: options.apiKey,
-    speed: options.speed
+    speed: options.speed,
+    format: options.format
   }),
   getTtsCatalog: () => ipcRenderer.invoke('get-tts-catalog'),
   getTtsModelStatus: (modelKey) => ipcRenderer.invoke('get-tts-model-status', modelKey),
@@ -325,6 +330,15 @@ const apiMethods = {
   ragSearch: (payload) => ipcRenderer.invoke('rag:search', payload),
   ragClear: () => ipcRenderer.invoke('rag:clear'),
   ragGetStats: () => ipcRenderer.invoke('rag:get-stats'),
+  ragUpdateStatus: () => ipcRenderer.invoke('rag:update-status'),
+  ragReadEvidence: (filePath, options) => ipcRenderer.invoke('rag:read-evidence', filePath, options),
+  ragSetAutoUpdates: (enabled) => ipcRenderer.invoke('rag:auto-updates', enabled),
+  ragCheckUpdates: () => ipcRenderer.invoke('rag:check-updates'),
+  onRagUpdateStatus: (callback) => {
+    const listener = (_event, status) => callback(status);
+    ipcRenderer.on('rag:update-status', listener);
+    return () => ipcRenderer.removeListener('rag:update-status', listener);
+  },
   ragListFiles: (filter) => ipcRenderer.invoke('rag:list-files', filter),
   onRagIndexProgress: (callback) => {
     const subscription = (event, data) => callback(data);

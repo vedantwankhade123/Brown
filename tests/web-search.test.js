@@ -86,6 +86,7 @@ async function run() {
   const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   Object.assign(ctx, { URL, escapeHtml, dedupeSearchResultsByDomain: items => items, getSourceDomain: item => new URL(item.url).hostname, isLocalPlacesIntent: () => false, structureReadableMarkdown: text => text, sanitizeResponseText: text => text, enhanceCitationsWithTooltips: text => text, formatPriceWithLocalEquivalent: text => text, renderSourceLogo: () => '', isProductOrShoppingQuery: planner.isShopping, renderStackedSourcesHtml: () => '' });
   ctx.window.ultronAPI = { parseMarkdown: text => text };
+  ctx.renderChatMarkdown = text => text;
   evaluate('function renderSearchExperience(', '// Global click event handlers for search filter pills', ctx);
   result.products[0].rating = 4.4; result.products[0].ratingCount = 50;
   const markup = ctx.renderSearchExperience(answer, result);

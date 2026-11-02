@@ -9,11 +9,8 @@ const { app } = require('electron');
 
 // NOTE: secret-bearing files (.env, keys) are deliberately NOT indexable —
 // indexed snippets can be injected into LLM prompts, so they must never be stored.
-const SUPPORTED_EXTENSIONS = new Set([
-  '.txt', '.md', '.markdown', '.json', '.csv', '.js', '.ts', '.jsx', '.tsx',
-  '.py', '.html', '.css', '.xml', '.yaml', '.yml', '.sql', '.sh', '.bat',
-  '.ps1', '.ini', '.cfg', '.log', '.pdf'
-]);
+const parsers = require('./knowledge-parsers');
+const SUPPORTED_EXTENSIONS = parsers.extensions;
 
 const CHUNK_SIZE = 800;
 const CHUNK_OVERLAP = 150;
@@ -24,8 +21,8 @@ const EXCLUDED_DIRS = new Set([
   '.cache', '.next', 'coverage', 'out', 'target', '.expo', '.vs', '.idea'
 ]);
 const MAX_FILES_PER_SOURCE = 1500;
-const MAX_FILE_BYTES = 1500000; // 1.5 MB per file
-const MAX_SOURCE_BYTES = 25000000; // 25 MB of text per folder, keeps one index pass inside the heap
+// Raw binary documents/images have a separate 32 MB bound; text files are limited to 2 MB.
+const MAX_SOURCE_BYTES = 128000000; // Raw source bytes per folder; extracted output is independently bounded.
 const MAX_AUTO_FILE_SOURCES = 250;
 
 let os;
@@ -81,7 +78,7 @@ function tokenize(text) {
   if (!text || typeof text !== 'string') return [];
   const words = text
     .toLowerCase()
-    .replace(/[^\w\s-]/g, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, ' ')
     .split(/\s+/)
     .filter(w => w.length > 1);
 
@@ -318,103 +315,27 @@ function fixedSizeChunk(text, filePath, fileName, startIdx) {
   return chunks;
 }
 
-// Extract plain text from PDF using pdf-parse with fallbacks
-async function extractTextFromPdfBuffer(buffer) {
-  if (!buffer) return '';
+// Share extraction across initial imports, automatic refreshes and evidence reads.
+async function parseFile(targetPath, report = null) {
   try {
-    const uint8 = Buffer.isBuffer(buffer) ? new Uint8Array(buffer) : new Uint8Array(Buffer.from(buffer));
-    if (typeof globalThis.DOMMatrix === 'undefined') {
-      globalThis.DOMMatrix = class DOMMatrix {
-        constructor(init) {
-          this.a = 1; this.b = 0; this.c = 0; this.d = 1; this.e = 0; this.f = 0;
-          if (Array.isArray(init) && init.length >= 6) {
-            [this.a, this.b, this.c, this.d, this.e, this.f] = init;
-          }
-        }
-      };
-    }
-    if (typeof globalThis.ImageData === 'undefined') {
-      globalThis.ImageData = class ImageData {
-        constructor(width, height) {
-          this.width = width || 0;
-          this.height = height || 0;
-          this.data = new Uint8ClampedArray((this.width * this.height * 4) || 0);
-        }
-      };
-    }
-    if (typeof globalThis.Path2D === 'undefined') {
-      globalThis.Path2D = class Path2D {
-        constructor() {}
-        addPath() {}
-        closePath() {}
-        moveTo() {}
-        lineTo() {}
-        bezierCurveTo() {}
-        quadraticCurveTo() {}
-        arc() {}
-        arcTo() {}
-        ellipse() {}
-        rect() {}
-      };
-    }
-    try {
-      const pdfModule = require('pdf-parse');
-      const PDFParse = pdfModule.PDFParse || (typeof pdfModule === 'function' ? pdfModule : null);
-      if (PDFParse) {
-        const origWarn = console.warn;
-        const origError = console.error;
-        try {
-          console.warn = (...args) => {
-            const msg = String(args[0] || '');
-            if (msg.includes('standardFontDataUrl') || msg.includes('polyfill') || msg.includes('require')) return;
-            origWarn.apply(console, args);
-          };
-          console.error = (...args) => {
-            const msg = String(args[0] || '');
-            if (msg.includes('standardFontDataUrl') || msg.includes('polyfill')) return;
-            origError.apply(console, args);
-          };
-          if (typeof PDFParse === 'function' && !pdfModule.PDFParse) {
-            const res = await PDFParse(Buffer.from(uint8));
-            if (res && res.text && res.text.trim()) return res.text.trim();
-          } else {
-            const parser = new PDFParse({ data: uint8 });
-            try {
-              const res = await parser.getText();
-              if (res && res.text && res.text.trim()) return res.text.trim();
-            } finally {
-              await parser.destroy();
-            }
-          }
-        } finally {
-          console.warn = origWarn;
-          console.error = origError;
-        }
-      }
-    } catch {}
-    // No usable text layer (scanned/image-only PDF, or extraction failed).
-    // Returning nothing is deliberate: scraping the raw bytes produced binary junk
-    // that got chunked into the index, and its huge random-vocabulary vectors
-    // exhausted the main-process heap.
-    return '';
-  } catch {
-    return '';
+    const result = await parsers.extract(targetPath);
+    for (const reason of result.warnings || []) report?.push({path:targetPath,reason,warning:true});
+    return result;
+  } catch (error) {
+    report?.push({path:targetPath,reason:error.message});
+    return {text:'',segments:[]};
   }
 }
-
-// Read and parse file content
-async function readFileContent(targetPath) {
-  try {
-    const ext = path.extname(targetPath).toLowerCase();
-    if (ext === '.pdf') {
-      const buffer = fs.readFileSync(targetPath);
-      return await extractTextFromPdfBuffer(buffer);
+async function readFileContent(targetPath) { return (await parseFile(targetPath)).text; }
+function parsedChunks(parsed, filePath) {
+  const chunks=[];
+  for(const segment of parsed.segments||[]){
+    for(const chunk of chunkText(segment.text,filePath)){
+      chunk.chunkIndex=chunks.length;chunk.id=crypto.createHash('md5').update(`${filePath}:${chunk.chunkIndex}`).digest('hex');
+      Object.assign(chunk,{extraction:segment.extraction||parsed.extraction,kind:parsed.kind||'document',pageNumber:segment.pageNumber,slideNumber:segment.slideNumber,sheetName:segment.sheetName});chunks.push(chunk);
     }
-    return fs.readFileSync(targetPath, 'utf8');
-  } catch (err) {
-    console.warn(`[rag-engine] error reading file ${targetPath}:`, err.message);
-    return null;
   }
+  return chunks;
 }
 
 // Collect all indexable files
@@ -425,10 +346,10 @@ function collectFiles(sourcePath, skipped = null) {
   const stat = fs.statSync(sourcePath);
   if (stat.isFile()) {
     const ext = path.extname(sourcePath).toLowerCase();
-    if (SUPPORTED_EXTENSIONS.has(ext) && stat.size <= MAX_FILE_BYTES) {
+    if (SUPPORTED_EXTENSIONS.has(ext) && stat.size <= parsers.limitFor(sourcePath)) {
       results.push(sourcePath);
     } else if (SUPPORTED_EXTENSIONS.has(ext) && skipped) {
-      skipped.push({ path: sourcePath, reason: 'File is larger than the 1.5 MB indexing limit.' });
+      skipped.push({ path: sourcePath, reason: 'File exceeds its format-specific indexing size limit.' });
     }
     return results;
   }
@@ -436,7 +357,8 @@ function collectFiles(sourcePath, skipped = null) {
   if (stat.isDirectory()) {
     let totalBytes = 0;
     const walk = (dir, depth = 0) => {
-      if (depth > 6 || results.length >= MAX_FILES_PER_SOURCE || totalBytes >= MAX_SOURCE_BYTES) return;
+      if(depth>6){if(skipped&&skipped.length<500)skipped.push({path:dir,reason:'Folder is beyond the six-level indexing depth limit.'});return;}
+      if (results.length >= MAX_FILES_PER_SOURCE || totalBytes >= MAX_SOURCE_BYTES) return;
       try {
         const items = fs.readdirSync(dir, { withFileTypes: true });
         for (const item of items) {
@@ -446,12 +368,12 @@ function collectFiles(sourcePath, skipped = null) {
             walk(full, depth + 1);
           } else if (item.isFile()) {
             const ext = path.extname(item.name).toLowerCase();
-            if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
+            if (!SUPPORTED_EXTENSIONS.has(ext)) { if (skipped && skipped.length < 500) skipped.push({path:full,reason:'Unsupported file format: '+(ext||'no extension')+'. Convert it to a supported format.'}); continue; }
             let size = 0;
             try {
               size = fs.statSync(full).size;
-              if (size > MAX_FILE_BYTES) {
-                skipped?.push({ path: full, reason: 'File is larger than the 1.5 MB indexing limit.' });
+              if (size > parsers.limitFor(full)) {
+                skipped?.push({ path: full, reason: 'File exceeds its format-specific indexing size limit.' });
                 continue;
               }
             } catch { continue; }
@@ -463,6 +385,7 @@ function collectFiles(sourcePath, skipped = null) {
       } catch {}
     };
     walk(sourcePath);
+    if(results.length>=MAX_FILES_PER_SOURCE||totalBytes>=MAX_SOURCE_BYTES)skipped?.push({path:sourcePath,reason:'Folder scan reached its file-count or raw-byte limit. Import smaller subfolders for the remaining files.'});
   }
   return results;
 }
@@ -486,7 +409,9 @@ async function addSources(targetPaths = [], progressCallback = null) {
     if (!isDir && !SUPPORTED_EXTENSIONS.has(path.extname(src).toLowerCase())) {
       rejected.push({ path: src, reason: 'Unsupported file format.' }); continue;
     }
-    if (collectFiles(src).length === 0) {
+    // Keep empty directories registered so projects can start before their files
+    // exist and the update monitor can index supported files added later.
+    if (!isDir && collectFiles(src).length === 0) {
       rejected.push({ path: src, reason: 'No supported files within the size limits were found.' }); continue;
     }
     const existing = indexData.sources.find(s => s.path === src);
@@ -515,7 +440,8 @@ async function addSources(targetPaths = [], progressCallback = null) {
 async function removeSource(sourcePath) {
   const indexData = loadIndex();
   indexData.sources = indexData.sources.filter(s => s.path !== sourcePath);
-  indexData.chunks = indexData.chunks.filter(c => !chunksBelongToSource(c.filePath, sourcePath));
+  indexData.chunks = indexData.chunks.filter(c => c.sourceId || indexData.sources.some(source => chunksBelongToSource(c.filePath, source.path)));
+  if (indexData.fileState) for (const file of Object.keys(indexData.fileState)) if (!indexData.sources.some(source => chunksBelongToSource(file, source.path))) delete indexData.fileState[file];
   if (!(await saveIndex(indexData))) return { success: false, error: 'Could not save the source removal.' };
   return { success: true, totalSources: indexData.sources.length };
 }
@@ -528,12 +454,14 @@ async function reindexSource(sourcePath) {
 
   indexData.chunks = (indexData.chunks || []).filter(c => !chunksBelongToSource(c.filePath, sourcePath));
   const files = collectFiles(source.path);
-  source.fileCount = files.length;
-  let sourceChunkCount = 0;
+  source.fileCount = 0;
+  let sourceChunkCount = 0,extractedChars=0;const skipped=[];
   for (const filePath of files) {
-    const content = await readFileContent(filePath);
-    if (content) {
-      const fileChunks = chunkText(content, filePath);
+    const parsed = await parseFile(filePath,skipped);
+    if (parsed.text) {
+      if(extractedChars+parsed.text.length>25_000_000){skipped.push({path:filePath,reason:'Source exceeds the extracted-text budget.'});continue;}
+      extractedChars+=parsed.text.length;source.fileCount++;
+      const fileChunks = parsedChunks(parsed, filePath);
       indexData.chunks.push(...fileChunks);
       sourceChunkCount += fileChunks.length;
     }
@@ -541,7 +469,7 @@ async function reindexSource(sourcePath) {
   source.chunkCount = sourceChunkCount;
   source.lastIndexed = new Date().toISOString();
   await saveIndex(indexData);
-  return { success: true, totalFiles: files.length, totalChunks: sourceChunkCount };
+  return { success: true, totalFiles: source.fileCount, totalChunks: sourceChunkCount,skipped };
 }
 
 // Auto-learn: register a folder/file the user brought into Ultron (implicit
@@ -571,14 +499,14 @@ async function indexFile(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return { success: false };
   let stat;
   try { stat = fs.statSync(filePath); } catch { return { success: false }; }
-  if (!stat.isFile() || stat.size > MAX_FILE_BYTES) return { success: false };
+  if (!stat.isFile() || stat.size > parsers.limitFor(filePath)) return { success: false };
   const ext = path.extname(filePath).toLowerCase();
   if (!SUPPORTED_EXTENSIONS.has(ext)) return { success: false };
 
   const indexData = loadIndex();
   const hasChunks = (indexData.chunks || []).some(c => c.filePath === filePath);
   const existing = indexData.sources.find(s => s.path === filePath);
-  if (existing && existing.indexedMtime === stat.mtimeMs && hasChunks) {
+  if (existing && existing.indexedMtime === stat.mtimeMs && existing.indexedParserVersion===parsers.VERSION && hasChunks) {
     return { success: true, skipped: true };
   }
 
@@ -604,13 +532,14 @@ async function indexFile(filePath) {
   }
 
   indexData.chunks = (indexData.chunks || []).filter(c => c.filePath !== filePath);
-  const content = await readFileContent(filePath);
-  const chunks = content ? chunkText(content, filePath) : [];
+  const parsed = await parseFile(filePath);
+  const chunks = parsedChunks(parsed, filePath);
   indexData.chunks.push(...chunks);
   const source = indexData.sources.find(s => s.path === filePath);
   if (source) {
     source.chunkCount = chunks.length;
     source.indexedMtime = stat.mtimeMs;
+    source.indexedParserVersion = parsers.VERSION;
     source.lastIndexed = new Date().toISOString();
   }
   await saveIndex(indexData);
@@ -620,6 +549,7 @@ async function indexFile(filePath) {
 // Reindex all registered sources
 async function reindexAll(progressCallback = null) {
   const indexData = loadIndex();
+  const fileState = {};
   const allChunks = (indexData.chunks || []).filter(chunk => chunk.sourceId);
   let totalFilesIndexed = 0;
   const indexedPaths = new Set();
@@ -630,11 +560,17 @@ async function reindexAll(progressCallback = null) {
     const files = collectFiles(source.path, skipped);
     source.fileCount = files.length;
     let sourceChunkCount = 0;
+    let extractedChars = 0,sourceFilesIndexed=0;
 
     for (const filePath of files) {
-      const content = await readFileContent(filePath);
-      if (content && content.trim()) {
-        const fileChunks = chunkText(content, filePath);
+      try { const stat = fs.statSync(filePath); fileState[filePath] = `${parsers.VERSION}:${stat.mtimeMs}:${stat.size}`; } catch {}
+      if(indexedPaths.has(filePath)){const chunks=allChunks.filter(chunk=>chunk.filePath===filePath);sourceChunkCount+=chunks.length;sourceFilesIndexed++;extractedChars+=chunks.reduce((sum,chunk)=>sum+chunk.charCount,0);continue;}
+      if (typeof progressCallback === 'function') progressCallback({currentSource:source.name,currentFile:path.basename(filePath),sourceIndex:i+1,totalSources:indexData.sources.length,filesIndexed:totalFilesIndexed});
+      const parsed = await parseFile(filePath, skipped);
+      if (parsed.text && parsed.text.trim()) {
+        if(extractedChars+parsed.text.length>25_000_000){skipped.push({path:filePath,reason:'Source exceeds the 25 million character extracted-text budget. Import a smaller subfolder.'});continue;}
+        extractedChars+=parsed.text.length;sourceFilesIndexed++;
+        const fileChunks = parsedChunks(parsed, filePath);
         allChunks.push(...fileChunks);
         sourceChunkCount += fileChunks.length;
         if (!indexedPaths.has(filePath)) {
@@ -642,7 +578,7 @@ async function reindexAll(progressCallback = null) {
           totalFilesIndexed++;
         }
       } else {
-        skipped.push({ path: filePath, reason: 'No readable text found. Scanned PDFs need a text layer.' });
+        if(!skipped.some(item=>item.path===filePath&&!item.warning))skipped.push({ path: filePath, reason: 'No readable text found. Check OCR availability, document language, encryption or file integrity.' });
       }
       if (typeof progressCallback === 'function') {
         progressCallback({
@@ -654,10 +590,13 @@ async function reindexAll(progressCallback = null) {
       }
     }
     source.chunkCount = sourceChunkCount;
+    source.fileCount = sourceFilesIndexed;
     source.lastIndexed = new Date().toISOString();
   }
 
   indexData.chunks = [...new Map(allChunks.map(chunk => [chunk.id, chunk])).values()];
+  indexData.fileState = fileState;
+  indexData.extractionReport=skipped.slice(0,500);
   if (!(await saveIndex(indexData))) return { success: false, error: 'Could not save the indexed files.' };
 
   return {
@@ -702,19 +641,24 @@ async function searchKnowledge(query, options = {}) {
   if (!query || typeof query !== 'string' || !query.trim()) return { success: true, results: [] };
 
   const indexData = loadIndex();
+  if (Array.isArray(options?.sourcePaths)) {
+    indexData.chunks = (indexData.chunks || []).filter(chunk => options.sourcePaths.some(source => typeof source === 'string' && chunksBelongToSource(chunk.filePath, source)));
+  }
   if (!indexData.chunks || indexData.chunks.length === 0) return { success: true, results: [] };
 
   const queryTokens = tokenize(query);
   const queryVector = createTermVector(queryTokens);
   // Unique query terms for BM25 (no n-grams, just whole words)
-  const queryWords = query.toLowerCase().replace(/[^\w\s-]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+  const searchStopWords = new Set('the and for from with this that what which when where how does are was were have has can could would should please tell explain according using indexed files file documents document notes note folder folders project knowledge base search find about into your my our its'.split(' '));
+  const queryWords = [...new Set(query.toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s-]/gu, ' ').split(/\s+/).filter(w => w.length > 2 && !searchStopWords.has(w)))];
+  if (!queryWords.length) return { success: true, results: [] };
 
   // Pre-compute BM25 corpus stats
   const totalDocs = indexData.chunks.length;
   let totalLen = 0;
   const docFreqs = {};
   for (const chunk of indexData.chunks) {
-    const words = (chunk.text || '').toLowerCase().replace(/[^\w\s-]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+    const words = (chunk.text || '').toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s-]/gu, ' ').split(/\s+/).filter(w => w.length > 2);
     totalLen += words.length;
     const seen = new Set(words);
     for (const w of seen) {
@@ -726,6 +670,10 @@ async function searchKnowledge(query, options = {}) {
   const scored = [];
   for (const chunk of indexData.chunks) {
     if (!chunk.vector) continue;
+    const evidenceWords = new Set(((chunk.text || '') + ' ' + (chunk.fileName || '')).toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s-]/gu, ' ').split(/\s+/));
+    const matchedWords = queryWords.filter(word => evidenceWords.has(word)).length;
+    // Character n-grams and relative ranking cannot establish relevance alone.
+    if (!matchedWords || matchedWords / queryWords.length < 0.2) continue;
 
     // Cosine similarity score (0-1)
     const cosineScore = cosineSimilarity(queryVector, chunk.vector);
@@ -742,8 +690,15 @@ async function searchKnowledge(query, options = {}) {
       filePath: chunk.filePath,
       fileName: chunk.fileName,
       chunkIndex: chunk.chunkIndex,
+      chunkId: chunk.id,
+      sourceId: chunk.sourceId,
+      kind: chunk.kind,
+      extraction: chunk.extraction,
+      pageNumber: chunk.pageNumber,
+      slideNumber: chunk.slideNumber,
+      sheetName: chunk.sheetName,
       text: chunk.text,
-      snippet: chunk.text.slice(0, 300)
+      snippet: chunk.text
     });
   }
 
@@ -847,6 +802,7 @@ function getStats() {
     totalSources: (indexData.sources || []).length,
     totalChunks: (indexData.chunks || []).length,
     updatedAt: indexData.updatedAt || null
+    ,extractionReport:indexData.extractionReport||[]
   };
 }
 
@@ -869,6 +825,7 @@ function listIndexedFiles(filter = '') {
         chunkCount: 1,
         size: metadata?.isFile() ? metadata.size : null,
         modifiedAt: metadata?.isFile() ? metadata.mtime.toISOString() : null
+        ,kind:chunk.kind,extraction:chunk.extraction
       });
     }
   }
@@ -880,17 +837,96 @@ function listIndexedFiles(filter = '') {
   };
 }
 
+// Refresh only changed files, retaining saved notes and unchanged chunks.
+async function readEvidence(filePath, options = {}) {
+  const data = loadIndex();
+  if (typeof filePath !== 'string' || !data.chunks.some(chunk => chunk.filePath === filePath)) return { success: false, error: 'File is not indexed.' };
+  const notes = data.chunks.filter(chunk => chunk.filePath === filePath && chunk.sourceId);
+  if (notes.length) return { success: true, content: notes.map(chunk => chunk.text).join('\n\n').slice(0,24000) };
+  try { const stat = await fs.promises.stat(filePath); if (!stat.isFile() || stat.size > parsers.limitFor(filePath)) return { success: false, error: 'Source exceeds the readable file size limit.' }; }
+  catch { return { success: false, error: 'The source file is unavailable.' }; }
+  if(parsers.IMAGES.has(path.extname(filePath).toLowerCase())){
+    const chunks=data.chunks.filter(chunk=>chunk.filePath===filePath);
+    const result={success:true,kind:'image',extraction:chunks[0]?.extraction,content:chunks.map(chunk=>chunk.text).join('\n\n').slice(0,24000)};
+    if(options?.includeImage){
+      try{const {nativeImage}=require('electron');const image=await nativeImage.createThumbnailFromPath(filePath,{width:1600,height:1600});const buffer=image.toPNG();if(!image.isEmpty()&&buffer.length<=4_000_000)result.image={mimeType:'image/png',data:buffer.toString('base64')};else result.imageError='Image preview exceeds the vision input limit.';}
+      catch(error){result.imageError='Original image preview is unavailable: '+error.message;}
+    }
+    return result;
+  }
+  const content = await readFileContent(filePath);
+  if (!content) return { success: false, error: 'The source is unavailable or has no readable text.' };
+  return { success: true, content: content.slice(0, 24000) };
+}
+
+async function refreshChangedFiles() {
+  const data = loadIndex(), previous = data.fileState || {}, next = {}, skipped = [];
+  const paths = new Set(), unavailable = [];
+  for (const source of data.sources) {
+    if (source.type === 'memory') continue;
+    if (!fs.existsSync(source.path)) {
+      if (source.isDirectory || !fs.existsSync(path.parse(source.path).root)) unavailable.push(source.path);
+      skipped.push({ path: source.path, reason: 'Source is unavailable.' }); continue;
+    }
+    for (const file of collectFiles(source.path, skipped)) paths.add(file);
+  }
+  let updated = 0, removed = 0;
+  for (const file of paths) {
+    let stat;
+    try { stat = await fs.promises.stat(file); } catch { continue; }
+    const stamp = `${parsers.VERSION}:${stat.mtimeMs}:${stat.size}`;
+    next[file] = stamp;
+    if (previous[file] === stamp) continue;
+    const parsed = await parseFile(file, skipped);
+    data.chunks = (data.chunks || []).filter(chunk => chunk.filePath !== file);
+    if (parsed.text?.trim()){
+      const withinBudget=data.sources.filter(source=>chunksBelongToSource(file,source.path)).every(source=>data.chunks.filter(chunk=>chunksBelongToSource(chunk.filePath,source.path)).reduce((sum,chunk)=>sum+(chunk.charCount||chunk.text.length),0)+parsed.text.length<=25_000_000);
+      if(withinBudget)data.chunks.push(...parsedChunks(parsed,file));else skipped.push({path:file,reason:'Source exceeds the extracted-text budget. Import a smaller subfolder.'});
+    }
+    else if(!skipped.some(item=>item.path===file&&!item.warning))skipped.push({ path: file, reason: 'No readable text found.' });
+    updated++;
+    // Yield between files so a large update does not monopolize Electron.
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  for (const file of Object.keys(previous)) {
+    if (paths.has(file)) continue;
+    if (unavailable.some(source => chunksBelongToSource(file, source))) { next[file] = previous[file]; continue; }
+    data.chunks = (data.chunks || []).filter(chunk => chunk.filePath !== file);
+    removed++;
+  }
+  const stale = new Set((data.chunks || []).filter(chunk => !chunk.sourceId && !paths.has(chunk.filePath) && !unavailable.some(source => chunksBelongToSource(chunk.filePath, source))).map(chunk => chunk.filePath));
+  if (stale.size) { data.chunks = data.chunks.filter(chunk => !stale.has(chunk.filePath)); removed += stale.size; }
+  data.fileState = next;
+  for (const source of data.sources.filter(source => source.type !== 'memory')) {
+    if (unavailable.includes(source.path)) continue;
+    source.fileCount = new Set(data.chunks.filter(chunk=>chunksBelongToSource(chunk.filePath,source.path)).map(chunk=>chunk.filePath)).size;
+    source.chunkCount = data.chunks.filter(chunk => chunksBelongToSource(chunk.filePath, source.path)).length;
+    if (updated || removed) source.lastIndexed = new Date().toISOString();
+  }
+  if ((updated || removed || JSON.stringify(previous) !== JSON.stringify(next)) && !(await saveIndex(data))) return { success: false, error: 'Could not save automatic knowledge updates.' };
+  return { success: true, updated, removed, skipped, lastChecked: new Date().toISOString() };
+}
+
+// All disk mutations share one queue; background updates cannot overwrite imports.
+let mutationQueue = Promise.resolve();
+const serialize = fn => (...args) => {
+  const job = mutationQueue.then(() => fn(...args));
+  mutationQueue = job.catch(() => {});
+  return job;
+};
 module.exports = {
   supportedExtensions: [...SUPPORTED_EXTENSIONS],
-  addSources,
-  removeSource,
-  reindexAll,
-  reindexSource,
-  autoAddSource,
-  indexFile,
-  indexTextContent,
+  addSources: serialize(addSources),
+  removeSource: serialize(removeSource),
+  reindexAll: serialize(reindexAll),
+  reindexSource: serialize(reindexSource),
+  autoAddSource: serialize(autoAddSource),
+  indexFile: serialize(indexFile),
+  indexTextContent: serialize(indexTextContent),
+  refreshChangedFiles: serialize(refreshChangedFiles),
+  readEvidence,
   searchKnowledge,
-  clearIndex,
+  clearIndex: serialize(clearIndex),
   getStats,
   listIndexedFiles
 };

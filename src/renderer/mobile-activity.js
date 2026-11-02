@@ -140,6 +140,7 @@
     } catch { panel.querySelector('.mobile-panel-status').textContent = 'Could not refresh phone activity. Retrying…'; }
     finally { busy = false; }
   }
+  window.BrownMobileActivity={close:()=>toggle(false,true),isOpen:()=>opened};
   button.onclick = () => toggle(!opened);
   panel.querySelector('[data-close]').onclick = () => toggle(false);
   menuButton.onclick = () => toggleMenu(!menuOpened);

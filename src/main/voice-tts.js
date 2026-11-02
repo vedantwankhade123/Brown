@@ -210,7 +210,7 @@ async function synthesizeWithModel(modelKey, text, options = {}) {
 
   if (entry.engine === 'kokoro') {
     const { synthesizeKokoroSpeech } = require('./voice-kokoro');
-    const result = await synthesizeKokoroSpeech(text, entry.kokoroVoice, { speed: options.speed });
+    const result = await synthesizeKokoroSpeech(text, entry.kokoroVoice, { speed: options.speed, format: options.format });
     return {
       ...result,
       modelKey,

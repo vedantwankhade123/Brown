@@ -1,0 +1,30 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const {parseHTML}=require('linkedom');
+const ipcSource=fs.readFileSync(require.resolve('../src/main/ipc.js'),'utf8');
+const start=ipcSource.indexOf('function registerKnowledgeIpcHandlers('),end=ipcSource.indexOf('function setupIpcHandlers(',start);
+const handlers=new Map();let started=0;
+const context=vm.createContext({ipcMain:{handle:(name,handler)=>{assert(!handlers.has(name));handlers.set(name,handler);}},mainWindow:null,require:name=>{
+  if(name==='./rag-updates')return{start:()=>started++,status:()=>({enabled:true}),setEnabled:value=>({enabled:value}),check:async forced=>({forced})};
+  if(name==='./rag-engine')return{getStats:()=>({sources:[]})};
+  throw Error(name);
+}});
+vm.runInContext(ipcSource.slice(start,end),context);
+context.registerKnowledgeIpcHandlers();context.registerKnowledgeIpcHandlers();
+assert.equal(started,1);assert(handlers.has('rag:update-status'));assert(handlers.has('rag:search'));assert(handlers.has('rag:read-evidence'));
+assert.equal(handlers.get('rag:update-status')().enabled,true);
+const setup=ipcSource.slice(end,ipcSource.indexOf('// Location is resolved',end));
+assert(setup.indexOf('registerKnowledgeIpcHandlers();')<setup.indexOf('registerAudioIpcHandlers();'));
+(async()=>{
+  const {document}=parseHTML(fs.readFileSync(require.resolve('../src/renderer/index.html'),'utf8'));
+  const source=fs.readFileSync(require.resolve('../src/renderer/knowledge-base.js'),'utf8');
+  const module={exports:{}};
+  vm.runInNewContext(source,{document,module,setTimeout,clearTimeout,localStorage:{getItem:()=>null},console});
+  await module.exports.init({ragGetStats:async()=>({success:true,sources:[]}),ragListFiles:async()=>({success:true,files:[]}),ragUpdateStatus:async()=>{throw Error("Error invoking remote method 'rag:update-status': Error: No handler registered for 'rag:update-status'");}},{isAutoEnabled:()=>false});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert(document.getElementById('kb-update-status').textContent.includes('Close Brown completely'));
+  assert(document.getElementById('kb-auto-updates-toggle').disabled);
+  assert(document.getElementById('kb-check-updates').disabled);
+  assert.equal(document.getElementById('kb-notice').textContent,'','stale update support is not displayed as an import/index failure');
+  assert(!document.getElementById('btn-rag-add-folder').disabled,'existing knowledge actions remain available');
+  console.log('PASS: early independent Knowledge IPC registration, duplicate protection and stale-main graceful UI.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

@@ -370,7 +370,8 @@
         });
       });
     }
-    if (!chatMessages.some(m => m.role === 'user' && m.content === prompt)) {
+    const lastMessage = chatMessages[chatMessages.length - 1];
+    if (!(lastMessage?.role === 'user' && lastMessage.content === prompt)) {
       chatMessages.push({ role: 'user', content: prompt });
     }
 

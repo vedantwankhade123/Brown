@@ -31,7 +31,7 @@ function primeOnnxRuntime() {
   }
 }
 
-async function getWhisperTranscriber(onProgress) {
+async function getWhisperTranscriber(onProgress, offline = false) {
   if (!whisperPipelinePromise) {
     whisperPipelinePromise = (async () => {
       const cacheDir = getSttCacheDir();
@@ -44,6 +44,7 @@ async function getWhisperTranscriber(onProgress) {
       transformers.env.cacheDir = cacheDir;
       transformers.env.useFSCache = true;
       transformers.env.allowLocalModels = true;
+      transformers.env.allowRemoteModels = !offline;
       if (transformers.env.backends?.onnx?.wasm) {
         transformers.env.backends.onnx.wasm.numThreads = 1;
       }
@@ -52,6 +53,7 @@ async function getWhisperTranscriber(onProgress) {
       const pipeline = await transformers.pipeline('automatic-speech-recognition', WHISPER_MODEL_ID, {
         dtype: 'fp32',
         device: 'cpu',
+        local_files_only: offline,
         progress_callback: onProgress || null
       });
       whisperReady = true;
@@ -231,7 +233,7 @@ function isWhisperReady() {
   return whisperReady;
 }
 
-async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000) {
+async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000, options = {}) {
   if (!audioSamples || !audioSamples.length) {
     return { success: false, error: 'No audio samples provided.', engine: WHISPER_ENGINE_KEY };
   }
@@ -242,7 +244,7 @@ async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000) {
     return { success: false, error: 'Recording is longer than two minutes. Please split it into shorter recordings.', engine: WHISPER_ENGINE_KEY };
   }
   if (process.env.BROWN_SPEECH_ENGINE !== 'whisper') {
-    const result = await runWhisperJob('transcribeWhisperFloat32', [audioSamples instanceof Float32Array ? audioSamples : Float32Array.from(audioSamples), sampleRate], getSttCacheDir(), 180000);
+    const result = await runWhisperJob('transcribeWhisperFloat32', [audioSamples instanceof Float32Array ? audioSamples : Float32Array.from(audioSamples), sampleRate, options], getSttCacheDir(), 180000);
     if (result.success) whisperReady = true;
     return result;
   }
@@ -267,10 +269,10 @@ async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000) {
     // only the last 25 seconds silently erased the start of longer dictation.
     samples16k = normalizeAudioPeak(samples16k);
 
-    const transcriber = await getWhisperTranscriber();
+    const transcriber = await getWhisperTranscriber(null, options.offline === true);
     // Multilingual model: auto-detect the spoken language and transcribe it.
-    const options = { return_timestamps: false, chunk_length_s: 30, stride_length_s: 5, task: 'transcribe' };
-    const result = await transcriber(samples16k, options);
+    const inferenceOptions = { return_timestamps: false, chunk_length_s: 30, stride_length_s: 5, task: 'transcribe' };
+    const result = await transcriber(samples16k, inferenceOptions);
 
     const text = cleanWhisperText(result?.text);
     return {
@@ -291,10 +293,10 @@ async function transcribeWhisperFloat32(audioSamples, sampleRate = 16000) {
   }
 }
 
-async function transcribeWhisperWavBuffer(wavBuffer) {
+async function transcribeWhisperWavBuffer(wavBuffer, options = {}) {
   try {
     const decoded = decodeWavBufferToFloat32(wavBuffer);
-    return await transcribeWhisperFloat32(decoded.float32, 16000);
+    return await transcribeWhisperFloat32(decoded.float32, 16000, options);
   } catch (err) {
     console.error('[voice-whisper] WAV transcription failed:', err);
     return {
@@ -305,14 +307,14 @@ async function transcribeWhisperWavBuffer(wavBuffer) {
   }
 }
 
-async function warmupWhisper() {
+async function warmupWhisper(options = {}) {
   if (process.env.BROWN_SPEECH_ENGINE !== 'whisper') {
-    const result = await runWhisperJob('warmupWhisper', [], getSttCacheDir(), 180000);
+    const result = await runWhisperJob('warmupWhisper', [options], getSttCacheDir(), 180000);
     whisperReady = !!result.success;
     return result;
   }
   try {
-    await getWhisperTranscriber();
+    await getWhisperTranscriber(null, options.offline === true);
     return { success: true, warmed: true };
   } catch (err) {
     return { success: false, error: err.message || 'Whisper warmup failed.' };

@@ -1,0 +1,45 @@
+const {app,BrowserWindow,nativeImage}=require('electron');const fs=require('fs'),path=require('path');
+app.whenReady().then(async()=>{const w=new BrowserWindow({show:false,width:1100,height:850,webPreferences:{offscreen:true,backgroundThrottling:false,partition:'assets-gallery-test'}});
+try{
+  w.webContents.session.webRequest.onBeforeRequest((details,done)=>done({cancel:details.resourceType==='script'}));await w.loadFile(path.resolve('src/renderer/index.html'));
+  await w.webContents.executeJavaScript(fs.readFileSync('src/renderer/assets-gallery.js','utf8'));
+  const thumbnail=nativeImage.createFromBitmap(Buffer.alloc(16,255),{width:2,height:2}).toDataURL();
+  await w.webContents.executeJavaScript('window.assetThumbnail='+JSON.stringify(thumbnail));
+  await w.webContents.executeJavaScript(`document.querySelectorAll('#app-splash-screen,.app-skeleton-overlay').forEach(element=>element.remove());`);
+  await w.webContents.executeJavaScript(`window.assetSessions={first:{title:'Plan',messages:[{isAi:false,attachments:[{name:'brief.pdf',path:'D:/brief.pdf'},{name:'photo.png',isImage:true,dataUrl:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jV4kAAAAASUVORK5CYII='}]}]},second:{title:'Review',messages:[{isAi:false,attachments:[{name:'brief.pdf',path:'D:/brief.pdf'}]}]}};window.assetSaves=0;window.assetConfirmed=false;window.assetOpened=null;window.assetError=null;window.assetFailSave=false;
+  window.gallery=BrownAssetsGallery.init({sessions:()=>assetSessions,preview:async()=>({dataUrl:assetThumbnail}),busy:()=>false,confirm:async()=>assetConfirmed,save:async()=>{if(assetFailSave)throw Error('Disk unavailable');assetSaves++;},changed:async()=>{},openChat:async id=>{assetOpened=id;},openFile:async()=>{},reveal:async()=>{},error:error=>{assetError=error.message;}});gallery.open();`);
+  for(const [width,height] of [[1100,850],[900,600]]){w.setSize(width,height);await new Promise(r=>setTimeout(r,100));await w.webContents.executeJavaScript(`(()=>{const page=document.querySelector('.brown-assets-page'),r=page.getBoundingClientRect(),main=document.querySelector('.chat-main').getBoundingClientRect();if(page.tagName!=='SECTION'||document.querySelector('dialog.brown-assets-dialog'))throw Error('Assets is still a modal');if(Math.abs(r.left-main.left)>1||r.right>main.right+1||r.bottom>main.bottom+1||page.scrollHeight>page.clientHeight+1)throw Error('Gallery layout exceeds work area');if(getComputedStyle(document.querySelector('.chat-header')).display!=='none'||getComputedStyle(document.querySelector('.session-context-rail')).display!=='none')throw Error('Assets did not hide chat and right sidebar');if(getComputedStyle(document.querySelector('#left-sidebar')).display==='none')throw Error('Assets hid left navigation');if(page.querySelectorAll('.brown-asset-card').length!==2)throw Error('Gallery files missing');})()`);}
+  await w.webContents.executeJavaScript(`(async()=>{
+    const sortButton=document.querySelector('[aria-label="Sort assets"]');sortButton.click();
+    const sortMenu=document.querySelector('.brown-assets-sort-menu');if(!sortMenu.matches(':popover-open'))throw Error('Sort menu failed to open');
+    if(getComputedStyle(sortMenu).backgroundColor!=='rgb(44, 44, 44)')throw Error('Sort menu must have a dark surface');
+    sortMenu.querySelector('[data-value="name"]').click();await new Promise(r=>setTimeout(r,0));
+    if(sortMenu.matches(':popover-open')||!sortButton.title.includes('Name A–Z')||!sortButton.querySelector('svg')||sortButton.textContent.trim())throw Error('Icon sort selection failed');
+    sortButton.click();sortMenu.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));if(sortMenu.matches(':popover-open'))throw Error('Escape must close sort menu');
+    const search=document.querySelector('[aria-label="Search assets"]');search.value='missing';search.dispatchEvent(new Event('input'));if(!document.querySelector('.brown-assets-empty'))throw Error('Missing empty search state');search.value='';search.dispatchEvent(new Event('input'));
+    const filter=document.querySelector('[aria-label="Filter assets"]');filter.value='PDFs';filter.dispatchEvent(new Event('change'));if(document.querySelectorAll('.brown-asset-card').length!==1)throw Error('File filter failed');
+    document.querySelector('.brown-asset-card').click();await new Promise(r=>setTimeout(r,0));
+    await new Promise(r=>setTimeout(r,100));
+    const preview=document.querySelector('.brown-asset-detail-preview img');if(!preview||!preview.complete||!preview.naturalWidth)throw Error('Local file preview failed');
+    if(getComputedStyle(document.querySelector('.brown-asset-path')).color!=='rgb(255, 255, 255)')throw Error('File address must be white');
+    search.focus();if(getComputedStyle(search).outlineStyle!=='none'||getComputedStyle(search).boxShadow!=='none')throw Error('Assets search retained a focus outline');
+    const detailStyle=getComputedStyle(document.querySelector('.brown-assets-detail')),deleteStyle=getComputedStyle(document.querySelector('.brown-asset-delete'));
+    if(detailStyle.backgroundColor!=='rgb(44, 44, 44)'||detailStyle.borderRadius!=='22px')throw Error('Asset details must use a rounded card');
+    if(deleteStyle.backgroundColor!=='rgb(239, 68, 68)'||deleteStyle.borderRadius!=='9999px'||deleteStyle.color!=='rgb(255, 255, 255)')throw Error('Delete asset must be a solid red pill with white text');
+    const detail=document.querySelector('.brown-assets-detail'),body=document.querySelector('.brown-assets-body');
+    if(Math.abs(detail.getBoundingClientRect().height-body.getBoundingClientRect().height)>2)throw Error('Details must fill results height');
+    document.querySelector('.brown-assets-detail-close').click();await new Promise(r=>setTimeout(r,30));
+    if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&detail.hidden)throw Error('Panel hidden before closing transition');
+    await new Promise(r=>setTimeout(r,230));if(!detail.hidden||body.classList.contains('has-detail'))throw Error('Closing did not finish');
+    document.querySelector('.brown-asset-card').click();await new Promise(r=>setTimeout(r,0));if(detail.hidden)throw Error('Details did not reopen');
+    document.querySelector('[aria-label="List view"]').click();await new Promise(r=>setTimeout(r,0));if(!document.querySelector('.brown-assets-grid.is-list'))throw Error('List view failed');
+    document.querySelector('[aria-label="Grid view"]').click();await new Promise(r=>setTimeout(r,0));
+    document.querySelector('.brown-asset-delete').click();await new Promise(r=>setTimeout(r,30));if(BrownAssetsGallery.collect(assetSessions).length!==2||assetSaves)throw Error('Cancel deleted an asset');
+    assetConfirmed=true;assetFailSave=true;document.querySelector('.brown-asset-delete').click();await new Promise(r=>setTimeout(r,30));if(BrownAssetsGallery.collect(assetSessions).length!==2||assetError!=='Disk unavailable')throw Error('Failed save did not roll back deletion');
+    assetFailSave=false;document.querySelector('.brown-asset-delete').click();await new Promise(r=>setTimeout(r,30));if(BrownAssetsGallery.collect(assetSessions).length!==1||assetSaves!==1)throw Error('Confirmed deletion failed');
+    const currentFilter=document.querySelector('[aria-label="Filter assets"]');currentFilter.value='All';currentFilter.dispatchEvent(new Event('change'));document.querySelector('.brown-asset-card').click();await new Promise(r=>setTimeout(r,0));document.querySelector('.brown-asset-chat').click();await new Promise(r=>setTimeout(r,30));if(assetOpened!=='first')throw Error('Chat link failed');
+    if(document.querySelector('.chat-main').classList.contains('assets-open'))throw Error('Chat link did not restore chat layout');
+    gallery.open();if(document.querySelector('.brown-assets-back'))throw Error('Back to chat should be removed');if(!document.querySelector('.brown-assets-toolbar > .brown-assets-tabs'))throw Error('File types must share search toolbar');gallery.close();await new Promise(r=>setTimeout(r,0));if(gallery.isOpen())throw Error('Back to chat did not close Assets');
+  })()`);
+  console.log('PASS: gallery layout at two sizes, file filtering/search, delete cancellation, save rollback, shared asset deletion and linked chat navigation.');w.destroy();app.exit(0);
+}catch(error){console.error(error);w.destroy();app.exit(1);}});

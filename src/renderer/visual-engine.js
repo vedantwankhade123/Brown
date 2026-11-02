@@ -115,6 +115,9 @@
 
   function getDiagramTypeTag(code) {
     const c = String(code || '').trim().toLowerCase();
+    const planned = c.match(/^%% brown-visual:\s*(architecture|flowchart);\s*layout:\s*(\w+)/m);
+    if (planned?.[1] === 'architecture') return 'System Architecture Diagram';
+    if (planned) return ({ pipeline: 'Pipeline Diagram', tree: 'Tree Diagram', swimlane: 'Swimlane Diagram', branching: 'Decision Flowchart', grouped: 'Grouped Flowchart' })[planned[2]] || 'Flowchart Diagram';
     if (c.startsWith('mindmap') || c.includes('\nmindmap')) return 'Concept Mindmap';
     if (c.startsWith('sequencediagram') || c.includes('\nsequencediagram')) return 'Sequence Diagram';
     if (c.startsWith('erdiagram') || c.includes('\nerdiagram')) return 'Entity Relationship (ER) Diagram';
@@ -368,7 +371,7 @@
   }
 
   /**
-   * Render Mermaid code into SVG container with fallback to Generative UI visual engine
+   * Render Mermaid source without replacing failed diagrams with another family.
    */
   function stripMermaidFences(code) {
     return String(code || '')
@@ -416,30 +419,8 @@
       return null;
     }
 
-    // Try the model's original code first — the repair pass is destructive
-    // (it can mangle valid labels), so only use it when the raw diagram fails to parse.
-    let cleanCode = rawCode;
-    let svg = await tryRender(rawCode);
-
-    if (!svg) {
-      const repaired = sanitizeAndRepairMermaid(code || '');
-      if (repaired && repaired !== rawCode) {
-        cleanCode = repaired;
-        svg = await tryRender(repaired);
-      }
-    }
-
-    // Retry with a flat flowchart (no subgraphs/styling) — common fix for broken model output
-    if (!svg && /^(flowchart|graph)\b/im.test(cleanCode)) {
-      const flat = cleanCode
-        .split('\n')
-        .filter(l => !/^(subgraph|end|classDef|class|style|linkStyle|click)\b/i.test(l.trim()))
-        .join('\n');
-      if (flat !== cleanCode) {
-        cleanCode = flat;
-        svg = await tryRender(flat);
-      }
-    }
+    const cleanCode = rawCode;
+    const svg = await tryRender(rawCode);
 
     const tagLabel = getDiagramTypeTag(cleanCode);
 
@@ -480,9 +461,7 @@
 
     purgeMermaidErrorArtifacts();
 
-    const isMindmap = cleanCode.toLowerCase().includes('mindmap');
-    const nativeSvg = isMindmap ? renderNativeSvgMindmap(cleanCode) : renderNativeSvgFlowchart(cleanCode);
-    return wrapCard(nativeSvg, true);
+    return '<div class="visual-render-error" data-visual-error role="status">This diagram could not be rendered in its requested format. Try simplifying it or regenerating it. Its relationships have not been replaced with a generic flowchart.</div>';
   }
 
   /**
@@ -1695,7 +1674,15 @@
    * Dispatcher for Chart rendering
    */
   function renderChart(rawText) {
-    try { return renderChartCore(rawText); }
+    try {
+      const html = renderChartCore(rawText);
+      let metadata;
+      try { metadata = JSON.parse(rawText); } catch (_) {}
+      if (metadata && !['pie', 'donut', 'doughnut'].includes(metadata.type) && (metadata.xLabel || metadata.yLabel)) {
+        return html + '<div class="visual-chart-axes">' + [metadata.xLabel ? 'Horizontal axis: ' + escapeHtml(metadata.xLabel) : '', metadata.yLabel ? 'Vertical axis: ' + escapeHtml(metadata.yLabel) : ''].filter(Boolean).join(' · ') + '</div>';
+      }
+      return html;
+    }
     catch (error) {
       const safe = String(error.message).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       return `<div class="visual-chart-error" role="status">This chart could not be rendered: ${safe}</div>`;

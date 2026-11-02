@@ -102,6 +102,9 @@ function installSidebar(harness) {
   Object.assign(harness, { content, checklist, chatMain, railBody });
   evaluateSource(context, 'function escapeHtml(', 'function getWebSearchCardHtml(');
   evaluateSource(context, 'function formatSideWhen(', 'function renderSessionPanel(');
+  context.extractPlainTextFromMessage = text => String(text);
+  context.isThinkingMarkup = text => String(text).includes('thinking-container');
+  evaluateSource(context, 'function cleanSessionFocusText(', 'function buildSessionMetaDigest(');
   evaluateSource(context, 'function renderSessionPanel(', '// Delegated handlers: sidebar tabs + session item actions');
 }
 
@@ -118,7 +121,10 @@ function installSessionLifecycle(harness) {
     // loadSession/triggerNewChat reach completion instead of throwing before the try.
     _mentionChips: [],
     renderMentionChips() {},
-    clearPromptTurnState() {}
+    clearPromptTurnState() {},
+    // Left-sidebar draft creation is covered by project-sidebar.test.js; this
+    // harness tests clearing the right rail independently of that store.
+    addSessionToHistory() {}
   });
   evaluateSource(context, 'function expandRightSidebarSection(', 'function ensureRightSidebarVisible(');
   evaluateSource(context, 'function renderChecklist(', 'function appendChatMessage(');
@@ -136,6 +142,7 @@ function sectionHtml(html, key) {
 // key from the visible title, so the current titles/keys must stay in lockstep.
 const sidebarSections = [
   ['Tasks', 'tasks'],
+  ['Skills', 'skills'],
   ['Tools', 'tools'],
   ['Output', 'output'],
   ['Pages', 'pages'],
@@ -380,14 +387,27 @@ function testSkillToolAndArtifactSourceDistinctions() {
   installSidebar(h);
   c.renderSessionPanel();
   const capabilities = sectionHtml(h.content.innerHTML, 'tools');
-  assert.equal((capabilities.match(/side-row-name">Research</g) || []).length, 2, 'A skill and tool with the same name are distinct');
-  for (const label of ['Skill', 'MCP', 'Tool']) assert.ok(capabilities.includes(`side-row-sub">${label}</span>`), label);
+  assert.equal((capabilities.match(/side-row-name">Research</g) || []).length, 1, 'Tools excludes skills');
+  const skills = sectionHtml(h.content.innerHTML, 'skills');
+  assert.match(skills, /side-row-name">Research</);
+  assert.match(skills, /side-row-sub">Skill</);
+  assert.doesNotMatch(skills, /Local tool/);
+  for (const label of ['MCP', 'Tool']) assert.ok(capabilities.includes(`side-row-sub">${label}</span>`), label);
   const sources = sectionHtml(h.content.innerHTML, 'sources');
   const outputs = sectionHtml(h.content.innerHTML, 'output');
   assert.match(sources, /input\.txt/);
   assert.doesNotMatch(sources, /output\.txt/);
   assert.match(outputs, /output\.txt/);
   assert.doesNotMatch(outputs, /input\.txt/);
+  c.conversationsStore.a.activity.web = [{url:'https://example.com',read:false},{url:'https://example.com/read',read:true}];
+  c.conversationsStore.a.messages.push({isAi:true,text:'Knowledge answer',ragCitations:[{filePath:'notes.txt'}]});
+  c.renderSessionPanel();
+  const recordedTools = sectionHtml(h.content.innerHTML, 'tools');
+  for (const name of ['Web search', 'Read web page', 'RAG knowledge search']) assert.ok(recordedTools.includes(name), name);
+  c.currentSessionId = 'b';
+  c.renderSessionPanel();
+  assert.doesNotMatch(sectionHtml(h.content.innerHTML, 'skills'), /Research/);
+  assert.doesNotMatch(sectionHtml(h.content.innerHTML, 'tools'), /side-row-name">(?:Web search|RAG knowledge search|Local tool)</);
 }
 
 function testSectionStateAcrossRenders() {
@@ -396,12 +416,11 @@ function testSectionStateAcrossRenders() {
   const c = h.context;
   const states = vm.runInContext('sidebarSectionStates', c);
   const items = Array.from({ length: 7 }, (_, i) => ({ name: `Item ${i}` }));
-  // The rail dropped the caller-supplied collapse default: sideSectionHtml always
-  // starts minimized and only the per-session saved state can expand a section.
+  // Populated sections open on first render; saved manual state survives ordinary rerenders.
   const render = () => c.sideSectionHtml('Toolbox', items,
     (item, overflow) => c.sideRowHtml({ icon: '', name: item.name, overflow }));
   const initial = render();
-  assert.match(initial, /class="side-section-head" aria-expanded="false"/);
+  assert.match(initial, /class="side-section-head" aria-expanded="true"/);
   assert.match(initial, /aria-controls="side-body-toolbox"/);
   assert.match(initial, /id="side-body-toolbox"/);
   assert.match(initial, /class="side-see-all" aria-expanded="false"/);
@@ -435,9 +454,9 @@ function testSectionDefaultsWithoutCollapsedOption() {
   const c = h.context;
   for (const items of [[], [{ name: 'A tool' }]]) {
     const buildRow = item => c.sideRowHtml({ icon: '', name: item.name });
-    // With no saved state and no caller option, a section renders minimized by default.
-    assertSectionCollapsed(c.sideSectionHtml('Toolbox', items, buildRow), 'toolbox', true);
-    assertSectionCollapsed(c.sideSectionHtml('Toolbox', items, buildRow, { empty: 'No tools' }), 'toolbox', true);
+    // Empty sections stay closed; incoming content opens them.
+    assertSectionCollapsed(c.sideSectionHtml('Toolbox', items, buildRow), 'toolbox', !items.length);
+    assertSectionCollapsed(c.sideSectionHtml('Toolbox', items, buildRow, { empty: 'No tools' }), 'toolbox', !items.length);
   }
 }
 
@@ -461,7 +480,7 @@ function testRenderedSectionsDefaultCollapsed() {
     c.renderSessionPanel();
     assert.equal((h.content.innerHTML.match(/data-side-section=/g) || []).length, sidebarSections.length);
     for (const [title, key] of sidebarSections) {
-      const section = assertSectionCollapsed(h.content.innerHTML, key, true);
+      const section = assertSectionCollapsed(h.content.innerHTML, key, mode !== 'populated');
       assert.ok(section.includes(`<span class="side-section-title">${title}</span>`));
       assert.ok(section.includes(`aria-controls="side-body-${key}"`));
       assert.ok(section.includes(`id="side-body-${key}"`));
@@ -502,7 +521,7 @@ function testContextCardEmptyAndMessageCounts() {
     assert.deepEqual(footers, count ? [count === 1 ? '1 message' : '2 messages'] : []);
     assert.doesNotMatch(h.content.innerHTML, /session-context-state|\b(?:idle|ready)\b/i);
     if (count === 2) assert.match(h.content.innerHTML, /class="session-context-summary">Here is a plan<\/p>/);
-    else if (count === 1) assert.match(h.content.innerHTML, /Waiting for Brown’s answer/);
+    else if (count === 1) assert.match(h.content.innerHTML, /Working on: Help with a plan/);
     else assert.doesNotMatch(h.content.innerHTML, /session-context-meta/);
   }
 }
@@ -579,6 +598,7 @@ function testNewChatHasNoStaleSidebarState() {
   const h = createHarness();
   installSessionLifecycle(h);
   const c = h.context;
+  c.conversationsStore.b.messages = [{ isAi: false, text: 'Another existing conversation' }];
   c.conversationsStore.a.activity = {
     tasks: [{ text: 'Old task', status: 'running' }],
     uploads: [{ id: 'upload', name: 'old-upload.txt', messageIndex: 0 }],
@@ -617,6 +637,24 @@ function testNewChatHasNoStaleSidebarState() {
   }
 }
 
+function testNewItemsRevealCollapsedSections() {
+  const h = createHarness(); installSidebar(h); const c = h.context;
+  const states = vm.runInContext('sidebarSectionStates', c);
+  let items = [];
+  const render = () => c.sideSectionHtml('Tools', items, item => c.sideRowHtml({ icon: '', name: item.name }));
+  assertSectionCollapsed(render(), 'tools', true);
+  items = [{ id: 'one', name: 'Read file', status: 'running' }];
+  assertSectionCollapsed(render(), 'tools', false);
+  states.set('a:tools', { collapsed: true, expanded: false });
+  items[0].status = 'completed';
+  assertSectionCollapsed(render(), 'tools', true);
+  items.push({ id: 'two', name: 'Write file' });
+  assertSectionCollapsed(render(), 'tools', false);
+  states.set('a:tools', { collapsed: true, expanded: false });
+  items = [{ id: 'replacement', name: 'New result' }];
+  assertSectionCollapsed(render(), 'tools', false);
+}
+
 async function runSessionSidebarTests() {
   const tests = [
     testActivityUpsertAndSessionScope,
@@ -627,6 +665,7 @@ async function runSessionSidebarTests() {
     testBrowserReadingVersusNativeSearch,
     testSkillToolAndArtifactSourceDistinctions,
     testSectionStateAcrossRenders,
+    testNewItemsRevealCollapsedSections,
     testSectionDefaultsWithoutCollapsedOption,
     testRenderedSectionsDefaultCollapsed,
     testContextCardEmptyAndMessageCounts,

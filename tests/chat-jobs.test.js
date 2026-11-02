@@ -1,0 +1,22 @@
+const assert=require('node:assert/strict');
+const {create}=require('../src/renderer/chat-jobs');
+const flush=()=>new Promise(resolve=>setImmediate(resolve));
+const payload=model=>({model,modelSize:2*1024**3});
+(async()=>{
+ let free=8,cpu=10;const executions=new Map(),finished=[],events=[];
+ const queue=create({resources:async()=>({freeGB:free,cpu}),execute:(job,context)=>new Promise(resolve=>executions.set(job.id,{context,resolve})),changed:job=>events.push({id:job.id,state:job.state,partial:job.partial}),completed:job=>finished.push({id:job.id,result:job.result}),pollMs:100000});
+ queue.submit({id:'a',sessionId:'chat-a',payload:payload('local')});queue.submit({id:'b',sessionId:'chat-b',payload:payload('local')});await flush();
+ assert.equal(executions.size,2,'memory permits two independent chats');assert.notEqual(executions.get('a').context.signal,executions.get('b').context.signal);
+ assert.throws(()=>queue.submit({id:'duplicate',sessionId:'chat-a',payload:payload('local')}),/already/);
+ queue.submit({id:'c',sessionId:'chat-c',payload:payload('local')});await flush();assert.equal(queue.get('c').state,'queued');
+ executions.get('a').context.token('Only A');executions.get('b').context.token('Only B');assert.equal(queue.get('a').partial,'Only A');assert.equal(queue.get('b').partial,'Only B');
+ queue.cancel('chat-a');const before=events.length;executions.get('a').context.token('Late A');executions.get('a').resolve({text:'Late result'});await flush();assert(!events.slice(before).some(event=>event.id==='a'),'late events suppressed');assert(!executions.get('b').context.signal.aborted,'cancel does not touch another chat');
+ await flush();assert.equal(queue.get('c').state,'running');executions.get('b').resolve({text:'Answer B'});executions.get('c').resolve({text:'Answer C'});await flush();assert.equal(finished.find(job=>job.id==='b').result.text,'Answer B');queue.dispose();
+ free=.3;let starts=0;
+ const low=create({resources:async()=>({freeGB:free}),execute:async()=>{starts++;return {text:'Ready'};},pollMs:100000});low.submit({id:'low',sessionId:'low-chat',payload:payload('local')});await flush();assert.equal(starts,0);assert.match(low.get('low').reason,/memory/);free=6;await low.wake();await flush();assert.equal(starts,1);low.dispose();
+ let attempts=0;free=2;
+ const oom=create({resources:async()=>({freeGB:free}),execute:async()=>{attempts++;if(attempts===1)throw Error('out of memory');return {text:'Recovered'};},pollMs:100000});oom.submit({id:'oom',sessionId:'oom-chat',payload:payload('local')});await flush();assert.equal(oom.get('oom').state,'queued');assert.equal(attempts,1);await oom.wake();await flush();assert.equal(attempts,1,'no repeated OOM loop');free=5;await oom.wake();await flush();assert.equal(oom.get('oom').state,'complete');oom.dispose();
+ let completed=0;const timeout=create({resources:async()=>({freeGB:6}),execute:()=>new Promise(()=>{}),completed:()=>completed++,timeoutMs:15,pollMs:100000});timeout.submit({id:'stalled',sessionId:'stall',payload:payload('local')});await new Promise(resolve=>setTimeout(resolve,35));assert.equal(timeout.get('stalled').state,'cancelled');assert.equal(completed,1);timeout.dispose();
+ const disposing=create({resources:async()=>({freeGB:6}),execute:()=>new Promise(()=>{}),completed:()=>{throw Error('closing app must not start more UI work');}});disposing.submit({id:'closing',sessionId:'closing',payload:payload('local')});await flush();disposing.dispose();await flush();
+ console.log('PASS: independent chat jobs, two-slot capacity, queued memory waits, scoped cancellation, late-output rejection, OOM recovery budget, stalled deadlines and app-close cleanup.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

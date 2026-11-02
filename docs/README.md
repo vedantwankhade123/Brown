@@ -2,13 +2,18 @@
 
 Welcome to the central documentation index for the **Brown AI Ecosystem** (Windows Desktop Application, Mobile App, and Web Application).
 
+- [Project workspaces, local knowledge, automatic updates, and model health](PROJECT-KNOWLEDGE-WORKSPACES.md)
+- [Assets gallery and attachment management](ASSETS-GALLERY.md)
+- [Shared request interpretation, execution, and validation](REQUEST-PIPELINE.md)
+- [Background chat jobs, memory queues, and the Code split](BACKGROUND-CHAT-JOBS.md)
+- [Message edits, saved versions, illustration revisions, and source excerpts](MESSAGE-AND-ARTIFACT-REVISIONS.md)
+
 ---
 
 ## 📖 Plain-language overview (presentations)
 
 - **[READABLE.md](READABLE.md)**: The whole project explained in simple words — what it does, the stack, how a request travels through the app, plus ASCII diagrams for the agent loop, knowledge base, voice, pairing and release pipeline.
 - **[READABLE.html](READABLE.html)**: The same guide, self-contained and styled for reading or printing (no internet needed).
-- **[Brown-AI-Overview.pptx](Brown-AI-Overview.pptx)**: 16-slide pitch deck built from that guide.
 
 ---
 
@@ -44,7 +49,9 @@ Welcome to the central documentation index for the **Brown AI Ecosystem** (Windo
 
 ## Current desktop release
 
-- [v1.0.17 release notes](../.release-notes-v1.0.17.md)
+- [Knowledge document formats, image OCR and local vision retrieval](KNOWLEDGE-FORMATS.md)
+
+- [v1.0.19 release notes](releases/desktop/v1.0.19.md)
 - [v1.0.17 verification and limitations](releases/RELEASE_QA_v1.0.17.md)
 
 This release focuses on offline chat and rich answers. Optional web search connects online; unfinished automation, CRUD actions and approval controls are hidden.
