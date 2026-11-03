@@ -94,13 +94,15 @@ function getRiskCategory(toolCall) {
   return classifyRisk(toolCall).category;
 }
 
-function requiresPermissionPrompt(mode, toolCall) {
+function requiresPermissionPrompt(mode, toolCall, taintContext) {
   const resolvedMode = mode || getCurrentSecurityMode();
   const caps = window.UltronAgentCapabilities;
   if (caps && typeof caps.evaluateCapabilityGate === 'function') {
-    const gate = caps.evaluateCapabilityGate(toolCall);
+    const gate = caps.evaluateCapabilityGate(toolCall, taintContext);
     if (gate === 'blocked') return 'blocked';
-    if (gate === true && resolvedMode !== 'Trusted') return true;
+    // A tainted request escalates write/execute to a prompt even in Trusted mode; the gate
+    // already encodes that, so `true` here always means "ask the human".
+    if (gate === true && (resolvedMode !== 'Trusted' || (taintContext && taintContext.tainted))) return true;
   }
 
   const risk = classifyRisk(toolCall);

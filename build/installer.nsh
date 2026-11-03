@@ -6,6 +6,7 @@
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 !include "getProcessInfo.nsh"
+!include "${BUILD_RESOURCES_DIR}\installer-ui.nsh"
 Var pid
 
 !ifndef BUILD_UNINSTALLER
@@ -16,7 +17,7 @@ Var brownStorageBackup
     ClearErrors
     Rename "$brownStorageBackup\${ITEM}" "$INSTDIR\${ITEM}"
     ${If} ${Errors}
-      MessageBox MB_OK|MB_ICONSTOP "Your saved data is safe in $brownStorageBackup. Restore ${ITEM} to $INSTDIR before opening Brown."
+      MessageBox MB_OK|MB_ICONSTOP "Your saved data is safe in $brownStorageBackup. Restore ${ITEM} to $INSTDIR before opening Brown." /SD IDOK
       SetErrorLevel 1
       Quit
     ${EndIf}
@@ -41,12 +42,16 @@ FunctionEnd
     Rename "$INSTDIR\${ITEM}" "$brownStorageBackup\${ITEM}"
     ${If} ${Errors}
       Call BrownRestoreStorage
-      MessageBox MB_OK|MB_ICONSTOP "Brown could not protect its saved data. Close programs using files in $INSTDIR and try again. Your existing installation has not been removed."
+      MessageBox MB_OK|MB_ICONSTOP "Brown could not protect its saved data. Close programs using files in $INSTDIR and try again. Your existing installation has not been removed." /SD IDOK
       SetErrorLevel 1
       Quit
     ${EndIf}
   ${EndIf}
 !macroend
+
+Function .onGUIEnd
+  Call BrownRestoreStorage
+FunctionEnd
 
 Function .onInstFailed
   Call BrownRestoreStorage
@@ -60,7 +65,7 @@ FunctionEnd
     ; not copied. Older uninstallers otherwise delete these directories.
     ${If} $brownStorageBackup == ""
       ${If} ${FileExists} "$INSTDIR.brown-update-backup"
-        MessageBox MB_OK|MB_ICONSTOP "A previous update backup exists at $INSTDIR.brown-update-backup. Restore that data before retrying this installation."
+        MessageBox MB_OK|MB_ICONSTOP "A previous update backup exists at $INSTDIR.brown-update-backup. Restore that data before retrying this installation." /SD IDOK
         SetErrorLevel 1
         Quit
       ${EndIf}
@@ -69,7 +74,7 @@ FunctionEnd
       CreateDirectory "$brownStorageBackup"
       ${If} ${Errors}
         StrCpy $brownStorageBackup ""
-        MessageBox MB_OK|MB_ICONSTOP "Brown cannot create a safe update backup beside $INSTDIR. Choose a writable installation folder and retry."
+        MessageBox MB_OK|MB_ICONSTOP "Brown cannot create a safe update backup beside $INSTDIR. Choose a writable installation folder and retry." /SD IDOK
         SetErrorLevel 1
         Quit
       ${EndIf}
@@ -93,49 +98,70 @@ FunctionEnd
 
 !macro customInstall
   Call BrownRestoreStorage
-  ; 1. Ensure any leftover stale shortcuts are purged before creating new ones
-  Delete "$DESKTOP\Brown AI.lnk"
-  Delete "$DESKTOP\Ultron AI.lnk"
-  Delete "$PROFILE\Desktop\Brown AI.lnk"
-  Delete "$PROFILE\Desktop\Ultron AI.lnk"
-  Delete "$PROFILE\OneDrive\Desktop\Brown AI.lnk"
-  Delete "$PROFILE\OneDrive\Desktop\Ultron AI.lnk"
-  Delete "C:\Users\Public\Desktop\Brown AI.lnk"
-  Delete "C:\Users\Public\Desktop\Ultron AI.lnk"
-
-  ; 2. Set working directory to $INSTDIR for proper runtime context
   SetOutPath "$INSTDIR"
+  ; electron-builder owns shortcut creation and respects user preferences.
+!macroend
 
-  ; Preserve existing onboarding and user data on upgrades.
+!macro customRemoveFiles
+  ; Remove only application-owned files. Never recursively remove INSTDIR:
+  ; install-relative chats/models and unrelated files must survive uninstall.
+  ${GetRoot} "$INSTDIR" $R0
+  ${If} $INSTDIR == $R0
+    Abort "Brown cannot uninstall from a drive root."
+  ${EndIf}
+  ClearErrors
+  Delete "$INSTDIR\Brown AI.exe"
+  ${If} ${Errors}
+    Abort "Close Brown AI and retry uninstalling. Your saved data has not been removed."
+  ${EndIf}
+  StrCpy $R1 "0"
+  !insertmacro BrownDeleteBinary "chrome_100_percent.pak"
+  !insertmacro BrownDeleteBinary "chrome_200_percent.pak"
+  !insertmacro BrownDeleteBinary "d3dcompiler_47.dll"
+  !insertmacro BrownDeleteBinary "ffmpeg.dll"
+  !insertmacro BrownDeleteBinary "icudtl.dat"
+  !insertmacro BrownDeleteBinary "libEGL.dll"
+  !insertmacro BrownDeleteBinary "libGLESv2.dll"
+  !insertmacro BrownDeleteBinary "resources.pak"
+  !insertmacro BrownDeleteBinary "snapshot_blob.bin"
+  !insertmacro BrownDeleteBinary "v8_context_snapshot.bin"
+  !insertmacro BrownDeleteBinary "vk_swiftshader.dll"
+  !insertmacro BrownDeleteBinary "vk_swiftshader_icd.json"
+  !insertmacro BrownDeleteBinary "vulkan-1.dll"
+  !insertmacro BrownDeleteBinary "LICENSE.electron.txt"
+  !insertmacro BrownDeleteBinary "LICENSES.chromium.html"
+  !insertmacro BrownDeleteBinary "uninstallerIcon.ico"
+  RMDir /r "$INSTDIR\locales"
+  ${If} ${FileExists} "$INSTDIR\locales"
+    StrCpy $R1 "1"
+  ${EndIf}
+  !insertmacro BrownDeleteBinary "resources\app.asar"
+  RMDir /r "$INSTDIR\resources\app.asar.unpacked"
+  ${If} ${FileExists} "$INSTDIR\resources\app.asar.unpacked"
+    StrCpy $R1 "1"
+  ${EndIf}
+  ${If} $R1 == "1"
+    SetErrorLevel 1
+    Abort "Some Brown application files are in use. Close Brown and retry. Saved data is kept."
+  ${EndIf}
+  RMDir "$INSTDIR\resources"
+  Delete "$INSTDIR\Uninstall Brown AI.exe"
+  ; Non-empty folders (including saved data) remain in place.
+  RMDir "$INSTDIR"
+!macroend
 
-  ; 3. Create fresh Desktop shortcut pointing directly to the newly installed executable
-  CreateShortcut "$DESKTOP\Brown AI.lnk" "$INSTDIR\Brown AI.exe" "" "$INSTDIR\Brown AI.exe" 0 "" "" "Brown AI - Autonomous Local AI Agent"
-
-  ; 4. If OneDrive Desktop exists, also create/sync the shortcut there
-  IfFileExists "$PROFILE\OneDrive\Desktop" 0 +2
-  CreateShortcut "$PROFILE\OneDrive\Desktop\Brown AI.lnk" "$INSTDIR\Brown AI.exe" "" "$INSTDIR\Brown AI.exe" 0 "" "" "Brown AI - Autonomous Local AI Agent"
-
-  ; 5. Create fresh Start Menu shortcuts
-  CreateDirectory "$SMPROGRAMS\Brown AI"
-  CreateShortcut "$SMPROGRAMS\Brown AI\Brown AI.lnk" "$INSTDIR\Brown AI.exe" "" "$INSTDIR\Brown AI.exe" 0 "" "" "Brown AI - Autonomous Local AI Agent"
-  CreateShortcut "$SMPROGRAMS\Brown AI\Uninstall Brown AI.lnk" "$INSTDIR\Uninstall Brown AI.exe" "" "$INSTDIR\Uninstall Brown AI.exe" 0
+!macro BrownDeleteBinary NAME
+  ClearErrors
+  Delete "$INSTDIR\${NAME}"
+  ${If} ${Errors}
+    StrCpy $R1 "1"
+  ${EndIf}
 !macroend
 
 !macro customUnInstall
-  ; 2. Delete all desktop shortcuts
-  Delete "$DESKTOP\Brown AI.lnk"
+  ; Remove obsolete known shortcuts without deleting user-added menu entries.
   Delete "$DESKTOP\Ultron AI.lnk"
-  Delete "$PROFILE\Desktop\Brown AI.lnk"
-  Delete "$PROFILE\Desktop\Ultron AI.lnk"
-  Delete "$PROFILE\OneDrive\Desktop\Brown AI.lnk"
-  Delete "$PROFILE\OneDrive\Desktop\Ultron AI.lnk"
-  Delete "C:\Users\Public\Desktop\Brown AI.lnk"
-  Delete "C:\Users\Public\Desktop\Ultron AI.lnk"
-
-  ; 3. Delete Start Menu shortcuts and folder
-  Delete "$SMPROGRAMS\Brown AI\Brown AI.lnk"
   Delete "$SMPROGRAMS\Brown AI\Uninstall Brown AI.lnk"
-  Delete "$SMPROGRAMS\Brown AI.lnk"
-  RMDir /r "$SMPROGRAMS\Brown AI"
-  RMDir /r "$SMPROGRAMS\Ultron AI"
+  RMDir "$SMPROGRAMS\Brown AI"
+  RMDir "$SMPROGRAMS\Ultron AI"
 !macroend

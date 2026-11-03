@@ -1,9 +1,26 @@
 (function (root) {
   'use strict';
+  function intentionalRepetition(request) {
+    return /\b(?:repeat|reproduce|print|write)\b[^\n]{0,100}\b\d+\s*(?:times|repetitions|copies)\b/i.test(String(request||''));
+  }
+  function hasRepetition(value) {
+    const text=String(value||'').slice(-4096).normalize('NFC');
+    if(text.includes('```'))return false;
+    const words=text.match(/[\p{L}\p{M}\p{N}]+/gu)||[];
+    for(let tail=0;tail<=1;tail++)for(let size=1;size<=8;size++){
+      const end=words.length-tail,unit=words.slice(end-size,end).join(' ');let count=1;
+      if(end<size||!unit)continue;
+      while(end-(count+1)*size>=0&&words.slice(end-(count+1)*size,end-count*size).join(' ')===unit)count++;
+      if(count>=(size===1?16:8)&&count*size>=24)return true;
+    }
+    // Also catch loops emitted without spaces, including non-Latin scripts.
+    const loop=text.trim().match(/(.{1,24})\1{15,}$/u);
+    return Boolean(loop&&/[\p{L}\p{N}]/u.test(loop[1])&&loop[0].length>=96);
+  }
   // Separate model loading, token inactivity and total budgets. A slow but
   // productive CPU model must not be mistaken for an unresponsive request.
   async function generate({ model, system, user, format, signal, onProgress, onMetrics, onToken, messages, images = [],
-    fetchImpl = root.fetch.bind(root), startupMs = 180000, idleMs = 60000, totalMs = 360000, maxTokens = 2048, numCtx = 4096 }) {
+    fetchImpl = root.fetch.bind(root), startupMs = 180000, idleMs = 60000, totalMs = 360000, maxTokens = 2048, numCtx = 4096, detectRepetition = false, repeatPenalty = 1.1 }) {
     const controller = new AbortController();
     let reason = '', idleTimer, reader, completed = false;
     const expire = message => { reason = message; controller.abort(); };
@@ -17,12 +34,8 @@
     arm(startupMs, 'The local visual model did not start responding. Check that Ollama is running, or choose a smaller installed model.');
     const totalTimer = setTimeout(() => expire('The local visual model reached its generation time limit. Choose a smaller installed model or simplify the diagram.'), totalMs);
     try {
-      const response = await fetchImpl('http://127.0.0.1:11434/api/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: controller.signal,
-        body: JSON.stringify({ model, stream: true, think: false, format, keep_alive: '5m',
-          messages: messages || [{ role: 'system', content: system }, { role: 'user', content: user, ...(images.length?{images:images.map(image=>image.data)}:{}) }],
-          options: { temperature: 0.1, num_predict: maxTokens, num_ctx: numCtx } })
-      });
+      const request={model,stream:true,think:false,format,keep_alive:'5m',messages:messages||[{role:'system',content:system},{role:'user',content:user,...(images.length?{images:images.map(image=>image.data)}:{})}],options:{temperature:.1,num_predict:maxTokens,num_ctx:numCtx,repeat_penalty:repeatPenalty,repeat_last_n:128}};
+      const response=root.BrownLocalInference?await root.BrownLocalInference.chat(request,{fetchImpl,signal:controller.signal,purpose:format?'structured':'answer'}):await fetchImpl('http://127.0.0.1:11434/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},signal:controller.signal,body:JSON.stringify(request)});
       if (!response.ok) {
         const detail = (await response.text()).slice(0, 500);
         const error = new Error('Local visual model returned HTTP ' + response.status + (detail ? ': ' + detail : ''));
@@ -41,12 +54,14 @@
           if (!reported) { reported = true; onProgress?.(); }
         }
         content += part.message?.content || '';
+        if(detectRepetition&&hasRepetition(content)){const error=new Error('The selected model became stuck repeating its output.');error.code='REPETITIVE_OUTPUT';controller.abort();throw error;}
         if(part.message?.content)onToken?.(content);
         if (part.done) {
+          try{root.ultronAPI?.recordLocalDiagnostic?.({model,status:'finished',code:part.done_reason==='length'?'OUTPUT_LIMIT':'OK',loadMs:Number(part.load_duration||0)/1e6,promptMs:Number(part.prompt_eval_duration||0)/1e6,generationMs:Number(part.eval_duration||0)/1e6,tokens:Number(part.eval_count||0)})?.catch?.(()=>{});}catch(_){}
           onMetrics?.({model,loadMs:Number(part.load_duration||0)/1e6,promptMs:Number(part.prompt_eval_duration||0)/1e6,generationMs:Number(part.eval_duration||0)/1e6,tokens:Number(part.eval_count||0)});
           if (part.done_reason === 'length') {
             const error = new Error('The visual specification exceeded the local model output limit. Try a smaller diagram.');
-            error.code = 'OUTPUT_LIMIT'; throw error;
+            error.code = 'OUTPUT_LIMIT'; error.partial=content; throw error;
           }
           completed = true;
         }
@@ -61,13 +76,14 @@
         }
       }
       if (buffer.trim()) accept(buffer);
-      if (!completed) throw new Error('The local visual model connection ended before generation completed. Please retry.');
+      if (!completed) {const error=new Error('The local model connection ended before generation completed. Please retry.');error.code='INCOMPLETE_OUTPUT';error.partial=content;throw error;}
       if (!content.trim()) {
         const error = new Error('The local visual model finished without a visual specification.');
         error.code = 'EMPTY_OUTPUT'; throw error;
       }
       return content;
     } catch (error) {
+      try{root.ultronAPI?.recordLocalDiagnostic?.({model,status:'failed',code:signal?.aborted?'CANCELLED':error.code||'STREAM_ERROR'})?.catch?.(()=>{});}catch(_){}
       if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
       if (reason) { const failure = new Error(reason); failure.code = 'MODEL_TIMEOUT'; throw failure; }
       throw error;
@@ -110,7 +126,7 @@
       }
     };
   }
-  const api = { generate, createGenerator, recoveryModel };
+  const api = { generate, createGenerator, recoveryModel, hasRepetition, intentionalRepetition };
   if (typeof module !== 'undefined') module.exports = api;
   root.BrownVisualModelStream = api;
 })(typeof window === 'undefined' ? globalThis : window);

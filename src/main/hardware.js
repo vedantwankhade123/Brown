@@ -319,20 +319,19 @@ async function queryLocalOllamaModels() {
 }
 
 /**
- * Returns a model recommendation based on hardware parameters.
- * @param {number} totalRamGB - Total physical memory in GB.
- * @returns {string} Suggested model string ('phi4' or 'llama3').
+ * Model recommendation is delegated to the VRAM/installed-aware recommender so it uses the
+ * real hardware profile (RAM + dedicated-GPU VRAM) and the models actually installed,
+ * instead of the old RAM-only hardcoded phi4/llama3 guess. Accepts the full `stats` object
+ * (preferred) or a bare totalRamGB number for legacy callers, plus the installed models.
+ * @param {object|number} statsOrRamGB - hardware profile from profileHardware(), or total RAM in GB.
+ * @param {Array<{name:string}>} [installedModels] - installed Ollama models.
+ * @returns {string} Suggested model name (prefers an installed model that fits).
  */
-function getModelRecommendation(totalRamGB) {
-  if (totalRamGB < 16) {
-    return 'phi4'; // 3B parameter model
-  } else {
-    return 'llama3'; // 8B parameter model
-  }
-}
+const { getModelRecommendation, recommendModels } = require('./model-recommender');
 
 module.exports = {
   profileHardware,
   queryLocalOllamaModels,
-  getModelRecommendation
+  getModelRecommendation,
+  recommendModels
 };

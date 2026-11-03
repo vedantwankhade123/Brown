@@ -24,8 +24,12 @@ function startInstaller(file, installDirectory, spawnProcess = spawn) {
     // /D must be last for NSIS. Reuse the current install directory on upgrades.
     const args = ['--updated', '--force-run', '/S', `/D=${installDirectory}`];
     const child = spawnProcess(file, args, { detached: true, stdio: 'ignore', windowsHide: true });
-    child.once('error', reject);
-    child.once('spawn', () => { child.unref(); resolve(); });
+    let settled=false,grace;
+    const deadline=setTimeout(()=>finish(new Error('The installer did not confirm launch. Try again.')),15000);
+    const finish=error=>{if(settled)return;settled=true;clearTimeout(deadline);clearTimeout(grace);if(error)reject(error);else{child.unref();resolve();}};
+    child.once('error',finish);
+    child.once('exit',code=>finish(code===0?null:new Error('The installer exited before starting successfully (code '+code+').')));
+    child.once('spawn',()=>{grace=setTimeout(()=>finish(),750);});
   });
 }
 module.exports = { verifyInstaller, startInstaller };

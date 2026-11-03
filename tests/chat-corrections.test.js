@@ -1,0 +1,40 @@
+const assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
+const context=require('../src/renderer/conversation-context');
+const pipeline=require('../src/renderer/request-pipeline');
+const original='Compare SQL and NoSQL in a table, including schema and relationships.';
+const bad='| SQL vs NoSQL |\n| --- |\n| SQL has a fixed schema, NoSQL is flexible. |\n| SQL is better suited for |';
+const good='| Feature | SQL | NoSQL |\n| --- | --- | --- |\n| Schema | Usually predefined | Often flexible |\n| Relationships | Relational | Depends on database |';
+const feedback='you are still doing the same';
+const history=[{sender:'User',text:original},{sender:'Ultron',text:bad}];
+const apology='I apologize if my previous response did not fully address your request. Is there anything specific you would like me to assist you with?';
+async function execute(candidates){
+ const calls=[],trace=[];
+ const runtime={BrownConversationContext:context,BrownRequestPipeline:{...pipeline,interpret:async()=>({...pipeline.fallback(feedback),useContext:false}),evaluateAnswer:options=>pipeline.evaluateAnswer({...options,complete:async()=>({verdict:'pass',issue:''})})},BrownVisualModelStream:{generate:async options=>{calls.push(options);const candidate=candidates[calls.length-1];if(candidate instanceof Error)throw candidate;options.onToken(candidate);return candidate;}}};
+ vm.runInContext(fs.readFileSync(require.resolve('../src/renderer/chat-job-executor'),'utf8'),vm.createContext({window:runtime,AbortController,DOMException,setTimeout,clearTimeout}));
+ const result=await runtime.BrownChatJobExecutor.create({api:{},trace:line=>trace.push(line)})({id:'correction',sessionId:'same-chat',resources:{freeGB:8},payload:{provider:'ollama',model:'local',prompt:feedback,enrichedPrompt:feedback,history,system:'You are Brown.',instructions:'',pinned:[],skills:[],environment:{},images:[]}},{signal:new AbortController().signal,phase(){},token(){}});
+ return {result,calls,trace};
+}
+(async()=>{
+ assert(context.isFollowUp(feedback));assert(!context.isCorrection('How are you doing?'));
+ assert.equal(context.correctionContext(history,feedback).request,original);
+ assert.equal(context.correctionContext([],feedback),null);
+ assert.equal(context.correctionContext(history,'Fix this without a table').preserveTable,false,'Latest format changes take precedence');
+ assert(context.history(history,feedback,{maxChars:1000}).some(m=>m.content===original));
+ const correctedPlan=await pipeline.interpret({request:feedback,history,complete:async input=>{assert(input.request.includes(original));return {capability:'answer',goal:'Fix the previous comparison',language:'',script:'',useContext:false,knowledge:'none',knowledgeEvidence:'',needsCurrentInfo:false,clarification:'',responseLength:'normal',skillIds:[],deliverables:['text'],confidence:.9};}});
+ assert(correctedPlan.useContext);assert(correctedPlan.deliverables.includes('table'));
+ assert(pipeline.validateAnswer(apology,{...pipeline.fallback(feedback),request:feedback}).some(issue=>issue.includes('apology')));
+ const plan={...pipeline.fallback(original),deliverables:['table']};
+ assert(pipeline.validateAnswer(bad,plan).some(issue=>issue.includes('comparison columns')));
+ assert(pipeline.validateAnswer('| A | B |\n| --- | --- |\n| only one cell |',plan).some(issue=>issue.includes('same number')));
+ assert(pipeline.validateAnswer('| A | B |\n| --- | --- |',plan).some(issue=>issue.includes('data rows')));
+ assert.deepEqual(pipeline.validateAnswer(good,plan),[]);
+ const fenced='```markdown\n'+good+'\n```';assert.deepEqual(pipeline.validateAnswer(fenced,plan),[]);assert.equal(pipeline.normalizeAnswer(fenced,plan),good);assert.equal(pipeline.normalizeAnswer(fenced,{output:'code',deliverables:['table','code']}),fenced);
+ assert.deepEqual(pipeline.validateAnswer('| Value |\n| --- |\n| one |',{...plan,request:'List one value in a table'}),[],'Single-column tables remain valid when not comparing');
+ assert(pipeline.validateAnswer('```js\nconst x = 1;',pipeline.fallback('Write code')).some(issue=>issue.includes('unfinished')));
+ let outcome=await execute([apology,good]);assert.equal(outcome.result.text,good);assert.equal(outcome.calls.length,2);assert(outcome.calls[0].messages.some(m=>m.content===original),'Planner cannot drop correction history');assert(outcome.calls[0].user.includes(original));
+ outcome=await execute([bad,good]);assert.equal(outcome.result.text,good);
+ outcome=await execute([bad,bad]);assert.match(outcome.result.text,/Unverified draft/);assert(outcome.result.text.includes(bad),'Failed repairs preserve a clearly labelled draft');assert.equal(outcome.calls.length,2);
+ outcome=await execute([Object.assign(Error('length'),{code:'OUTPUT_LIMIT'}),good]);assert.equal(outcome.result.text,good);assert.equal(outcome.calls[1].maxTokens,3072);assert(outcome.calls[1].user.includes('from the beginning'));
+ await assert.rejects(execute([new DOMException('Cancelled','AbortError')]),{name:'AbortError'});
+ console.log('PASS: corrective feedback retains the original task, validates comparison tables, rejects generic apologies, repairs truncation once and preserves failed drafts.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

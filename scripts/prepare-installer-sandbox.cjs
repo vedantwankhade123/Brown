@@ -1,0 +1,11 @@
+const fs=require('fs'),path=require('path');
+const root=path.resolve(__dirname,'..'),kit=path.join(root,'output/installer-sandbox'),results=path.join(kit,'results');
+fs.mkdirSync(results,{recursive:true});
+const hash=file=>require('crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+fs.writeFileSync(path.join(kit,'checksums.json'),JSON.stringify({latest:hash(path.join(root,'dist-desktop-v1.0.21-ready/Brown AI Setup v1.0.21.exe')),previous:hash(path.join(root,'dist-desktop-v1.0.20-final/Brown AI Setup v1.0.20.exe'))},null,2));
+fs.copyFileSync(path.join(root,'tests/installer-sandbox.ps1'),path.join(kit,'installer-sandbox.ps1'));
+const escape=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const map=(host,guest,readOnly)=>`<MappedFolder><HostFolder>${escape(host)}</HostFolder><SandboxFolder>${guest}</SandboxFolder><ReadOnly>${readOnly}</ReadOnly></MappedFolder>`;
+const config=`<Configuration><Networking>Disable</Networking><ClipboardRedirection>Disable</ClipboardRedirection><MappedFolders>${map(path.join(root,'dist-desktop-v1.0.21-ready'),'C:\\BrownValidation\\Latest',true)}${map(path.join(root,'dist-desktop-v1.0.20-final'),'C:\\BrownValidation\\Previous',true)}${map(kit,'C:\\BrownValidation\\Harness',true)}${map(results,'C:\\BrownValidation\\Results',false)}</MappedFolders><LogonCommand><Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\BrownValidation\\Harness\\installer-sandbox.ps1</Command></LogonCommand></Configuration>`;
+fs.writeFileSync(path.join(kit,'Brown-installer-validation.wsb'),config);
+console.log('Prepared Windows Sandbox test: '+path.join(kit,'Brown-installer-validation.wsb'));

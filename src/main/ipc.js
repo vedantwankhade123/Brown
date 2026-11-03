@@ -200,7 +200,7 @@ function decodeHexPdfString(hex) {
 }
 
 const { verifyAndResolvePath, isPathBlacklisted, isCommandBlacklisted, isRiskyCommand, isSafeDownloadUrl } = require('./security');
-const { profileHardware, queryLocalOllamaModels, getModelRecommendation } = require('./hardware');
+const { profileHardware, queryLocalOllamaModels, getModelRecommendation, recommendModels } = require('./hardware');
 const { launchWindowsSandbox } = require('./sandbox');
 const { findInstalledAppSmart } = require('./app-matching');
 const { fetchWebPage } = require('./web-fetch');
@@ -1510,13 +1510,15 @@ function setupIpcHandlers() {
   ipcMain.handle('profile-system', async () => {
     try {
       const stats = await profileHardware();
-      const recommendation = getModelRecommendation(stats.totalRamGB);
       const installedModels = await queryLocalOllamaModels();
-      
+      const recommendation = getModelRecommendation(stats, installedModels);
+      const recommendations = recommendModels({ stats, installedModels });
+
       return {
         success: true,
         stats,
         recommendation,
+        recommendations,
         installedModels
       };
     } catch (err) {
@@ -2748,8 +2750,15 @@ function getInstallationDefaultDataDir() {
     return getConnectorsRoot();
   });
 
-  ipcMain.handle('get-storage-paths', () => {
-    return getStoragePathsSnapshot();
+  ipcMain.handle('get-storage-paths', async () => {
+    const snapshot=getStoragePathsSnapshot();
+    try {
+      const response=await fetch(snapshot.runtimeEndpoint+'/api/ps',{signal:AbortSignal.timeout(2000)});
+      if(!response.ok)throw Error('HTTP '+response.status);
+      const payload=await response.json();
+      snapshot.runtime={reachable:true,sharedService:true,loadedModels:(payload.models||[]).map(model=>({name:model.name,size:model.size,sizeVram:model.size_vram}))};
+    } catch(error) { snapshot.runtime={reachable:false,sharedService:true,error:String(error.message)}; }
+    return snapshot;
   });
 
   // Active GPU + hardware summary for the Performance telemetry strip.
@@ -4143,6 +4152,20 @@ function getInstallationDefaultDataDir() {
 
   // ── Privacy-first diagnostic logs (Help & Support → Send Error Log) ────────
   const errorLogs = require('./error-logs');
+  const localDiagnostics=require('./local-diagnostics'),diagnosticEvents=[];
+  ipcMain.handle('diagnostics:record-local',(_event,input)=>{diagnosticEvents.push(localDiagnostics.cleanEvent(input));if(diagnosticEvents.length>100)diagnosticEvents.shift();return {success:true};});
+  ipcMain.handle('diagnostics:export-local',async(_event,input={})=>{
+    try{
+      const {dialog}=require('electron');
+      const includeContent=input.includeContent===true;
+      if(includeContent){const approval=await dialog.showMessageBox({type:'question',title:'Include this conversation?',message:'This local export will include prompts and responses from the current chat.',detail:'Only share the file with someone you trust. Common credential patterns are redacted, but review the file before sharing.',buttons:['Cancel','Include conversation'],defaultId:0,cancelId:0});if(approval.response!==1)return {cancelled:true};}
+      const selected=await dialog.showSaveDialog({title:'Export local diagnostic report',defaultPath:'Brown-diagnostics-'+new Date().toISOString().slice(0,10)+'.json',filters:[{name:'Diagnostic JSON',extensions:['json']}]});
+      if(selected.canceled||!selected.filePath)return {cancelled:true};
+      const report=localDiagnostics.buildReport({version:app.getVersion(),electronVersion:process.versions.electron,environment:app.isPackaged?'production':'development',runtime:await localDiagnostics.runtimeSnapshot(),events:diagnosticEvents,includeContent,messages:includeContent&&Array.isArray(input.messages)?input.messages:[]});
+      await fs.promises.writeFile(selected.filePath,JSON.stringify(report,null,2),'utf8');return {success:true};
+    }catch(error){return {success:false,error:'Could not export the report. Check the destination is writable.'};}
+  });
+
 
   ipcMain.handle('diagnostics:capture', (_event, payload) => {
     try {

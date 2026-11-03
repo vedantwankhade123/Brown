@@ -1,6 +1,6 @@
 {
   "name": "brown",
-  "version": "1.0.19",
+  "version": "1.0.21",
   "description": "Offline AI chat, code generation and visual answers for Windows (Brown)",
   "author": "Vedant Wankhade",
   "license": "Proprietary",
@@ -32,7 +32,7 @@
       "repo": "Brown",
       "releaseType": "release"
     },
-    "compression": "maximum",
+    "compression": "normal",
     "npmRebuild": false,
     "electronLanguages": [
       "en-US"
@@ -119,9 +119,9 @@
       "installerIcon": "Assets/Brown.ico",
       "uninstallerIcon": "Assets/Brown.ico",
       "installerHeaderIcon": "Assets/Brand-Assets/Brown-header.ico",
-      "installerSidebar": "Assets/installerSidebar.bmp",
-      "uninstallerSidebar": "Assets/installerSidebar.bmp",
-      "installerHeader": "Assets/installerHeader.bmp",
+      "installerSidebar": "Assets/installer/sidebar.bmp",
+      "uninstallerSidebar": "Assets/installer/sidebar.bmp",
+      "installerHeader": "Assets/installer/header.bmp",
       "artifactName": "Brown AI Setup v${version}.${ext}",
       "runAfterFinish": true,
       "differentialPackage": false,
@@ -148,6 +148,7 @@
     "onnxruntime-node": "1.21.0",
     "pdf-parse": "^2.4.5",
     "qrcode": "^1.5.4",
+    "semver": "7.7.4",
     "systeminformation": "^5.23.5",
     "turndown": "7.2.4",
     "ws": "^8.21.1",

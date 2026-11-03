@@ -6,6 +6,41 @@ const os = require('os');
 const STORAGE_CONFIG_NAME = 'storage-config.json';
 const LEGACY_CONFIG_NAME = 'config.json';
 
+const isolationWarnings = new Set();
+function profileName() { return isStoreEdition() ? 'BrownAIStore' : app.isPackaged ? 'UltronData' : 'UltronDataDev'; }
+function canonical(dir) {
+  let resolved=path.resolve(dir);
+  let probe=resolved;const suffix=[];
+  while(true){try{resolved=path.join(fs.realpathSync(probe),...suffix);break;}catch(_){const parent=path.dirname(probe);if(parent===probe)break;suffix.unshift(path.basename(probe));probe=parent;}}
+  return resolved.replace(/\\/g,'/').replace(/\/+$/,'').toLowerCase();
+}
+function overlaps(a,b) { const x=canonical(a),y=canonical(b);return x===y||x.startsWith(y+'/')||y.startsWith(x+'/'); }
+function foreignStorage(dir) {
+  if(!dir)return false;
+  const parts=canonical(dir).split('/');
+  if(app.isPackaged ? parts.includes('brown-local')||parts.includes('ultrondatadev') : parts.includes('ultrondata')||parts.includes('brownaistore'))return true;
+  const base=process.env.LOCALAPPDATA||path.dirname(app.getPath('userData'));
+  for(const profile of ['UltronData','UltronDataDev','BrownAIStore']) {
+    if(profile===profileName())continue;
+    try {const snapshot=JSON.parse(fs.readFileSync(path.join(base,profile,'storage-profile.json'),'utf8'));
+      if([snapshot.agentDataDir,snapshot.connectorsDir].filter(Boolean).some(other=>overlaps(dir,other)))return true;
+    } catch (_) {}
+  }
+  return false;
+}
+function allowedStorage(dir) {
+  if(!foreignStorage(dir))return true;
+  isolationWarnings.add('A storage path overlaps another Brown environment and was not used: '+dir);
+  return false;
+}
+function assertStorage(dir) { if(!allowedStorage(dir))throw Error('Choose a separate data folder. This path belongs to another Brown environment. Model files can remain shared.'); }
+function recordProfile(layout) {
+  try {fs.mkdirSync(app.getPath('userData'),{recursive:true});fs.writeFileSync(path.join(app.getPath('userData'),'storage-profile.json'),JSON.stringify({environment:profileName(),agentDataDir:layout.agentDataDir,connectorsDir:layout.connectorsDir}));}
+  catch(error){console.warn('[STORAGE] Could not record profile isolation:',error.message);}
+}
+
+
+
 function isStoreEdition() {
   return !!(process.windowsStore || (typeof app?.getAppPath === 'function' && require(path.join(app.getAppPath(), 'package.json')).distributionChannel === 'microsoft-store'));
 }
@@ -65,7 +100,7 @@ function getDefaultUltronRoot() {
 
   // 1. Primary: Use the installation folder chosen by the user at setup time (e.g. D:\Ultron AI)
   const installRoot = getInstallRoot();
-  if (installRoot && ensureDir(installRoot)) {
+  if (installRoot && allowedStorage(path.join(installRoot, 'data')) && ensureDir(installRoot)) {
     return installRoot;
   }
 
@@ -113,8 +148,7 @@ function readStorageConfigFile() {
   // Legacy: old install-relative or AppData config.json
   const legacyCandidates = [
     path.join(getInstallRoot(), 'data', LEGACY_CONFIG_NAME),
-    path.join(process.env.LOCALAPPDATA || '', 'UltronDataDev', 'data', LEGACY_CONFIG_NAME),
-    path.join(process.env.LOCALAPPDATA || '', 'UltronData', 'data', LEGACY_CONFIG_NAME)
+    path.join(app.getPath('userData'), 'data', LEGACY_CONFIG_NAME)
   ];
   for (const legacyPath of legacyCandidates) {
     if (!fs.existsSync(legacyPath)) continue;
@@ -165,7 +199,7 @@ function isLegacyStorageRoot(dirPath) {
 
 function resolveUltronRoot(config = readStorageConfigFile()) {
   const candidate = config.ultronRoot;
-  if (candidate && !isLegacyStorageRoot(candidate) && ensureDir(candidate)) {
+  if (candidate && allowedStorage(path.join(candidate,'data')) && !isLegacyStorageRoot(candidate) && ensureDir(candidate)) {
     return candidate;
   }
   const defaultRoot = getDefaultUltronRoot();
@@ -184,7 +218,7 @@ function layoutFromRoot(ultronRoot) {
 
 function resolveAgentDataDir(config = readStorageConfigFile()) {
   const candidate = config.agentDataDir || config.customDataDir;
-  if (candidate && !isLegacyAppDataPath(candidate) && ensureDir(candidate)) {
+  if (candidate && allowedStorage(candidate) && !isLegacyAppDataPath(candidate) && ensureDir(candidate)) {
     return candidate;
   }
   const layout = layoutFromRoot(resolveUltronRoot(config));
@@ -194,7 +228,7 @@ function resolveAgentDataDir(config = readStorageConfigFile()) {
 
 function resolveConnectorsDir(config = readStorageConfigFile()) {
   const candidate = config.connectorsDir || config.customConnectorsDir;
-  if (candidate && !isLegacyAppDataPath(candidate) && ensureDir(candidate)) {
+  if (candidate && allowedStorage(candidate) && !isLegacyAppDataPath(candidate) && ensureDir(candidate)) {
     return candidate;
   }
   const layout = layoutFromRoot(resolveUltronRoot(config));
@@ -229,6 +263,7 @@ function ensureUltronStorageLayout(options = {}) {
   }
 
   const layout = layoutFromRoot(ultronRoot);
+  assertStorage(layout.agentDataDir);assertStorage(layout.connectorsDir);
   ensureDir(layout.ultronRoot);
   ensureDir(layout.agentDataDir);
   ensureDir(layout.connectorsDir);
@@ -237,7 +272,9 @@ function ensureUltronStorageLayout(options = {}) {
     ensureDir(path.join(layout.agentDataDir, sub));
   }
 
+  assertStorage(layout.agentDataDir);assertStorage(layout.connectorsDir);
   writeStorageConfigFile(layout);
+  recordProfile(layout);
 
   process.env.ULTRON_ROOT = layout.ultronRoot;
   process.env.ULTRON_DATA_DIR = layout.agentDataDir;
@@ -269,11 +306,13 @@ function applyStoragePaths() {
 }
 
 function getUltronRuntimeRoot() {
-  return process.env.ULTRON_DATA_DIR || resolveAgentDataDir();
+  const inherited=process.env.ULTRON_DATA_DIR;
+  return inherited&&allowedStorage(inherited)?inherited:resolveAgentDataDir();
 }
 
 function getConnectorsRoot() {
-  return process.env.ULTRON_CONNECTORS_DIR || resolveConnectorsDir();
+  const inherited=process.env.ULTRON_CONNECTORS_DIR;
+  return inherited&&allowedStorage(inherited)?inherited:resolveConnectorsDir();
 }
 
 function getOllamaModelsDir() {
@@ -297,9 +336,14 @@ function getOllamaInstallPath() {
 }
 
 function getStoragePathsSnapshot() {
-  const ultronRoot = process.env.ULTRON_ROOT || resolveUltronRoot();
+  const inherited=process.env.ULTRON_ROOT;
+  const ultronRoot = inherited&&allowedStorage(path.join(inherited,'data'))?inherited:resolveUltronRoot();
   const layout = layoutFromRoot(ultronRoot);
   return {
+    environment:profileName(),
+    isolationWarnings:[...isolationWarnings],
+    runtimeEndpoint:'http://127.0.0.1:11434',
+    runtimeModelDirectoryVerified:false,
     ultronRoot,
     installRoot: getInstallRoot(),
     storageFolderName: getUltronFolderName(),
@@ -317,11 +361,13 @@ function getStoragePathsSnapshot() {
 }
 
 function updateAgentDataDir(customPath) {
+  assertStorage(customPath);
   if (!customPath || !ensureDir(customPath)) {
     throw new Error('Agent storage path is missing or not writable.');
   }
   writeStorageConfigFile({ agentDataDir: customPath });
   process.env.ULTRON_DATA_DIR = customPath;
+  recordProfile({agentDataDir:customPath,connectorsDir:getConnectorsRoot()});
   for (const sub of ['memory', 'temp']) {
     ensureDir(path.join(customPath, sub));
   }
@@ -329,15 +375,18 @@ function updateAgentDataDir(customPath) {
 }
 
 function updateConnectorsDir(customPath) {
+  assertStorage(customPath);
   if (!customPath || !ensureDir(customPath)) {
     throw new Error('Connectors path is missing or not writable.');
   }
   writeStorageConfigFile({ connectorsDir: customPath });
   process.env.ULTRON_CONNECTORS_DIR = customPath;
+  recordProfile({agentDataDir:getUltronRuntimeRoot(),connectorsDir:customPath});
   return customPath;
 }
 
 function updateUltronRoot(customPath) {
+  assertStorage(path.join(customPath||'', 'data'));
   if (!customPath || !ensureDir(customPath)) {
     throw new Error('Ultron folder path is missing or not writable.');
   }

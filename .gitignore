@@ -29,6 +29,11 @@ ENV/
 dist/
 dist-desktop-*/
 build/
+!/build/
+/build/*
+!/build/installer.nsh
+!/build/installer-ui.nsh
+!/build/installer-preview.nsi
 web-build/
 .expo/
 .expo-shared/

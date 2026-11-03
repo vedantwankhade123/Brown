@@ -29,6 +29,7 @@ const { verifyInstaller, startInstaller } = require('../src/main/update-install'
   await assert.rejects(startInstaller('missing.exe', 'C:\\Brown', () => {
     const failed = new EventEmitter(); queueMicrotask(() => failed.emit('error', new Error('launch failed'))); return failed;
   }), /launch failed/);
+  await assert.rejects(startInstaller('bad.exe','C:\\Brown',()=>{const failed=new EventEmitter();failed.unref=()=>{};queueMicrotask(()=>{failed.emit('spawn');failed.emit('exit',2);});return failed;}),/exited before/);
   fs.rmSync(dir, { recursive: true, force: true });
   console.log('PASS: installer integrity, truncation, launch confirmation, restart flags and launch failures');
 })().catch(error => { console.error(error); process.exitCode = 1; });

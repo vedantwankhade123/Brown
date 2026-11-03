@@ -1,4 +1,8 @@
 const { app, BrowserWindow, shell, nativeTheme } = require('electron');
+if(process.argv.includes('--brown-smoke-test')) {
+  require('./packaged-smoke').run(app);
+} else {
+
 const path = require('path');
 const fs = require('fs');
 const { setupIpcHandlers, setMainWindow, reconcileInstallFirstRunMarker, initialWindowSize } = require('./ipc');
@@ -287,3 +291,5 @@ app.on('window-all-closed', () => {
 app.on('will-quit', () => {
   try { require('./voice-stt-live').cleanupLiveStt(); } catch {}
 });
+
+}

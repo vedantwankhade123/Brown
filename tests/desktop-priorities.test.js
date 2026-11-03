@@ -84,10 +84,10 @@ const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     } } : ['./update-install', './update-cache'].includes(name) ? {} : require(name) };
   vm.createContext(env); vm.runInContext(read('src/main/updater.js'), env);
   try {
-    await assert.rejects(env.downloadInstallerFallback('https://example.test/setup.exe', '1.2.3'), /connection lost/);
+    await assert.rejects(env.downloadInstallerFallback('https://github.com/test/releases/setup.exe', '1.2.3'), /connection lost/);
     assert.deepEqual(fs.readdirSync(dir), []);
     interrupted = false;
-    const file = await env.downloadInstallerFallback('https://example.test/setup.exe', '1.2.3');
+    const file = await env.downloadInstallerFallback('https://github.com/test/releases/setup.exe', '1.2.3');
     assert.equal(fs.readFileSync(file, 'utf8'), 'MZxxxxxx');
     assert.equal(fs.existsSync(file + '.part'), false);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

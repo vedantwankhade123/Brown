@@ -50,7 +50,7 @@ function notify(title, body) {
 function notifyUpdateAvailable(version) {
   if (notified.has(`avail-${version}`)) return;
   notified.add(`avail-${version}`);
-  notify(`Brown v${version} is available`, 'Open Brown to update — it takes under a minute.');
+  notify(`Brown v${version} is available`, 'Open Brown to download and install the update.');
 }
 
 function notifyUpdateReady(version) {
@@ -75,15 +75,9 @@ function mapUpdateInfo(info) {
 }
 
 function compareSemver(v1, v2) {
-  const p1 = (v1 || '').replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
-  const p2 = (v2 || '').replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
-    const a = p1[i] || 0;
-    const b = p2[i] || 0;
-    if (a > b) return 1;
-    if (a < b) return -1;
-  }
-  return 0;
+  const semver=require('semver');
+  const first=semver.valid(String(v1||'').replace(/^v/i,'')),second=semver.valid(String(v2||'').replace(/^v/i,''));
+  return first&&second?semver.compare(first,second):0;
 }
 
 async function fetchLatestGitHubRelease() {
@@ -108,7 +102,9 @@ async function fetchLatestGitHubRelease() {
   }
 }
 
+function trustedDownloadUrl(url){try{const parsed=new URL(url);return parsed.protocol==='https:'&&!parsed.username&&!parsed.password&&['github.com','api.github.com','objects.githubusercontent.com','release-assets.githubusercontent.com','github-releases.githubusercontent.com'].includes(parsed.hostname);}catch{return false;}}
 function httpsFollow(url, redirectsLeft, onResponse) {
+  if(!trustedDownloadUrl(url)){onResponse(null,new Error('The update download address is not trusted.'));return;}
   const req = https.get(url, {
     headers: { 'User-Agent': 'Brown-AI-Desktop-App' },
     timeout: 30000
@@ -137,13 +133,14 @@ function httpsFollow(url, redirectsLeft, onResponse) {
 function downloadInstallerFallback(downloadUrl, version) {
   return new Promise((resolve, reject) => {
     const safeVersion = String(version || 'latest').replace(/[^0-9a-zA-Z.\-]/g, '');
-    const dest = path.join(app.getPath('temp'), `Brown-Update-v${safeVersion}.exe`);
+    const directory=fs.mkdtempSync(path.join(app.getPath('temp'),'brown-update-'));
+    const dest = path.join(directory, `Brown-Update-v${safeVersion}.exe`);
     if (fs.existsSync(dest)) {
       try { fs.unlinkSync(dest); } catch (_) {}
     }
     const partial = `${dest}.part`;
     const out = fs.createWriteStream(partial);
-    const cleanup = () => { try { fs.unlinkSync(partial); } catch (_) {} };
+    const cleanup = () => { try { fs.unlinkSync(partial); } catch (_) {} try { fs.rmdirSync(directory); } catch (_) {} };
     out.on('error', reject);
     out.on('close', () => { if (!out.writableFinished) cleanup(); });
     httpsFollow(downloadUrl, 6, (res, err) => {
@@ -294,6 +291,7 @@ function initAutoUpdater(mainWindow) {
       if (app.isPackaged) {
         const result = await autoUpdater.checkForUpdates().catch(() => null);
         const info = result?.updateInfo;
+        if(info?.version&&compareSemver(info.version,app.getVersion())<=0)return {status:'not-available',version:app.getVersion()};
         if (info?.version && compareSemver(info.version, app.getVersion()) > 0) {
           const payload = mapUpdateInfo(info);
           lastUpdatePayload = payload;
@@ -306,7 +304,8 @@ function initAutoUpdater(mainWindow) {
       // GitHub Releases API check (works packaged & dev; also covers
       // releases published without latest.yml)
       const ghRelease = await fetchLatestGitHubRelease();
-      if (ghRelease && ghRelease.tag_name) {
+      if(!ghRelease)throw new Error('Could not reach the update service. Check your connection and try again.');
+      if (ghRelease && ghRelease.tag_name&&!ghRelease.prerelease&&!ghRelease.draft) {
         const latestVer = ghRelease.tag_name.replace(/^v/i, '');
         const curVer = app.getVersion() || '1.0.1';
         if (compareSemver(latestVer, curVer) > 0) {
@@ -371,7 +370,7 @@ function initAutoUpdater(mainWindow) {
         return { status: 'downloaded' };
       }
       // Fallback: direct installer download from the release asset URL.
-      if (lastUpdatePayload?.downloadUrl && /github/.test(lastUpdatePayload.downloadUrl)) {
+      if (lastUpdatePayload?.downloadUrl && trustedDownloadUrl(lastUpdatePayload.downloadUrl)) {
         const version = lastUpdatePayload.version;
         sendToRenderer('update-status', { status: 'downloading', percent: 0, version });
         const dest = await downloadInstallerFallback(lastUpdatePayload.downloadUrl, version);
@@ -437,4 +436,4 @@ function initAutoUpdater(mainWindow) {
   }, 30 * 60 * 1000);
 }
 
-module.exports = { initAutoUpdater };
+module.exports = { initAutoUpdater,compareSemver,trustedDownloadUrl };

@@ -48,7 +48,10 @@
   };
 
   const DEFAULT_MODES = {
-    file_system: 'always',
+    // file_system defaults to 'ask' (was 'always'): writing/moving/deleting files is a
+    // local-write action and must not run silently by default. Taint gating (below) can
+    // still escalate it to 'ask' even when a user has set it to 'always'.
+    file_system: 'ask',
     shell: 'ask',
     app_control: 'always',
     screen: 'ask',
@@ -57,6 +60,42 @@
     knowledge_rag: 'always',
     clipboard: 'always'
   };
+
+  // Risk level per capability group, mirroring the capability registry taxonomy. Used to
+  // decide whether taint forces an approval prompt: read-only groups never escalate, but
+  // local-write / external-write / execution groups do once untrusted content is present.
+  const RISK_BY_GROUP = {
+    file_system: 'local-write',
+    shell: 'execution',
+    app_control: 'execution',
+    screen: 'read-only',
+    web: 'read-only',
+    system_control: 'execution',
+    knowledge_rag: 'read-only',
+    clipboard: 'local-write'
+  };
+  const WRITE_OR_EXECUTE_RISKS = ['local-write', 'external-write', 'execution'];
+
+  function getGroupRisk(groupId) {
+    return RISK_BY_GROUP[groupId] || 'execution';
+  }
+
+  // Types that sit inside a write/execute group but whose own effect is still a read. Without
+  // this, browsing files after any untrusted content would prompt on every single read.
+  const READ_ONLY_IN_WRITE_GROUP = ['READ_FILE', 'LIST_DIR'];
+
+  /**
+   * Whether this specific call changes something (as opposed to merely reading), used to
+   * decide if taint must force approval. Group risk alone is too coarse for mixed groups.
+   */
+  function isWriteOrExecuteToolCall(toolCall) {
+    const type = String((toolCall && toolCall.type) || '').toUpperCase();
+    if (!type) return false;
+    if (READ_ONLY_IN_WRITE_GROUP.includes(type)) return false;
+    if (type === 'CLIPBOARD_ACTION') return String((toolCall && toolCall.action) || 'READ').toUpperCase() !== 'READ';
+    const groupId = getToolCapabilityGroup(toolCall);
+    return Boolean(groupId) && WRITE_OR_EXECUTE_RISKS.includes(getGroupRisk(groupId));
+  }
 
   function getCapabilityMode(groupId) {
     const saved = window.localStorage.getItem(`${STORAGE_PREFIX}${groupId}`);
@@ -87,12 +126,24 @@
     return null;
   }
 
-  /** @returns {'blocked'|true|false} blocked = off, true = ask, false = allow */
-  function evaluateCapabilityGate(toolCall) {
+  /**
+   * @param {object} toolCall
+   * @param {{tainted?:boolean, approvalGranted?:boolean}} [taintContext] Optional runtime
+   *   trust context. When the current request has ingested untrusted external content
+   *   (`tainted`), a local-write / external-write / execution action is escalated to 'ask'
+   *   even if the user set the group to 'always', unless approval was already granted.
+   *   Read-only actions are never escalated, so legitimate read flows keep working.
+   *   Omitting the argument preserves the original mode-only behavior exactly.
+   * @returns {'blocked'|true|false} blocked = off, true = ask, false = allow
+   */
+  function evaluateCapabilityGate(toolCall, taintContext) {
     const groupId = getToolCapabilityGroup(toolCall);
     if (!groupId) return false;
     const mode = getCapabilityMode(groupId);
     if (mode === 'off') return 'blocked';
+    const tainted = Boolean(taintContext && taintContext.tainted);
+    const approvalGranted = Boolean(taintContext && taintContext.approvalGranted);
+    if (tainted && !approvalGranted && isWriteOrExecuteToolCall(toolCall)) return true;
     if (mode === 'always') return false;
     return true;
   }
@@ -107,10 +158,13 @@
 
   window.UltronAgentCapabilities = {
     CAPABILITY_GROUPS,
+    RISK_BY_GROUP,
     getCapabilityMode,
     setCapabilityMode,
     getAllCapabilityModes,
     getToolCapabilityGroup,
+    getGroupRisk,
+    isWriteOrExecuteToolCall,
     evaluateCapabilityGate,
     getCapabilityBlockMessage
   };

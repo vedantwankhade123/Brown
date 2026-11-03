@@ -107,6 +107,17 @@ if (!publish) {
   if (!setup || !portable) {
     die(`Need both a Setup and a portable exe in dist/, found: ${exes.join(', ') || 'nothing'}`);
   }
+
+  // Fail before staging if electron-builder produced a corrupt asar. Under memory
+  // pressure the packer has byte-shifted dependency package.json files, which kills
+  // the preload bridge (window.ultronAPI undefined) while the build still "succeeds".
+  const electronBin = path.join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'electron.cmd' : 'electron');
+  try {
+    sh(`"${electronBin}" "${path.join(ROOT, 'scripts', 'verify-asar-integrity.cjs')}" "${DIST}"`);
+  } catch (e) {
+    die('Packed app.asar failed the integrity gate — the archive is corrupt (likely packed under memory pressure). Close stray Electron processes, free RAM, and rebuild. Do not release this candidate.');
+  }
+
   if (arg('require-signing')) {
     const { verifyWindowsRelease } = require('./verify-windows-release.cjs');
     for (const file of [setup, portable]) console.log(JSON.stringify(verifyWindowsRelease(path.join(DIST, file)), null, 2));

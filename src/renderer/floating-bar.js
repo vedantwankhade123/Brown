@@ -811,7 +811,7 @@
       : 'You are Brown, a fast, intelligent, and concise AI assistant built for Windows. Answer directly and concisely with clean markdown formatting. Avoid unnecessary corporate preamble.';
 
     try {
-      const response = await fetch('http://127.0.0.1:11434/api/generate', {
+      const response = await (window.BrownLocalInference?.fetch||fetch)('http://127.0.0.1:11434/api/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

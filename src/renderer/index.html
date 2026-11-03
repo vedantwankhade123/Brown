@@ -1795,6 +1795,15 @@
               <span class="set-badge">Hardware &amp; runtime</span>
             </div>
 
+            <section class="set-card">
+              <label for="chat-concurrency-limit">Maximum simultaneous chats</label>
+              <select id="chat-concurrency-limit" aria-describedby="chat-concurrency-help">
+                <option value="auto">Auto (up to 5)</option>
+                <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+              </select>
+              <p id="chat-concurrency-help">Brown adapts to your hardware and available memory. Extra requests wait in order. Your model runtime may process requests sequentially.</p>
+            </section>
+
             <section class="set-card performance-engine-card">
               <div class="set-telemetry">
                 <div class="set-telemetry-cell">
@@ -1996,6 +2005,7 @@
                 <div class="set-card-heading">
                   <h5 class="set-card-title">Storage locations</h5>
                   <p class="set-card-desc" id="storage-ultron-root-label">—</p>
+                  <p class="set-card-desc" id="storage-isolation-status" role="status"></p>
                   <p class="set-card-desc" id="storage-install-root-label">—</p>
                 </div>
               </header>
@@ -2338,6 +2348,14 @@
               <!-- Embedded documentation (rendered natively from renderer.js) -->
               <div id="help-docs-container" class="help-docs" style="background: transparent; border: 0; border-radius: 0; padding: 0;"></div>
 
+              <section class="set-card">
+                <h5>Export local diagnostics</h5>
+                <p>Save app and runtime versions, model identity, and recent request settings, timings and error codes from this app session to a JSON file. Nothing is uploaded.</p>
+                <label><input type="checkbox" id="diagnostics-include-content"> Include prompts and responses from the current chat</label>
+                <p>Conversation content is excluded by default. Review exports before sharing.</p>
+                <button type="button" id="btn-export-local-diagnostics" class="set-pill">Export diagnostic report</button>
+                <p id="local-diagnostics-status" role="status" aria-live="polite"></p>
+              </section>
               <!-- Privacy-first diagnostic logs -->
               <div class="settings-feedback-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 18px 20px; margin-top: 16px;">
                 <h5 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600; color: #ffffff;">Diagnostic reports</h5>
@@ -2677,7 +2695,12 @@
   <script src="../../node_modules/mermaid/dist/mermaid.min.js"></script>
   <script src="visual-engine.js"></script>
   <script src="visual-loading.js"></script>
+  <script src="local-diagnostics-ui.js"></script>
+  <script src="local-inference.js"></script>
+  <script src="execution-ledger.js"></script>
   <script src="request-pipeline.js"></script>
+  <script src="capability-registry.js"></script>
+  <script src="trust-boundary.js"></script>
   <script src="artifact-runtime.js"></script>
   <script src="illustration-design.js"></script>
   <script src="geometry-diagrams.js"></script>
@@ -2685,6 +2708,7 @@
   <script src="visual-model-stream.js"></script>
   <script src="activity-status.js"></script>
   <script src="conversation-context.js"></script>
+  <script src="context-budget.js"></script>
   <script src="chat-jobs.js"></script>
   <script src="chat-job-executor.js"></script>
   <script src="chat-job-ui.js"></script>
@@ -2704,6 +2728,7 @@
   <script src="speech-pcm-player.js"></script>
   <script src="project-workspaces.js"></script>
   <script src="model-health.js"></script>
+  <script src="model-compare.js"></script>
   <script src="project-workspace-ui.js"></script>
   <script src="project-sidebar.js"></script>
   <script src="assets-gallery.js"></script>

@@ -3,6 +3,7 @@ const pipeline=require('../src/renderer/request-pipeline');
 const base={capability:'answer',goal:'Answer the current question',language:'',script:'',useContext:false,knowledge:'none',knowledgeEvidence:'',needsCurrentInfo:false,clarification:'',responseLength:'normal',skillIds:[],deliverables:['text'],confidence:0.9};
 const plan=(patch={})=>({...base,...patch});
 (async()=>{
+  for(const request of ['hello','hi','heloo']){const greeting=await pipeline.interpret({request,model:'local',fetchImpl:async()=>{throw Error('Greeting must not load an interpreter');}});assert.equal(greeting.capability,'greeting');assert.equal(greeting.useContext,false);assert.deepEqual(await pipeline.evaluateAnswer({request,answer:'Hello, how can I assist you today?',plan:greeting,complete:async()=>{throw Error('Valid greeting must not need a judge');}}),[]);}
   const capabilities=pipeline.registry({web:false,actions:false});
   assert(capabilities.find(item=>item.id==='scatter').visual);assert(!capabilities.find(item=>item.id==='search').available);assert(!capabilities.find(item=>item.id==='action').available);
   for(const [request,language,script] of [['mere liye hindi me ek kavita likho','Hindi','Devanagari'],['मेरे लिए एक कविता लिखिए','Hindi','Devanagari'],['Écris un poème sur la pluie','French','Latin'],['اكتب قصيدة عن الأمل','Arabic','Arabic'],['雨について短い詩を書いて','Japanese','Han']]) {
@@ -46,6 +47,8 @@ const plan=(patch={})=>({...base,...patch});
   const timeout=await pipeline.interpret({request:'A task',model:'local-model',fetchImpl:async()=>new Promise(()=>{}),timeoutMs:10});assert.equal(timeout.reason,'interpreter-timeout');
   const offline=await pipeline.interpret({request:'A task',model:'remote:cloud',fetchImpl:async()=>{throw Error('Cloud must not be called');}});assert.equal(offline.status,'fallback');
   let payload;const local=await pipeline.interpret({request:'A task',model:'local-model',fetchImpl:async(url,options)=>{payload=JSON.parse(options.body);return new Response(JSON.stringify({message:{content:JSON.stringify(plan())}}));}});assert.equal(local.status,'ready');assert(payload.format.properties.capability.enum.includes('creative'));assert.equal(payload.think,false);
+  assert(!pipeline.contract(creative).includes('\"goal\"'),'Generation prompt must not contain interpreter goal JSON');
+  assert(pipeline.validateAnswer('Some text {\"goal\":\"x\",\"deliverables\":[\"text\"]}',creative).some(issue=>issue.includes('internal request plan')));
   const source=fs.readFileSync(require.resolve('../src/renderer/renderer'),'utf8');assert(!/kavita\|kavitha|कविता\|शायरी/.test(source),'narrow language-specific classifier rules were removed');
   const routing=vm.createContext({window:{BrownRequestPipeline:pipeline,BrownVisualPlanner:require('../src/renderer/visual-planner'),UltronAgentSkills:{listBuiltinSkills:()=>[]},UltronMultiProviderHub:{detectProviderForModel:()=> 'ollama'}},
     currentSessionId:'chat',installedModelsList:[{name:'local'}],activeModel:'local',COMPUTER_ACTIONS_ENABLED:false,_promptMentions:{files:[],forceKnowledge:false},

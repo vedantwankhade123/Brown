@@ -6,6 +6,90 @@
   const SENSITIVE_WINDOW_RE = /password|sign.?in|login|bank|paypal|stripe|auth|2fa|otp|credential/i;
   const SENSITIVE_APPS = ['1password', 'lastpass', 'bitwarden', 'keepass'];
 
+  // Runtime trust boundary (roadmap Phase 6). One taint scope per agent run; the action loop is
+  // serialized by a single foreground controller, so a module-level scope cannot cross-contaminate.
+  // Null outside a run means the gates behave exactly as they did before taint existed.
+  let _runTaint = null;
+  let _runTaintController = null;
+  let _runTaintApprovals = new Set();
+
+  // Tool output is data, never instructions. Types whose result content can carry an
+  // injection attempt, mapped to the trust-boundary evidence kind that classifies it.
+  const TAINTED_OUTPUT_KIND = {
+    READ_FILE: 'file',
+    LIST_DIR: 'file',
+    ORGANIZE_DIRECTORY: 'file',
+    SORT_FOLDER: 'file',
+    PARSE_PDF: 'document',
+    READ_PDF: 'document',
+    EXTRACT_PDF: 'document',
+    ANALYZE_CSV: 'document',
+    ANALYZE_SPREADSHEET: 'document',
+    RAG_SEARCH: 'rag',
+    SEARCH: 'web',
+    WEB_FETCH: 'web',
+    EXECUTE: 'tool',
+    APP_ACTION: 'tool',
+    CAPTURE_SCREEN: 'tool',
+    CLIPBOARD_ACTION: 'tool'
+  };
+
+  function beginAgentRun(scopeOrController) {
+    const tb = window.BrownTrustBoundary;
+    const existing = scopeOrController && typeof scopeOrController.mark === 'function' ? scopeOrController : null;
+    _runTaint = existing || (tb && typeof tb.createTaintScope === 'function' ? tb.createTaintScope() : null);
+    _runTaintController = !existing && scopeOrController && scopeOrController.signal ? scopeOrController : null;
+    _runTaintApprovals = new Set();
+    return _runTaint;
+  }
+
+  function endAgentRun() {
+    const summary = _runTaint ? _runTaint.summary() : null;
+    _runTaint = null;
+    _runTaintController = null;
+    _runTaintApprovals = new Set();
+    return summary;
+  }
+
+  // A stopped run must not leak its scope into an unrelated later action.
+  function activeRunTaint() {
+    if (_runTaint && _runTaintController && _runTaintController.signal && _runTaintController.signal.aborted) endAgentRun();
+    return _runTaint;
+  }
+
+  function getAgentRunTaint() {
+    return _runTaint;
+  }
+
+  // Called by the pipeline when untrusted text enters the request (attachments, RAG rows, web
+  // results) so a later write/execute in the same run needs explicit approval.
+  function markRunContent(kind, text) {
+    const scope = activeRunTaint();
+    if (!scope) return null;
+    return scope.mark(kind, { text: String(text || '').slice(0, 4000) });
+  }
+
+  function toolWriteExecuteRisk(toolCall) {
+    const caps = window.UltronAgentCapabilities;
+    if (!caps || typeof caps.getToolCapabilityGroup !== 'function' || typeof caps.getGroupRisk !== 'function') return '';
+    // Reads that live inside a write-capable group (READ_FILE in Files & folders) never escalate.
+    if (typeof caps.isWriteOrExecuteToolCall === 'function' && !caps.isWriteOrExecuteToolCall(toolCall)) return '';
+    const groupId = caps.getToolCapabilityGroup(toolCall);
+    return groupId ? caps.getGroupRisk(groupId) : '';
+  }
+
+  function noteUntrustedToolOutput(toolCall, result) {
+    const scope = activeRunTaint();
+    if (!scope || !result || !result.success) return;
+    const kind = TAINTED_OUTPUT_KIND[String(toolCall.type || '').toUpperCase()];
+    if (!kind) return;
+    if (kind === 'tool' && String(toolCall.action || '').toUpperCase() === 'WRITE') return;
+    const raw = result.evidence != null ? result.evidence : result.message;
+    const text = typeof raw === 'string' ? raw : JSON.stringify(raw || '');
+    if (!text.trim()) return;
+    scope.mark(kind, { text: text.slice(0, 4000) });
+  }
+
   function getPolicy() {
     return window.UltronAgentPolicy || {};
   }
@@ -56,7 +140,7 @@
     }
   }
 
-  function promptAgentPermission(toolCall) {
+  function promptAgentPermission(toolCall, taintReason) {
     const policy = getPolicy();
     const summary = policy.buildPermissionSummary
       ? policy.buildPermissionSummary(toolCall)
@@ -95,6 +179,12 @@
         action.className = 'approval-action-highlight';
         action.textContent = description.action;
         permReasonText.replaceChildren(action, document.createTextNode(description.message));
+      }
+      if (taintReason && permReasonText) {
+        const note = document.createElement('span');
+        note.className = 'perm-taint-note';
+        note.textContent = ` ${taintReason}`;
+        permReasonText.appendChild(note);
       }
       if (permRiskBadge) {
         permRiskBadge.textContent = `${risk.level === 'high' ? 'High' : risk.level === 'medium' ? 'Medium' : 'Low'} risk`;
@@ -267,7 +357,12 @@
       }
     }
 
-    const perm = policy.requiresPermissionPrompt ? policy.requiresPermissionPrompt(mode, toolCall) : false;
+    const runTaint = activeRunTaint();
+    const riskFromTaint = runTaint ? toolWriteExecuteRisk(toolCall) : '';
+    const taintContext = runTaint
+      ? { tainted: runTaint.tainted, approvalGranted: _runTaintApprovals.has(riskFromTaint) }
+      : undefined;
+    const perm = policy.requiresPermissionPrompt ? policy.requiresPermissionPrompt(mode, toolCall, taintContext) : false;
     if (perm === 'blocked') {
       const caps = window.UltronAgentCapabilities;
       const message = caps && caps.getCapabilityBlockMessage
@@ -288,6 +383,10 @@
       // Persisted decisions: remembered denials win, then always-allow.
       // Blacklisted commands always confirm, even with an old always-allow.
       const riskInfo = policy.classifyRisk ? policy.classifyRisk(toolCall) : null;
+      // Untrusted content in this run cannot be cleared by a stored decision — only by an
+      // approval the user gives now.
+      const taintHold = Boolean(runTaint && riskFromTaint
+        && runTaint.requiresApproval(riskFromTaint) && !_runTaintApprovals.has(riskFromTaint));
       if (memory && riskCategory && memory.hasAlwaysDeny(riskCategory)) {
         return getSchema().normalizeToolResult({
           success: false,
@@ -295,14 +394,17 @@
           errorCode: 'PERMISSION_DENIED'
         });
       }
-      if (mode !== 'Containment' && memory && riskCategory && !((riskInfo && riskInfo.blacklisted) || false) && memory.hasAlwaysAllow(riskCategory)) {
+      if (!taintHold && mode !== 'Containment' && memory && riskCategory && !((riskInfo && riskInfo.blacklisted) || false) && memory.hasAlwaysAllow(riskCategory)) {
         return null;
       }
-      if (mode !== 'Containment' && sessionPerms && sessionPerms.hasSessionGrant(toolCall)) {
+      if (!taintHold && mode !== 'Containment' && sessionPerms && sessionPerms.hasSessionGrant(toolCall)) {
         return null;
       }
 
-      const decision = await promptAgentPermission(toolCall);
+      const decision = await promptAgentPermission(toolCall, taintHold
+        ? 'Untrusted content (a file, web result, or tool output) entered this conversation, so writes and commands need your approval even in Trusted mode.'
+        : '');
+      if (decision.approved && riskFromTaint) _runTaintApprovals.add(riskFromTaint);
       if (decision.approved && decision.scope === 'session' && sessionPerms) {
         sessionPerms.grantSession(toolCall);
       }
@@ -320,6 +422,7 @@
           target: toolCall.target || toolCall.targetPath || toolCall.url || toolCall.appName || '',
           approved: decision.approved,
           scope: decision.scope || (decision.approved ? 'once' : 'deny'),
+          taintEscalated: taintHold,
           outcome: decision.approved ? 'approved' : 'denied'
         });
       }
@@ -799,6 +902,7 @@ Write-Output "Successfully organized $movedCount files into categorized folders.
       toolCall = { ...toolCall, path: resolved.path, targetPath: resolved.path, target: resolved.path };
     }
     const result = await executeAgentToolCallCore(toolCall, options);
+    noteUntrustedToolOutput(toolCall, result);
     recordToolAudit(toolCall, result);
     return result;
   }
@@ -811,6 +915,10 @@ Write-Output "Successfully organized $movedCount files into categorized folders.
     resolveAppNameForTool,
     validateToolCall,
     executeAgentToolCall,
+    beginAgentRun,
+    endAgentRun,
+    getAgentRunTaint,
+    markRunContent,
     pushUndo,
     peekUndo,
     popAndRunUndo

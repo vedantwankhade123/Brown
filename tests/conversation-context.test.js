@@ -6,6 +6,14 @@ assert.deepEqual(context.history([{sender:'User',text:'Earlier request'},{sender
 const tight=context.history([{isAi:false,text:'Earlier request'},{isAi:true,text:'A'.repeat(6000)},{isAi:false,text:'The latest correction must stay in context'},{isAi:true,text:'B'.repeat(6000)}],'Explain the previous answer',{maxChars:1200});
 assert(tight.some(message=>message.content.includes('latest correction')),'Large answers crowded out the latest user correction');
 const prompt = 'what does it mean by the word loy in the poem u have given ?';
+const recallPrompt='What was the project codename I gave you at the start?';
+const recallMessages=[{role:'user',content:'The project codename is MapleHarbor47.'},...Array.from({length:60},(_,i)=>({role:i%2?'assistant':'user',content:'Other planning detail '+i}))];
+assert(context.isFollowUp(recallPrompt));
+const recalled=context.history(recallMessages,recallPrompt,{maxChars:1200,maxMessages:6});
+assert(recalled.some(m=>m.role==='user'&&m.content.includes('MapleHarbor47')),'An explicitly referenced user fact survives the recent-message window');
+assert(recalled.reduce((n,m)=>n+m.content.length,0)<=1200);
+const shortTurns=recallMessages.slice(0,27);
+assert(context.history(shortTurns,'Summarize our discussion',{maxChars:8000}).some(m=>m.content.includes('MapleHarbor47')),'Short turns should not be discarded after twelve messages when the budget permits');
 const poem = 'A quiet dawn, a gentle glow,\n' + 'The rivers carry dreams below.\n'.repeat(40) + 'Loy, the one who makes life worth living.\nA love that will always be your pleasure.';
 const messages = [{ isAi: false, text: 'Write a poem for me.' }, { isAi: true, text: poem }, { isAi: false, text: prompt }];
 assert(context.isFollowUp(prompt));
@@ -102,7 +110,8 @@ vm.runInContext(source.slice(queryStart, source.indexOf('\nlet ONLINE_GEMINI_MOD
   const plan={status:'ready',capability:'creative',goal:'Write a short French poem about rain',language:'French',script:'Latin',useContext:true,knowledge:'none',responseLength:'brief',output:'creative',deliverables:['poem']};
   run.attachPlan(plan,'Write a poem.');sandbox._activeAbortController=run.controller;
   await sandbox.queryOfflineLLM('Write a poem.',[],'conversation','Complete the request.');
-  assert(request.systemPrompt.includes(plan.goal),'the real provider receives the shared goal contract');
+  assert(request.systemPrompt.includes('Requested language: French')&&request.systemPrompt.includes('Writing script: Latin'),'The real provider receives the requested language and format guidance');
+  assert(!request.systemPrompt.includes('\"goal\"'),'Internal planner JSON must not leak into generation');
   run.cancel();
   let retrievalCalls=0,visualCalls=0;
   sandbox.getRagKnowledgeSnippet=async()=>{retrievalCalls++;return 'PRIVATE RETRIEVAL';};

@@ -25,9 +25,10 @@
     const label=document.createElement('span');label.className='visual-loading-text text-shimmer';status.append(label);element.append(status);entry.status=status;entry.label=label;entry.mode=mode;
     root.BrownVisualLoading?.decorateStatus(status,{startedAt:job.startedAt||job.createdAt,preview:visual});
    }
-   entry.label.textContent=job.state==='queued'?'In queue · '+(job.reason||'Waiting for a generation slot'):job.phase;
+   const jobs=queue.list(),waiting=jobs.filter(item=>item.state==='queued'),count=jobs.filter(item=>item.state==='running').length;
+   entry.label.textContent=job.state==='queued'?'In queue · '+(waiting.findIndex(item=>item.id===job.id)+1)+' of '+waiting.length+' · '+count+' running · '+(job.reason||'Waiting for a generation slot'):job.phase;
   }
-  function refresh(){hooks.busy(queue.has(hooks.current()));hooks.indicators();}
+  function refresh(){hooks.busy(queue.has(hooks.current()));hooks.indicators();for(const job of queue.list())paint(job);}
   function changed(job){
    if(!running(job))return;
    const record=records.get(job.id);if(record){record.jobState=job.state;record.jobPhase=job.phase;record.jobReason=job.reason;if(job.partial)record.text=job.partial;}

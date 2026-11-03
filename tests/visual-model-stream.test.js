@@ -39,6 +39,7 @@ function fetchStream(produce) {
   await assert.rejects(generate({ ...defaults, fetchImpl: fetchStream(c => {c.enqueue(bytes('{"message":{"content":"partial"}}\n')); c.close();}) }), /before generation completed/);
   await assert.rejects(generate({ ...defaults, fetchImpl: fetchStream(c => {c.enqueue(bytes('{"error":"out of memory"}\n'));c.close();}) }), /out of memory/);
   await assert.rejects(generate({ ...defaults, fetchImpl: fetchStream(c => {c.enqueue(bytes('{"done":true}\n'));c.close();}) }), { code: 'EMPTY_OUTPUT' });
+  await assert.rejects(generate({ ...defaults, fetchImpl: fetchStream(c => {c.enqueue(bytes(JSON.stringify({message:{content:'unfinished table'},done:true,done_reason:'length'})+'\n'));c.close();}) }), error=>error.code==='OUTPUT_LIMIT'&&error.partial==='unfinished table');
   const models = [{ name: 'gemma4', size: 9000 }, { name: 'qwen:0.5b', size: 400 }, { name: 'phi3', size: 2000 }, { name: 'llava', size: 4000 }, { name: 'remote:cloud', size: 1 }];
   assert.equal(recoveryModel(models, 'gemma4'), 'phi3');
   let calls = [], recoveries = 0;
