@@ -3,8 +3,8 @@ $ErrorActionPreference = 'Stop'
 if ($env:USERNAME -ne 'WDAGUtilityAccount') { throw 'This test runs only inside Windows Sandbox.' }
 $results = 'C:\BrownValidation\Results'
 $installDirectory = Join-Path $env:LOCALAPPDATA 'Programs\Brown AI Validation'
-$latest = 'C:\BrownValidation\Latest\Brown AI Setup v1.0.21.exe'
-$previous = 'C:\BrownValidation\Previous\Brown AI Setup v1.0.20.exe'
+$latest = Get-ChildItem -LiteralPath 'C:\BrownValidation\Latest' -Filter 'Brown AI Setup v*.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+$previous = Get-ChildItem -LiteralPath 'C:\BrownValidation\Previous' -Filter 'Brown AI Setup v*.exe' | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 $checks = [System.Collections.Generic.List[string]]::new()
 New-Item -ItemType Directory -Path $results -Force | Out-Null
 Start-Transcript -Path (Join-Path $results 'installer-transcript.txt') -Force | Out-Null
@@ -37,19 +37,19 @@ try {
     $expected = Get-Content -LiteralPath 'C:\BrownValidation\Harness\checksums.json' -Raw | ConvertFrom-Json
     if ((Get-FileHash -LiteralPath $latest -Algorithm SHA256).Hash -ne $expected.latest) { throw 'Latest installer hash mismatch.' }
     if ((Get-FileHash -LiteralPath $previous -Algorithm SHA256).Hash -ne $expected.previous) { throw 'Previous installer hash mismatch.' }
-    Install-Brown $previous '1.0.20'
+    Install-Brown $previous $expected.previousVersion
     foreach ($item in @('data\validation.txt','models\validation.txt','connectors\validation.txt','personal.txt')) {
         $target = Join-Path $installDirectory $item
         New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
         [System.IO.File]::WriteAllText($target,'BROWN_TEST_DATA')
     }
-    Install-Brown $latest '1.0.21'
+    Install-Brown $latest $expected.latestVersion
     Assert-Data
     Uninstall-Brown
-    Install-Brown $latest '1.0.21'
+    Install-Brown $latest $expected.latestVersion
     Assert-Data
     Uninstall-Brown
-    @{passed=$true;version='1.0.21';installerSha256=(Get-FileHash -LiteralPath $latest -Algorithm SHA256).Hash;checks=$checks;finishedAt=(Get-Date).ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $results 'result.json')
+    @{passed=$true;version=$expected.latestVersion;installerSha256=(Get-FileHash -LiteralPath $latest -Algorithm SHA256).Hash;checks=$checks;finishedAt=(Get-Date).ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $results 'result.json')
 } catch {
     @{passed=$false;checks=$checks;error=$_.Exception.Message;finishedAt=(Get-Date).ToString('o')} | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $results 'result.json')
     throw
