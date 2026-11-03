@@ -12066,6 +12066,8 @@ const PERM_MODE_DISPLAY_LABELS = {
 
 function updateSecurityModeUI(mode) {
   const resolved = SECURITY_MODE_LABELS[mode] ? mode : 'Adaptive';
+  // Mirror for the synchronous agent policy gate (agent-policy.getCurrentSecurityMode).
+  try { window.localStorage.setItem('ultron-security-mode', resolved); } catch (e) {}
   if (selectSecurityMode) selectSecurityMode.value = resolved;
   if (settingsDefaultSecurity) settingsDefaultSecurity.value = resolved;
 

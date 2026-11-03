@@ -9,7 +9,13 @@ const PASSWORD_CONTEXT_RE = /password|passwd|credential|otp|2fa|pin\b/i;
 
 function getCurrentSecurityMode() {
   const select = document.getElementById('select-security-mode');
-  return (select && select.value) || 'Adaptive';
+  if (select && select.value) return select.value;
+  // The mode lives in the main process and is mirrored to localStorage by the renderer on
+  // every sync, so the agent gate and the main-process shell enforcement agree. Without this
+  // fallback the chooser in the chat header and Settings had no effect on tool gating.
+  const saved = window.localStorage.getItem('ultron-security-mode');
+  if (['Review', 'Containment', 'Adaptive', 'Trusted'].includes(saved)) return saved;
+  return 'Adaptive';
 }
 
 function isDestructiveToolCall(toolCall) {

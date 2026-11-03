@@ -372,6 +372,15 @@ untrusted content would prompt on every read. `tests/agent-taint-executor.test.j
 real agent modules and proves: clean run honors stored grants, tainted run refuses the write
 and the command, reads still run, summaries and localStorage never contain the injected text,
 and the next run starts untainted.
+
+*Found while preparing manual tests:* `agent-policy.getCurrentSecurityMode()` read
+`#select-security-mode`, an element that no longer exists anywhere in `index.html`, so the
+chat header's *Prompt Every Action / Smart Auto-Approval / Full Autonomous Mode* chooser had
+**no effect** on tool gating in the agent loop — every run silently ran as Adaptive (only the
+main-process shell check saw the real mode). `updateSecurityModeUI` now mirrors the resolved
+mode to `ultron-security-mode` in localStorage and the policy reads that fallback (the DOM
+value still wins when present), so the chooser and the gate agree. This is what makes
+Trusted mode genuinely permissive — which is exactly why the taint escalation above matters.
 Full `npm test` EXIT=0.
 
 **Goal:** make local files, projects, web results, and imported documents safe prompt

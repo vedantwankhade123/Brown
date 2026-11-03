@@ -43,6 +43,17 @@ globalThis.UltronSessionPermissions = { hasSessionGrant: () => true, grantSessio
 // Every capability group is 'always' so the only thing that can force a prompt here is taint.
 for (const groupId of Object.keys(caps.CAPABILITY_GROUPS)) caps.setCapabilityMode(groupId, 'always');
 
+// The mode chooser mirrors into localStorage (the legacy <select> is gone from the UI), so the
+// gate actually follows the user's selection instead of silently staying Adaptive.
+securitySelect.value = '';
+store['ultron-security-mode'] = 'Trusted';
+assert.equal(globalThis.UltronAgentPolicy.getCurrentSecurityMode(), 'Trusted', 'policy reads the mirrored security mode');
+store['ultron-security-mode'] = 'Review';
+assert.equal(globalThis.UltronAgentPolicy.getCurrentSecurityMode(), 'Review', 'Review is honored too');
+delete store['ultron-security-mode'];
+securitySelect.value = 'Review';
+assert.equal(globalThis.UltronAgentPolicy.getCurrentSecurityMode(), 'Review', 'DOM value still wins when present');
+
 (async () => {
   // --- Clean run: a stored grant is honored, so the high-risk action needs no prompt ----
   exec.beginAgentRun();
