@@ -1,6 +1,9 @@
 // Read-only release preflight. Does not sign, upload, tag or publish anything.
+// Unsigned deployments (our current reality) pass every check except signatures; pass
+// --require-signing to make signatures mandatory again once a certificate exists.
 const fs=require('fs'),path=require('path'),crypto=require('crypto'),assert=require('assert/strict');
-const root=path.resolve(__dirname,'..'),directory=path.resolve(process.argv[2]||path.join(root,'dist-desktop-v1.0.21-ready'));
+const root=path.resolve(__dirname,'..'),directory=path.resolve(process.argv.find((a,i)=>i>1&&!a.startsWith('--'))||path.join(root,'dist'));
+const requireSigning=process.argv.includes('--require-signing');
 const version=require(path.join(root,'package.json')).version;
 const asar=require('@electron/asar'),yaml=require('js-yaml');
 const sha=(file,algorithm='sha256',encoding='hex')=>crypto.createHash(algorithm).update(fs.readFileSync(file)).digest(encoding);
@@ -35,7 +38,8 @@ check('Update manifest',()=>{
  const file=path.join(directory,manifest.path),hash=sha(file,'sha512','base64');
  assert.equal(manifest.sha512,hash);assert.equal(manifest.files[0].sha512,hash);assert.equal(manifest.files[0].url,manifest.path);assert.equal(manifest.files[0].size,fs.statSync(file).size);
 });
-for(const name of ['Brown-AI-Setup.exe','Brown-AI-Portable.exe'])check('Trusted timestamped signature: '+name,()=>require('./verify-windows-release.cjs').verifyWindowsRelease(path.join(directory,name)));
+if(requireSigning)for(const name of ['Brown-AI-Setup.exe','Brown-AI-Portable.exe'])check('Trusted timestamped signature: '+name,()=>require('./verify-windows-release.cjs').verifyWindowsRelease(path.join(directory,name)));
+else findings.push({name:'Trusted timestamped signature',status:'skipped',reason:'unsigned deployment (--require-signing to enforce)'});
 const sandboxResult=path.join(root,'output/installer-sandbox/results/result.json');
 check('Clean-machine lifecycle',()=>{assert(fs.existsSync(sandboxResult),'Windows Sandbox validation has not run');const result=JSON.parse(fs.readFileSync(sandboxResult));assert.equal(result.passed,true);assert.equal(result.version,version);assert.equal(result.installerSha256.toLowerCase(),sha(path.join(directory,'Brown-AI-Setup.exe')),'Sandbox results must match this exact installer');});
 const report={version,checkedAt:new Date().toISOString(),directory,published:false,checksPassed:findings.every(row=>row.status==='passed'),artifacts,findings};
