@@ -10,7 +10,8 @@ const previous=path.join(root,process.env.PREVIOUS_SETUP||path.join('dist-deskto
 const latestSetup=path.join(dist,`Brown AI Setup v${version}.exe`);
 for(const f of [latestSetup,previous]){if(!fs.existsSync(f)){console.error('Missing installer for sandbox kit: '+f);process.exit(1);}}
 const hash=file=>require('crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-fs.writeFileSync(path.join(kit,'checksums.json'),JSON.stringify({latest:hash(latestSetup),previous:hash(previous),latestVersion:version,previousVersion:JSON.parse(require('child_process').execFileSync('powershell.exe',['-NoProfile','-Command',`(Get-Item -LiteralPath '${previous.replace(/'/g,"''")}').VersionInfo.ProductVersion`],{encoding:'utf8'})).trim()},null,2));
+const fileVersion=file=>require('child_process').execFileSync('powershell.exe',['-NoProfile','-Command',`(Get-Item -LiteralPath '${file.replace(/'/g,"''")}').VersionInfo.ProductVersion`],{encoding:'utf8'}).trim();
+fs.writeFileSync(path.join(kit,'checksums.json'),JSON.stringify({latest:hash(latestSetup),previous:hash(previous),latestVersion:version,previousVersion:fileVersion(previous)},null,2));
 fs.copyFileSync(path.join(root,'tests/installer-sandbox.ps1'),path.join(kit,'installer-sandbox.ps1'));
 const escape=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 const map=(host,guest,readOnly)=>`<MappedFolder><HostFolder>${escape(host)}</HostFolder><SandboxFolder>${guest}</SandboxFolder><ReadOnly>${readOnly}</ReadOnly></MappedFolder>`;
