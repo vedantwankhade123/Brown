@@ -64,7 +64,7 @@ function ensureDir(dirPath) {
     if (!fs.existsSync(dirPath)) {
       fs.mkdirSync(dirPath, { recursive: true });
     }
-    const testFile = path.join(dirPath, '.permcheck');
+    const testFile = path.join(dirPath, `.permcheck-${process.pid}-${Math.random().toString(36).slice(2)}`);
     fs.writeFileSync(testFile, 'ok');
     fs.unlinkSync(testFile);
     return true;
@@ -242,7 +242,7 @@ function resolveModelsDir(config = readStorageConfigFile()) {
     return candidate;
   }
   const layout = layoutFromRoot(resolveUltronRoot(config));
-  ensureDir(layout.modelsDir);
+  if (!ensureDir(layout.modelsDir)) throw new Error(`Brown cannot create or write to the models folder: ${layout.modelsDir}`);
   return layout.modelsDir;
 }
 
@@ -264,12 +264,12 @@ function ensureUltronStorageLayout(options = {}) {
 
   const layout = layoutFromRoot(ultronRoot);
   assertStorage(layout.agentDataDir);assertStorage(layout.connectorsDir);
-  ensureDir(layout.ultronRoot);
-  ensureDir(layout.agentDataDir);
-  ensureDir(layout.connectorsDir);
-  ensureDir(layout.modelsDir);
+  for (const dir of [layout.ultronRoot, layout.agentDataDir, layout.connectorsDir, layout.modelsDir]) {
+    if (!ensureDir(dir)) throw new Error(`Brown cannot create or write to the storage folder: ${dir}`);
+  }
   for (const sub of ['memory', 'temp']) {
-    ensureDir(path.join(layout.agentDataDir, sub));
+    const dir = path.join(layout.agentDataDir, sub);
+    if (!ensureDir(dir)) throw new Error(`Brown cannot create or write to the storage folder: ${dir}`);
   }
 
   assertStorage(layout.agentDataDir);assertStorage(layout.connectorsDir);
@@ -316,8 +316,8 @@ function getConnectorsRoot() {
 }
 
 function getOllamaModelsDir() {
-  if (process.env.ULTRON_MODELS_DIR) return process.env.ULTRON_MODELS_DIR;
-  if (process.env.OLLAMA_MODELS) return process.env.OLLAMA_MODELS;
+  const configured = process.env.ULTRON_MODELS_DIR || process.env.OLLAMA_MODELS;
+  if (configured && ensureDir(configured)) return configured;
   return resolveModelsDir();
 }
 

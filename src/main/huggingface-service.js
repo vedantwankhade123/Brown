@@ -92,7 +92,7 @@ function inferParamSize(name) {
  * @param {number} limit 
  * @returns {Promise<Array<object>>}
  */
-async function searchHuggingFaceGgufModels(query = '', limit = 20) {
+async function searchHuggingFaceGgufModels(query = '', limit = 20, { throwOnError = false } = {}) {
   try {
     const cleanQuery = encodeURIComponent(query.trim());
     let url = `https://huggingface.co/api/models?filter=gguf&sort=downloads&direction=-1&limit=${limit}`;
@@ -135,7 +135,8 @@ async function searchHuggingFaceGgufModels(query = '', limit = 20) {
       };
     });
   } catch (err) {
-    console.warn('[huggingface-service] search failed, falling back to curated list:', err.message);
+    console.warn('[huggingface-service] model search failed:', err.message);
+    if (throwOnError) throw err;
     return [];
   }
 }

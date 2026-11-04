@@ -75,6 +75,16 @@ let activeModel = ""; // Initially empty until detected or selected
 let currentSessionId = null;
 Object.defineProperty(window, 'currentSessionId', { get: () => currentSessionId });
 let installedModelsList = [];
+const modelDiscoverySources = { local: false, providers: false };
+let modelDiscoveryComplete = false;
+function markModelDiscoverySourceReady(source) {
+  if (modelDiscoverySources[source]) return;
+  modelDiscoverySources[source] = true;
+  if (!modelDiscoverySources.local || !modelDiscoverySources.providers) return;
+  modelDiscoveryComplete = true;
+  try { renderModelDropdownList(); } catch (_) {}
+  try { updateModelSelectorLabel(); } catch (_) {}
+}
 let searchTimeout = null;
 let isAwaitingResponse = false;
 let _processingSessionId = null;
@@ -4840,6 +4850,7 @@ async function tryGeminiFallbackAfterLocalFailure(prompt, systemPrompt, extraMes
 }
 
 async function checkOllamaStartup() {
+  try {
   logTrace('Checking Ollama connection status...', 'system');
   const conn = await checkOllamaConnection();
   if (conn.connected) {
@@ -4879,6 +4890,9 @@ async function checkOllamaStartup() {
   } else {
     logTrace('Ollama is not installed on this system.', 'system');
     showOllamaBanner('warning', 'Install Ollama to use offline models. You can also choose a connected cloud model.', false, true);
+  }
+  } finally {
+    markModelDiscoverySourceReady('local');
   }
 }
 
@@ -11628,6 +11642,17 @@ function getAnyAvailableDefaultModel() {
 function updateModelSelectorLabel() {
   if (!modelSelectorLabel) return;
 
+  if (!modelDiscoveryComplete) {
+    modelSelectorBtn?.classList.add('is-loading');
+    modelSelectorBtn?.setAttribute('aria-busy', 'true');
+    if (modelSelectorBtn) modelSelectorBtn.title = 'Checking available models…';
+    modelSelectorLabel.innerHTML = '<span class="model-selector-loading-label"><span class="model-loading-spinner" aria-hidden="true"></span><span>Loading models</span></span>';
+    return;
+  }
+
+  modelSelectorBtn?.classList.remove('is-loading');
+  modelSelectorBtn?.removeAttribute('aria-busy');
+
   const hasModels = hasAnyConfiguredModels();
 
   if (!hasModels) {
@@ -11830,8 +11855,23 @@ function buildModelDropdownItemHtml(modelName, displayName, tag, isActive, isWar
   `;
 }
 
+function renderModelDropdownLoading() {
+  if (!modelDropdownList) return;
+  modelDropdownList.setAttribute('aria-busy', 'true');
+  modelDropdownList.innerHTML = `
+    <div class="model-loading-state" role="status" aria-live="polite">
+      <div class="model-loading-heading"><span class="model-loading-spinner" aria-hidden="true"></span><span>Finding your models</span></div>
+      <div class="model-loading-skeletons" aria-hidden="true"><span></span><span></span><span></span></div>
+    </div>`;
+}
+
 function renderModelDropdownList() {
   if (!modelDropdownList) return;
+  if (!modelDiscoveryComplete) {
+    renderModelDropdownLoading();
+    return;
+  }
+  modelDropdownList.removeAttribute('aria-busy');
   modelDropdownList.innerHTML = '';
   
   let hasAnyRenderedModel = false;
@@ -16163,7 +16203,7 @@ function getModelBrandInfo(modelName, author = '', provider = '') {
     return {
       brand: isCloud ? 'Ollama Cloud' : 'Ollama',
       author: author || 'ollama',
-      avatar: `<div class="model-brand-avatar ollama-avatar"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
+      avatar: `<div class="model-brand-avatar ollama-avatar"><img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
       prefix: ''
     };
   }
@@ -16214,7 +16254,7 @@ function getModelBrandInfo(modelName, author = '', provider = '') {
   return {
     brand: 'Ollama',
     author: author || 'ollama',
-    avatar: `<div class="model-brand-avatar ollama-avatar"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" alt="Ollama" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
+    avatar: `<div class="model-brand-avatar ollama-avatar"><img src="../../Assets/Brand-Assets/ollama-logo.png" alt="Ollama" style="width: 17px; height: 17px; object-fit: contain; flex-shrink: 0; display: block;" /></div>`,
     prefix: ''
   };
 }
@@ -16315,10 +16355,11 @@ function renderModelTypeFilterBar(container) {
   trigger.type = 'button';
   trigger.className = 'model-filter-dd-trigger';
   trigger.innerHTML = `
-    <span class="filter-icon-span">${activeOpt.iconHtml || ''}</span>
-    <span class="dd-trigger-label">${isDefaultFilter ? 'Filters' : activeOpt.label}</span>
-    ${isDefaultFilter ? '' : `<span class="filter-count">${activeOpt.count}</span>`}
-    <svg class="dd-chevron" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    <svg class="model-filter-lines-icon" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true">
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="6" y1="12" x2="18" y2="12"></line>
+      <line x1="9" y1="18" x2="15" y2="18"></line>
+    </svg>
   `;
   trigger.setAttribute('aria-haspopup', 'listbox');
   trigger.setAttribute('aria-expanded', modelFilterDropdownOpen ? 'true' : 'false');
@@ -16354,6 +16395,7 @@ function renderModelTypeFilterBar(container) {
         modelFilterDropdownOpen = false;
         if (activeModelCatalogFilter !== id) {
           activeModelCatalogFilter = id;
+          resetModelCatalogPage();
           document.querySelectorAll('.model-type-filters').forEach(renderModelTypeFilterBar);
           renderSettingsModels();
           renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
@@ -16412,7 +16454,8 @@ function renderCatalogTagBadges(tags = []) {
   if (!tags.length) return '';
   const ordered = ['cloud', 'offline', 'thinking', 'vision', 'code', 'embedding'].filter(t => tags.includes(t));
   return `<div class="catalog-model-tags-row">${ordered.map(tag => {
-    const label = tag.charAt(0).toUpperCase() + tag.slice(1);
+    const normalized = tag.toLowerCase();
+    const label = normalized.charAt(0).toUpperCase() + normalized.slice(1);
     return `<span class="catalog-model-tag tag-${tag}">${label}</span>`;
   }).join('')}</div>`;
 }
@@ -16447,8 +16490,8 @@ function renderSettingsModels() {
     return modelMatchesConnectionTab(name) && modelMatchesFilter(name, '', [], activeModelCatalogFilter);
   });
 
-  // Sort: in-use first, then recommended fallback order, then alphabetical
-  const isActiveInstalledName = (n) => Boolean(activeModel) && (activeModel === n || activeModel.split(':')[0] === n.split(':')[0]);
+  // Keep card order independent of active-model changes so selecting a model
+  // updates only its button state and does not move the card.
   const fallbackRank = (n) => {
     const i = LOCAL_MODEL_FALLBACK_ORDER.indexOf((n || '').split(':')[0]);
     return i === -1 ? 999 : i;
@@ -16456,8 +16499,6 @@ function renderSettingsModels() {
   filteredInstalled.sort((a, b) => {
     const na = typeof a === 'string' ? a : a.name;
     const nb = typeof b === 'string' ? b : b.name;
-    const act = (isActiveInstalledName(nb) ? 0 : 1) - (isActiveInstalledName(na) ? 0 : 1);
-    if (act !== 0) return act;
     const rank = fallbackRank(na) - fallbackRank(nb);
     return rank !== 0 ? rank : na.localeCompare(nb);
   });
@@ -16511,7 +16552,7 @@ function renderSettingsModels() {
   
   filteredInstalled.forEach(model => {
     const item = document.createElement('div');
-    item.className = 'catalog-model-card installed-model-card';
+    item.className = 'catalog-model-card installed-model-card model-card-v2';
 
     const name = typeof model === 'string' ? model : model.name;
     const isCloudModel = name.endsWith('-cloud');
@@ -16563,43 +16604,31 @@ function renderSettingsModels() {
     const capTags = [isCloudModel ? 'cloud' : 'offline', ...tags.filter(t => ['thinking', 'vision', 'code', 'embedding'].includes(t))];
 
     item.innerHTML = `
-      <div class="card-header-row">
+      <div class="card-header-row model-card-v2-header">
         <div class="card-header-left">
           ${brandInfo.avatar}
-          <span class="card-model-title">${escapeHtml(displayTitle)}</span>
-        </div>
-        <div class="card-header-right">
-          <span class="card-token-metric">${escapeHtml(paramBadge)} • ${escapeHtml(sizeText)}</span>
-          ${isActive
-            ? `<span class="badge-in-use" title="This model is currently active">In Use</span>`
-            : (isCloudModel
-                ? `<button class="btn-cloud-use btn-select-model" data-model="${escapeHtml(name)}" aria-label="Use ${escapeHtml(displayTitle)}">Use Model</button>`
-                : `<button class="btn-select-model" data-model="${escapeHtml(name)}" aria-label="Select ${escapeHtml(displayTitle)}">Select</button>`
-              )
-          }
-          <button class="btn-delete-model" data-model="${escapeHtml(name)}" title="Delete ${escapeHtml(name)}" aria-label="Delete ${escapeHtml(name)}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-              <polyline points="3 6 5 6 21 6"></polyline>
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-              <line x1="10" y1="11" x2="10" y2="17"></line>
-              <line x1="14" y1="11" x2="14" y2="17"></line>
-            </svg>
-          </button>
+          <div class="card-model-identity">
+            <span class="card-model-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</span>
+            ${renderCatalogTagBadges(capTags)}
+          </div>
         </div>
       </div>
-
-      ${renderCatalogTagBadges(capTags)}
-
+      <div class="model-card-v2-meta">
+        <span class="model-card-type">${isCloudModel ? 'Cloud model' : isHfModel ? 'Hugging Face' : 'Local model'}</span>
+        <span class="model-card-size">${escapeHtml(sizeText)}</span>
+        <span class="model-card-weight">${escapeHtml(paramBadge)}</span>
+      </div>
       <div class="card-description-text">${escapeHtml(descText)}</div>
-
-      <div class="card-metadata-row">
-        <span class="meta-item">by <span class="meta-author-link">${escapeHtml(authorName)}</span></span>
-        <span class="meta-divider">•</span>
-        <span class="meta-item"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:3px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>${isCloudModel ? 'Cloud Hosted' : '128K context'}</span>
-        <span class="meta-divider">•</span>
-        <span class="meta-item">${isCloudModel ? 'Free tier' : '$0.00 / free (offline)'}</span>
-        <span class="meta-divider">•</span>
-        <span class="meta-item"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:3px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>${escapeHtml(sizeText)} on disk</span>
+      <div class="model-card-v2-footer">
+        <span class="model-card-v2-author">${isHfModel ? 'Hugging Face' : isCloudModel ? 'Ollama Cloud' : 'Ollama'} · ${escapeHtml(authorName)}</span>
+        <div class="model-card-v2-actions">
+          ${isActive ? '<button type="button" class="btn-model-active" aria-label="This model is active" disabled>Active</button>' : (isCloudModel
+            ? `<button class="btn-cloud-use btn-select-model" data-model="${escapeHtml(name)}" aria-label="Use ${escapeHtml(displayTitle)}">Use model</button>`
+            : `<button class="btn-select-model" data-model="${escapeHtml(name)}" aria-label="Select ${escapeHtml(displayTitle)}">Use model</button>`)}
+          <button class="btn-delete-model" data-model="${escapeHtml(name)}" title="Delete ${escapeHtml(name)}" aria-label="Delete ${escapeHtml(name)}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+          </button>
+        </div>
       </div>
     `;
 
@@ -17004,6 +17033,8 @@ settingsTabs.forEach(tab => {
       await loadAccountDetails({ locationReason: 'account-tab' });
     } else if (targetTab === 'help') {
       if (typeof renderHelpSupportTab === 'function') renderHelpSupportTab();
+    } else if (targetTab === 'diagnostics') {
+      if (typeof renderDiagnosticsTab === 'function') renderDiagnosticsTab();
     }
   });
 });
@@ -17408,6 +17439,44 @@ if (btnBannerClose) {
 // MODELS TOP-RIGHT DOWNLOAD TRACKER & CIRCULAR PROGRESS CONTROLLER
 // ==========================================
 const activeModelDownloadsMap = new Map();
+
+function buildModelCardDownloadProgress(model, progress) {
+  const percent = Math.max(0, Math.min(100, Math.round(Number(progress?.percent) || 0)));
+  const downloaded = progress?.downloaded || '0 MB';
+  const total = progress?.total || '--';
+  const speed = progress?.speed || 'Calculating speed…';
+  const isCancelling = Boolean(progress?.cancelRequested);
+  return `
+    <div class="model-card-download-progress" role="status" aria-live="polite">
+      <div class="model-card-download-action-row">
+        <button type="button" class="btn-catalog-pull is-downloading" disabled aria-label="Downloading ${escapeHtml(model.displayName || model.name)}">
+          <span>Downloading</span>
+          <strong class="model-card-download-percent">${percent}%</strong>
+        </button>
+        <button type="button" class="btn-card-cancel-download${isCancelling ? ' is-cancelling' : ''}" ${isCancelling ? 'disabled aria-busy="true"' : ''} aria-label="${isCancelling ? 'Cancelling download of' : 'Cancel download of'} ${escapeHtml(model.displayName || model.name)}" title="${isCancelling ? 'Cancelling download' : 'Cancel download'}"><span class="cancel-download-cross" aria-hidden="true">×</span></button>
+      </div>
+      <div class="model-card-download-details">
+        <span class="model-card-download-size">${escapeHtml(downloaded)} / ${escapeHtml(total)}</span>
+        <span class="model-card-download-speed">${escapeHtml(speed)}</span>
+      </div>
+    </div>`;
+}
+
+function updateModelCardDownloadProgress(modelName, progress) {
+  const normalizedName = String(modelName || '').toLowerCase();
+  const card = Array.from(document.querySelectorAll('#ollama-catalog-list .model-card-v2[data-download-model]'))
+    .find((candidate) => candidate.dataset.downloadModel === normalizedName);
+  const panel = card?.querySelector('.model-card-download-progress');
+  if (!panel) return;
+
+  const percent = Math.max(0, Math.min(100, Math.round(Number(progress?.percent) || 0)));
+  const percentEl = panel.querySelector('.model-card-download-percent');
+  if (percentEl) percentEl.textContent = `${percent}%`;
+  const sizeEl = panel.querySelector('.model-card-download-size');
+  if (sizeEl) sizeEl.textContent = `${progress?.downloaded || '0 MB'} / ${progress?.total || '--'}`;
+  const speedEl = panel.querySelector('.model-card-download-speed');
+  if (speedEl) speedEl.textContent = progress?.speed || 'Calculating speed…';
+}
 let isDownloadPopoverOpen = false;
 
 function getDownloadProgressRingOffset(percent) {
@@ -17489,16 +17558,16 @@ function updateModelsDownloadTrackerUI() {
       const running = !isDone && !isCancelled && !isFailed;
       const automation = /windows automation|mcp-windows-uia/i.test(item.modelName);
       const setupTask = ['Kokoro voice setup', 'Ollama engine', 'Hugging Face connection'].includes(item.modelName);
-      const cancellable = running && (!item.kind || item.kind === 'Model' || automation);
+      const cancellable = running && !item.cancelRequested && (!item.kind || item.kind === 'Model' || automation);
       const progress = item.percent == null ? '' : ` ${Math.round(Math.max(0, Math.min(100, Number(item.percent) || 0)))}%`;
-      const state = isDone ? 'Completed' : isFailed ? 'Failed' : isCancelled ? 'Cancelled' : item.status === 'Queued' ? 'Queued' : item.kind === 'Connection' ? 'Checking' : 'Downloading';
+      const state = isDone ? 'Completed' : isFailed ? 'Failed' : isCancelled ? 'Cancelled' : item.cancelRequested ? 'Cancelling' : item.status === 'Queued' ? 'Queued' : item.kind === 'Connection' ? 'Checking' : 'Downloading';
       card.dataset.state = state.toLowerCase();
       card.innerHTML = `
         <div class="download-reference-heading">
           <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-4-4 4 4 4-4M4 16v4h16v-4"/></svg>
           <div class="download-card-name" title="${escapeHtml(item.modelName)}"><span class="download-state-word">${state}</span> <span class="download-reference-name">“${escapeHtml(item.modelName)}”</span></div>
         </div>
-        <p class="download-reference-description">${isFailed ? escapeHtml(item.error || 'Download failed. Please try again.') : isDone ? 'Your download is ready.' : isCancelled ? 'This download was cancelled.' : 'Please wait until the download is completed.'}</p>
+        <p class="download-reference-description">${isFailed ? escapeHtml(item.error || 'Download failed. Please try again.') : isDone ? 'Your download is ready.' : isCancelled ? 'This download was cancelled.' : item.cancelRequested ? 'Stopping the download…' : 'Please wait until the download is completed.'}</p>
         <div class="download-card-progress-track" role="progressbar" aria-label="${escapeHtml(item.modelName)}" ${item.percent != null ? `aria-valuenow="${Math.max(0, Math.min(100, Number(item.percent) || 0))}" aria-valuemin="0" aria-valuemax="100"` : ''}>
           <div class="download-card-progress-fill${item.percent == null && running ? ' is-indeterminate' : ''}" style="width: ${item.percent == null ? (running ? 35 : 0) : Math.max(0, Math.min(100, Number(item.percent) || 0))}%"></div>
         </div>
@@ -17535,13 +17604,19 @@ function updateModelsDownloadTrackerUI() {
           e.stopPropagation();
           btnCancel.disabled = true;
           btnCancel.textContent = 'Cancelling…';
+          item.cancelRequested = true;
+          item.status = 'Cancelling…';
+          updateModelsDownloadTrackerUI();
           try {
             const result = automation ? await window.ultronAPI.cancelWindowsUiaInstall() : await window.ultronAPI.cancelDownloadModel(item.modelName);
             if (result?.success === false) throw new Error(result.error || 'Could not cancel download.');
-            item.status = 'Cancelled';
-            updateModelsDownloadTrackerUI();
           } catch (err) {
             console.warn('Cancel error:', err);
+            if (!['Completed', 'Cancelled', 'Failed'].includes(item.status)) {
+              item.cancelRequested = false;
+              item.status = 'Downloading…';
+            }
+            updateModelsDownloadTrackerUI();
             btnCancel.disabled = false;
             btnCancel.textContent = 'Cancel';
           }
@@ -17550,6 +17625,25 @@ function updateModelsDownloadTrackerUI() {
 
       itemsContainer.appendChild(card);
     });
+  }
+}
+
+function setModelsDownloadPopoverOpen(open, returnFocus = false) {
+  const btnIndicator = document.getElementById('btn-models-download-indicator');
+  const popover = document.getElementById('models-download-popover');
+  if (!btnIndicator || !popover) return;
+
+  isDownloadPopoverOpen = !!open;
+  btnIndicator.setAttribute('aria-expanded', String(isDownloadPopoverOpen));
+  popover.setAttribute('aria-hidden', String(!isDownloadPopoverOpen));
+  popover.toggleAttribute('inert', !isDownloadPopoverOpen);
+
+  if (isDownloadPopoverOpen) {
+    updateModelsDownloadTrackerUI();
+    popover.classList.add('is-open');
+  } else {
+    popover.classList.remove('is-open');
+    if (returnFocus) btnIndicator.focus();
   }
 }
 
@@ -17562,30 +17656,17 @@ function initModelsDownloadTracker() {
 
   btnIndicator.addEventListener('click', (e) => {
     e.stopPropagation();
-    isDownloadPopoverOpen = !isDownloadPopoverOpen;
-    btnIndicator.setAttribute('aria-expanded', String(isDownloadPopoverOpen));
-    if (isDownloadPopoverOpen) {
-      popover.classList.remove('hidden');
-      updateModelsDownloadTrackerUI();
-    } else {
-      popover.classList.add('hidden');
-    }
+    setModelsDownloadPopoverOpen(!isDownloadPopoverOpen);
   });
 
   document.addEventListener('click', (e) => {
     if (isDownloadPopoverOpen && trackerEl && !trackerEl.contains(e.target)) {
-      isDownloadPopoverOpen = false;
-      popover.classList.add('hidden');
-      btnIndicator.setAttribute('aria-expanded', 'false');
+      setModelsDownloadPopoverOpen(false);
     }
   });
 
   document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') {
-      isDownloadPopoverOpen = false;
-      popover.classList.add('hidden');
-      btnIndicator.setAttribute('aria-expanded', 'false');
-    }
+    if (event.key === 'Escape' && isDownloadPopoverOpen) setModelsDownloadPopoverOpen(false, true);
   });
   document.getElementById('btn-download-clear-all')?.addEventListener('click', event => {
     event.stopPropagation();
@@ -17595,7 +17676,13 @@ function initModelsDownloadTracker() {
     updateModelsDownloadTrackerUI();
   });
   window.ultronAPI?.onDownloadActivity?.(item => {
-    activeModelDownloadsMap.set(item.modelName.toLowerCase(), item);
+    const key = item.modelName.toLowerCase();
+    const previous = activeModelDownloadsMap.get(key);
+    activeModelDownloadsMap.set(key, {
+      ...previous,
+      ...item,
+      cancelRequested: Boolean(previous?.cancelRequested || item.cancelRequested)
+    });
     updateModelsDownloadTrackerUI();
   });
   updateModelsDownloadTrackerUI();
@@ -17613,29 +17700,14 @@ function initModelsDownloadTracker() {
       existing.downloaded = data.downloaded || existing.downloaded || '';
       existing.total = data.total || existing.total || '';
       existing.speed = data.speed || existing.speed || '';
-      existing.status = existing.percent >= 100 && existing.kind ? 'Installing…' : existing.percent >= 100 ? 'Completed' : 'Downloading…';
+      existing.status = existing.cancelRequested
+        ? 'Cancelling…'
+        : existing.percent >= 100 && existing.kind ? 'Installing…' : existing.percent >= 100 ? 'Completed' : 'Downloading…';
       existing.timestamp = Date.now();
 
       activeModelDownloadsMap.set(key, existing);
       updateModelsDownloadTrackerUI();
-
-      // Update specific card button if visible
-      const activeCardBtn = document.querySelector(`.btn-catalog-pull[data-model="${data.modelName}"], .btn-catalog-pull[data-model="${key}"]`);
-      if (activeCardBtn && existing.status !== 'Completed') {
-        activeCardBtn.classList.add('is-downloading');
-        activeCardBtn.disabled = true;
-        activeCardBtn.innerHTML = `
-          <svg class="lottie-download-svg is-active-anim" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#22c55e" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;">
-            <line class="lottie-download-beam" x1="12" y1="2" x2="12" y2="13" stroke="#22c55e" stroke-width="1.8"></line>
-            <g class="lottie-download-arrow">
-              <line class="lottie-download-stem" x1="12" y1="4" x2="12" y2="13"></line>
-              <polyline points="8 9.5 12 13.5 16 9.5"></polyline>
-            </g>
-            <path class="lottie-download-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
-          </svg>
-          Downloading (${existing.percent}%)
-        `;
-      }
+      updateModelCardDownloadProgress(data.modelName, existing);
     });
   }
 }
@@ -17665,9 +17737,7 @@ initModelsDownloadTracker();
     if (tracker.parentElement === parent) return;
     if (destination) parent.appendChild(tracker);
     else chatHeader.insertBefore(tracker, updateWrap);
-    isDownloadPopoverOpen = false;
-    document.getElementById('models-download-popover')?.classList.add('hidden');
-    document.getElementById('btn-models-download-indicator')?.setAttribute('aria-expanded', 'false');
+    setModelsDownloadPopoverOpen(false);
   }
   const observer = new MutationObserver(relocate);
   observer.observe(panel, { attributes: true, attributeFilter: ['class'] });
@@ -17676,34 +17746,20 @@ initModelsDownloadTracker();
 })();
 
 
-let activeDownloadingModel = null;
-
 // Bind model downloader
+let requestedDownloadModelName = '';
 btnDownloadModel.addEventListener('click', async () => {
-  const modelName = inputDownloadModel.value.trim();
+  const modelName = requestedDownloadModelName || inputDownloadModel.value.trim();
+  requestedDownloadModelName = '';
   if (!modelName) return;
 
   const cloudOk = await ensureOllamaCloudAuthForPull(modelName);
   if (!cloudOk) return;
   
-  activeDownloadingModel = modelName;
-  const progressContainer = document.getElementById('download-progress-container');
-  const progressStatus = document.getElementById('download-progress-status');
-  const progressStats = document.getElementById('download-progress-stats');
-  const progressBar = document.getElementById('download-progress-bar');
-  const progressSpeed = document.getElementById('download-progress-speed');
-  const btnCancelDownload = document.getElementById('btn-cancel-download');
-  
-  if (btnCancelDownload) {
-    btnCancelDownload.disabled = false;
-    btnCancelDownload.textContent = 'Cancel';
-  }
-
   const online = await checkOnlineStatus();
   if (!online) {
     logTrace('Model download aborted: User is offline.', 'system');
     showOllamaBanner('warning', 'Offline: Connection required to download model weights.', true);
-    activeDownloadingModel = null;
     return;
   }
   
@@ -17722,39 +17778,6 @@ btnDownloadModel.addEventListener('click', async () => {
   updateModelsDownloadTrackerUI();
   renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
 
-  if (progressContainer) {
-    progressContainer.style.setProperty('display', 'block', 'important');
-    progressContainer.classList.remove('hidden');
-    progressStatus.textContent = `Initiating pull for ${modelName}...`;
-    progressStats.textContent = `0% (0 MB / 0 MB)`;
-    progressBar.style.width = '0%';
-    progressSpeed.textContent = 'Speed: --';
-  }
-  
-  // Start real-time progress push listener
-  const cleanProgressEvent = window.ultronAPI.onDownloadProgress((data) => {
-    if (data.modelName.toLowerCase() === modelName.toLowerCase()) {
-      if (progressBar) progressBar.style.width = `${data.percent}%`;
-      if (progressStats) {
-        progressStats.textContent = `${data.percent}% (${data.downloaded || '0 MB'} / ${data.total || '0 MB'})`;
-      }
-      if (progressStatus) progressStatus.textContent = `Downloading ${data.modelName}...`;
-      if (progressSpeed) {
-        progressSpeed.textContent = data.speed ? `Speed: ${data.speed}` : 'Speed: --';
-      }
-
-      // Update tracker Map
-      const item = activeModelDownloadsMap.get(modelName.toLowerCase()) || { modelName };
-      item.percent = data.percent;
-      item.downloaded = data.downloaded;
-      item.total = data.total;
-      item.speed = data.speed;
-      item.status = data.percent >= 100 ? 'Completed' : 'Downloading…';
-      activeModelDownloadsMap.set(modelName.toLowerCase(), item);
-      updateModelsDownloadTrackerUI();
-    }
-  });
-  
   try {
     const result = await window.ultronAPI.downloadModel(modelName);
     const item = activeModelDownloadsMap.get(modelName.toLowerCase());
@@ -17762,6 +17785,7 @@ btnDownloadModel.addEventListener('click', async () => {
     if (result.success) {
       logTrace(`Model weights for "${modelName}" pulled successfully!`, 'system');
       if (item) {
+        item.cancelRequested = false;
         item.status = 'Completed';
         item.percent = 100;
         item.justCompleted = true;
@@ -17777,16 +17801,16 @@ btnDownloadModel.addEventListener('click', async () => {
         }, 4500);
       }
       alert(`Model weights for "${modelName}" pulled successfully!\n\nTo run this model manually from the command line, run:\nollama run ${modelName}`);
-      inputDownloadModel.value = '';
-      
       // Refresh profiling and settings list
       await runOnboardingProfiler();
       renderSettingsModels();
     } else if (result.cancelled) {
       logTrace(`Model pull for "${modelName}" was cancelled by user.`, 'system');
       if (item) {
+        item.cancelRequested = false;
         item.status = 'Cancelled';
         updateModelsDownloadTrackerUI();
+        renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
         setTimeout(() => {
           activeModelDownloadsMap.delete(modelName.toLowerCase());
           updateModelsDownloadTrackerUI();
@@ -17796,6 +17820,7 @@ btnDownloadModel.addEventListener('click', async () => {
     } else {
       logTrace(`Failed to download weights: ${result.error}`, 'system');
       if (item) {
+        item.cancelRequested = false;
         item.status = 'Failed';
         updateModelsDownloadTrackerUI();
         renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
@@ -17805,35 +17830,8 @@ btnDownloadModel.addEventListener('click', async () => {
   } catch (err) {
     logTrace(`Download error: ${err.message}`, 'system');
     alert(`Download error: ${err.message}`);
-  } finally {
-    activeDownloadingModel = null;
-    // Unsubscribe from real-time events
-    cleanProgressEvent();
-    
-    // Hide progress bar container
-    if (progressContainer) {
-      progressContainer.style.setProperty('display', 'none', 'important');
-      progressContainer.classList.add('hidden');
-    }
   }
 });
-
-// Bind cancel download button
-const btnCancelDownload = document.getElementById('btn-cancel-download');
-if (btnCancelDownload) {
-  btnCancelDownload.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    if (!activeDownloadingModel) return;
-    logTrace(`Cancelling model download process for "${activeDownloadingModel}"...`, 'system');
-    btnCancelDownload.disabled = true;
-    btnCancelDownload.textContent = 'Cancelling...';
-    try {
-      await window.ultronAPI.cancelDownloadModel(activeDownloadingModel);
-    } catch (err) {
-      console.warn('Cancel download error:', err);
-    }
-  });
-}
 
 // ==========================================
 // UNIFIED POPULAR & LIVE MODEL CATALOG CONTROLLER
@@ -17843,6 +17841,15 @@ let activeCatalogProviderFilter = 'all'; // 'all' | 'ollama' | 'huggingface'
 let providerFilterDropdownOpen = false;
 let liveHuggingFaceResults = [];
 let hfSearchDebounceTimer = null;
+const MODEL_CATALOG_PAGE_SIZE = 12;
+const MODEL_CATALOG_MAX_REMOTE_LIMIT = 240;
+let modelCatalogPage = 1;
+let remoteHuggingFaceCatalogModels = [];
+let remoteHuggingFaceFetchedLimit = 0;
+let remoteHuggingFaceHasMore = true;
+let remoteHuggingFaceLoading = false;
+let remoteHuggingFaceError = '';
+let modelCatalogContextRevision = 0;
 let activeHfSearchQuery = '';
 
 const OLLAMA_CLOUD_PULL_MODELS = [
@@ -18081,7 +18088,93 @@ function formatCompactCount(num) {
   return String(num);
 }
 
-let catalogLimit = 12;
+function resetModelCatalogPage() {
+  modelCatalogPage = 1;
+  remoteHuggingFaceError = '';
+  modelCatalogContextRevision += 1;
+}
+
+function getHuggingFaceCatalogIdentity(model) {
+  return String(model?.repoId || model?.name || '')
+    .replace(/^hf\.co\//i, '')
+    .split(':')[0]
+    .trim()
+    .toLowerCase();
+}
+
+function renderModelCatalogPagination(totalItems, filterQuery = '') {
+  const nav = document.getElementById('model-catalog-pagination');
+  if (!nav) return;
+
+  const query = (filterQuery || '').trim();
+  const isPaginatedCatalog = activeModelsConnectionTab === 'offline' && !query;
+  const totalPages = Math.max(1, Math.ceil(totalItems / MODEL_CATALOG_PAGE_SIZE));
+  const canFetchMore = activeCatalogProviderFilter !== 'ollama' && remoteHuggingFaceHasMore;
+  const isRemoteLoading = remoteHuggingFaceLoading && activeCatalogProviderFilter !== 'ollama';
+  const canGoNext = modelCatalogPage < totalPages || canFetchMore;
+  nav.setAttribute('aria-busy', isRemoteLoading ? 'true' : 'false');
+  nav.replaceChildren();
+  nav.hidden = !isPaginatedCatalog || (totalItems === 0 && !canFetchMore);
+  if (nav.hidden) return;
+
+  const controls = document.createElement('div');
+  controls.className = 'model-catalog-pagination-controls';
+  controls.setAttribute('aria-live', 'polite');
+
+  const makeButton = (label, ariaLabel, page, disabled = false, current = false) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `model-page-button${current ? ' is-current' : ''}`;
+    button.textContent = label;
+    button.setAttribute('aria-label', ariaLabel);
+    if (current) button.setAttribute('aria-current', 'page');
+    if (page != null) button.dataset.page = String(page);
+    button.disabled = disabled || remoteHuggingFaceLoading;
+    return button;
+  };
+
+  controls.appendChild(makeButton('Previous', 'Previous page', modelCatalogPage - 1, modelCatalogPage <= 1));
+
+  const pageSet = new Set([1, totalPages]);
+  for (let page = Math.max(1, modelCatalogPage - 1); page <= Math.min(totalPages, modelCatalogPage + 1); page += 1) pageSet.add(page);
+  if (modelCatalogPage <= 3) [2, 3, 4].forEach(page => page <= totalPages && pageSet.add(page));
+  if (modelCatalogPage >= totalPages - 2) [totalPages - 3, totalPages - 2, totalPages - 1].forEach(page => page >= 1 && pageSet.add(page));
+
+  let previousPage = 0;
+  [...pageSet].sort((a, b) => a - b).forEach(page => {
+    if (previousPage && page - previousPage > 1) {
+      const ellipsis = document.createElement('span');
+      ellipsis.className = 'model-page-ellipsis';
+      ellipsis.textContent = '…';
+      ellipsis.setAttribute('aria-hidden', 'true');
+      controls.appendChild(ellipsis);
+    }
+    controls.appendChild(makeButton(String(page), `Page ${page}`, page, false, page === modelCatalogPage));
+    previousPage = page;
+  });
+
+  if (canFetchMore && totalPages === previousPage) {
+    const ellipsis = document.createElement('span');
+    ellipsis.className = 'model-page-ellipsis';
+    ellipsis.textContent = '…';
+    ellipsis.setAttribute('aria-hidden', 'true');
+    controls.appendChild(ellipsis);
+  }
+
+  const nextButton = makeButton(isRemoteLoading ? 'Loading…' : 'Next', 'Next page', modelCatalogPage + 1, !canGoNext);
+  nextButton.classList.add('model-page-next');
+  if (isRemoteLoading) nextButton.insertAdjacentHTML('afterbegin', '<span class="model-page-loading-indicator" aria-hidden="true"></span>');
+  controls.appendChild(nextButton);
+
+  nav.appendChild(controls);
+  if (remoteHuggingFaceError) {
+    const status = document.createElement('div');
+    status.className = 'model-catalog-pagination-status is-error';
+    status.setAttribute('role', 'status');
+    status.textContent = remoteHuggingFaceError;
+    nav.appendChild(status);
+  }
+}
 
 function filterCatalogModels(models, filterQuery = '') {
   const query = filterQuery.toLowerCase().trim();
@@ -18137,6 +18230,7 @@ function renderCatalogProviderFilterBar(container) {
   trigger.setAttribute('aria-haspopup', 'listbox');
   trigger.setAttribute('aria-expanded', providerFilterDropdownOpen ? 'true' : 'false');
   trigger.setAttribute('aria-label', `Provider filter: ${isDefaultProvider ? 'Providers' : activeOpt.label}`);
+  trigger.title = `Provider filter: ${isDefaultProvider ? 'All providers' : activeOpt.label}`;
   trigger.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -18167,6 +18261,7 @@ function renderCatalogProviderFilterBar(container) {
         providerFilterDropdownOpen = false;
         if (activeCatalogProviderFilter !== id) {
           activeCatalogProviderFilter = id;
+          resetModelCatalogPage();
           renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
         }
         renderCatalogProviderFilterBar(container);
@@ -18193,14 +18288,73 @@ function initCatalogProviderFilters() {
 // applies to the Download catalog in Offline mode.
 function updateProviderFilterVisibility() {
   const el = document.getElementById('catalog-provider-filters');
-  if (!el) return;
   const show = activeModelsViewSubTab === 'download' && activeModelsConnectionTab !== 'online';
-  el.style.display = show ? '' : 'none';
+  if (el) el.style.display = show ? '' : 'none';
+
+  const searchControl = document.getElementById('model-catalog-search-control');
+  if (searchControl) searchControl.style.display = show ? 'flex' : 'none';
+  if (!show) setModelCatalogSearchOpen(false);
+}
+
+function setModelCatalogSearchOpen(open) {
+  const control = document.getElementById('model-catalog-search-control');
+  const toggle = document.getElementById('btn-toggle-model-search');
+  const expander = document.getElementById('model-catalog-search-expander');
+  const input = document.getElementById('input-download-model');
+  if (!control || !toggle || !expander) return;
+
+  control.classList.toggle('is-open', !!open);
+  toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  toggle.setAttribute('aria-label', open ? 'Close model search' : 'Search models');
+  toggle.title = open ? 'Close model search' : 'Search models';
+  expander.toggleAttribute('inert', !open);
+  if (input) input.tabIndex = open ? 0 : -1;
+  const closeButton = document.getElementById('btn-close-model-search');
+  if (closeButton) closeButton.tabIndex = open ? 0 : -1;
+  if (open && input) requestAnimationFrame(() => input.focus());
+}
+
+function closeModelCatalogSearch(clearQuery = false) {
+  setModelCatalogSearchOpen(false);
+  if (!clearQuery || !inputDownloadModel?.value) return;
+  inputDownloadModel.value = '';
+  triggerLiveHuggingFaceSearch('');
+}
+
+function initModelCatalogSearch() {
+  const toggle = document.getElementById('btn-toggle-model-search');
+  const close = document.getElementById('btn-close-model-search');
+  const control = document.getElementById('model-catalog-search-control');
+
+  toggle?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const isOpen = control?.classList.contains('is-open');
+    if (isOpen) closeModelCatalogSearch(true);
+    else setModelCatalogSearchOpen(true);
+  });
+
+  close?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeModelCatalogSearch(true);
+    toggle?.focus();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !control?.classList.contains('is-open')) return;
+    closeModelCatalogSearch(true);
+    toggle?.focus();
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!control?.classList.contains('is-open') || control.contains(event.target)) return;
+    closeModelCatalogSearch(false);
+  });
 }
 
 function renderOllamaCatalog(filterQuery = '') {
   const catalogListEl = document.getElementById('ollama-catalog-list');
-  const btnLoadMore = document.getElementById('btn-load-more-models');
   if (!catalogListEl) return;
 
   renderModelTypeFilterBar(document.getElementById('installed-model-filters'));
@@ -18212,9 +18366,10 @@ function renderOllamaCatalog(filterQuery = '') {
     ...(isOllamaCloudConnectedState ? (OLLAMA_CLOUD_PULL_MODELS || []).map(m => m.name.toLowerCase()) : [])
   ]);
 
-  function appendCatalogSection(title, titleColor, models, limitSlice = true, badgeType = null) {
+  function appendCatalogSection(title, titleColor, models, visibleModels = null, badgeType = null, countOverride = null) {
     const filtered = filterCatalogModels(models, filterQuery);
-    if (filtered.length === 0) return false;
+    const visible = query ? filtered : (Array.isArray(visibleModels) ? visibleModels : filtered);
+    if (visible.length === 0) return false;
 
     const header = document.createElement('div');
     header.className = 'catalog-section-title';
@@ -18227,10 +18382,10 @@ function renderOllamaCatalog(filterQuery = '') {
       headerLeft = `<div style="display: flex; align-items: center; gap: 6px;"><img src="../../Assets/Brand-Assets/ollama-white-logo.png" style="width: 13px; height: 13px; object-fit: contain;" /><span>${escapeHtml(title)}</span></div>`;
     }
     
-    header.innerHTML = `${headerLeft}<span style="font-size: 10px; color: var(--text-muted); font-weight: normal;">${filtered.length} models</span>`;
+    const modelCount = Number.isFinite(countOverride) ? countOverride : filtered.length;
+    header.innerHTML = `${headerLeft}<span style="font-size: 10px; color: var(--text-muted); font-weight: normal;">${modelCount} models</span>`;
     catalogListEl.appendChild(header);
 
-    const visible = query ? filtered : (limitSlice ? filtered.slice(0, catalogLimit) : filtered);
     visible.forEach(model => appendCatalogCard(model, installedNames));
     return true;
   }
@@ -18241,7 +18396,8 @@ function renderOllamaCatalog(filterQuery = '') {
     const isHuggingFace = model.provider === 'huggingface' || model.name.startsWith('hf.co/');
     const tags = model.tags || inferModelTags(model.name, model.desc);
     const card = document.createElement('div');
-    card.className = 'catalog-model-card';
+    card.className = 'catalog-model-card model-card-v2';
+    card.dataset.downloadModel = model.name.toLowerCase();
 
     const brandInfo = getModelBrandInfo(model.name, model.author, isHuggingFace ? 'huggingface' : (isCloudModel ? 'cloud' : 'ollama'));
 
@@ -18252,10 +18408,7 @@ function renderOllamaCatalog(filterQuery = '') {
     const displayTitle = model.displayName || model.name;
     const authorName = model.author || (isHuggingFace ? 'huggingface' : (isCloudModel ? 'ollama' : 'community'));
 
-    const paramText = model.size ? `${model.size} tokens` : (isCloudModel ? 'Cloud' : 'Weights');
-    const contextText = isCloudModel ? '1.05M context' : '128K context';
-    const priceInput = isCloudModel ? (model.priceInput || '$0/M input') : '$0/M input';
-    const priceOutput = isCloudModel ? (model.priceOutput || '$0.') : '$0.';
+    const paramText = model.size || (isCloudModel ? 'Cloud' : 'Weights');
 
     // Build tag pills with colored dots (matching mobile UI)
     const tagPills = [];
@@ -18267,7 +18420,11 @@ function renderOllamaCatalog(filterQuery = '') {
     if (isHuggingFace) tagPills.push({ label: 'HuggingFace', color: '#facc15' });
 
     const tagPillsHtml = tagPills.length > 0
-      ? `<div class="card-tags-row">${tagPills.map(t => `<span class="card-tag-pill"><span class="card-tag-dot" style="background:${t.color}"></span>${escapeHtml(t.label)}</span>`).join('')}</div>`
+      ? `<div class="card-tags-row">${tagPills.map(t => {
+        const normalized = t.label.toLowerCase();
+        const label = normalized.charAt(0).toUpperCase() + normalized.slice(1);
+        return `<span class="card-tag-pill" style="--card-tag-accent:${t.color}">${escapeHtml(label)}</span>`;
+      }).join('')}</div>`
       : '';
 
     const dlInfo = activeModelDownloadsMap.get(model.name.toLowerCase());
@@ -18298,37 +18455,23 @@ function renderOllamaCatalog(filterQuery = '') {
         `;
       }
     } else if (isActivelyDownloading) {
-      actionButtonHtml = `
-        <button class="btn-catalog-pull is-downloading" disabled data-model="${escapeHtml(model.name)}">
-          <svg class="lottie-download-svg is-active-anim" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#22c55e" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 4px;">
-            <line class="lottie-download-beam" x1="12" y1="2" x2="12" y2="13" stroke="#22c55e" stroke-width="1.8"></line>
-            <g class="lottie-download-arrow">
-              <line class="lottie-download-stem" x1="12" y1="4" x2="12" y2="13"></line>
-              <polyline points="8 9.5 12 13.5 16 9.5"></polyline>
-            </g>
-            <path class="lottie-download-tray" d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
-          </svg>
-          Downloading (${dlInfo.percent || 0}%)
-        </button>
-      `;
+      actionButtonHtml = buildModelCardDownloadProgress(model, dlInfo);
     } else if (isJustCompleted) {
       actionButtonHtml = `
-        <span class="badge-installed just-completed">
+        <button type="button" class="btn-catalog-installed" disabled aria-label="${escapeHtml(displayTitle)} installed">
           <svg class="lottie-check-svg play-once" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#22c55e" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;">
             <circle class="lottie-check-circle" cx="12" cy="12" r="10" stroke="#22c55e" stroke-width="2.2" fill="none"></circle>
             <polyline class="lottie-check-mark" points="7.5 12 10.5 15 16.5 9" stroke="#22c55e" stroke-width="2.6"></polyline>
           </svg>
-          INSTALLED
-        </span>
+          Installed
+        </button>
       `;
     } else if (isInstalled) {
       actionButtonHtml = `
-        <span class="badge-installed">
-          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="#22c55e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 3px;">
-            <polyline points="20 6 9 17 4 12"></polyline>
-          </svg>
-          INSTALLED
-        </span>
+        <button class="btn-select-model" data-model="${escapeHtml(model.name)}" aria-label="Use ${escapeHtml(displayTitle)}">Use model</button>
+        <button class="btn-delete-model" data-model="${escapeHtml(model.name)}" title="Delete ${escapeHtml(model.name)}" aria-label="Delete ${escapeHtml(model.name)}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+        </button>
       `;
     } else {
       actionButtonHtml = `
@@ -18349,32 +18492,74 @@ function renderOllamaCatalog(filterQuery = '') {
       : '';
 
     card.innerHTML = `
-      <div class="card-header-row">
+      <div class="card-header-row model-card-v2-header">
         <div class="card-header-left">
           ${brandInfo.avatar}
-          <span class="card-model-title">${escapeHtml(displayTitle)}</span>
-        </div>
-        <div class="card-header-right">
-          <span class="card-token-metric">${escapeHtml(paramText)}</span>
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#64748b" stroke-width="2" style="flex-shrink:0;cursor:pointer;" title="Model details"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <div class="card-model-identity">
+            <span class="card-model-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</span>
+            ${tagPillsHtml}
+          </div>
         </div>
       </div>
-
-      ${tagPillsHtml}
-
+      <div class="model-card-v2-meta">
+        <span class="model-card-type">${isCloudModel ? 'Cloud model' : isHuggingFace ? 'Hugging Face GGUF' : 'Local model'}</span>
+        <span class="model-card-size">${escapeHtml(model.downloadSize || (isCloudModel ? 'Cloud' : 'Size unavailable'))}</span>
+        <span class="model-card-weight">${escapeHtml(paramText)}</span>
+      </div>
       <div class="card-description-text">${escapeHtml(model.desc || 'High-performance neural model weights.')}</div>
-
-      <div class="card-metadata-row">
-        <span class="meta-item">${hfBadge}by <span class="meta-author-link">${escapeHtml(authorName)}</span></span>
-        <span class="meta-divider">·</span>
-        <span class="meta-item">${escapeHtml(contextText)}</span>
-        <span class="meta-divider">·</span>
-        <span class="meta-item">${escapeHtml(priceInput)}</span>
-        <span class="meta-divider">·</span>
-        <span class="meta-item">${escapeHtml(priceOutput)}</span>
-        <span style="margin-left:auto;">${actionButtonHtml}</span>
+      <div class="model-card-v2-footer">
+        <span class="model-card-v2-author">${hfBadge}${escapeHtml(authorName)}</span>
+        <div class="model-card-v2-actions">${actionButtonHtml}</div>
       </div>
     `;
+    const cancelDownloadButton = card.querySelector('.btn-card-cancel-download');
+    cancelDownloadButton?.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const download = activeModelDownloadsMap.get(model.name.toLowerCase());
+      if (download) {
+        download.cancelRequested = true;
+        download.status = 'Cancelling…';
+      }
+      cancelDownloadButton.disabled = true;
+      cancelDownloadButton.classList.add('is-cancelling');
+      cancelDownloadButton.setAttribute('aria-busy', 'true');
+      cancelDownloadButton.setAttribute('aria-label', `Cancelling download of ${model.displayName || model.name}`);
+      cancelDownloadButton.title = 'Cancelling download';
+      updateModelsDownloadTrackerUI();
+      renderOllamaCatalog(filterQuery);
+      try {
+        const result = await window.ultronAPI.cancelDownloadModel(model.name);
+        if (result?.success === false) throw new Error(result.error || 'Could not cancel download.');
+      } catch (error) {
+        console.warn('Cancel model download error:', error);
+        if (download && !['Completed', 'Cancelled', 'Failed'].includes(download.status)) {
+          download.cancelRequested = false;
+          download.status = 'Downloading…';
+        }
+        updateModelsDownloadTrackerUI();
+        renderOllamaCatalog(filterQuery);
+      }
+    });
+    card.querySelector('.btn-select-model')?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      selectAndActivateModel(event.currentTarget.getAttribute('data-model'));
+    });
+    card.querySelector('.btn-delete-model')?.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const modelToDelete = event.currentTarget.getAttribute('data-model');
+      if (!await showDeleteConfirmation(modelToDelete)) return;
+      try {
+        const deleteRes = await window.ultronAPI.deleteModel(modelToDelete);
+        if (!deleteRes?.success) throw new Error(deleteRes?.error || 'Could not delete this model.');
+        logTrace(`Successfully deleted model "${modelToDelete}" from Ollama.`, 'system');
+        await runOnboardingProfiler();
+        renderSettingsModels();
+        renderOllamaCatalog(filterQuery);
+      } catch (error) {
+        logTrace(`Failed to delete model weights: ${error.message}`, 'system');
+        alert(`Failed to delete model: ${error.message}`);
+      }
+    });
     const pullBtn = card.querySelector('.btn-catalog-pull');
     if (pullBtn) {
       pullBtn.addEventListener('click', async (e) => {
@@ -18404,7 +18589,7 @@ function renderOllamaCatalog(filterQuery = '') {
         const ok = await ensureOllamaCloudAuthForPull(model.name);
         if (!ok) return;
         if (inputDownloadModel) {
-          inputDownloadModel.value = model.name;
+          requestedDownloadModelName = model.name;
           btnDownloadModel.click();
         }
       });
@@ -18416,6 +18601,33 @@ function renderOllamaCatalog(filterQuery = '') {
   const showHuggingFace = activeCatalogProviderFilter === 'all' || activeCatalogProviderFilter === 'huggingface';
   const showCloudSection = activeModelsConnectionTab === 'online';
   const showLocalSection = activeModelsConnectionTab === 'offline';
+  const filteredOllamaModels = showOllama && showLocalSection
+    ? filterCatalogModels(OLLAMA_POPULAR_MODELS, filterQuery)
+    : [];
+  const filteredCuratedHuggingFaceModels = showHuggingFace && showLocalSection
+    ? filterCatalogModels(HUGGINGFACE_POPULAR_MODELS, filterQuery)
+    : [];
+  const filteredRemoteHuggingFaceModels = showHuggingFace && showLocalSection && !query
+    ? filterCatalogModels(remoteHuggingFaceCatalogModels, filterQuery)
+    : [];
+  const filteredHuggingFaceModels = [...filteredCuratedHuggingFaceModels, ...filteredRemoteHuggingFaceModels];
+
+  const catalogItems = [];
+  if (!query && showLocalSection) {
+    const rowCount = Math.max(filteredOllamaModels.length, filteredHuggingFaceModels.length);
+    for (let index = 0; index < rowCount; index += 1) {
+      if (filteredOllamaModels[index]) catalogItems.push({ provider: 'ollama', model: filteredOllamaModels[index] });
+      if (filteredHuggingFaceModels[index]) catalogItems.push({ provider: 'huggingface', model: filteredHuggingFaceModels[index] });
+    }
+  }
+  const totalFilteredCount = catalogItems.length;
+  const totalKnownPages = Math.max(1, Math.ceil(totalFilteredCount / MODEL_CATALOG_PAGE_SIZE));
+  if (modelCatalogPage > totalKnownPages && !(activeCatalogProviderFilter !== 'ollama' && remoteHuggingFaceHasMore)) {
+    modelCatalogPage = totalKnownPages;
+  }
+  const pageItems = query ? [] : catalogItems.slice((modelCatalogPage - 1) * MODEL_CATALOG_PAGE_SIZE, modelCatalogPage * MODEL_CATALOG_PAGE_SIZE);
+  const pageOllamaModels = pageItems.filter(item => item.provider === 'ollama').map(item => item.model);
+  const pageHuggingFaceModels = pageItems.filter(item => item.provider === 'huggingface').map(item => item.model);
 
   let hasCloud = false;
   let hasOllama = false;
@@ -18424,26 +18636,23 @@ function renderOllamaCatalog(filterQuery = '') {
 
   // 1. Ollama Cloud Section
   if (showCloudSection) {
-    hasCloud = appendCatalogSection('Ollama Cloud Models (Free Tier)', '#34d399', OLLAMA_CLOUD_PULL_MODELS, false, 'ollama');
+    hasCloud = appendCatalogSection('Ollama Cloud Models (Free Tier)', '#34d399', OLLAMA_CLOUD_PULL_MODELS, null, 'ollama');
   }
 
   // 2. Local Ollama Models Section
   if (showOllama && showLocalSection) {
-    hasOllama = appendCatalogSection('Ollama Local Models', 'var(--text-muted)', OLLAMA_POPULAR_MODELS, true, 'ollama');
+    hasOllama = appendCatalogSection('Ollama Local Models', 'var(--text-muted)', filteredOllamaModels, pageOllamaModels, 'ollama', filteredOllamaModels.length);
   }
 
-  // 3. Hugging Face Predefined / Curated GGUF Models
+  // 3. Curated and incrementally fetched Hugging Face GGUF models
   if (showHuggingFace && showLocalSection) {
-    hasHf = appendCatalogSection('Hugging Face Popular GGUF Hub', '#fde047', HUGGINGFACE_POPULAR_MODELS, true, 'hf');
+    hasHf = appendCatalogSection('Hugging Face GGUF Models', '#fde047', filteredHuggingFaceModels, pageHuggingFaceModels, 'hf', filteredHuggingFaceModels.length);
   }
 
   // 4. Live Hugging Face Search Results
   if (showHuggingFace && showLocalSection && liveHuggingFaceResults.length > 0 && query) {
-    hasLiveHf = appendCatalogSection(`Hugging Face Live Search ("${escapeHtml(query)}")`, '#60a5fa', liveHuggingFaceResults, false, 'hf');
+    hasLiveHf = appendCatalogSection(`Hugging Face Live Search ("${escapeHtml(query)}")`, '#60a5fa', liveHuggingFaceResults, null, 'hf');
   }
-
-  const totalFilteredCount = (showOllama ? filterCatalogModels(OLLAMA_POPULAR_MODELS, filterQuery).length : 0) +
-                             (showHuggingFace ? filterCatalogModels(HUGGINGFACE_POPULAR_MODELS, filterQuery).length : 0);
 
   if (showLocalSection && !hasCloud && !hasOllama && !hasHf && !hasLiveHf && query && !query.includes(' ')) {
     appendCatalogCard({
@@ -18458,26 +18667,44 @@ function renderOllamaCatalog(filterQuery = '') {
         No models found matching "${escapeHtml(query)}" for provider "${escapeHtml(activeCatalogProviderFilter)}".
       </div>
     `;
-    if (btnLoadMore) btnLoadMore.style.display = 'none';
+    renderModelCatalogPagination(totalFilteredCount, filterQuery);
     return;
   }
 
-  if (btnLoadMore) {
-    if (showLocalSection && catalogLimit < totalFilteredCount) {
-      btnLoadMore.style.display = 'inline-flex';
-      btnLoadMore.innerHTML = `
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-right:6px;">
-          <polyline points="6 9 12 15 18 9"></polyline>
-        </svg>
-        Load More Models (${Math.min(catalogLimit, totalFilteredCount)} of ${totalFilteredCount})
-      `;
-    } else {
-      btnLoadMore.style.display = 'none';
-    }
-  }
+  renderModelCatalogPagination(totalFilteredCount, filterQuery);
 }
 
 let activeModelsViewSubTab = 'installed';
+
+const MODEL_CARD_VIEW_STORAGE_KEY = 'brown-model-card-view';
+let activeModelCardView = (() => {
+  try {
+    return localStorage.getItem(MODEL_CARD_VIEW_STORAGE_KEY) === 'list' ? 'list' : 'grid';
+  } catch (_) {
+    return 'grid';
+  }
+})();
+
+function applyModelCardView(view = activeModelCardView) {
+  activeModelCardView = view === 'list' ? 'list' : 'grid';
+  const modelsTab = document.getElementById('tab-models');
+  modelsTab?.classList.toggle('model-card-list-view', activeModelCardView === 'list');
+
+  const gridButton = document.querySelector('.btn-model-grid-view');
+  const listButton = document.querySelector('.btn-model-list-view');
+  gridButton?.classList.toggle('active', activeModelCardView === 'grid');
+  gridButton?.setAttribute('aria-pressed', activeModelCardView === 'grid' ? 'true' : 'false');
+  listButton?.classList.toggle('active', activeModelCardView === 'list');
+  listButton?.setAttribute('aria-pressed', activeModelCardView === 'list' ? 'true' : 'false');
+
+  try { localStorage.setItem(MODEL_CARD_VIEW_STORAGE_KEY, activeModelCardView); } catch (_) {}
+}
+
+function initModelCardViewToggle() {
+  document.querySelector('.btn-model-grid-view')?.addEventListener('click', () => applyModelCardView('grid'));
+  document.querySelector('.btn-model-list-view')?.addEventListener('click', () => applyModelCardView('list'));
+  applyModelCardView();
+}
 
 function switchModelsViewTab(targetView = 'installed') {
   activeModelsViewSubTab = targetView;
@@ -18525,10 +18752,12 @@ function initModelsViewTabs() {
   if (btnDownload) {
     btnDownload.addEventListener('click', () => switchModelsViewTab('download'));
   }
+  initModelCardViewToggle();
 }
 
 function switchModelsConnectionTab(target) {
   activeModelsConnectionTab = target === 'online' ? 'online' : 'offline';
+  resetModelCatalogPage();
   if (activeModelCatalogFilter === 'cloud' || activeModelCatalogFilter === 'offline') activeModelCatalogFilter = 'all';
 
   const btnOffline = document.getElementById('tab-btn-offline-models');
@@ -18727,17 +18956,51 @@ function updateSkillsConnectionUI() {
 }
 
 function initSkillsTab() {
-  document.querySelectorAll('[data-skill-sort]').forEach(button => {
+  const sortRoot = document.querySelector('#tab-skills .skills-sort');
+  const sortTrigger = document.getElementById('btn-skills-sort-filter');
+  const sortMenu = document.getElementById('skills-sort-menu');
+  const setSortMenuOpen = (open) => {
+    if (!sortMenu || !sortTrigger) return;
+    sortMenu.classList.toggle('hidden', !open);
+    sortTrigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+
+  sortTrigger?.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSortMenuOpen(sortTrigger.getAttribute('aria-expanded') !== 'true');
+  });
+
+  document.querySelectorAll('#skills-sort-menu [data-skill-sort]').forEach(button => {
     button.addEventListener('click', () => {
       activeSkillSort = button.dataset.skillSort;
-      document.querySelectorAll('[data-skill-sort]').forEach(option => {
+      document.querySelectorAll('#skills-sort-menu [data-skill-sort]').forEach(option => {
         const selected = option.dataset.skillSort === activeSkillSort;
         option.classList.toggle('active', selected);
-        option.setAttribute('aria-pressed', String(selected));
+        option.setAttribute('aria-selected', String(selected));
+        const check = option.querySelector('.dd-check');
+        if (check) check.remove();
+        if (selected) {
+          option.insertAdjacentHTML('beforeend', '<svg class="dd-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>');
+        }
       });
+      const selectedLabel = activeSkillSort === 'name' ? 'A–Z' : 'Featured';
+      sortTrigger?.setAttribute('aria-label', `Sort skills: ${selectedLabel}`);
+      if (sortTrigger) sortTrigger.title = `Sort skills: ${selectedLabel}`;
+      setSortMenuOpen(false);
       renderSkillsList();
     });
   });
+
+  document.addEventListener('click', (event) => {
+    if (sortRoot && !sortRoot.contains(event.target)) setSortMenuOpen(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || sortTrigger?.getAttribute('aria-expanded') !== 'true') return;
+    setSortMenuOpen(false);
+    sortTrigger.focus();
+  });
+
   const search = document.getElementById('input-skills-search');
   if (search) {
     search.addEventListener('input', () => {
@@ -18752,6 +19015,7 @@ function initSkillsTab() {
 
 initModelCatalogFilters();
 initCatalogProviderFilters();
+initModelCatalogSearch();
 updateProviderFilterVisibility();
 initModelsViewTabs();
 initModelsConnectionTabs();
@@ -18763,6 +19027,7 @@ updateOfflineModelsSectionVisibility();
 function triggerLiveHuggingFaceSearch(query) {
   const spinner = document.getElementById('hf-search-spinner');
   clearTimeout(hfSearchDebounceTimer);
+  resetModelCatalogPage();
 
   const cleanQuery = (query || '').trim();
   if (!cleanQuery || cleanQuery.length < 2 || activeCatalogProviderFilter === 'ollama') {
@@ -18798,15 +19063,95 @@ function triggerLiveHuggingFaceSearch(query) {
 // Initialize model catalog & filter bar directly
 renderOllamaCatalog();
 
-// Bind catalog Load More button
-const btnLoadMoreModels = document.getElementById('btn-load-more-models');
-if (btnLoadMoreModels) {
-  btnLoadMoreModels.addEventListener('click', (e) => {
-    e.preventDefault();
-    catalogLimit += 12;
+async function navigateModelCatalogToPage(targetPage) {
+  const filterQuery = inputDownloadModel ? inputDownloadModel.value : '';
+  if (filterQuery.trim() || activeModelsConnectionTab !== 'offline' || remoteHuggingFaceLoading) return;
+
+  const ollamaCount = activeCatalogProviderFilter === 'huggingface'
+    ? 0
+    : filterCatalogModels(OLLAMA_POPULAR_MODELS, filterQuery).length;
+  const huggingFaceCount = activeCatalogProviderFilter === 'ollama'
+    ? 0
+    : filterCatalogModels([...HUGGINGFACE_POPULAR_MODELS, ...remoteHuggingFaceCatalogModels], filterQuery).length;
+  const totalKnown = ollamaCount + huggingFaceCount;
+  const knownPages = Math.max(1, Math.ceil(totalKnown / MODEL_CATALOG_PAGE_SIZE));
+
+  if (targetPage <= knownPages) {
+    modelCatalogPage = Math.max(1, targetPage);
+    remoteHuggingFaceError = '';
+    renderOllamaCatalog(filterQuery);
+    return;
+  }
+  if (targetPage !== knownPages + 1 || activeCatalogProviderFilter === 'ollama' || !remoteHuggingFaceHasMore) return;
+
+  const contextRevision = modelCatalogContextRevision;
+  remoteHuggingFaceLoading = true;
+  remoteHuggingFaceError = '';
+  renderOllamaCatalog(filterQuery);
+
+  try {
+    while (remoteHuggingFaceHasMore && remoteHuggingFaceFetchedLimit < MODEL_CATALOG_MAX_REMOTE_LIMIT) {
+      const requestedLimit = Math.min(
+        MODEL_CATALOG_MAX_REMOTE_LIMIT,
+        Math.max(remoteHuggingFaceFetchedLimit + 36, targetPage * MODEL_CATALOG_PAGE_SIZE + HUGGINGFACE_POPULAR_MODELS.length)
+      );
+      const response = await window.ultronAPI.searchHuggingFaceModels('', requestedLimit);
+      if (!response?.success || !Array.isArray(response.models)) {
+        throw new Error(response?.error || 'The model catalog could not be reached.');
+      }
+      if (contextRevision !== modelCatalogContextRevision) break;
+
+      const curatedIds = new Set(HUGGINGFACE_POPULAR_MODELS.map(getHuggingFaceCatalogIdentity));
+      const knownIds = new Set([
+        ...curatedIds,
+        ...remoteHuggingFaceCatalogModels.map(getHuggingFaceCatalogIdentity)
+      ]);
+      for (const model of response.models) {
+        const identity = getHuggingFaceCatalogIdentity(model);
+        if (!identity || knownIds.has(identity)) continue;
+        knownIds.add(identity);
+        remoteHuggingFaceCatalogModels.push(model);
+      }
+
+      remoteHuggingFaceFetchedLimit = requestedLimit;
+      remoteHuggingFaceHasMore = response.models.length >= requestedLimit && requestedLimit < MODEL_CATALOG_MAX_REMOTE_LIMIT;
+
+      const loadedHuggingFaceCount = activeCatalogProviderFilter === 'ollama'
+        ? 0
+        : filterCatalogModels([...HUGGINGFACE_POPULAR_MODELS, ...remoteHuggingFaceCatalogModels], filterQuery).length;
+      if (ollamaCount + loadedHuggingFaceCount >= targetPage * MODEL_CATALOG_PAGE_SIZE || !remoteHuggingFaceHasMore) break;
+    }
+
+    if (contextRevision !== modelCatalogContextRevision) return;
+    const latestOllamaCount = activeCatalogProviderFilter === 'huggingface'
+      ? 0
+      : filterCatalogModels(OLLAMA_POPULAR_MODELS, filterQuery).length;
+    const latestHuggingFaceCount = activeCatalogProviderFilter === 'ollama'
+      ? 0
+      : filterCatalogModels([...HUGGINGFACE_POPULAR_MODELS, ...remoteHuggingFaceCatalogModels], filterQuery).length;
+    if (latestOllamaCount + latestHuggingFaceCount >= (targetPage - 1) * MODEL_CATALOG_PAGE_SIZE + 1) {
+      modelCatalogPage = targetPage;
+    } else {
+      remoteHuggingFaceError = 'No more models are available for this filter.';
+    }
+  } catch (error) {
+    console.warn('[Model catalog] failed loading another page:', error);
+    if (contextRevision === modelCatalogContextRevision) {
+      remoteHuggingFaceError = 'Could not load more models. Check your connection and try again.';
+    }
+  } finally {
+    remoteHuggingFaceLoading = false;
     renderOllamaCatalog(inputDownloadModel ? inputDownloadModel.value : '');
-  });
+  }
 }
+
+// Pagination controls are regenerated while rendering; delegate clicks here.
+document.getElementById('model-catalog-pagination')?.addEventListener('click', event => {
+  const button = event.target.closest('button[data-page]');
+  if (!button || button.disabled) return;
+  event.preventDefault();
+  navigateModelCatalogToPage(Number(button.dataset.page));
+});
 
 // Bind catalog search input filter & live HF search
 if (inputDownloadModel) {
@@ -19924,10 +20269,15 @@ async function checkAndRunFirstTimeOnboarding() {
   function updateKokoroSelection() {
     const btn = document.getElementById('btn-onboard-action-kokoro');
     if (btn) {
-      btn.innerHTML = kokoroSelected ? '✓' : '';
+      // Keep the selected mark crisp on the white selection circle. When the
+      // optional engine is deselected, show the same download affordance used
+      // by the other setup cards instead of leaving an empty circle.
+      btn.innerHTML = kokoroSelected ? onboardCheckIcon : onboardDownloadIcon;
       btn.setAttribute('aria-pressed', String(kokoroSelected));
-      btn.setAttribute('aria-label', 'Select Kokoro voice engine');
-      btn.title = kokoroSelected ? 'Selected for background setup' : 'Select voice engine';
+      btn.setAttribute('aria-label', kokoroSelected ? 'Kokoro voice engine selected for setup' : 'Select Kokoro voice engine for setup');
+      btn.title = kokoroSelected
+        ? 'Kokoro engine and selected voice will be installed after setup'
+        : 'Select Kokoro engine and voice to install after setup';
     }
     const desc = document.getElementById('onboard-desc-kokoro');
     if (desc) desc.textContent = kokoroSelected
@@ -19936,8 +20286,34 @@ async function checkAndRunFirstTimeOnboarding() {
   }
 
   async function checkKokoroComp() {
+    const btn = document.getElementById('btn-onboard-action-kokoro');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = onboardCircularSpinner;
+      btn.title = 'Checking Kokoro installation';
+    }
+    let installed = false;
+    try {
+      const status = await window.ultronAPI?.getTtsModelStatus?.('kokoro-heart');
+      installed = Boolean(status?.installed);
+    } catch (error) {}
+    if (installed) {
+      kokoroSelected = true;
+      persistOnboardingVoiceChoice();
+      updateKokoroSelection();
+      if (btn) {
+        btn.disabled = true;
+        btn.classList.add('installed');
+        btn.innerHTML = onboardCheckIcon;
+        btn.setAttribute('aria-label', 'Kokoro voice engine installed');
+        btn.title = 'Kokoro voice engine is installed';
+      }
+      const desc = document.getElementById('onboard-desc-kokoro');
+      if (desc) desc.textContent = `Installed · ${onboardingVoicePicker?.selected().name || 'Heart'} voice`;
+      return;
+    }
+    if (btn) btn.disabled = false;
     updateKokoroSelection();
-
   }
 
   let kokoroSelected = true;
@@ -19975,6 +20351,7 @@ async function checkAndRunFirstTimeOnboarding() {
   updateKokoroSelection();
   if (btnActionKokoro) {
     btnActionKokoro.onclick = () => {
+      if (btnActionKokoro.disabled || btnActionKokoro.classList.contains('installed')) return;
       kokoroSelected = !kokoroSelected;
       persistOnboardingVoiceChoice();
       updateKokoroSelection();
@@ -22431,7 +22808,7 @@ document.getElementById('thd-website')?.addEventListener('click', (e) => {
   }
 });
 
-// ===== Help & Support tab: embedded documentation + privacy-first diagnostics =====
+// ===== Help & Support tab: embedded documentation =====
 const HELP_DOC_SECTIONS = [
   { id: 'overview', title: 'Overview & Key Features', blocks: [
     { type: 'p', text: 'Brown is designed to bridge the gap between natural language AI reasoning and local Windows desktop control. Brown runs local models on your hardware and can connect to cloud providers when you choose. Desktop automation, document retrieval, and voice are separate parts of the workspace.' },
@@ -22603,9 +22980,9 @@ function renderHelpDocsHtml() {
 }
 
 let helpDocsRendered = false;
-let helpSendWired = false;
+let diagnosticsSendWired = false;
 
-async function refreshHelpErrorLogCount() {
+async function refreshDiagnosticsErrorLogCount() {
   const el = document.getElementById('error-log-count');
   if (!el) return;
   try {
@@ -22619,18 +22996,22 @@ async function refreshHelpErrorLogCount() {
   }
 }
 
-function wireHelpSendButton() {
-  if (helpSendWired) return;
+function wireDiagnosticsSendButton() {
+  if (diagnosticsSendWired) return;
   const btn = document.getElementById('btn-send-error-log');
   const status = document.getElementById('error-log-status');
   if (!btn) return;
-  helpSendWired = true;
+  diagnosticsSendWired = true;
   btn.addEventListener('click', async () => {
     if (!window.ultronAPI?.sendDiagnostics) {
       if (status) { status.style.color = '#f87171'; status.textContent = 'Diagnostics unavailable in this build.'; }
       return;
     }
     btn.disabled = true;
+    const label = btn.querySelector('span');
+    const originalLabel = label?.textContent || 'Send error logs';
+    if (label) label.textContent = 'Sending…';
+    btn.setAttribute('aria-busy', 'true');
     const original = btn.style.opacity;
     btn.style.opacity = '0.6';
     if (status) { status.style.color = '#9ca3af'; status.textContent = 'Sending…'; }
@@ -22651,8 +23032,10 @@ function wireHelpSendButton() {
       if (status) { status.style.color = '#f87171'; status.textContent = 'Upload failed. Try again later.'; }
     } finally {
       btn.disabled = false;
+      if (label) label.textContent = originalLabel;
+      btn.removeAttribute('aria-busy');
       btn.style.opacity = original || '1';
-      refreshHelpErrorLogCount();
+      refreshDiagnosticsErrorLogCount();
     }
   });
 }
@@ -22679,12 +23062,16 @@ function renderHelpSupportTab() {
     });
     helpDocsRendered = true;
   }
-  wireHelpSendButton();
-  refreshHelpErrorLogCount();
 }
 
 // Expose for the settings tab-switch handler.
 window.renderHelpSupportTab = renderHelpSupportTab;
+
+function renderDiagnosticsTab() {
+  wireDiagnosticsSendButton();
+  refreshDiagnosticsErrorLogCount();
+}
+window.renderDiagnosticsTab = renderDiagnosticsTab;
 
 // Global renderer error capture → sanitized cache in the main process.
 // Throttled so an error storm cannot flood the cache, and never captures
@@ -22734,8 +23121,7 @@ const modelsDD = document.getElementById('titlebar-models-dropdown');
 
 async function populateModelsDropdown() {
   const connectorsList = document.getElementById('tmd-connectors-list');
-  const installedList = document.getElementById('tmd-installed');
-  if (!connectorsList || !installedList) return;
+  if (!connectorsList) return;
 
   // 1. Check live status for each connector
   const geminiKey = (localStorage.getItem('ultron-gemini-api-key') || '').trim();
@@ -22772,6 +23158,9 @@ async function populateModelsDropdown() {
   connectors.forEach(c => {
     const card = document.createElement('div');
     card.className = 'tmd-connector-card';
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-label', `Configure ${c.name} in Models Settings`);
     card.title = `Configure ${c.name} in Models Settings`;
     const isConn = c.connected;
     const badgeText = c.statusText || (isConn ? 'Active' : 'Not configured');
@@ -22782,87 +23171,21 @@ async function populateModelsDropdown() {
       </div>
       <span class="tmd-connector-badge ${isConn ? 'connected' : 'disconnected'}">${badgeText}</span>
     `;
-    card.addEventListener('click', () => {
+    const openConnectorSettings = () => {
       hideDDAnimated(modelsDD);
       if (typeof openSettingsPanel === 'function') openSettingsPanel('models');
+    };
+    card.addEventListener('click', openConnectorSettings);
+    card.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openConnectorSettings();
+      }
     });
     connectorsList.appendChild(card);
   });
 
-  // 2. Populate installed / configured models with 1-click model switching
-  installedList.innerHTML = '';
-  let allAvailable = [];
 
-  // Local Ollama models
-  (installedModelsList || []).forEach(m => {
-    const name = typeof m === 'string' ? m : (m.name || '');
-    if (name) allAvailable.push({ name, type: 'Local', size: m.size ? `${(m.size / (1024*1024*1024)).toFixed(1)} GB` : '' });
-  });
-
-  // Gemini models
-  (ONLINE_GEMINI_MODELS || []).forEach(m => {
-    const name = typeof m === 'string' ? m : (m.name || '');
-    if (name && !allAvailable.some(x => x.name.toLowerCase() === name.toLowerCase())) {
-      allAvailable.push({ name, type: 'Gemini Cloud', size: 'Cloud' });
-    }
-  });
-
-  // Hub / Provider models
-  if (window.UltronMultiProviderHub?.getAvailableModels) {
-    const hubModels = window.UltronMultiProviderHub.getAvailableModels(true);
-    (hubModels || []).forEach(m => {
-      const name = typeof m === 'string' ? m : (m.name || '');
-      if (name && !allAvailable.some(x => x.name.toLowerCase() === name.toLowerCase())) {
-        allAvailable.push({ name, type: m.provider || 'Cloud', size: 'API' });
-      }
-    });
-  }
-
-  if (allAvailable.length === 0) {
-    installedList.innerHTML = `<div style="padding: 10px; font-size: 12px; color: var(--text-muted); text-align: center; background: rgba(255, 255, 255, 0.02); border-radius: 8px;">No installed or connected models found. Connect an API or download a local model.</div>`;
-  } else {
-    allAvailable.slice(0, 12).forEach(m => {
-      const isCurActive = Boolean(activeModel && (
-        activeModel.toLowerCase() === m.name.toLowerCase() ||
-        activeModel.toLowerCase() === (m.name.split(':')[0]).toLowerCase()
-      ));
-
-      const row = document.createElement('div');
-      row.className = `tmd-model-row${isCurActive ? ' active' : ''}`;
-      row.title = isCurActive ? 'Currently active model' : `Click to switch to ${m.name}`;
-      const checkIcon = `
-        <span class="tmd-model-check-icon">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12"></polyline>
-          </svg>
-        </span>
-      `;
-      const defaultIcon = `
-        <span class="tmd-model-default-icon">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-          </svg>
-        </span>
-      `;
-
-      row.innerHTML = `
-        <div class="tmd-model-left">
-          ${isCurActive ? checkIcon : defaultIcon}
-          <span class="tmd-model-title">${escapeHtml(m.name)}</span>
-        </div>
-        <span class="tmd-model-meta">${escapeHtml(m.type)}${m.size ? ` • ${m.size}` : ''}</span>
-      `;
-      row.addEventListener('click', () => {
-        activeModel = m.name;
-        if (typeof updateModelSelectorLabel === 'function') updateModelSelectorLabel();
-        if (typeof syncModelAttachmentCapabilities === 'function') syncModelAttachmentCapabilities();
-        hideDDAnimated(modelsDD);
-        logTrace(`Switched active chat model to ${m.name}`, 'system');
-        populateModelsDropdown();
-      });
-      installedList.appendChild(row);
-    });
-  }
 }
 
 if (modelsBtn && modelsDD) {
@@ -23451,7 +23774,7 @@ function setSpeakButtonState(btn, state) {
   const label = state === 'loading' ? 'Preparing audio. Click to cancel' : state === 'speaking' ? 'Stop speaking' : 'Listen to response';
   btn.title = label;
   btn.setAttribute('aria-label', label);
-  if (icon) icon.innerHTML = state === 'speaking'
+  if (icon) icon.innerHTML = state === 'speaking' || state === 'loading'
     ? '<rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"></rect><rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor" stroke="none"></rect>'
     : '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>';
   btn.style.pointerEvents = '';
@@ -23459,15 +23782,17 @@ function setSpeakButtonState(btn, state) {
 
   if (state === 'loading') {
     btn.classList.add('is-loading');
+    btn.classList.add('is-preparing-audio');
     if (span) span.textContent = 'Loading…';
     btn.style.color = '#93c5fd';
     if (icon) {
-      icon.style.display = 'none';
-      icon.style.opacity = '0';
-      icon.style.visibility = 'hidden';
+      icon.style.display = '';
+      icon.style.opacity = '1';
+      icon.style.visibility = 'visible';
     }
   } else if (state === 'speaking') {
     btn.classList.add('speaking');
+    btn.classList.remove('is-preparing-audio');
     if (span) span.textContent = 'Stop';
     btn.style.color = '#a5b4fc';
     if (icon) {
@@ -23476,6 +23801,7 @@ function setSpeakButtonState(btn, state) {
       icon.style.visibility = 'visible';
     }
   } else {
+    btn.classList.remove('is-preparing-audio');
     if (span) span.textContent = 'Speak';
     btn.style.color = 'var(--text-muted)';
     if (icon) {
@@ -23883,6 +24209,17 @@ async function speakTextAloud(text, { force = false, button = null, onStart, onE
 
   const modelKey = await resolveActiveTtsModelKey();
   if (epoch !== _speechPreparationEpoch) return false;
+  if (!modelKey) {
+    const feedback = 'Install a Kokoro voice to enable Speak. Opening Settings → Voice…';
+    logTrace(feedback, 'system');
+    if (ttsModelFeedback) ttsModelFeedback.textContent = feedback;
+    const voiceTab = document.querySelector('.settings-tab-btn[data-tab="voice"]');
+    if (voiceTab) {
+      voiceTab.click();
+      document.getElementById('tts-models-list')?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    }
+    return false;
+  }
   if (modelKey && window.ultronAPI?.synthesizeSpeech) {
     return new Promise((resolve) => {
       streamingAutoSpeakState.onFirstAudio = () => {
@@ -24520,30 +24857,31 @@ async function startTtsModelDownload(modelKey) {
   showTtsModelProgress({ percent: 0, status: 'Starting download…' });
   await refreshTtsModelsUI();
 
-  const result = await window.ultronAPI.downloadTtsModel(modelKey).catch(err => ({
-    success: false,
-    error: err.message || 'Download failed.'
-  }));
-
-  if (ttsDownloadListenerCleanup) {
-    ttsDownloadListenerCleanup();
-    ttsDownloadListenerCleanup = null;
+  let result;
+  try {
+    result = await window.ultronAPI.downloadTtsModel(modelKey);
+    if (result?.success) {
+      window.localStorage.setItem('ultron-tts-neural-model', modelKey);
+      await window.ultronAPI.setActiveTtsModel?.(modelKey);
+      if (ttsModelFeedback) ttsModelFeedback.textContent = 'Voice engine ready — tap Preview on any voice.';
+      logTrace('Neural voice engine installed.', 'system');
+    } else if (!result?.cancelled) {
+      if (ttsModelFeedback) ttsModelFeedback.textContent = result?.error || 'Download failed.';
+      logTrace(result?.error || 'Neural voice download failed.', 'system');
+    }
+  } catch (err) {
+    result = { success: false, error: err?.message || 'Download failed.' };
+    if (ttsModelFeedback) ttsModelFeedback.textContent = result.error;
+    logTrace(result.error, 'system');
+  } finally {
+    if (ttsDownloadListenerCleanup) {
+      ttsDownloadListenerCleanup();
+      ttsDownloadListenerCleanup = null;
+    }
+    ttsDownloadingModelKey = null;
+    resetTtsModelProgressUI();
+    await refreshTtsModelsUI();
   }
-
-  ttsDownloadingModelKey = null;
-  resetTtsModelProgressUI();
-
-  if (result.success) {
-    window.localStorage.setItem('ultron-tts-neural-model', modelKey);
-    await window.ultronAPI.setActiveTtsModel?.(modelKey);
-    if (ttsModelFeedback) ttsModelFeedback.textContent = 'Voice engine ready — tap Preview on any voice.';
-    logTrace('Neural voice engine installed.', 'system');
-  } else if (!result.cancelled) {
-    if (ttsModelFeedback) ttsModelFeedback.textContent = result.error || 'Download failed.';
-    logTrace(result.error || 'Neural voice download failed.', 'system');
-  }
-
-  await refreshTtsModelsUI();
 }
 
 function initTtsModelsUI() {
@@ -25975,7 +26313,12 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
 
   // 2. Multi-Provider API Key Store & Connection Handlers
   async function initMultiProviderUI() {
-    if (!window.ultronAPI) return;
+    if (!window.ultronAPI) {
+      markModelDiscoverySourceReady('providers');
+      return;
+    }
+
+    const providerModelTasks = [];
 
     try {
       const res = await window.ultronAPI.loadProviderKeys();
@@ -25997,14 +26340,30 @@ if (window.ultronAPI && window.ultronAPI.onFloatingBarSessionCreated) {
             ? (window.UltronMultiProviderHub.getCustomEndpointUrl() || window.UltronMultiProviderHub.getStoredApiKey('custom'))
             : (p === 'gemini' ? (localStorage.getItem('ultron-gemini-api-key') || window.UltronMultiProviderHub.getStoredApiKey('gemini')) : window.UltronMultiProviderHub.getStoredApiKey(p));
           if (hasKey) {
-            window.UltronMultiProviderHub.fetchProviderModels(p).then(() => {
+            providerModelTasks.push(window.UltronMultiProviderHub.fetchProviderModels(p).then(() => {
               renderModelDropdownList();
               updateModelSelectorLabel();
-            }).catch(() => {});
+            }).catch(() => {}));
           }
         });
       }
     } catch {}
+
+    // Keep the startup skeleton up while configured providers are queried,
+    // but never let a stalled network request block the app indefinitely.
+    const providerDiscovery = Promise.allSettled(providerModelTasks);
+    let providerDiscoveryTimeout;
+    const boundedProviderDiscovery = Promise.race([
+      providerDiscovery,
+      new Promise(resolve => { providerDiscoveryTimeout = setTimeout(resolve, 9000); })
+    ]);
+    boundedProviderDiscovery.then(() => {
+      clearTimeout(providerDiscoveryTimeout);
+      markModelDiscoverySourceReady('providers');
+    }).catch(() => {
+      clearTimeout(providerDiscoveryTimeout);
+      markModelDiscoverySourceReady('providers');
+    });
 
     function setupProviderCard(providerId, options = {}) {
       const isCustom = Boolean(options.isCustom);

@@ -2046,96 +2046,163 @@ function setupIpcHandlers() {
     }
   });
 
-  // Active pull process registry
+  // Keep the in-flight Ollama API request so cancellation can abort its stream
+  // directly instead of only terminating the short-lived CLI client process.
   const activePullProcesses = new Map();
 
-  // Trigger direct download of Ollama weights with real-time progress events
+  function formatPullBytes(bytes, perSecond = false) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return perSecond ? '--' : '0 MB';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let amount = bytes;
+    let unit = 0;
+    while (amount >= 1024 && unit < units.length - 1) {
+      amount /= 1024;
+      unit += 1;
+    }
+    const precision = amount >= 10 || unit === 0 ? 0 : 1;
+    return `${amount.toFixed(precision)} ${units[unit]}${perSecond ? '/s' : ''}`;
+  }
+
+  // Pull through Ollama's streaming endpoint so AbortController can terminate
+  // the request and the server can stop its pull context as it closes the stream.
   ipcMain.handle('download-model', async (event, modelName) => {
-    return new Promise((resolve) => {
-      const { spawn } = require('child_process');
-      const modelsDir = getOllamaModelsDir();
-      const child = spawn('ollama', ['pull', modelName], {
-        windowsHide: true,
-        env: { ...process.env, OLLAMA_MODELS: modelsDir, ULTRON_MODELS_DIR: modelsDir }
-      });
-      
-      activePullProcesses.set(modelName.toLowerCase(), child);
-      let lastPercent = 0;
-      let errorOutput = '';
+    const normalizedName = String(modelName || '').trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(normalizedName)) {
+      return { success: false, error: 'Enter a valid model name before downloading.' };
+    }
+    const key = normalizedName.toLowerCase();
+    if (activePullProcesses.has(key)) return { success: false, error: `A download for "${normalizedName}" is already running.` };
 
-      child.stdout.on('data', (data) => {
-        const text = data.toString();
-        parseAndSendProgress(text);
-      });
+    const job = { controller: new AbortController(), cancelRequested: false };
+    activePullProcesses.set(key, job);
+    const layerProgress = new Map();
+    const startedAt = Date.now();
+    let previousCompletedBytes = 0;
+    let previousSampleAt = startedAt;
+    let smoothedSpeed = 0;
+    let pullCompleted = false;
 
-      child.stderr.on('data', (data) => {
-        const text = data.toString();
-        parseAndSendProgress(text);
-      });
+    const emitProgress = (payload) => {
+      if (event.sender && !event.sender.isDestroyed()) {
+        event.sender.send('download-progress', { modelName: normalizedName, ...payload });
+      }
+    };
 
-      function parseAndSendProgress(text) {
-        const lines = text.split(/[\r\n]+/);
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          if (line.includes('pulling')) {
-            const percentMatch = line.match(/([0-9]+)%/);
-            const bytesMatch = line.match(/([0-9.]+\s*[KMGT]B)\/([0-9.]+\s*[KMGT]B)/i);
-            const speedMatch = line.match(/([0-9.]+\s*[KMGT]B\/s)/i);
-            
-            if (percentMatch) {
-              lastPercent = parseInt(percentMatch[1]);
-            }
-            
-            event.sender.send('download-progress', {
-              modelName,
-              percent: percentMatch ? parseInt(percentMatch[1]) : lastPercent,
-              downloaded: bytesMatch ? bytesMatch[1].trim() : '',
-              total: bytesMatch ? bytesMatch[2].trim() : '',
-              speed: speedMatch ? speedMatch[1].trim() : ''
-            });
-          } else if (line.includes('Error')) {
-            errorOutput += line + ' ';
-          }
-        }
+    const consumeProgressLine = (line) => {
+      const trimmedLine = line.trim().replace(/^data:\s*/i, '');
+      if (!trimmedLine) return;
+      let update;
+      try { update = JSON.parse(trimmedLine); } catch (_) { return; }
+      if (update.error) throw new Error(String(update.error));
+
+      if (update.digest && Number.isFinite(Number(update.total))) {
+        layerProgress.set(update.digest, {
+          total: Math.max(0, Number(update.total)),
+          completed: Math.max(0, Number(update.completed) || 0)
+        });
+      }
+      if (String(update.status || '').toLowerCase() === 'success') {
+        pullCompleted = true;
+        emitProgress({ percent: 100, downloaded: '', total: '', speed: '' });
+        return;
       }
 
-      child.on('close', (code) => {
-        activePullProcesses.delete(modelName.toLowerCase());
-        if (code === 0) {
-          resolve({ success: true });
-        } else if (child.killed) {
-          resolve({ success: false, error: 'Download cancelled by user', cancelled: true });
-        } else {
-          resolve({ success: false, error: errorOutput.trim() || `Process exited with code ${code}` });
-        }
+      const totals = Array.from(layerProgress.values());
+      const totalBytes = totals.reduce((sum, layer) => sum + layer.total, 0);
+      const completedBytes = totals.reduce((sum, layer) => sum + Math.min(layer.completed, layer.total || layer.completed), 0);
+      const now = Date.now();
+      const elapsed = (now - previousSampleAt) / 1000;
+      if (elapsed > 0 && completedBytes > previousCompletedBytes) {
+        const instantSpeed = (completedBytes - previousCompletedBytes) / elapsed;
+        smoothedSpeed = smoothedSpeed ? smoothedSpeed * 0.65 + instantSpeed * 0.35 : instantSpeed;
+      }
+      previousCompletedBytes = Math.max(previousCompletedBytes, completedBytes);
+      previousSampleAt = now;
+
+      emitProgress({
+        percent: totalBytes ? Math.max(0, Math.min(99, Math.round((completedBytes / totalBytes) * 100))) : 0,
+        downloaded: formatPullBytes(completedBytes),
+        total: formatPullBytes(totalBytes),
+        speed: formatPullBytes(smoothedSpeed, true)
       });
-    });
+    };
+
+    try {
+      const response = await fetch('http://127.0.0.1:11434/api/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/x-ndjson, application/json' },
+        body: JSON.stringify({ name: normalizedName, stream: true }),
+        signal: job.controller.signal
+      });
+
+      if (!response.ok) {
+        const responseBody = await response.text().catch(() => '');
+        let detail = responseBody;
+        try { detail = JSON.parse(responseBody).error || responseBody; } catch (_) {}
+        throw new Error(detail || `Ollama returned HTTP ${response.status}.`);
+      }
+      if (!response.body) throw new Error('Ollama returned an empty download stream.');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let bufferedText = '';
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          bufferedText += decoder.decode(value, { stream: true });
+          const lines = bufferedText.split(/\r?\n/);
+          bufferedText = lines.pop() || '';
+          for (const line of lines) consumeProgressLine(line);
+        }
+        bufferedText += decoder.decode();
+        if (bufferedText.trim()) consumeProgressLine(bufferedText);
+      } catch (error) {
+        await reader.cancel(error).catch(() => {});
+        throw error;
+      } finally {
+        reader.releaseLock?.();
+      }
+
+      return pullCompleted
+        ? { success: true }
+        : { success: false, error: 'Ollama closed the download stream before it completed.' };
+    } catch (error) {
+      if (job.cancelRequested || job.controller.signal.aborted) {
+        return { success: false, error: 'Download cancelled by user', cancelled: true };
+      }
+      return { success: false, error: error?.message || 'Ollama model download failed.' };
+    } finally {
+      if (activePullProcesses.get(key) === job) activePullProcesses.delete(key);
+    }
   });
 
-  // Cancel an ongoing model weight download
-  ipcMain.handle('cancel-download-model', async (event, modelName) => {
-    const key = (modelName || '').toLowerCase();
-    const child = activePullProcesses.get(key) || Array.from(activePullProcesses.values())[0];
-    if (child) {
-      try {
-        child.kill('SIGKILL');
-        const { exec } = require('child_process');
-        exec(`taskkill /F /PID ${child.pid} /T`, { windowsHide: true }, () => {});
-      } catch (e) {}
-      activePullProcesses.delete(key);
-      return { success: true, cancelled: true };
-    }
-    return { success: false, error: 'No active pull process found' };
+  // Cancel an ongoing model weight download by aborting the API stream.
+  ipcMain.handle('cancel-download-model', async (_event, modelName) => {
+    const key = String(modelName || '').toLowerCase();
+    const job = activePullProcesses.get(key);
+    if (!job) return { success: false, error: 'No active pull process found' };
+    if (job.cancelRequested) return { success: true, cancelled: true, pending: true };
+    job.cancelRequested = true;
+    job.controller.abort();
+    return { success: true, cancelled: true, pending: true };
   });
 
   // Delete local model weights
   ipcMain.handle('delete-model', async (event, modelName) => {
     try {
-      const { exec } = require('child_process');
+      const normalizedName = String(modelName || '').trim();
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/.test(normalizedName)) {
+        return { success: false, error: 'Enter a valid model name before removing it.' };
+      }
+      if (activePullProcesses.has(normalizedName.toLowerCase())) {
+        return { success: false, error: 'Wait for this model download to finish or cancel it before removing the model.' };
+      }
+      const { execFile } = require('child_process');
       return new Promise((resolve) => {
-        exec(`ollama rm ${modelName}`, { windowsHide: true }, (error, stdout, stderr) => {
+        execFile(getOllamaInstallPath() || 'ollama', ['rm', normalizedName], { windowsHide: true, timeout: 120000 }, (error, stdout, stderr) => {
           if (error) {
-            resolve({ success: false, error: stderr || error.message });
+            resolve({ success: false, error: stderr?.trim() || error.message });
           } else {
             resolve({ success: true });
           }
@@ -2149,7 +2216,7 @@ function setupIpcHandlers() {
   // Search Hugging Face Hub for open-source GGUF models in real-time
   ipcMain.handle('search-huggingface-models', async (event, query, limit = 20) => {
     try {
-      const results = await searchHuggingFaceGgufModels(query || '', limit);
+      const results = await searchHuggingFaceGgufModels(query || '', limit, { throwOnError: true });
       return { success: true, models: results };
     } catch (err) {
       return { success: false, error: err.message, models: [] };
@@ -2210,31 +2277,34 @@ function setupIpcHandlers() {
   // Start the Ollama background server (headless mode with 0 terminal or GUI windows)
   ipcMain.handle('start-ollama-service', async (event, exePath) => {
     try {
-      const { exec } = require('child_process');
       provisionUltronFolderForOllama(exePath || getOllamaInstallPath());
       const modelsDir = getOllamaModelsDir();
-      const userLocal = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE, 'AppData', 'Local');
-      const ollamaCliExe = path.join(userLocal, 'Programs', 'Ollama', 'ollama.exe');
-      
-      let targetExe = 'ollama';
-      if (fs.existsSync(ollamaCliExe)) {
-        targetExe = `"${ollamaCliExe}"`;
-      } else if (exePath && fs.existsSync(exePath) && !exePath.toLowerCase().endsWith('ollama app.exe')) {
-        targetExe = `"${exePath}"`;
-      }
+      const serverUrl = 'http://127.0.0.1:11434/api/tags';
+      const probe = async () => {
+        try {
+          const response = await fetch(serverUrl, { signal: AbortSignal.timeout(1200) });
+          return response.ok;
+        } catch (_) { return false; }
+      };
+      if (await probe()) return { success: true, alreadyRunning: true };
 
-      const modelsEnv = modelsDir.replace(/'/g, "''");
-      const psCmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:OLLAMA_MODELS='${modelsEnv}'; Start-Process -FilePath ${targetExe} -ArgumentList 'serve' -WindowStyle Hidden"`;
-
-      return new Promise((resolve) => {
-        exec(psCmd, { windowsHide: true }, (error) => {
-          if (error) {
-            // Fallback to direct background exec
-            exec(`${targetExe} serve`, { windowsHide: true }, () => {});
-          }
-          resolve({ success: true });
-        });
+      const targetExe = getOllamaInstallPath() || exePath || 'ollama';
+      const launchTarget = /ollama app\.exe$/i.test(targetExe) ? 'ollama' : targetExe;
+      const child = require('child_process').spawn(launchTarget, ['serve'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+        env: { ...process.env, OLLAMA_MODELS: modelsDir, ULTRON_MODELS_DIR: modelsDir }
       });
+      let launchError = null;
+      child.once('error', error => { launchError = error; });
+      child.unref();
+      for (let attempt = 0; attempt < 20; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (await probe()) return { success: true, alreadyRunning: false };
+        if (launchError) return { success: false, error: `Could not start Ollama: ${launchError.message}` };
+      }
+      return { success: false, error: 'Ollama did not respond at 127.0.0.1:11434 after starting. Check the Ollama app and its logs.' };
     } catch (err) {
       return { success: false, error: err.message };
     }
@@ -2616,14 +2686,22 @@ function setupIpcHandlers() {
   ipcMain.handle('install-ollama', async () => {
     try {
       return new Promise((resolve) => {
-        const { exec } = require('child_process');
-        exec('winget install Ollama --accept-package-agreements --accept-source-agreements', { windowsHide: true }, (error, stdout, stderr) => {
+        const { execFile } = require('child_process');
+        execFile('winget', ['install', '--id', 'Ollama.Ollama', '--exact', '--accept-package-agreements', '--accept-source-agreements'], {
+          windowsHide: true,
+          timeout: 10 * 60 * 1000,
+          maxBuffer: 4 * 1024 * 1024
+        }, (error, stdout, stderr) => {
           if (error) {
-            resolve({ success: false, error: stderr || error.message });
+            resolve({ success: false, error: stderr?.trim() || error.message || 'Ollama installation failed.' });
           } else {
             const ollamaPath = getOllamaInstallPath();
+            if (!ollamaPath) {
+              resolve({ success: false, error: 'winget completed, but the Ollama executable was not found. Restart Windows or install Ollama from its official installer.' });
+              return;
+            }
             const layout = provisionUltronFolderForOllama(ollamaPath);
-            resolve({ success: true, stdout, ultronRoot: layout.ultronRoot, modelsDir: layout.modelsDir });
+            resolve({ success: true, stdout, ollamaPath, ultronRoot: layout.ultronRoot, modelsDir: layout.modelsDir });
           }
         });
       });
@@ -2756,7 +2834,8 @@ function getInstallationDefaultDataDir() {
       const response=await fetch(snapshot.runtimeEndpoint+'/api/ps',{signal:AbortSignal.timeout(2000)});
       if(!response.ok)throw Error('HTTP '+response.status);
       const payload=await response.json();
-      snapshot.runtime={reachable:true,sharedService:true,loadedModels:(payload.models||[]).map(model=>({name:model.name,size:model.size,sizeVram:model.size_vram}))};
+      snapshot.runtimeModelDirectoryVerified = false;
+      snapshot.runtime={reachable:true,sharedService:true,loadedModels:(payload.models||[]).map(model=>({name:model.name,size:model.size,sizeVram:model.size_vram})),configuredModelsDir:snapshot.ollamaModelsDir,modelsDirVerified:false};
     } catch(error) { snapshot.runtime={reachable:false,sharedService:true,error:String(error.message)}; }
     return snapshot;
   });
@@ -2813,16 +2892,17 @@ function getInstallationDefaultDataDir() {
     let files = 0;
     let truncated = false;
     const queue = [rootDir];
-    while (queue.length) {
+    while (queue.length && !truncated) {
       const current = queue.pop();
       let entries;
       try {
         entries = await fs.promises.readdir(current, { withFileTypes: true });
       } catch (e) {
+        truncated = true;
         continue;
       }
       for (const entry of entries) {
-        if (entry.name === '.permcheck') continue;
+        if (entry.name.startsWith('.permcheck')) continue;
         const full = path.join(current, entry.name);
         if (entry.isDirectory()) {
           queue.push(full);
@@ -2837,7 +2917,7 @@ function getInstallationDefaultDataDir() {
           if (st.isSymbolicLink()) continue;
           bytes += st.size;
           files += 1;
-        } catch (e) { /* unreadable entry — skip */ }
+        } catch (e) { truncated = true; }
       }
       // Yield so a large models folder can't block the main process loop.
       await new Promise(resolve => setImmediate(resolve));
@@ -2861,7 +2941,7 @@ function getInstallationDefaultDataDir() {
         totalBytes: data.bytes + connectors.bytes + models.bytes,
         freeDiskGB: (() => {
           try {
-            const disk = fs.statfsSync ? fs.statfsSync(path.parse(snapshot.ultronRoot || process.cwd()).root) : null;
+            const disk = fs.statfsSync ? fs.statfsSync(path.parse(snapshot.ollamaModelsDir || snapshot.ultronRoot || process.cwd()).root) : null;
             return disk ? parseFloat((disk.bsize * disk.bavail / (1024 ** 3)).toFixed(1)) : null;
           } catch (e) {
             return null;

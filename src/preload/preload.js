@@ -102,6 +102,7 @@ const apiMethods = {
   sendDiagnostics: () => ipcRenderer.invoke('diagnostics:send'),
   restoreFileBackup: (payload) => ipcRenderer.invoke('restore-file-backup', payload),
   searchWeb: (query, options) => ipcRenderer.invoke('search-web', query, options),
+  fetchWebPage: (url) => ipcRenderer.invoke('fetch-web-page', url),
   getMcpStatus: () => ipcRenderer.invoke('get-mcp-status'),
   getMcpRegistry: () => ipcRenderer.invoke('get-mcp-registry'),
   toggleMcpServer: (payload) => ipcRenderer.invoke('toggle-mcp-server', payload),
@@ -137,6 +138,7 @@ const apiMethods = {
   getDefaultDataDir: () => ipcRenderer.invoke('get-default-data-dir'),
   getRuntimeDataRoot: () => ipcRenderer.invoke('get-runtime-data-root'),
   getConnectorsRoot: () => ipcRenderer.invoke('get-connectors-root'),
+  updateConnectorsDir: (customPath) => ipcRenderer.invoke('update-connectors-dir', customPath),
   getStoragePaths: () => ipcRenderer.invoke('get-storage-paths'),
   ensureUltronStorage: () => ipcRenderer.invoke('ensure-ultron-storage'),
   saveConversations: (dataStr) => ipcRenderer.invoke('save-conversations', dataStr),
@@ -169,7 +171,6 @@ const apiMethods = {
   saveSetupStatus: (payload) => ipcRenderer.invoke('save-setup-status', payload),
   loadSetupStatus: () => ipcRenderer.invoke('load-setup-status'),
   deleteModel: (modelName) => ipcRenderer.invoke('delete-model', modelName),
-  searchWeb: (query, options) => ipcRenderer.invoke('search-web', query, options),
   onDownloadActivity: (callback) => {
     downloadActivityListeners.add(callback);
     for (const item of downloadActivity.values()) callback(item);

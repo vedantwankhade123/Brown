@@ -4,10 +4,49 @@
 ; ==============================================================================
 
 !include "LogicLib.nsh"
+!include "MUI2.nsh"
 !include "FileFunc.nsh"
+!include "nsDialogs.nsh"
+!include "WinMessages.nsh"
 !include "getProcessInfo.nsh"
 !include "${BUILD_RESOURCES_DIR}\installer-ui.nsh"
 Var pid
+
+!ifndef BUILD_UNINSTALLER
+Var brownCreateDesktopShortcut
+Var brownDesktopShortcutChoice
+!macro customPageAfterChangeDir
+  Page custom BrownDesktopShortcutPageCreate BrownDesktopShortcutPageLeave
+!macroend
+
+Function BrownDesktopShortcutPageCreate
+  !insertmacro MUI_HEADER_TEXT "Additional shortcuts" "Choose whether to add Brown AI to your desktop."
+  StrCpy $brownDesktopShortcutChoice "1"
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 32u "Choose whether the installer should create a desktop shortcut for Brown AI. Brown AI will also be available from the Start menu."
+  Pop $1
+
+  ${NSD_CreateCheckbox} 0 42u 100% 14u "Create a desktop shortcut"
+  Pop $brownCreateDesktopShortcut
+  ${NSD_Check} $brownCreateDesktopShortcut
+
+  nsDialogs::Show
+FunctionEnd
+
+Function BrownDesktopShortcutPageLeave
+  ${NSD_GetState} $brownCreateDesktopShortcut $0
+  ${If} $0 == ${BST_CHECKED}
+    StrCpy $brownDesktopShortcutChoice "1"
+  ${Else}
+    StrCpy $brownDesktopShortcutChoice "0"
+  ${EndIf}
+FunctionEnd
+!endif
 
 !ifndef BUILD_UNINSTALLER
 Var brownStorageBackup
@@ -99,7 +138,13 @@ FunctionEnd
 !macro customInstall
   Call BrownRestoreStorage
   SetOutPath "$INSTDIR"
-  ; electron-builder owns shortcut creation and respects user preferences.
+  !ifndef BUILD_UNINSTALLER
+  ; Create only when selected. Leaving it unchecked during an update preserves
+  ; any existing desktop link because the installer does not remove it.
+  ${If} $brownDesktopShortcutChoice == "1"
+    CreateShortCut "$DESKTOP\Brown AI.lnk" "$INSTDIR\Brown AI.exe" "" "$INSTDIR\Brown AI.exe" 0
+  ${EndIf}
+  !endif
 !macroend
 
 !macro customRemoveFiles

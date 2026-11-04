@@ -293,24 +293,42 @@ async function downloadTtsModel(modelKey = DEFAULT_TTS_MODEL_KEY, sendProgress) 
   }
 
   if (entry.engine === 'kokoro') {
-    const { downloadKokoroVoice } = require('./voice-kokoro');
+    const { downloadKokoroEngine, downloadKokoroVoice, isKokoroEngineInstalled } = require('./voice-kokoro');
     const state = getDownloadState(modelKey);
     if (state.inProgress) {
       return { success: false, error: 'This voice model is already downloading.' };
     }
     downloadState.set(modelKey, { inProgress: true, cancelled: false });
-    const result = await downloadKokoroVoice(entry.kokoroVoice || 'af_heart', (payload) => {
+    const progress = (payload) => {
       if (typeof sendProgress === 'function') {
         sendProgress({
           modelKey: entry.key,
-          modelName: `tts-${entry.key}`,
+          // Kokoro is one shared engine; report the shared key so every voice
+          // card and the progress UI can recognize engine setup consistently.
+          modelName: payload.modelName || 'tts-kokoro-engine',
           ...payload
         });
       }
-    });
-    downloadState.set(modelKey, { inProgress: false, cancelled: false });
-    if (result.success) saveActiveModelKey(entry.key);
-    return { ...result, modelKey: entry.key };
+    };
+    try {
+      let result;
+      if (!isKokoroEngineInstalled()) {
+        result = await downloadKokoroEngine(progress);
+      } else {
+        result = { success: true, installed: true };
+      }
+      if (result.success) {
+        progress({ phase: 'download', percent: 98, status: `Preparing ${entry.label} voice…` });
+        result = await downloadKokoroVoice(entry.kokoroVoice || 'af_heart', progress);
+      }
+      if (result.success) saveActiveModelKey(entry.key);
+      return { ...result, modelKey: entry.key };
+    } catch (error) {
+      console.error('[voice-tts] Kokoro download failed:', error);
+      return { success: false, error: error.message || 'Kokoro voice download failed.', modelKey: entry.key };
+    } finally {
+      downloadState.set(modelKey, { inProgress: false, cancelled: false });
+    }
   }
 
   return {

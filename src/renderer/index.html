@@ -58,7 +58,7 @@
 
       <div class="titlebar-settings-wrap" style="position: relative;">
         <button id="titlebar-btn-models" class="titlebar-opt-btn" title="AI Models & API Keys" aria-label="AI Models & API Keys">Models</button>
-        <div id="titlebar-models-dropdown" class="titlebar-settings-dropdown titlebar-dropdown-wide hidden" style="min-width: 360px; max-width: 390px;">
+        <div id="titlebar-models-dropdown" class="titlebar-settings-dropdown titlebar-dropdown-wide tmd-menu hidden" style="min-width: 360px; max-width: 390px;">
           <div class="tmd-header">
             <div class="tmd-header-title">AI Models &amp; Connectors</div>
           </div>
@@ -69,10 +69,6 @@
               <!-- Dynamically populated connector cards (Gemini, OpenAI, Claude, DeepSeek, Groq, Custom, HF, Ollama) -->
             </div>
 
-            <div class="tmd-section-label" style="margin-top: 12px;">Installed &amp; Active Models</div>
-            <div id="tmd-installed" class="tmd-models-list">
-              <!-- Dynamically populated with active state & 1-click switcher -->
-            </div>
           </div>
 
           <div class="tmd-footer">
@@ -321,7 +317,7 @@
                 </button>
 
                 <!-- Dropdown Popover on Click -->
-                <div id="models-download-popover" class="models-download-popover hidden">
+                <div id="models-download-popover" class="models-download-popover" inert aria-hidden="true">
                   <div class="download-popover-header">
                     <div class="download-popover-title">
                       <svg class="lottie-download-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#22c55e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -666,8 +662,8 @@
             </div>
             <!-- Custom Upward Model Selector -->
             <div id="model-selector-wrapper" class="model-selector-wrapper">
-              <button id="model-selector-btn" class="model-selector-btn">
-                <span id="model-selector-label">Select model</span>
+              <button id="model-selector-btn" class="model-selector-btn is-loading" aria-busy="true" title="Checking available models…">
+                <span id="model-selector-label"><span class="model-selector-loading-label"><span class="model-loading-spinner" aria-hidden="true"></span><span>Loading models</span></span></span>
                 <svg class="model-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
                   <polyline points="18 15 12 9 6 15"></polyline>
                 </svg>
@@ -995,6 +991,10 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
             Help &amp; Support
           </div>
+          <div class="settings-tab-btn" data-tab="diagnostics">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M4 4v16h16"></path><path d="m7 14 4-4 3 3 5-6"></path><path d="M17 7h2v2"></path></svg>
+            Diagnostics
+          </div>
           <div class="settings-tab-btn" data-tab="about">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
             About
@@ -1136,7 +1136,10 @@
 
               <!-- Collapsible Input Field & Save Key Form (Hidden initially) -->
               <div id="gemini-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
-                <input type="password" id="input-gemini-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Gemini API Key (AIzaSy...)" />
+                <label class="connector-field connector-inline-field" for="input-gemini-api-key">
+                  <span class="connector-field-label">API key</span>
+                  <input type="password" id="input-gemini-api-key" class="override-input connector-field-input" style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Gemini API Key (AIzaSy...)" aria-label="Gemini API key" />
+                </label>
                 <button id="btn-save-gemini-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
                 <button id="btn-cancel-gemini-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
@@ -1167,7 +1170,10 @@
                 </button>
               </div>
               <div id="openai-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
-                <input type="password" id="input-openai-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste OpenAI API Key (sk-proj-...)" />
+                <label class="connector-field connector-inline-field" for="input-openai-api-key">
+                  <span class="connector-field-label">API key</span>
+                  <input type="password" id="input-openai-api-key" class="override-input connector-field-input" style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste OpenAI API Key (sk-proj-...)" aria-label="OpenAI API key" />
+                </label>
                 <button id="btn-save-openai-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
                 <button id="btn-cancel-openai-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
@@ -1198,7 +1204,10 @@
                 </button>
               </div>
               <div id="anthropic-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
-                <input type="password" id="input-anthropic-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Anthropic API Key (sk-ant-...)" />
+                <label class="connector-field connector-inline-field" for="input-anthropic-api-key">
+                  <span class="connector-field-label">API key</span>
+                  <input type="password" id="input-anthropic-api-key" class="override-input connector-field-input" style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Anthropic API Key (sk-ant-...)" aria-label="Anthropic API key" />
+                </label>
                 <button id="btn-save-anthropic-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
                 <button id="btn-cancel-anthropic-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
@@ -1229,7 +1238,10 @@
                 </button>
               </div>
               <div id="deepseek-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
-                <input type="password" id="input-deepseek-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste DeepSeek API Key (sk-...)" />
+                <label class="connector-field connector-inline-field" for="input-deepseek-api-key">
+                  <span class="connector-field-label">API key</span>
+                  <input type="password" id="input-deepseek-api-key" class="override-input connector-field-input" style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste DeepSeek API Key (sk-...)" aria-label="DeepSeek API key" />
+                </label>
                 <button id="btn-save-deepseek-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
                 <button id="btn-cancel-deepseek-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
@@ -1260,7 +1272,10 @@
                 </button>
               </div>
               <div id="groq-key-input-container" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; align-items: center;">
-                <input type="password" id="input-groq-api-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Groq API Key (gsk_...)" />
+                <label class="connector-field connector-inline-field" for="input-groq-api-key">
+                  <span class="connector-field-label">API key</span>
+                  <input type="password" id="input-groq-api-key" class="override-input connector-field-input" style="width: 100%; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Paste Groq API Key (gsk_...)" aria-label="Groq API key" />
+                </label>
                 <button id="btn-save-groq-key" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Key</button>
                 <button id="btn-cancel-groq-key" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
               </div>
@@ -1294,20 +1309,24 @@
               <p class="text-xs text-muted" style="margin: 0 0 10px 0; line-height: 1.4;">
                 Connect to any custom local LLM server or proxy (<b>LM Studio</b>, <b>vLLM</b>, <b>text-generation-webui</b>, or <b>OpenRouter</b>).
               </p>
-              <div id="custom-endpoint-trigger-container" style="margin-top: 10px;">
-                <button id="btn-toggle-custom-endpoint-input" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s ease;">
+              <div id="custom-endpoint-trigger-container" class="connector-credential-trigger">
+                <button id="btn-toggle-custom-endpoint-input" class="connector-credential-btn connector-credential-btn-primary" type="button">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   <span id="custom-endpoint-btn-text">Configure Endpoint</span>
                 </button>
               </div>
-              <div id="custom-endpoint-input-container" class="hidden" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;">
-                <div style="display: flex; gap: 8px; align-items: center;">
-                  <input type="text" id="input-custom-endpoint-url" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Endpoint URL (e.g. http://localhost:1234/v1)" />
-                </div>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                  <input type="password" id="input-custom-endpoint-key" class="override-input" style="flex: 1; height: 36px; padding: 0 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px; box-sizing: border-box;" placeholder="Optional API Key (for OpenRouter, vLLM, etc.)" />
-                  <button id="btn-save-custom-endpoint" class="btn-primary-sm" style="height: 36px; padding: 0 16px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: var(--brown-btn-gradient) !important; color: #ffffff !important; font-weight: 600; border: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;">Save Endpoint</button>
-                  <button id="btn-cancel-custom-endpoint" style="height: 36px; padding: 0 12px; font-size: 12px; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: transparent; color: #a1a1aa; border: 1px solid rgba(255, 255, 255, 0.1); box-sizing: border-box;">Cancel</button>
+              <div id="custom-endpoint-input-container" class="custom-endpoint-form hidden">
+                <label class="connector-field" for="input-custom-endpoint-url">
+                  <span class="connector-field-label">Endpoint URL</span>
+                  <input type="url" id="input-custom-endpoint-url" class="override-input connector-field-input" autocomplete="url" spellcheck="false" aria-label="Custom model endpoint URL" placeholder="http://localhost:1234/v1" />
+                </label>
+                <label class="connector-field" for="input-custom-endpoint-key">
+                  <span class="connector-field-label">API key <span class="connector-field-optional">Optional</span></span>
+                  <input type="password" id="input-custom-endpoint-key" class="override-input connector-field-input" autocomplete="new-password" aria-label="Custom model endpoint API key" placeholder="Enter the API key for this endpoint" />
+                </label>
+                <div class="custom-endpoint-actions">
+                  <button id="btn-save-custom-endpoint" class="connector-credential-btn connector-credential-btn-primary" type="button">Save endpoint</button>
+                  <button id="btn-cancel-custom-endpoint" class="connector-credential-btn connector-credential-btn-secondary" type="button">Cancel</button>
                 </div>
               </div>
               <div id="custom-endpoint-feedback" class="text-xs hidden" style="margin-top: 8px; color: #34d399; font-weight: 500;">✓ Custom endpoint connected!</div>
@@ -1412,6 +1431,33 @@
             </div>
               <div id="installed-model-filters" class="model-type-filters" role="group" aria-label="Filter installed models"></div>
               <div id="catalog-provider-filters" class="catalog-provider-filters" role="group" aria-label="Filter model provider"></div>
+              <div id="model-catalog-search-control" class="model-catalog-search-control" role="search" style="display: none;">
+                <button type="button" id="btn-toggle-model-search" class="model-toolbar-icon-btn" aria-label="Search models" aria-controls="input-download-model" aria-expanded="false" title="Search models">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
+                </button>
+                <div id="model-catalog-search-expander" class="model-catalog-search-expander" inert>
+                  <div class="model-catalog-search-shell">
+                    <input type="text" id="input-download-model" class="override-input model-catalog-search" aria-label="Search models to download" placeholder="Search Ollama &amp; Hugging Face Hub..." tabindex="-1">
+                    <div id="hf-search-spinner" class="hf-search-spinner hidden" style="position: absolute; right: 10px; display: none; align-items: center; justify-content: center;">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.5" class="spin-animation" width="14" height="14">
+                        <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+                      </svg>
+                    </div>
+                    <button id="btn-download-model" class="hidden" style="display: none;"></button>
+                  </div>
+                  <button type="button" id="btn-close-model-search" class="model-toolbar-icon-btn model-search-close-btn" aria-label="Close model search" title="Close search" tabindex="-1">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"></path></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="model-view-layout-toggle" role="group" aria-label="Model card layout">
+                <button type="button" class="btn-model-grid-view active" aria-label="Grid view" title="Grid view" aria-pressed="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="3" width="7" height="7" rx="1"></rect><rect x="3" y="14" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1"></rect></svg>
+                </button>
+                <button type="button" class="btn-model-list-view" aria-label="List view" title="List view" aria-pressed="false">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="9" y1="5" x2="21" y2="5"></line><line x1="9" y1="12" x2="21" y2="12"></line><line x1="9" y1="19" x2="21" y2="19"></line><rect x="3" y="3" width="2" height="4" rx=".5"></rect><rect x="3" y="10" width="2" height="4" rx=".5"></rect><rect x="3" y="17" width="2" height="4" rx=".5"></rect></svg>
+                </button>
+              </div>
             </div>
 
             <div id="installed-models-view" class="models-section">
@@ -1423,39 +1469,11 @@
             <div id="download-models-view" class="download-section hidden">
               <!-- Search + catalog cards column -->
               <div id="download-inputs-row" class="download-row catalog-main">
-                <div style="position: relative; width: 100%; display: flex; align-items: center;">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" style="position: absolute; left: 10px; color: rgba(255, 255, 255, 0.4); pointer-events: none;">
-                    <circle cx="11" cy="11" r="8"></circle>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                  </svg>
-                  <input type="text" id="input-download-model" class="override-input" aria-label="Search models to download" style="width: 100%; height: 38px; box-sizing: border-box; padding-left: 32px; padding-right: 32px; border-radius: 6px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); color: var(--text-primary); font-size: 12px;" placeholder="Search Ollama & Hugging Face Hub (e.g. llama3, deepseek-r1, qwen, bartowski/...)...">
-                  <div id="hf-search-spinner" class="hf-search-spinner hidden" style="position: absolute; right: 10px; display: none; align-items: center; justify-content: center;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="#60a5fa" stroke-width="2.5" class="spin-animation" width="14" height="14">
-                      <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
-                    </svg>
-                  </div>
-                  <button id="btn-download-model" class="hidden" style="display: none;"></button>
-                </div>
-
                 <!-- Popular & Live Search Models Catalog Grid -->
                 <div id="ollama-catalog-list" class="ollama-catalog-list"></div>
-                <button id="btn-load-more-models" class="btn-load-more-models">Load More</button>
+                <nav id="model-catalog-pagination" class="model-catalog-pagination" aria-label="Model catalog pages" hidden></nav>
               </div>
 
-              <!-- Real-time Download Progress Container -->
-              <div id="download-progress-container" class="hidden" role="status" aria-live="polite" style="margin-top: 8px; width: 100%;">
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--accent-white); margin-bottom: 6px;">
-                  <span id="download-progress-status">Downloading...</span>
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <span id="download-progress-stats">0% (0 MB / 0 MB)</span>
-                    <button id="btn-cancel-download" style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; cursor: pointer; transition: all 0.2s;">Cancel</button>
-                  </div>
-                </div>
-                <div style="width: 100%; height: 6px; background: rgba(255, 255, 255, 0.06); border-radius: 99px; overflow: hidden; border: 1px solid rgba(255,255,255,0.04);">
-                  <div id="download-progress-bar" style="width: 0%; height: 100%; background: var(--accent-white, #ffffff); transition: width 0.2s; border-radius: 99px;"></div>
-                </div>
-                <div id="download-progress-speed" style="font-size: 10px; color: var(--text-muted); margin-top: 4px; text-align: right;">Speed: --</div>
-              </div>
             </div>
           </div>
 
@@ -1471,8 +1489,22 @@
             <div class="skills-toolbar">
               <div id="skills-filters" class="skills-filter-tabs" role="tablist" aria-label="Filter skills by category"></div>
               <div class="skills-sort" role="group" aria-label="Sort skills">
-                <button type="button" class="skills-sort-tab active" data-skill-sort="featured" aria-pressed="true">Featured</button>
-                <button type="button" class="skills-sort-tab" data-skill-sort="name" aria-pressed="false">A–Z</button>
+                <button type="button" id="btn-skills-sort-filter" class="skills-sort-trigger" aria-label="Sort skills: Featured" aria-haspopup="listbox" aria-expanded="false" title="Sort skills">
+                  <svg class="model-filter-lines-icon" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true">
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="6" y1="12" x2="18" y2="12"></line>
+                    <line x1="9" y1="18" x2="15" y2="18"></line>
+                  </svg>
+                </button>
+                <div id="skills-sort-menu" class="model-filter-dd-menu skills-sort-menu hidden" role="listbox" aria-label="Sort skills">
+                  <button type="button" class="model-filter-dd-option active" data-skill-sort="featured" role="option" aria-selected="true">
+                    <span class="dd-opt-label">Featured</span>
+                    <svg class="dd-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </button>
+                  <button type="button" class="model-filter-dd-option" data-skill-sort="name" role="option" aria-selected="false">
+                    <span class="dd-opt-label">A–Z</span>
+                  </button>
+                </div>
               </div>
             </div>
             <span id="skills-count" class="skills-count skills-result-count" role="status"></span>
@@ -1795,13 +1827,15 @@
               <span class="set-badge">Hardware &amp; runtime</span>
             </div>
 
-            <section class="set-card">
-              <label for="chat-concurrency-limit">Maximum simultaneous chats</label>
-              <select id="chat-concurrency-limit" aria-describedby="chat-concurrency-help">
-                <option value="auto">Auto (up to 5)</option>
-                <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
-              </select>
-              <p id="chat-concurrency-help">Brown adapts to your hardware and available memory. Extra requests wait in order. Your model runtime may process requests sequentially.</p>
+            <section class="set-card chat-concurrency-card">
+              <div class="chat-concurrency-heading">
+                <label for="chat-concurrency-limit">Maximum simultaneous chats</label>
+                <select id="chat-concurrency-limit" aria-describedby="chat-concurrency-help">
+                  <option value="auto">Auto (up to 5)</option>
+                  <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+                </select>
+              </div>
+              <p id="chat-concurrency-help">Brown adapts to your hardware and available memory. Extra requests wait in order.<br>Your model runtime may process requests one at a time, depending on the model.</p>
             </section>
 
             <section class="set-card performance-engine-card">
@@ -2348,30 +2382,49 @@
               <!-- Embedded documentation (rendered natively from renderer.js) -->
               <div id="help-docs-container" class="help-docs" style="background: transparent; border: 0; border-radius: 0; padding: 0;"></div>
 
-              <section class="set-card">
-                <h5>Export local diagnostics</h5>
-                <p>Save app and runtime versions, model identity, and recent request settings, timings and error codes from this app session to a JSON file. Nothing is uploaded.</p>
-                <label><input type="checkbox" id="diagnostics-include-content"> Include prompts and responses from the current chat</label>
-                <p>Conversation content is excluded by default. Review exports before sharing.</p>
-                <button type="button" id="btn-export-local-diagnostics" class="set-pill">Export diagnostic report</button>
-                <p id="local-diagnostics-status" role="status" aria-live="polite"></p>
-              </section>
-              <!-- Privacy-first diagnostic logs -->
-              <div class="settings-feedback-card" style="background: #131314; border: 1px solid var(--border-color); border-radius: 12px; padding: 18px 20px; margin-top: 16px;">
-                <h5 style="margin: 0 0 4px 0; font-size: 14px; font-weight: 600; color: #ffffff;">Diagnostic reports</h5>
-                <p style="margin: 0 0 10px 0; font-size: 12.5px; line-height: 1.6; color: #9ca3af;">
-                  If Brown crashed or misbehaved, share a sanitized error report with the developer. Reports contain only system/device specs, app version, error timestamps, and code stack traces — never your prompts, chats, files, or credentials.
-                </p>
-                <p id="error-log-count" style="margin: 0 0 12px 0; font-size: 12px; color: #71717a;">Checking cached logs…</p>
-                <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                  <button type="button" id="btn-send-error-log" class="developer-social-link" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 10px 22px; border-radius: 9999px; background: #ffffff; border: none; color: #000000; font-size: 12.5px; font-weight: 700; cursor: pointer;">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#000000" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"></path><path d="M5 12l7-7 7 7"></path></svg>
-                    <span>Send Error Log</span>
-                  </button>
-                  <span id="error-log-status" role="status" aria-live="polite" style="font-size: 12.5px; color: #9ca3af;"></span>
-                </div>
-              </div>
+            </div>
+          </div>
 
+          <!-- Diagnostics Tab -->
+          <div id="tab-diagnostics" class="tab-pane hidden">
+            <div class="diagnostics-settings-page">
+              <header class="set-head diagnostics-page-head">
+                <div class="set-head-copy">
+                  <h4 class="set-title">Diagnostics</h4>
+                  <p class="set-intro">Create a local report or send sanitized error logs to help diagnose Brown.</p>
+                </div>
+                <span class="set-badge">Privacy controls</span>
+              </header>
+
+              <section class="set-card diagnostics-card">
+                <div class="diagnostics-card-heading">
+                  <span class="diagnostics-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16h16"></path><path d="m7 14 4-4 3 3 5-6"></path><path d="M17 7h2v2"></path></svg></span>
+                  <div><h5>Export local diagnostics</h5><p>Create a local diagnostics JSON; nothing is uploaded.</p></div>
+                </div>
+                <label class="help-diagnostics-consent"><input type="checkbox" id="diagnostics-include-content"> <span>Include current chat prompts and replies</span></label>
+                <p class="diagnostics-privacy-note">Excluded by default. Review before sharing.</p>
+                <div class="diagnostics-action-row">
+                  <button type="button" id="btn-export-local-diagnostics" class="set-pill">Export diagnostic report</button>
+                  <p id="local-diagnostics-status" role="status" aria-live="polite"></p>
+                </div>
+              </section>
+
+              <section class="set-card diagnostics-card diagnostics-send-card">
+                <div class="diagnostics-card-heading">
+                  <span class="diagnostics-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 20h14"></path></svg></span>
+                  <div><h5>Send error logs</h5><p>Share sanitized logs to help diagnose crashes or unexpected behavior. Logs include device and app details, timestamps, and stack traces—never prompts, chats, files, or credentials.</p></div>
+                </div>
+                <p id="error-log-count" class="diagnostics-log-count" role="status" aria-live="polite">Checking cached logs…</p>
+                <div class="diagnostics-action-row">
+                  <button type="button" id="btn-send-error-log" class="set-pill diagnostics-send-button">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"></path><path d="m5 12 7-7 7 7"></path></svg>
+                    <span>Send error logs</span>
+                  </button>
+                  <span id="error-log-status" role="status" aria-live="polite"></span>
+                </div>
+              </section>
+
+              <p class="diagnostics-footer-note">Sending logs is optional. Review the privacy details above before sending.</p>
             </div>
           </div>
         </main>
