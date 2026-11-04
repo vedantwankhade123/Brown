@@ -23003,13 +23003,13 @@ body #tab-knowledge .kb-page-controls button:disabled { opacity: .35; cursor: de
   body button:not(:disabled):not([aria-disabled="true"]):not(.connection-disconnect-btn):not(#btn-mobile-activity):not(.models-view-tab-btn):not(.model-selector-btn):not(.btn-plus-menu):not(.titlebar-opt-btn):not(.welcome-card):not(.mention-toggle):not(.side-section-head):not(.side-row):not(#btn-choose-project):not(#btn-input-mentions):not(.session-delete-btn):not(.session-rename-btn):not(.nav-item):not(.side-see-all) {
     transition: background 140ms ease, border-color 140ms ease, color 140ms ease, filter 140ms ease, box-shadow 140ms ease, transform 140ms ease;
   }
-  body button:not(:disabled):not([aria-disabled="true"]):not(.connection-disconnect-btn):not(#btn-mobile-activity):not(.models-view-tab-btn):not(.model-selector-btn):not(.btn-plus-menu):not(.titlebar-opt-btn):not(.welcome-card):not(.mention-toggle):not(.side-section-head):not(.side-row):not(#btn-choose-project):not(#btn-input-mentions):not(.session-delete-btn):not(.session-rename-btn):not(.nav-item):not(.side-see-all):hover {
+  body button:not(:disabled):not([aria-disabled="true"]):not(.connection-disconnect-btn):not(#btn-mobile-activity):not(.models-view-tab-btn):not(.model-selector-btn):not(.btn-plus-menu):not(.titlebar-opt-btn):not(.welcome-card):not(.mention-toggle):not(.side-section-head):not(.side-row):not(#btn-choose-project):not(#btn-input-mentions):not(.session-delete-btn):not(.session-rename-btn):not(.nav-item):not(.side-see-all):not(.model-filter-dd-option):not(.btn-select-model):not(.btn-catalog-pull):not(.btn-cloud-use):not(.btn-delete-model):not(.btn-model-active):not(.btn-catalog-installed):not(.btn-card-cancel-download):not(.btn-model-grid-view):not(.btn-model-list-view):hover {
     background-image: linear-gradient(rgb(255 255 255 / 7%), rgb(255 255 255 / 7%)), var(--brown-button-surface, var(--brown-subitem-surface)) !important;
     filter: brightness(1.04);
     transform: translateY(-1px);
   }
   body button.model-filter-dd-option:hover:not(:disabled) { background: transparent !important; background-image: none !important; filter: none; transform: none; }
-  [data-theme="light"] body button:not(:disabled):not([aria-disabled="true"]):not(.connection-disconnect-btn):not(#btn-mobile-activity):not(.models-view-tab-btn):not(.model-selector-btn):not(.btn-plus-menu):not(.titlebar-opt-btn):not(.welcome-card):not(.mention-toggle):not(.side-section-head):not(.side-row):not(#btn-choose-project):not(#btn-input-mentions):not(.session-delete-btn):not(.session-rename-btn):not(.nav-item):not(.side-see-all):hover {
+  [data-theme="light"] body button:not(:disabled):not([aria-disabled="true"]):not(.connection-disconnect-btn):not(#btn-mobile-activity):not(.models-view-tab-btn):not(.model-selector-btn):not(.btn-plus-menu):not(.titlebar-opt-btn):not(.welcome-card):not(.mention-toggle):not(.side-section-head):not(.side-row):not(#btn-choose-project):not(#btn-input-mentions):not(.session-delete-btn):not(.session-rename-btn):not(.nav-item):not(.side-see-all):not(.model-filter-dd-option):not(.btn-select-model):not(.btn-catalog-pull):not(.btn-cloud-use):not(.btn-delete-model):not(.btn-model-active):not(.btn-catalog-installed):not(.btn-card-cancel-download):not(.btn-model-grid-view):not(.btn-model-list-view):hover {
     background-image: linear-gradient(rgb(0 0 0 / 3%), rgb(0 0 0 / 3%)), var(--brown-button-surface, var(--brown-subitem-surface)) !important;
   }
   body button:is(.models-view-tab-btn, .model-selector-btn, .btn-plus-menu, .titlebar-opt-btn, .mention-toggle, .side-section-head, .side-row, .session-delete-btn, .session-rename-btn, .nav-item, .side-see-all):not(:disabled):not([aria-disabled="true"]):hover {
@@ -25839,6 +25839,17 @@ body #titlebar-models-dropdown .tmd-footer .tmd-footer-primary:hover {
   color: #fff !important;
 }
 #tab-models #ollama-catalog-list .model-card-download-action-row > .btn-card-cancel-download:disabled:not(.is-cancelling) { opacity: .65; cursor: wait; }
+/* The downloading pill and its cancel control sit on the shared light surface,
+   so the dark-theme white ink has to flip or the progress reads as blank. */
+[data-theme="light"] #tab-models #ollama-catalog-list .model-card-download-progress { color: #27272a; }
+[data-theme="light"] #tab-models #ollama-catalog-list .model-card-download-action-row > .btn-catalog-pull.is-downloading { color: #27272a !important; }
+[data-theme="light"] #tab-models #ollama-catalog-list .model-card-download-action-row > .btn-card-cancel-download { color: #3f3f46 !important; }
+[data-theme="light"] #tab-models #ollama-catalog-list .model-card-download-action-row > .btn-card-cancel-download.is-cancelling { color: #27272a !important; }
+[data-theme="light"] #tab-models #ollama-catalog-list .model-card-download-action-row > .btn-card-cancel-download.is-cancelling::before {
+  border-color: rgba(24, 24, 27, .16);
+  border-top-color: #27272a;
+  border-right-color: rgba(24, 24, 27, .55);
+}
 #tab-models #ollama-catalog-list .model-card-download-percent { color: inherit; font-size: inherit; font-weight: 700; }
 #tab-models #ollama-catalog-list .model-card-download-details {
   display: grid;
