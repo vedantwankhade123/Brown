@@ -427,10 +427,10 @@ repetition/`Unverified draft`/`correction limit` guards (`:46`), and writes a JS
 
 ### 9.4 Known failures / open blockers (release)
 
-- **A — Code signing:** no trusted certificate. There is **no free publicly-trusted
-  option** for a proprietary app (SignPath Foundation is OSS-only; self-signed certs are
-  not publicly trusted and trigger SmartScreen). Awaiting a purchasing decision
-  (Azure Artifact Signing / Certum).
+- **A — Code signing:** no trusted certificate is configured. Self-signed certificates are
+  not publicly trusted and trigger SmartScreen. The project is now AGPL-3.0-only; eligibility
+  for any open-source signing program has not been assessed. A trusted certificate or signing
+  program decision remains pending.
 - **B — Clean-machine lifecycle:** the Windows Sandbox kit is prepared but has **not been
   run** on a Sandbox-enabled machine; `check-desktop-candidate.cjs` blocks until
   `output/installer-sandbox/results/result.json` exists and matches the current installer.

@@ -1,9 +1,14 @@
-Brown AI Ecosystem
-Copyright (c) 2026 Vedant Wankhade. All Rights Reserved.
+Brown AI source code
+Copyright © 2025–2026 Vedant Wankhade
 
-Proprietary Software Architecture and Intellectual Property developed by:
-Vedant Wankhade <vedantwankhade123>
-Email: contact@usebrown.online
+Project-authored source code in this repository is licensed under the GNU Affero General
+Public License, version 3 only (AGPL-3.0-only), unless a file or directory states otherwise.
+See LICENSE for the complete, unmodified license text.
 
-Contains proprietary sovereign runtime engines, local inference orchestration,
-neural audio subsystems, and desktop/mobile AI companions.
+Brown AI, UseBrown, associated logos, icons, official product identity, and usebrown.online
+are reserved brand identifiers. The AGPL license does not grant trademark rights. See
+TRADEMARK.md and ASSET-LICENSING.md. The copyright notice above is an attribution notice,
+not an additional restriction on the permissions granted by the AGPL.
+
+Third-party code, fonts, models, media, and other materials retain their own copyright and
+license terms. Consult file-level notices and dependency notices before redistributing them.

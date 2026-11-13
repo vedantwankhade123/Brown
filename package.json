@@ -3,7 +3,7 @@
   "version": "1.0.23",
   "description": "Offline AI chat, code generation and visual answers for Windows (Brown)",
   "author": "Vedant Wankhade",
-  "license": "Proprietary",
+  "license": "AGPL-3.0-only",
   "main": "src/main/index.js",
   "scripts": {
     "build:phone-preview": "node mobile/scripts/build-desktop-preview.cjs",
@@ -22,7 +22,7 @@
   "build": {
     "appId": "com.brown.desktop",
     "productName": "Brown AI",
-    "copyright": "Copyright © 2026 Vedant Wankhade",
+    "copyright": "Copyright © 2025–2026 Vedant Wankhade",
     "directories": {
       "output": "dist"
     },
@@ -48,6 +48,10 @@
       "!scripts/*.publish-backup",
       "!scripts/preview-*.cjs",
       "Assets/**/*",
+      "LICENSE",
+      "NOTICE",
+      "TRADEMARK.md",
+      "ASSET-LICENSING.md",
       "package.json",
       "node_modules/**/*",
       "!node_modules/@huggingface/**/.cache{,/**}",

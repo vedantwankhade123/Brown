@@ -5,7 +5,7 @@ Workspace navigation: [Directory guide](docs/DIRECTORY-GUIDE.md) · [Documentati
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
 [![Desktop build](https://img.shields.io/badge/Desktop_build-v1.0.19-0078D4?logo=github)](docs/releases/desktop/v1.0.19.md)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown/releases)
-[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](LICENSE)
 
 <p align="center">
   <a href="https://usebrown.online/">
@@ -157,10 +157,30 @@ node tests/verify-context-platform.test.js
 
 ---
 
-## 📄 License & Intellectual Property
+## License, forking & brand
 
-Brown AI and its applications are **Proprietary & Confidential Software**. All Rights Reserved.
+Brown AI project-authored software is licensed under the **GNU Affero General Public License
+v3.0 only (AGPL-3.0-only)**. The full, unmodified license is in [LICENSE](LICENSE). Copyright
+© 2025–2026 Vedant Wankhade. AGPL permits inspection, modification, commercial use, and
+redistribution under its terms. It requires corresponding source for covered modified
+versions when they are conveyed, and for users interacting with a modified version over a
+network. It does not require publication of unrelated code or private changes that are never
+conveyed or offered over a network.
 
-- Copyright (c) 2026 Vedant Wankhade.
-- Website: [https://usebrown.online](https://usebrown.online)
-- Official Support & Inquiries: `contact@usebrown.online`
+| You can | You must | You cannot |
+| --- | --- | --- |
+| Build, study, modify, self-host, and redistribute the covered software under AGPL. | Include the license, preserve required notices, mark modified versions as changed, and provide corresponding source in the cases AGPL describes. | Treat the code license as permission to use Brown AI/UseBrown branding for your own product. |
+| Make a commercial product or hosted service based on the code, subject to AGPL source obligations. | Offer corresponding source for a covered modified network service to its users as AGPL requires. | Suggest that a fork is official, endorsed, sponsored, or affiliated with Vedant Wankhade or Brown AI. |
+| Create and publish your own fork under AGPL. | Respect each dependency's and asset's separate license. | Assume the AGPL licenses trademarks, logos, icons, model weights, or every asset in the repositories. |
+
+The names **Brown AI** and **UseBrown**, official logos, app icons, favicons, and
+`usebrown.online` are reserved brand identifiers; see [TRADEMARK.md](TRADEMARK.md) and
+[ASSET-LICENSING.md](ASSET-LICENSING.md). Public forks should use distinct names and replace
+official branding. We ask forks to credit the upstream project in their README and About
+screen with **“Based on Brown AI by Vedant Wankhade”** and to describe their improvements.
+That exact placement and the request for new features are community guidance, not conditions
+added to AGPL. See [FORKING.md](FORKING.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
+The same licensing terms are included in the [mobile repository](https://github.com/vedantwankhade123/Brown-Mobile)
+and [website repository](https://github.com/vedantwankhade123/Brown-Website). Third-party components retain their own license terms.
+Licensing questions: `contact@usebrown.online`.

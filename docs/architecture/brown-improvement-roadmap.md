@@ -493,8 +493,9 @@ copying Odysseus features merely because they exist.
 
 ## Open items owned by the user (not phase work)
 
-- **Blocker A — code signing:** no free publicly-trusted option for a proprietary app.
-  Awaiting a purchasing decision (Azure Artifact Signing / Certum).
+- **Blocker A — code signing:** no trusted certificate is configured. Self-signed certificates
+  are not publicly trusted. Eligibility for an open-source signing program has not been assessed;
+  a trusted certificate or signing program decision remains pending.
 - **Blocker B — clean-machine lifecycle:** run the prepared Windows Sandbox kit on a
   Sandbox-enabled PC; `check-desktop-candidate.cjs` blocks until
   `output/installer-sandbox/results/result.json` matches the current installer.
