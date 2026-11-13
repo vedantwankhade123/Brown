@@ -3,6 +3,7 @@
 Workspace navigation: [Directory guide](docs/DIRECTORY-GUIDE.md) · [Documentation index](docs/README.md)
 
 [![Website](https://img.shields.io/badge/Website-usebrown.online-7928CA?logo=vercel&logoColor=white)](https://usebrown.online/)
+[![GitHub stars](https://img.shields.io/github/stars/vedantwankhade123/Brown?style=social)](https://github.com/vedantwankhade123/Brown)
 [![Desktop build](https://img.shields.io/badge/Desktop_build-v1.0.19-0078D4?logo=github)](docs/releases/desktop/v1.0.19.md)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64)-0078D4?logo=windows)](https://github.com/vedantwankhade123/Brown/releases)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/License-AGPL--3.0--only-blue.svg)](LICENSE)
@@ -18,6 +19,14 @@ Workspace navigation: [Directory guide](docs/DIRECTORY-GUIDE.md) · [Documentati
 </p>
 
 **Brown AI** runs local AI models for offline conversations, code answers, document questions, charts, diagrams, tables and mathematical notation. Optional web search and cloud providers connect online only when used. Desktop automation, CRUD actions and approval controls are hidden in this release.
+
+<p align="center">
+  <a href="https://usebrown.online/Assets/brown-ai-launch.mp4" target="_blank" rel="noopener noreferrer">
+    <img src="https://usebrown.online/Assets/brown-introduction-thumbnail.png" alt="Watch the Meet Brown AI introduction video" width="820" />
+  </a>
+  <br />
+  <a href="https://usebrown.online/Assets/brown-ai-launch.mp4">▶ Watch the Meet Brown AI introduction</a>
+</p>
 
 ![Brown AI desktop](Assets/Desktop_Mockup.png)
 
